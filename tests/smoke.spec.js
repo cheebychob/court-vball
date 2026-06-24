@@ -30,3 +30,25 @@ test('can add a player and persist after reload', async ({ page }) => {
 
   await expect(page.getByText('Test Player')).toBeVisible();
 });
+
+test('migrates old imported players with missing active to active', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'old-import', name: 'Old Import', seedRating: 43 },
+      { id: 'away-import', name: 'Away Import', seedRating: 43, active: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+  });
+
+  await page.goto('/');
+
+  const activeStates = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).map(({ name, active }) => ({ name, active }))
+  );
+  expect(activeStates).toContainEqual({ name: 'Old Import', active: true });
+  expect(activeStates).toContainEqual({ name: 'Away Import', active: false });
+
+  await page.getByRole('button', { name: /Teams/i }).click();
+  await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
+});

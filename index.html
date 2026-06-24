@@ -336,7 +336,8 @@ async function load(){
   const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
   // migrate any missing fields
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
-    if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}]; });
+    if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
+    if(pl.active === undefined) pl.active = true; });
 }
 async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
