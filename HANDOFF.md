@@ -7,7 +7,7 @@ Court is running locally as a single-file web app in index.html.
 Development setup:
 - npm test runs Playwright tests.
 - npm run dev starts the local dev server.
-- Tests live in tests/smoke.spec.js.
+- Tests live in tests/.
 
 ## Completed
 
@@ -19,12 +19,13 @@ Development setup:
 - Added future backlog item for player stats visual clarity and broader modern UI polish.
 - Warned before seed-rating edits rewrite historical rating history.
 - Removed unused teamSize setting.
+- Added regression tests for player data integrity.
 
 ## Current priorities
 
 Work through issues in this order:
 
-1. Add more Playwright coverage around import/export and rating replay.
+1. Review remaining test gaps.
 2. Later: decide tied-game behavior if it becomes relevant.
 3. Later: visual cleanup and modern UI pass.
 
