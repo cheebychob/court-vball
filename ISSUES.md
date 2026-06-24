@@ -75,3 +75,27 @@ Recommended tests:
 - Track game works
 - Delete/archive behavior preserves historical recompute
 - Import/export round trip works
+
+## P2 - Visual polish and player stats clarity
+
+### Player stat display is hard to understand
+The player detail sheet currently shows lifetime stats as a dim, abbreviation-heavy inline sentence such as `11 ace · 1 srv err · 24 pass`. This is compact, but it is hard to scan and does not clearly explain the player's profile.
+
+Recommended future fix:
+- Redesign player stats into clearer grouped sections.
+- Use readable labels instead of short abbreviations where space allows.
+- Group stats by category: Serving, Passing, Attack, Defense, Setting, Errors.
+- Improve contrast so important stats are not too dim.
+- Keep the layout mobile-first and compact.
+- Do not change rating math while doing visual cleanup.
+
+### Modern visual rework
+The app works, but the overall visual design could eventually feel more modern and polished.
+
+Recommended future approach:
+- Do this after core rating/data integrity fixes.
+- Treat it as a visual-only pass.
+- Avoid changing rating logic, saved data shape, or game replay behavior.
+- Preserve mobile usability.
+- Add visual regression/manual smoke checks before large UI changes.
+- Consider redesigning cards, stat chips, player detail sheets, buttons, spacing, and typography.
