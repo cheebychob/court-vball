@@ -335,6 +335,9 @@ async function load(){
   const g = await Store.get('vb:games');   if(g) games = JSON.parse(g);
   const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
   // migrate any missing fields
+  migratePlayers();
+}
+function migratePlayers(){
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
     if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
     if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false; });
@@ -1161,6 +1164,7 @@ window.importFile=(e)=>{
   r.onload=async()=>{ try{
     const d=JSON.parse(r.result); if(!d.players) throw 0;
     players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+    migratePlayers();
     await commit(); await saveSettings(); closeSheet(); toast('Restored from file'); render();
   }catch(err){ toast('Could not read that file'); } };
   r.readAsText(f);
@@ -1170,6 +1174,7 @@ window.doImport=async()=>{
     const d=JSON.parse($('#impTxt').value);
     if(!d.players) throw 0;
     players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+    migratePlayers();
     await commit(); await saveSettings(); closeSheet(); toast('Restored'); render();
   }catch(e){ toast('Could not read that backup'); }
 };
