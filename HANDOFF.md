@@ -20,12 +20,13 @@ Development setup:
 - Warned before seed-rating edits rewrite historical rating history.
 - Removed unused teamSize setting.
 - Added regression tests for player data integrity.
+- Added backup/import/replay regression coverage.
 
 ## Current priorities
 
 Work through issues in this order:
 
-1. Review remaining test gaps.
+1. Add volleyball level labels derived from 0–100 rating.
 2. Later: decide tied-game behavior if it becomes relevant.
 3. Later: visual cleanup and modern UI pass.
 
