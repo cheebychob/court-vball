@@ -1,0 +1,20 @@
+{
+  "name": "court-vball",
+  "version": "1.0.0",
+  "description": "Court is a single-file mobile-first volleyball rating tracker and game balancer.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173",
+    "test": "playwright test",
+    "test:headed": "playwright test --headed",
+    "test:ui": "playwright test --ui"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.61.1",
+    "vite": "^8.1.0"
+  }
+}
