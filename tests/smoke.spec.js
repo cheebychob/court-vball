@@ -224,6 +224,71 @@ test('hides volleyball level when hide ratings is on', async ({ page }) => {
   await expect(summary.getByText('AA/Open')).toHaveCount(0);
 });
 
+test('player detail sheet groups lifetime stats with readable labels and still saves', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'stats-player', name: 'Stats Alpha', seedRating: 60, active: true, archived: false },
+      { id: 'stats-opponent', name: 'Stats Opponent', seedRating: 50, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', JSON.stringify([
+      {
+        id: 'stats-game',
+        date: 1,
+        teamA: ['stats-player'],
+        teamB: ['stats-opponent'],
+        scoreA: 25,
+        scoreB: 20,
+        winner: 'A',
+        log: {
+          'stats-player': {
+            ace: 2,
+            sin: 4,
+            serr: 1,
+            goodPass: 3,
+            pget: 2,
+            perr: 1,
+            kill: 5,
+            kerr: 1,
+            block: 2,
+            dig: 3,
+            assist: 1
+          },
+          'stats-opponent': { dig: 1 }
+        }
+      }
+    ]));
+    localStorage.setItem('vb:settings', JSON.stringify({ hideRatings: false }));
+  });
+
+  await page.goto('/');
+  await page.getByText('Stats Alpha').click();
+
+  const sheet = page.locator('.sheet');
+  const stats = sheet.locator('.stat-card');
+  await expect(stats.getByText('Stats', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Serve', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Receive', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Attack', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Serve errors', { exact: true })).toBeVisible();
+  await expect(stats.getByText('Pass errors', { exact: true })).toBeVisible();
+  await expect(stats.getByText('srv err', { exact: true })).toHaveCount(0);
+  await expect(stats.getByText('pass err', { exact: true })).toHaveCount(0);
+
+  await page.getByPlaceholder('Player name').fill('Stats Alpha Saved');
+  await sheet.getByRole('button', { name: 'Save changes', exact: true }).click();
+
+  await expect(page.locator('.sheet')).toHaveCount(0);
+  await expect(page.getByText('Stats Alpha Saved')).toBeVisible();
+
+  const saved = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'stats-player')
+  );
+  expect(saved).toMatchObject({
+    name: 'Stats Alpha Saved',
+    lifetime: expect.objectContaining({ serr: 1, perr: 1, kill: 5 })
+  });
+});
+
 test('migrates old imported players with missing active to active', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('vb:players', JSON.stringify([

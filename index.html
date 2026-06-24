@@ -174,6 +174,20 @@
   .seg button.on{background:var(--sand); color:#1a1205;}
   .spark{display:block;}
   .delta{font-weight:700;}
+  .stat-title{font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
+    font-weight:800; margin-bottom:10px;}
+  .stat-grid{display:grid; gap:8px;}
+  .stat-group{background:rgba(10,11,13,.22); border:1px solid var(--border); border-radius:12px;
+    padding:10px 11px;}
+  .stat-group-title{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--sand);
+    font-weight:800; margin-bottom:8px;}
+  .stat-row{display:flex; align-items:center; justify-content:space-between; gap:12px;
+    padding:5px 0; border-top:1px solid #ffffff0a;}
+  .stat-group-title + .stat-row{border-top:none; padding-top:0;}
+  .stat-name{font-size:13px; color:var(--muted);}
+  .stat-count{font-size:15px; font-weight:800; color:var(--text);}
+  .stat-row.err .stat-name,.stat-row.err .stat-count{color:var(--bad); opacity:.86;}
+  .stat-empty{font-size:13px; color:var(--faint); padding:2px 0 1px;}
   .teamcols{}
 
   /* desktop mode — auto-adapts on wider screens */
@@ -195,6 +209,7 @@
     .sheet{max-width:540px; border-radius:18px; border-bottom:1px solid var(--border);
       max-height:88vh; padding:22px 22px;}
     .grab{display:none;}
+    .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
     .teamcols{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; align-items:start;}
     .teamcols .teamcol{margin-bottom:0;}
     .ev button{min-width:60px; padding:11px 6px;}
@@ -369,6 +384,29 @@ const EVENT_GROUPS = [
   {g:'Defense', keys:['dig','block']},
   {g:'Other',   keys:['assist','fault']},
 ];
+const PLAYER_STAT_GROUPS = [
+  {g:'Serve', keys:['ace','sin','serr']},
+  {g:'Receive', keys:['goodPass','pget','perr']},
+  {g:'Attack', keys:['kill','kerr','block']},
+  {g:'Defense', keys:['dig']},
+  {g:'Setting', keys:['assist']},
+  {g:'Other', keys:['fault']},
+];
+const PLAYER_STAT_LABELS = {
+  ace:'Aces',
+  sin:'Serves in',
+  serr:'Serve errors',
+  goodPass:'Good passes',
+  pget:'Playable passes',
+  perr:'Pass errors',
+  kill:'Kills',
+  kerr:'Hit errors',
+  dig:'Digs',
+  block:'Blocks',
+  assist:'Sets / assists',
+  fault:'Faults',
+};
+const PLAYER_STAT_ERRORS = new Set(['serr','perr','kerr','fault']);
 
 const DEFAULT_SETTINGS = {
   numTeams:2, hideRatings:false, detailed:false,
@@ -1453,8 +1491,8 @@ function renderPlayerSheet(){
       <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
       ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="num small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
       ${a&&(a.strength||a.weakness)?`<div class="row spread" style="margin-top:6px"><span class="muted small">Profile</span><span class="small" style="text-align:right">${a.strength?`<span style="color:var(--good)">strong ${a.strength}</span>`:''}${a.strength&&a.weakness?'<br>':''}${a.weakness?`<span style="color:var(--bad)">work on ${a.weakness}</span>`:''}</span></div>`:''}
-      ${lifetimeLine(p)}
     </div>
+    ${lifetimeStatsSection(p)}
     <div class="card" style="background:var(--surface2)">
       <div class="small muted" style="margin-bottom:4px">Rating over time</div>
       ${trendChart(p.history)}
@@ -1468,9 +1506,22 @@ function renderPlayerSheet(){
   }
   openSheet(body);
 }
-function lifetimeLine(p){
-  const parts=EVENTS.filter(e=>p.lifetime[e.k]).map(e=>`${p.lifetime[e.k]} ${e.l.toLowerCase()}`);
-  return parts.length?`<div class="tiny faint" style="margin-top:8px">${parts.join(' · ')}</div>`:'';
+function lifetimeStatsSection(p){
+  const groups = PLAYER_STAT_GROUPS.map(grp=>{
+    const rows = grp.keys.map(k=>({k, n:Number((p.lifetime||{})[k])||0})).filter(x=>x.n);
+    if(!rows.length) return '';
+    return `<div class="stat-group">
+      <div class="stat-group-title">${esc(grp.g)}</div>
+      ${rows.map(({k,n})=>`<div class="stat-row ${PLAYER_STAT_ERRORS.has(k)?'err':''}">
+        <span class="stat-name">${esc(PLAYER_STAT_LABELS[k])}</span>
+        <span class="stat-count num">${n}</span>
+      </div>`).join('')}
+    </div>`;
+  }).filter(Boolean);
+  return `<div class="card stat-card" style="background:var(--surface2)">
+    <div class="stat-title">Stats</div>
+    ${groups.length?`<div class="stat-grid">${groups.join('')}</div>`:`<div class="stat-empty">Track games to build this stat profile.</div>`}
+  </div>`;
 }
 function computeSkillSeed(){
   if(!draft.skills) return draft.seedRating;
