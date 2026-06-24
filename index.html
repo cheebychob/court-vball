@@ -265,14 +265,77 @@ const Store = (()=>{
 /* ============================================================
    STATE
    ============================================================ */
-const TIERS = [
-  {k:'Beginner',     seed:12, d:'New, learning'},
-  {k:'Novice',       seed:28, d:'Inconsistent'},
-  {k:'Recreational', seed:43, d:'Can rally'},
-  {k:'Intermediate', seed:58, d:'Reliable'},
-  {k:'Advanced',     seed:73, d:'Strong'},
-  {k:'College',      seed:88, d:'High level'},
+const VOLLEYBALL_LEVELS = [
+  {key:'rec', label:'Rec', seed:20, min:0, max:24, short:'Learning / casual',
+    overall:'Learning or casual. Inconsistent contacts, mostly trying to keep the ball alive.',
+    anchors:{
+      serving:'Just trying to get it in.',
+      passing:'Contact is inconsistent.',
+      setting:'Mostly bump sets or emergency contacts.',
+      attacking:'Free balls, tips, or uncontrolled swings.',
+      defense:'Late reads, balls drop nearby.',
+      iqCommunication:'Learning rules and rotations.'
+    }},
+  {key:'c', label:'C', seed:32, min:25, max:39, short:'Basic rec',
+    overall:'Recreational/basic. Can participate but consistency is low.',
+    anchors:{
+      serving:'Can get some serves in, but misses are common.',
+      passing:'Can pass easy balls sometimes.',
+      setting:'Can send a basic usable ball occasionally.',
+      attacking:'Mostly controlled free balls or simple swings.',
+      defense:'Covers obvious balls, still reacts late.',
+      iqCommunication:'Understands basic rules, still learning positioning.'
+    }},
+  {key:'b', label:'B', seed:48, min:40, max:59, short:'Functional',
+    overall:'Functional player. Understands basics and can participate, but consistency breaks under pressure.',
+    anchors:{
+      serving:'Mostly in, basic target control.',
+      passing:'Can pass easier serves playable.',
+      setting:'Can send a usable ball sometimes.',
+      attacking:'Can attack good sets, errors common.',
+      defense:'Covers basic area, digs easier balls.',
+      iqCommunication:'Knows basic positioning, calls some balls.'
+    }},
+  {key:'bb', label:'BB', seed:66, min:60, max:74, short:'Solid',
+    overall:'Solid player. Can contribute to structured volleyball and three-contact rallies.',
+    anchors:{
+      serving:'Consistent serve, can pressure weaker passers.',
+      passing:'Handles average serves, often near target.',
+      setting:'Can set hittable balls from decent passes.',
+      attacking:'Can swing with control and reduce errors.',
+      defense:'Reads some attacks/tips, keeps rallies alive.',
+      iqCommunication:'Understands roles, transitions, and coverage.'
+    }},
+  {key:'a', label:'A', seed:82, min:75, max:89, short:'Strong',
+    overall:'Strong player. Reliable, intentional, and tournament-capable.',
+    anchors:{
+      serving:'Tough serve, targets seams and passers.',
+      passing:'Handles pace, consistently gives setter options.',
+      setting:'Consistent location, tempo, and decision-making.',
+      attacking:'Terminates, uses shots, manages the block.',
+      defense:'Strong range, turns defense into offense.',
+      iqCommunication:'Reads opponents, communicates, makes smart choices.'
+    }},
+  {key:'aa-open', label:'AA/Open', seed:93, min:90, max:100, short:'Elite',
+    overall:'Rare high-end player. Dominant in most open gyms, strong tournament/college-level skill.',
+    anchors:{
+      serving:'Weapon serve, pressure with low error rate.',
+      passing:'Reliable under pressure against tough servers.',
+      setting:'Runs an offense and improves hitters.',
+      attacking:'Scores against strong defense, out-of-system threat.',
+      defense:'Elite reads, controls hard-driven balls.',
+      iqCommunication:'Floor leader, adjusts strategy, raises team level.'
+    }}
 ];
+const LEVEL_ANCHOR_LABELS = [
+  ['serving','Serve'],
+  ['passing','Passing'],
+  ['setting','Setting'],
+  ['attacking','Attacking'],
+  ['defense','Defense'],
+  ['iqCommunication','IQ / communication'],
+];
+const TIERS = VOLLEYBALL_LEVELS.map(l=>({k:l.label, seed:l.seed, d:l.short}));
 const ROLE_DEFS = [
   ['setter','Setter'], ['passer','Passer'], ['hitter','Hitter'],
   ['defense','Defense'], ['blocker','Blocker'], ['beginner','Beginner'],
@@ -351,8 +414,11 @@ async function saveSettings(){ await Store.set('vb:settings', JSON.stringify(set
    ============================================================ */
 function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
 function tierOf(r){
-  if(r<=20) return 'Beginner'; if(r<=35) return 'Novice'; if(r<=50) return 'Recreational';
-  if(r<=65) return 'Intermediate'; if(r<=80) return 'Advanced'; return 'College';
+  return volleyballLevelOf(r).label;
+}
+function volleyballLevelOf(rating){
+  const r = clamp(Math.round(Number(rating)||0), 0, 100);
+  return VOLLEYBALL_LEVELS.find(l=>r>=l.min && r<=l.max) || VOLLEYBALL_LEVELS[0];
 }
 function reliability(p){
   const gp=p.gamesPlayed, full=settings.confGames;
@@ -638,9 +704,10 @@ function renderPlayers(){
       const arrow = (p.gamesPlayed>=2 && Math.abs(rd)>=1 && !settings.hideRatings)
         ? `<div class="tiny num delta" style="color:${rd>0?'var(--good)':'var(--bad)'}">${rd>0?'▲':'▼'}${Math.abs(rd)}</div>` : '';
       const roles = ROLE_DEFS.filter(([k])=>p.roles[k]).map(([k,l])=>`<span class="pill">${l}</span>`).join('');
+      const levelPart = settings.hideRatings ? '' : `${volleyballLevelOf(p.rating).label} · `;
       const sub = p.gamesPlayed
-        ? `${tierOf(p.rating)} · ${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
-        : `${tierOf(p.rating)} · <span style="color:${rel.c}">new</span>`;
+        ? `${levelPart}${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
+        : `${levelPart}<span style="color:${rel.c}">new</span>`;
       html += `<div class="card" onclick="openPlayer('${p.id}')">
         <div class="row spread">
           <div style="min-width:0">
@@ -1128,6 +1195,7 @@ function renderMore(){
       <p class="small muted" style="margin:0 0 8px">Each player has a 0–100 rating, seeded by the tier you pick. After every saved game, two things adjust it:</p>
       <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Result</b> — beating a stronger team raises you more than beating a weaker one (Elo-style).</p>
       <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Events</b> — the aces, kills, digs and errors you tap during the game nudge whoever actually carried or hurt their team that game.</p>
+      <p class="small muted" style="margin:0 0 8px">Court Level is a practical label derived from the 0–100 rating. Different leagues define levels differently, so treat it as an estimate, not an official certification.</p>
       <p class="small muted" style="margin:0 0 8px">New players move fast; established players settle and move slowly, so one off night won't tank them.</p>
       <p class="small muted" style="margin:0"><b style="color:var(--text)">Effort optional:</b> log just the score (Quick mode) and ratings still work from results. Tap events when you want sharper numbers. Both are valid.</p>
     </div>
@@ -1322,7 +1390,7 @@ let editId=null, draft=null;
 window.openPlayer=(id)=>{
   editId=id||null;
   const p = id?pById(id):null;
-  draft = p ? JSON.parse(JSON.stringify(p)) : { name:'', seedRating:43, roles:{}, skills:null };
+  draft = p ? JSON.parse(JSON.stringify(p)) : { name:'', seedRating:48, roles:{}, skills:null };
   if(!draft.roles) draft.roles={};
   window._seedMode = draft.skills ? 'skills' : 'tier';
   renderPlayerSheet();
@@ -1334,7 +1402,11 @@ function renderPlayerSheet(){
     <h3>${editId?'Edit player':'Add player'}</h3>
     <div class="field"><label>Name</label>
       <input id="pName" value="${esc(draft.name)}" placeholder="Player name" autocomplete="off"></div>
-    <div class="field"><label>Starting level</label>
+    <div class="field">
+      <div class="row spread" style="margin-bottom:7px">
+        <label style="margin:0">Starting level</label>
+        <button class="btn sm ghost" style="color:var(--sand);padding:4px 9px" onclick="openLevelGuide()">Help me choose ▸</button>
+      </div>
       <div class="seg" style="margin-bottom:10px">
         <button class="${mode==='tier'?'on':''}" onclick="seedMode('tier')">Tier</button>
         <button class="${mode==='skills'?'on':''}" onclick="seedMode('skills')">Rate skills</button>
@@ -1372,8 +1444,11 @@ function renderPlayerSheet(){
     const rd=recentDelta(p);
     const rdTxt = rd>0?`▲ +${rd}`:rd<0?`▼ ${Math.abs(rd)}`:'flat';
     const rdCol = rd>0?'var(--good)':rd<0?'var(--bad)':'var(--faint)';
+    const level=volleyballLevelOf(p.rating);
     body += `<div class="card" style="background:var(--surface2)">
       <div class="row spread"><span class="muted small">Current rating</span><span class="rate num">${Math.round(p.rating)}<span style="font-size:13px;color:var(--faint);font-weight:600"> ±${b}</span></span></div>
+      ${settings.hideRatings?'':`<div class="row spread" style="margin-top:6px"><span class="muted small">Court Level</span><span class="small" style="font-weight:700">${esc(level.label)}</span></div>
+      <div class="tiny faint" style="margin-top:4px">${esc(level.overall)}</div>`}
       <div class="row spread" style="margin-top:6px"><span class="muted small">Record · games</span><span class="num">${p.wins}-${p.losses} · ${p.gamesPlayed}</span></div>
       <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
       ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="num small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
@@ -1385,7 +1460,8 @@ function renderPlayerSheet(){
       ${trendChart(p.history)}
     </div>`;
   }
-  body += `<button class="btn primary block" onclick="savePlayer()">${editId?'Save changes':'Add player'}</button>`;
+  body += `<button class="btn primary block" onclick="savePlayer()">${editId?'Save changes':'Add player'}</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="cancelPlayerEdit()">Cancel</button>`;
   if(editId){
     body += `<button class="btn ghost block" style="margin-top:8px" onclick="toggleActive()">${draft.active===false?'Mark active':'Set as away / inactive'}</button>
       <button class="btn danger block" style="margin-top:8px" onclick="deletePlayer()">Delete player</button>`;
@@ -1410,6 +1486,27 @@ window.setSeed=(v)=>{ captureInputs(); draft.seedRating=v; renderPlayerSheet(); 
 window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=computeSkillSeed(); renderPlayerSheet(); };
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
+window.cancelPlayerEdit=()=>{ editId=null; draft=null; closeSheet(); };
+
+window.openLevelGuide=()=>{
+  captureInputs();
+  const rows = VOLLEYBALL_LEVELS.map(level=>{
+    const anchors = LEVEL_ANCHOR_LABELS.map(([key,label])=>`
+      <div class="small" style="margin-top:5px"><b style="color:var(--sand)">${label}</b> &nbsp;${level.anchors[key]}</div>`).join('');
+    return `<div class="card" style="background:var(--surface2)">
+      <div class="row spread" style="align-items:baseline;margin-bottom:6px">
+        <div style="font-weight:800">${level.label}</div>
+        <div class="tiny faint">Seed ${level.seed} · ${level.short}</div>
+      </div>
+      <div class="small muted" style="margin-bottom:8px">${level.overall}</div>
+      ${anchors}
+    </div>`;
+  }).join('');
+  openSheet(`<h3>Starting level guide</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Court Level is a practical estimate, not an official universal certification. Different leagues, gyms, and tournaments may define these labels differently, so pick the closest fit and let the rating self-correct as they play.</p>
+    ${rows}
+    <button class="btn primary block" onclick="renderPlayerSheet()">Back to player</button>`);
+};
 
 const RUBRIC = [
   {n:'Passing / receive', watch:'Can they keep the first ball playable and near the setter?',

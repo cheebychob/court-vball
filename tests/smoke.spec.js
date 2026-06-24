@@ -49,12 +49,44 @@ test('app boots and built-in self-test passes', async ({ page }) => {
   await expect(page.getByText(/Self-test · \d+\/\d+ passed/i)).toBeVisible();
 });
 
+test('volleyball level helper maps rating bands', async ({ page }) => {
+  await page.goto('/');
+
+  const labels = await page.evaluate(() =>
+    [0, 24, 25, 39, 40, 59, 60, 74, 75, 89, 90, 100].map(r => volleyballLevelOf(r).label)
+  );
+  expect(labels).toEqual([
+    'Rec', 'Rec',
+    'C', 'C',
+    'B', 'B',
+    'BB', 'BB',
+    'A', 'A',
+    'AA/Open', 'AA/Open'
+  ]);
+
+  const level = await page.evaluate(() => volleyballLevelOf(60));
+  expect(level).toMatchObject({
+    key: 'bb',
+    label: 'BB',
+    short: 'Solid',
+    overall: 'Solid player. Can contribute to structured volleyball and three-contact rallies.',
+    anchors: {
+      serving: expect.any(String),
+      passing: expect.any(String),
+      setting: expect.any(String),
+      attacking: expect.any(String),
+      defense: expect.any(String),
+      iqCommunication: expect.any(String)
+    }
+  });
+});
+
 test('can add a player and persist after reload', async ({ page }) => {
   await page.goto('/');
 
   await page.getByRole('button', { name: '+ Add player', exact: true }).click();
   await page.getByPlaceholder('Player name').fill('Test Player');
-  await page.getByRole('button', { name: /Intermediate/i }).click();
+  await page.getByRole('button', { name: /B\s+Functional/i }).click();
 
   await page
     .locator('.sheet')
@@ -66,6 +98,130 @@ test('can add a player and persist after reload', async ({ page }) => {
   await page.reload();
 
   await expect(page.getByText('Test Player')).toBeVisible();
+});
+
+test('starting level buttons use volleyball placement labels and seeds', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+
+  const startingLevels = await page.locator('.sheet .tiergrid button').evaluateAll(buttons =>
+    buttons.map(button => ({
+      label: button.childNodes[0].textContent.trim(),
+      description: button.querySelector('.o2').textContent.trim(),
+      seed: Number(button.getAttribute('onclick').match(/\d+/)[0])
+    }))
+  );
+
+  expect(startingLevels).toEqual([
+    { label: 'Rec', description: 'Learning / casual', seed: 20 },
+    { label: 'C', description: 'Basic rec', seed: 32 },
+    { label: 'B', description: 'Functional', seed: 48 },
+    { label: 'BB', description: 'Solid', seed: 66 },
+    { label: 'A', description: 'Strong', seed: 82 },
+    { label: 'AA/Open', description: 'Elite', seed: 93 }
+  ]);
+  await expect(page.locator('.sheet .tiergrid').getByText(/Beginner|Novice|Recreational|Intermediate|Advanced|College/)).toHaveCount(0);
+});
+
+test('add player sheet has cancel button that closes without saving', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await page.getByPlaceholder('Player name').fill('Cancel Draft');
+
+  await expect(page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await expect(page.locator('.sheet')).toHaveCount(0);
+  await expect(page.getByText('Cancel Draft')).toHaveCount(0);
+});
+
+test('edit player cancel closes and discards draft changes', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'cancel-edit', name: 'Cancel Original', seedRating: 48, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+  });
+
+  await page.goto('/');
+
+  await page.getByText('Cancel Original').click();
+  await page.getByPlaceholder('Player name').fill('Cancel Changed');
+  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await expect(page.locator('.sheet')).toHaveCount(0);
+  await expect(page.getByText('Cancel Original')).toBeVisible();
+  await expect(page.getByText('Cancel Changed')).toHaveCount(0);
+
+  const savedName = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'cancel-edit').name
+  );
+  expect(savedName).toBe('Cancel Original');
+});
+
+test('starting level guide opens and returns to the player draft', async ({ page }) => {
+  await page.goto('/');
+
+  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await page.getByPlaceholder('Player name').fill('Guide Draft');
+
+  await page
+    .locator('.sheet .field')
+    .filter({ hasText: 'Starting level' })
+    .getByRole('button', { name: /Help me choose/i })
+    .click();
+
+  await expect(page.getByRole('heading', { name: 'Starting level guide' })).toBeVisible();
+  await expect(page.getByText('Court Level is a practical estimate, not an official universal certification.')).toBeVisible();
+  await expect(page.locator('.sheet').getByText('AA/Open')).toBeVisible();
+  await expect(page.locator('.sheet').getByText('Weapon serve, pressure with low error rate.')).toBeVisible();
+
+  await page.locator('.sheet').getByRole('button', { name: 'Back to player', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Add player' })).toBeVisible();
+  await expect(page.getByPlaceholder('Player name')).toHaveValue('Guide Draft');
+});
+
+test('shows volleyball level on roster and player details when ratings are visible', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'level-visible', name: 'Level Visible', seedRating: 62, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+    localStorage.setItem('vb:settings', JSON.stringify({ hideRatings: false }));
+  });
+
+  await page.goto('/');
+
+  const card = page.locator('.plist .card').filter({ hasText: 'Level Visible' });
+  await expect(card.getByText(/BB/)).toBeVisible();
+
+  await page.getByText('Level Visible').click();
+  const summary = page.locator('.sheet .card').filter({ hasText: 'Court Level' });
+  await expect(summary.getByText('Court Level')).toBeVisible();
+  await expect(summary.getByText('BB', { exact: true })).toBeVisible();
+});
+
+test('hides volleyball level when hide ratings is on', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'level-hidden', name: 'Level Hidden', seedRating: 92, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+    localStorage.setItem('vb:settings', JSON.stringify({ hideRatings: true }));
+  });
+
+  await page.goto('/');
+
+  const card = page.locator('.plist .card').filter({ hasText: 'Level Hidden' });
+  await expect(card.getByText('AA/Open')).toHaveCount(0);
+
+  await page.getByText('Level Hidden').click();
+  const summary = page.locator('.sheet .card').filter({ hasText: 'Current rating' });
+  await expect(summary.getByText('Court Level')).toHaveCount(0);
+  await expect(summary.getByText('AA/Open')).toHaveCount(0);
 });
 
 test('migrates old imported players with missing active to active', async ({ page }) => {
@@ -253,7 +409,7 @@ test('editing a historical player seed asks before rewriting rating history', as
   await page.goto('/');
 
   await page.getByText('Seed Player').click();
-  await page.locator('.sheet').getByRole('button', { name: /Advanced/i }).click();
+  await page.locator('.sheet').getByRole('button', { name: /A\s+Strong/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
 
   await expect(page.getByText(seedHistoryWarning)).toBeVisible();
@@ -270,7 +426,7 @@ test('editing a historical player seed asks before rewriting rating history', as
   const afterConfirm = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'seed-player').seedRating
   );
-  expect(afterConfirm).toBe(73);
+  expect(afterConfirm).toBe(82);
 });
 
 test('editing an unplayed player seed saves without rating-history warning', async ({ page }) => {
@@ -284,7 +440,7 @@ test('editing an unplayed player seed saves without rating-history warning', asy
   await page.goto('/');
 
   await page.getByText('Fresh Seed').click();
-  await page.locator('.sheet').getByRole('button', { name: /Advanced/i }).click();
+  await page.locator('.sheet').getByRole('button', { name: /A\s+Strong/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
 
   await expect(page.getByText(seedHistoryWarning)).toHaveCount(0);
@@ -292,7 +448,7 @@ test('editing an unplayed player seed saves without rating-history warning', asy
   const savedSeed = await page.evaluate(() =>
     JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'fresh-seed').seedRating
   );
-  expect(savedSeed).toBe(73);
+  expect(savedSeed).toBe(82);
 });
 
 test('deleting a historical player archives and hides them from active flows', async ({ page }) => {
