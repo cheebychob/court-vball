@@ -99,3 +99,31 @@ Recommended future approach:
 - Preserve mobile usability.
 - Add visual regression/manual smoke checks before large UI changes.
 - Consider redesigning cards, stat chips, player detail sheets, buttons, spacing, and typography.
+
+
+## P2 - Volleyball level labels
+
+### Map 0–100 ratings to common volleyball levels
+Court currently shows a 0–100 rating and broad internal tiers like Beginner, Novice, Recreational, Intermediate, Advanced, and College. A future improvement should also show common volleyball level labels such as C, B, BB, A, AA, and Open.
+
+Recommended behavior:
+- Keep 0–100 rating as the source of truth.
+- Add an automatic Court Level label derived from rating.
+- Suggested mapping:
+  - 0–19: New / C-
+  - 20–34: C
+  - 35–49: B
+  - 50–64: BB
+  - 65–79: A
+  - 80–89: AA
+  - 90–100: Open
+- Display confidence with the level, such as "BB · new", "BB · settling", or "BB · established".
+- Use the skill-rating flow to seed the initial rating, then let tracked games move the player automatically.
+- Avoid claiming the labels are universal or official; different leagues define levels differently.
+- Do not create a second rating system. The volleyball level should be a label derived from the existing 0–100 rating.
+
+Future UI ideas:
+- Show level beside player rating on roster cards.
+- Show a "What this level means" explainer in the player sheet.
+- Add optional initial placement by volleyball level: C, B, BB, A, AA, Open.
+- Keep the existing tier/skill/evaluate flows unless intentionally replacing them.
