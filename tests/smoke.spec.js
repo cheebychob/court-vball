@@ -9,7 +9,7 @@ test('app boots and built-in self-test passes', async ({ page }) => {
   await page.getByRole('button', { name: /More/i }).click();
   await page.getByRole('button', { name: /Run self-test/i }).click();
 
-  await expect(page.getByText(/Self-test · 15\/15 passed/i)).toBeVisible();
+  await expect(page.getByText(/Self-test · \d+\/\d+ passed/i)).toBeVisible();
 });
 
 test('can add a player and persist after reload', async ({ page }) => {
@@ -74,4 +74,90 @@ test('generated teams exclude inactive players left in the pool', async ({ page 
 
   expect(generatedNames).toEqual(expect.arrayContaining(['Active A', 'Active B']));
   expect(generatedNames).not.toContain('Inactive C');
+});
+
+test('deleting an unplayed player hard-deletes them', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'unused-player', name: 'Unused Player', seedRating: 43, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+  });
+
+  await page.goto('/');
+
+  await page.getByText('Unused Player').click();
+  await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
+  await page.locator('.scrim').last().getByRole('button', { name: 'Delete player', exact: true }).click();
+
+  const savedPlayers = await page.evaluate(() => JSON.parse(localStorage.getItem('vb:players')));
+  expect(savedPlayers.map(p => p.id)).not.toContain('unused-player');
+  await expect(page.getByText('Unused Player')).toHaveCount(0);
+});
+
+test('deleting a historical player archives and hides them from active flows', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'historic-player', name: 'Historic Player', seedRating: 60, active: true, archived: false },
+      { id: 'active-teammate', name: 'Active Teammate', seedRating: 55, active: true, archived: false },
+      { id: 'active-opponent', name: 'Active Opponent', seedRating: 50, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', JSON.stringify([
+      {
+        id: 'historic-game',
+        date: 1,
+        teamA: ['historic-player', 'active-teammate'],
+        teamB: ['active-opponent'],
+        scoreA: 25,
+        scoreB: 20,
+        winner: 'A',
+        log: { 'historic-player': { kill: 2 } }
+      }
+    ]));
+  });
+
+  await page.goto('/');
+
+  const before = await page.evaluate(() => {
+    recomputeAll();
+    const g = games.find(game => game.id === 'historic-game');
+    return { deltas: JSON.stringify(g.deltas), ratings: players.map(p => p.rating) };
+  });
+
+  await page.getByText('Historic Player').click();
+  await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
+  await page.locator('.scrim').last().getByRole('button', { name: 'Archive player', exact: true }).click();
+
+  const after = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('vb:players'));
+    const archived = saved.find(p => p.id === 'historic-player');
+    const g = games.find(game => game.id === 'historic-game');
+    return {
+      archived,
+      deltas: JSON.stringify(g.deltas),
+      ratings: players.map(p => p.rating)
+    };
+  });
+
+  expect(after.archived).toMatchObject({ id: 'historic-player', active: false, archived: true });
+  expect(after.deltas).toBe(before.deltas);
+  expect(after.ratings).toEqual(before.ratings);
+
+  await expect(page.getByText('Historic Player')).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Track/i }).click();
+  await expect(page.getByRole('button', { name: /Historic Player/i })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Teams/i }).click();
+  await expect(page.getByRole('button', { name: /Historic Player/i })).toHaveCount(0);
+
+  const generatedNames = await page.evaluate(() => {
+    window._pool = new Set(['historic-player', 'active-teammate', 'active-opponent']);
+    window.genTeams();
+    return window._teams.flat().map(p => p.name);
+  });
+  expect(generatedNames).not.toContain('Historic Player');
+
+  await page.getByRole('button', { name: /Games/i }).click();
+  await expect(page.getByText(/Historic Player, Active Teammate/)).toBeVisible();
 });

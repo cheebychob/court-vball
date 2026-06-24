@@ -324,7 +324,7 @@ function makePlayer(name, seed){
   return { id:uid(), name:name.trim(), seedRating:seed,
     rating:seed, gamesPlayed:0, wins:0, losses:0,
     roles:{}, skills:null, lifetime:zeroEvents(),
-    history:[{i:0,r:seed}], notes:'', active:true };
+    history:[{i:0,r:seed}], notes:'', active:true, archived:false };
 }
 
 /* ============================================================
@@ -337,7 +337,7 @@ async function load(){
   // migrate any missing fields
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
     if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
-    if(pl.active === undefined) pl.active = true; });
+    if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false; });
 }
 async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
@@ -422,6 +422,20 @@ function trendChart(hist){
   </svg>`;
 }
 function pById(id){ return players.find(p=>p.id===id); }
+function isArchived(p){ return !!(p&&p.archived); }
+function playerAppearsInGames(id){
+  return games.some(g=>
+    (g.teamA||[]).includes(id) ||
+    (g.teamB||[]).includes(id) ||
+    !!(g.log&&Object.prototype.hasOwnProperty.call(g.log,id))
+  );
+}
+function clearPlayerRuntimeState(id){
+  if(window._sel){ window._sel.A.delete(id); window._sel.B.delete(id); }
+  if(window._pool) window._pool.delete(id);
+  if(window._soloPick===id) window._soloPick=null;
+  if(window._teams) window._teams=null;
+}
 function rawPerf(counts){ let s=0; for(const k in counts) s += (EV_MAP[k]?.w||0)*counts[k]; return s; }
 
 function recomputeAll(){
@@ -598,14 +612,15 @@ function render(){
 
 /* ---------- PLAYERS ---------- */
 function renderPlayers(){
-  const sorted = players.slice().sort((a,b)=>b.rating-a.rating);
-  let html = `<h2 class="view">Roster · ${players.length}</h2>
+  const roster = players.filter(p=>!isArchived(p));
+  const sorted = roster.slice().sort((a,b)=>b.rating-a.rating);
+  let html = `<h2 class="view">Roster · ${roster.length}</h2>
     <button class="btn primary block" onclick="openPlayer()">+ Add player</button>`;
-  if(!players.length){
+  if(!roster.length){
     html += `<div class="empty"><b>No players yet</b>Add everyone in your group, then track games or build balanced teams. Seed each person with a rough tier — the ratings self-correct as they play.</div>`;
   } else {
     if(!settings.hideRatings){
-      const movers = players.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d);
+      const movers = roster.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d);
       if(movers.length){
         html += `<div class="card" style="border-color:#2c3a30;margin-top:12px">
           <div class="small" style="font-weight:700;color:var(--good)">▲ Most improved</div>
@@ -739,7 +754,12 @@ function renderTrack(){
   `;
 }
 function renderTrackSetup(){
-  const act = players.filter(p=>p.active);
+  const act = players.filter(p=>p.active&&!isArchived(p));
+  const activeIds = new Set(act.map(p=>p.id));
+  if(window._sel){
+    window._sel.A = new Set([...window._sel.A].filter(id=>activeIds.has(id)));
+    window._sel.B = new Set([...window._sel.B].filter(id=>activeIds.has(id)));
+  }
   if(act.length<1){
     main.innerHTML = `<h2 class="view">Track a game</h2>
       <div class="empty"><b>Add players first</b>Add at least one player to your roster to start tracking.</div>`;
@@ -752,7 +772,7 @@ function renderTrackSetup(){
     <button class="${mode==='solo'?'on':''}" onclick="setTrackMode('solo')">Solo</button>
   </div>`;
   if(mode==='solo'){
-    if(!window._soloPick || !pById(window._soloPick)) window._soloPick=null;
+    if(!window._soloPick || !activeIds.has(window._soloPick)) window._soloPick=null;
     const pick=window._soloPick;
     const schip=p=>`<button class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:var(--sand);color:var(--sand);background:#2a2410':''}" onclick="pickSolo('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
     main.innerHTML = `
@@ -793,7 +813,7 @@ function renderTrackSetup(){
 window.setTrackMode=(m)=>{ window._trackMode=m; renderTrack(); };
 window.pickSolo=(id)=>{ window._soloPick = (window._soloPick===id)?null:id; renderTrack(); };
 window.startSolo=()=>{
-  if(!window._soloPick) return;
+  if(!window._soloPick || !players.some(p=>p.id===window._soloPick&&p.active&&!isArchived(p))) return;
   live = { solo:true, player:window._soloPick, log:{}, undo:[], expanded:{}, result:null };
   render();
 };
@@ -808,7 +828,8 @@ window.finishSolo=async()=>{
 };
 function avgSel(set){
   if(!set.size) return '–';
-  let s=0; set.forEach(id=>s+=pById(id).rating); return showRate(s/set.size);
+  let s=0,n=0; set.forEach(id=>{ const p=pById(id); if(p&&p.active&&!isArchived(p)){ s+=p.rating; n++; } });
+  return n?showRate(s/n):'–';
 }
 window.cycleSel=(id)=>{
   const s=window._sel;
@@ -891,8 +912,10 @@ window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
 function renderTeams(){
-  const act = players.filter(p=>p.active);
-  if(!window._pool) window._pool = new Set(act.map(p=>p.id));
+  const act = players.filter(p=>p.active&&!isArchived(p));
+  const activeIds = new Set(act.map(p=>p.id));
+  if(!window._pool) window._pool = new Set(activeIds);
+  else window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
   const pool = window._pool;
   function chip(p){
     const on=pool.has(p.id);
@@ -955,10 +978,10 @@ function renderTeams(){
   main.innerHTML = html;
 }
 window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._pool.add(id); window._teams=null; renderTeams(); };
-window.poolAll=()=>{ window._pool=new Set(players.filter(p=>p.active).map(p=>p.id)); window._teams=null; renderTeams(); };
+window.poolAll=()=>{ window._pool=new Set(players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id)); window._teams=null; renderTeams(); };
 window.setTeams=(n)=>{ settings.numTeams=n; saveSettings(); window._teams=null; renderTeams(); };
 window.genTeams=()=>{
-  const pool=players.filter(p=>p.active && window._pool.has(p.id));
+  const pool=players.filter(p=>p.active && !isArchived(p) && window._pool.has(p.id));
   window._teams=balance(pool, settings.numTeams);
   renderTeams();
 };
@@ -1256,6 +1279,13 @@ function runSelfTest(){
     const removed=games[0]; games=games.filter(g=>g!==removed); recomputeAll();
     games.push(removed); recomputeAll();
     ck('Deleting then re-adding a game is reversible', players.every((p,i)=>Math.abs(p.rating-orig[i])<1e-9));
+    const archived=P[5], archivedRatings=players.map(p=>p.rating), archivedDeltas=JSON.stringify(g1.deltas);
+    archived.archived=true; archived.active=false; recomputeAll();
+    ck('Archived historical player stays in replay',
+      pById(archived.id)===archived &&
+      players.every((p,i)=>Math.abs(p.rating-archivedRatings[i])<1e-9) &&
+      JSON.stringify(g1.deltas)===archivedDeltas);
+    archived.archived=false; archived.active=true; recomputeAll();
     const newP=makePlayer('new',50);
     ck('Uncertainty range wider for new players', band(newP)>=band(P[0]));
   } catch(e){
@@ -1442,8 +1472,16 @@ window.savePlayer=async()=>{
   closeSheet(); toast(editId?'Saved':'Player added'); render();
 };
 window.deletePlayer=async()=>{
-  if(!(await askConfirm('Delete this player? Their past games stay, but they\'ll show as removed.','Delete player'))) return;
-  players=players.filter(p=>p.id!==editId); await commit(); closeSheet(); toast('Deleted'); render();
+  const p=pById(editId); if(!p) return;
+  const historical = playerAppearsInGames(editId);
+  const msg = historical
+    ? 'Archive this player? They will be hidden from roster, tracking, and teams, but kept for old games and rating history.'
+    : 'Delete this player? This cannot be undone.';
+  if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
+  clearPlayerRuntimeState(editId);
+  if(historical){ p.archived=true; p.active=false; }
+  else players=players.filter(p=>p.id!==editId);
+  await commit(); closeSheet(); toast(historical?'Archived':'Deleted'); render();
 };
 
 /* ============================================================
