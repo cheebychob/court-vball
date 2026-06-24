@@ -21,14 +21,19 @@ Development setup:
 - Removed unused teamSize setting.
 - Added regression tests for player data integrity.
 - Added backup/import/replay regression coverage.
+- Added Court Level labels using Rec, C, B, BB, A, and AA/Open.
+- Updated player starting-level seeding to use volleyball level labels.
+- Added a Starting level guide with skill anchors.
+- Added visible Cancel button to the player editor.
 
 ## Current priorities
 
 Work through issues in this order:
 
-1. Add volleyball level labels derived from 0–100 rating.
-2. Later: decide tied-game behavior if it becomes relevant.
-3. Later: visual cleanup and modern UI pass.
+1. Review Court Level labels after real use.
+2. Later: improve player stat display clarity.
+3. Later: decide tied-game behavior if it becomes relevant.
+4. Later: broader visual cleanup and modern UI pass.
 
 ## Working rule
 
