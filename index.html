@@ -1461,6 +1461,11 @@ window.savePlayer=async()=>{
   if(window._seedMode==='skills') draft.seedRating=computeSkillSeed();
   if(editId){
     const p=pById(editId);
+    const seedChanged = Number(p.seedRating) !== Number(draft.seedRating);
+    if(seedChanged && p.gamesPlayed>0 &&
+      !(await askConfirm("Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?", 'Continue'))){
+      return;
+    }
     p.name=name; p.notes=notes; p.roles=draft.roles; p.skills=draft.skills;
     p.seedRating=draft.seedRating; if(draft.active!==undefined)p.active=draft.active;
   } else {

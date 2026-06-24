@@ -95,6 +95,49 @@ test('deleting an unplayed player hard-deletes them', async ({ page }) => {
   await expect(page.getByText('Unused Player')).toHaveCount(0);
 });
 
+test('editing a historical player seed asks before rewriting rating history', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'seed-player', name: 'Seed Player', seedRating: 43, active: true, archived: false },
+      { id: 'seed-opponent', name: 'Seed Opponent', seedRating: 50, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', JSON.stringify([
+      {
+        id: 'seed-game',
+        date: 1,
+        teamA: ['seed-player'],
+        teamB: ['seed-opponent'],
+        scoreA: 25,
+        scoreB: 20,
+        winner: 'A',
+        log: {}
+      }
+    ]));
+  });
+
+  await page.goto('/');
+
+  await page.getByText('Seed Player').click();
+  await page.locator('.sheet').getByRole('button', { name: /Advanced/i }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
+
+  await expect(page.getByText("Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?")).toBeVisible();
+  await page.locator('.scrim').last().getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  const afterCancel = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'seed-player').seedRating
+  );
+  expect(afterCancel).toBe(43);
+
+  await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
+  await page.locator('.scrim').last().getByRole('button', { name: 'Continue', exact: true }).click();
+
+  const afterConfirm = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'seed-player').seedRating
+  );
+  expect(afterConfirm).toBe(73);
+});
+
 test('deleting a historical player archives and hides them from active flows', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('vb:players', JSON.stringify([
