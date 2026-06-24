@@ -958,7 +958,7 @@ window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._p
 window.poolAll=()=>{ window._pool=new Set(players.filter(p=>p.active).map(p=>p.id)); window._teams=null; renderTeams(); };
 window.setTeams=(n)=>{ settings.numTeams=n; saveSettings(); window._teams=null; renderTeams(); };
 window.genTeams=()=>{
-  const pool=players.filter(p=>window._pool.has(p.id));
+  const pool=players.filter(p=>p.active && window._pool.has(p.id));
   window._teams=balance(pool, settings.numTeams);
   renderTeams();
 };

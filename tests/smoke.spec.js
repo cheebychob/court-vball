@@ -52,3 +52,26 @@ test('migrates old imported players with missing active to active', async ({ pag
   await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
 });
+
+test('generated teams exclude inactive players left in the pool', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'active-a', name: 'Active A', seedRating: 60, active: true },
+      { id: 'active-b', name: 'Active B', seedRating: 50, active: true },
+      { id: 'inactive-c', name: 'Inactive C', seedRating: 90, active: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+  });
+
+  await page.goto('/');
+  await expect(page.getByRole('heading', { name: /Roster/i })).toBeVisible();
+
+  const generatedNames = await page.evaluate(() => {
+    window._pool = new Set(['active-a', 'active-b', 'inactive-c']);
+    window.genTeams();
+    return window._teams.flat().map(p => p.name);
+  });
+
+  expect(generatedNames).toEqual(expect.arrayContaining(['Active A', 'Active B']));
+  expect(generatedNames).not.toContain('Inactive C');
+});
