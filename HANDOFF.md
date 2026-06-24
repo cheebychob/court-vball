@@ -17,16 +17,16 @@ Development setup:
 - Fixed team generation so inactive players cannot remain in the generated team pool.
 - Replaced hard-delete behavior with archive/soft-delete for players who appear in historical games.
 - Added future backlog item for player stats visual clarity and broader modern UI polish.
+- Warned before seed-rating edits rewrite historical rating history.
+- Removed unused teamSize setting.
 
 ## Current priorities
 
 Work through issues in this order:
 
-1. Warn before seed-rating edits rewrite history.
-2. Clean up unused teamSize setting.
-3. Add more Playwright coverage around import/export and rating replay.
-4. Later: decide tied-game behavior if it becomes relevant.
-5. Later: visual cleanup and modern UI pass.
+1. Add more Playwright coverage around import/export and rating replay.
+2. Later: decide tied-game behavior if it becomes relevant.
+3. Later: visual cleanup and modern UI pass.
 
 ## Working rule
 
