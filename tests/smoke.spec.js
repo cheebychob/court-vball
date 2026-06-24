@@ -1,5 +1,7 @@
 import { test, expect } from '@playwright/test';
 
+const seedHistoryWarning = "Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?";
+
 test('app boots and built-in self-test passes', async ({ page }) => {
   await page.goto('/');
 
@@ -49,6 +51,10 @@ test('migrates old imported players with missing active to active', async ({ pag
   expect(activeStates).toContainEqual({ name: 'Away Import', active: false });
 
   await page.getByRole('button', { name: /Teams/i }).click();
+  await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
+
+  await page.getByRole('button', { name: /Track/i }).click();
   await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
   await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
 });
@@ -121,7 +127,7 @@ test('editing a historical player seed asks before rewriting rating history', as
   await page.locator('.sheet').getByRole('button', { name: /Advanced/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
 
-  await expect(page.getByText("Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?")).toBeVisible();
+  await expect(page.getByText(seedHistoryWarning)).toBeVisible();
   await page.locator('.scrim').last().getByRole('button', { name: 'Cancel', exact: true }).click();
 
   const afterCancel = await page.evaluate(() =>
@@ -138,8 +144,32 @@ test('editing a historical player seed asks before rewriting rating history', as
   expect(afterConfirm).toBe(73);
 });
 
+test('editing an unplayed player seed saves without rating-history warning', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', JSON.stringify([
+      { id: 'fresh-seed', name: 'Fresh Seed', seedRating: 43, active: true, archived: false }
+    ]));
+    localStorage.setItem('vb:games', '[]');
+  });
+
+  await page.goto('/');
+
+  await page.getByText('Fresh Seed').click();
+  await page.locator('.sheet').getByRole('button', { name: /Advanced/i }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
+
+  await expect(page.getByText(seedHistoryWarning)).toHaveCount(0);
+
+  const savedSeed = await page.evaluate(() =>
+    JSON.parse(localStorage.getItem('vb:players')).find(p => p.id === 'fresh-seed').seedRating
+  );
+  expect(savedSeed).toBe(73);
+});
+
 test('deleting a historical player archives and hides them from active flows', async ({ page }) => {
   await page.addInitScript(() => {
+    if (localStorage.getItem('vb:players')) return;
+
     localStorage.setItem('vb:players', JSON.stringify([
       { id: 'historic-player', name: 'Historic Player', seedRating: 60, active: true, archived: false },
       { id: 'active-teammate', name: 'Active Teammate', seedRating: 55, active: true, archived: false },
@@ -186,6 +216,8 @@ test('deleting a historical player archives and hides them from active flows', a
   expect(after.deltas).toBe(before.deltas);
   expect(after.ratings).toEqual(before.ratings);
 
+  await page.reload();
+
   await expect(page.getByText('Historic Player')).toHaveCount(0);
 
   await page.getByRole('button', { name: /Track/i }).click();
@@ -202,5 +234,7 @@ test('deleting a historical player archives and hides them from active flows', a
   expect(generatedNames).not.toContain('Historic Player');
 
   await page.getByRole('button', { name: /Games/i }).click();
-  await expect(page.getByText(/Historic Player, Active Teammate/)).toBeVisible();
+  await page.getByText(/Historic Player, Active Teammate/).click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: /Game · 25–20/i })).toBeVisible();
+  await expect(page.locator('.sheet').getByText('Historic Player')).toBeVisible();
 });
