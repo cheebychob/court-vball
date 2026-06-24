@@ -1,0 +1,1629 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0a0b0d">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Court">
+<title>Court — Volleyball Ratings</title>
+<style>
+  :root{
+    --bg:#0a0b0d; --surface:#15171b; --surface2:#1c1f24; --border:#262a30;
+    --text:#e8eaed; --muted:#8a919c; --faint:#5b626d;
+    --sand:#d9a24a;        /* signature accent: leather/sand */
+    --good:#54c59a;        /* positive events */
+    --bad:#e8705f;         /* errors */
+    --teamA:#6aa0f0; --teamB:#d99a6a;
+    --radius:14px;
+    --tap:#ffffff14;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  body{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
+  .num{font-variant-numeric:tabular-nums; letter-spacing:-0.01em;}
+  button{font-family:inherit; color:inherit; cursor:pointer; border:none; background:none;}
+  input,select,textarea{font-family:inherit; font-size:16px; color:var(--text);
+    background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:11px 12px; width:100%;}
+  input:focus,select,textarea:focus{outline:2px solid var(--sand); outline-offset:0;}
+  ::placeholder{color:var(--faint);}
+
+  /* top bar */
+  header{position:sticky; top:0; z-index:30; background:rgba(10,11,13,.86);
+    backdrop-filter:blur(12px); border-bottom:1px solid var(--border);
+    padding:calc(10px + env(safe-area-inset-top)) 16px 10px;}
+  .brand{display:flex; align-items:center; gap:10px;}
+  .brand .dot{width:10px; height:10px; border-radius:3px; background:var(--sand);
+    box-shadow:0 0 16px var(--sand);}
+  .brand h1{font-size:16px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin:0;}
+  .brand .sub{margin-left:auto; font-size:11px; color:var(--faint); letter-spacing:.06em;}
+
+  main{padding:16px; max-width:680px; margin:0 auto;}
+  h2.view{font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
+    margin:4px 0 14px; font-weight:700;}
+  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:14px; margin-bottom:12px;}
+  .row{display:flex; align-items:center; gap:10px;}
+  .spread{justify-content:space-between;}
+  .muted{color:var(--muted);} .faint{color:var(--faint);}
+  .small{font-size:12px;} .tiny{font-size:11px;}
+  .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:999px;
+    font-size:11px; background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+    white-space:nowrap;}
+  .btn{background:var(--surface2); border:1px solid var(--border); border-radius:11px;
+    padding:11px 14px; font-weight:600; font-size:14px; display:inline-flex; align-items:center;
+    justify-content:center; gap:7px; transition:transform .04s, background .15s;}
+  .btn:active{transform:scale(.97);}
+  .btn.primary{background:var(--sand); color:#1a1205; border-color:transparent;}
+  .btn.ghost{background:transparent;}
+  .btn.block{width:100%;}
+  .btn.danger{color:var(--bad); border-color:#3a2624;}
+  .btn.sm{padding:8px 11px; font-size:13px; border-radius:9px;}
+
+  /* rating chip */
+  .rate{font-weight:800; font-size:22px; line-height:1;}
+  .rate.big{font-size:34px;}
+  .tier{font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);}
+  .bar{height:6px; border-radius:4px; background:var(--surface2); overflow:hidden; margin-top:7px;}
+  .bar > i{display:block; height:100%; background:linear-gradient(90deg,#6a5a2a,var(--sand));}
+
+  /* player list */
+  .plist .card{padding:12px 14px;}
+  .roles{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
+  .empty{text-align:center; color:var(--faint); padding:42px 16px; font-size:14px;}
+  .empty b{display:block; color:var(--muted); font-size:15px; margin-bottom:6px;}
+
+  /* nav */
+  nav{position:fixed; bottom:0; left:0; right:0; z-index:40; display:flex;
+    background:rgba(14,15,18,.94); backdrop-filter:blur(14px); border-top:1px solid var(--border);
+    padding-bottom:env(safe-area-inset-bottom);}
+  nav button{flex:1; padding:9px 2px 8px; display:flex; flex-direction:column; align-items:center;
+    gap:3px; color:var(--faint); font-size:10px; letter-spacing:.04em;}
+  nav button.active{color:var(--sand);}
+  nav button svg{width:23px; height:23px;}
+  nav button.active svg{filter:drop-shadow(0 0 8px var(--sand));}
+
+  /* track */
+  .scorebar{display:flex; gap:10px; margin-bottom:12px;}
+  .scorebox{flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
+    padding:10px; text-align:center;}
+  .scorebox .lbl{font-size:11px; letter-spacing:.1em; text-transform:uppercase; font-weight:700;}
+  .scorebox.A{border-color:#2b3a52;} .scorebox.A .lbl{color:var(--teamA);}
+  .scorebox.B{border-color:#52402b;} .scorebox.B .lbl{color:var(--teamB);}
+  .scorebox .pts{font-size:40px; font-weight:800; line-height:1; margin:4px 0;}
+  .stepper{display:flex; gap:8px; justify-content:center;}
+  .stepper button{width:40px; height:36px; border-radius:9px; background:var(--surface2);
+    border:1px solid var(--border); font-size:20px; font-weight:700;}
+  .teamhdr{font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:700;
+    margin:16px 0 8px; padding-left:2px;}
+  .teamhdr.A{color:var(--teamA);} .teamhdr.B{color:var(--teamB);}
+  .prow{background:var(--surface); border:1px solid var(--border); border-radius:12px;
+    padding:10px 12px; margin-bottom:8px;}
+  .prow .top{display:flex; align-items:center; gap:9px;}
+  .prow .nm{font-weight:600; font-size:15px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .gpts{font-weight:800; font-size:16px; min-width:30px; text-align:right;}
+  .gpts.pos{color:var(--good);} .gpts.neg{color:var(--bad);}
+  .ev{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px;}
+  .ev button{flex:1 1 auto; min-width:52px; padding:9px 4px; border-radius:9px; font-size:12px;
+    font-weight:700; background:var(--surface2); border:1px solid var(--border);}
+  .ev button.g{color:var(--good); border-color:#26392f;}
+  .ev button.b{color:var(--bad); border-color:#3a2624;}
+  .ev button:active{background:var(--tap); transform:scale(.94);}
+  .ev .cnt{font-size:10px; opacity:.6; margin-left:3px;}
+  .evrow{display:flex; align-items:center; gap:10px; margin-top:8px;}
+  .evrow .evlbl{flex:0 0 46px; font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.05em;}
+  .evrow .ev{flex:1; margin-top:0;}
+  .expand{font-size:12px; color:var(--muted); margin-top:8px; display:inline-block;}
+
+  /* teams builder */
+  .chips{display:flex; flex-wrap:wrap; gap:8px;}
+  .chip{padding:8px 12px; border-radius:10px; background:var(--surface2); border:1px solid var(--border);
+    font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px;}
+  .chip.on{background:#2a2410; border-color:var(--sand); color:var(--sand);}
+  .chip .r{font-size:11px; opacity:.7;}
+  .teamcol{margin-bottom:12px;}
+  .teamcol .hd{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px;}
+  .teamcol .hd .t{font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:12px;}
+  .teamcol .hd .avg{font-size:12px; color:var(--muted);}
+  .member{display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:9px 11px; margin-bottom:6px;}
+  .member .nm{flex:1; font-weight:600; font-size:14px;}
+  .member .mv{font-size:11px; color:var(--muted); padding:5px 8px; border:1px solid var(--border);
+    border-radius:8px;}
+  .warn{color:var(--bad); font-size:12px; margin-top:4px;}
+
+  /* games */
+  .ghist{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border);
+    border-radius:12px; padding:11px 13px; margin-bottom:8px;}
+  .ghist .sc{font-weight:800; font-size:15px;}
+  .win{color:var(--good);}
+
+  /* modal */
+  .scrim{position:fixed; inset:0; background:#000a; z-index:60; display:flex; align-items:flex-end;
+    justify-content:center;}
+  .sheet{background:var(--surface); border:1px solid var(--border); border-bottom:none;
+    border-radius:18px 18px 0 0; width:100%; max-width:680px; max-height:90vh; overflow-y:auto;
+    padding:18px 16px calc(20px + env(safe-area-inset-bottom));}
+  .sheet h3{margin:2px 0 16px; font-size:17px;}
+  .grab{width:40px; height:4px; border-radius:2px; background:var(--border); margin:0 auto 14px;}
+  .field{margin-bottom:13px;}
+  .field label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; letter-spacing:.04em;}
+  .tiergrid,.rolegrid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px;}
+  .opt{padding:11px 8px; text-align:center; border-radius:10px; background:var(--surface2);
+    border:1px solid var(--border); font-size:13px; font-weight:600;}
+  .opt.on{background:#2a2410; border-color:var(--sand); color:var(--sand);}
+  .opt .o2{display:block; font-size:10px; color:var(--faint); font-weight:500; margin-top:2px;}
+  .opt.on .o2{color:var(--sand); opacity:.8;}
+  .skillrow{display:flex; align-items:center; gap:10px; margin-bottom:9px;}
+  .skillrow .sn{flex:1; font-size:13px;}
+  .stars{display:flex; gap:4px;}
+  .stars button{width:30px; height:30px; border-radius:8px; background:var(--surface2);
+    border:1px solid var(--border); font-size:13px; font-weight:700; color:var(--faint);}
+  .stars button.on{background:var(--sand); color:#1a1205; border-color:transparent;}
+  .toast{position:fixed; bottom:84px; left:50%; transform:translateX(-50%); z-index:80;
+    background:var(--surface2); border:1px solid var(--border); color:var(--text);
+    padding:10px 16px; border-radius:999px; font-size:13px; font-weight:600;
+    box-shadow:0 8px 30px #000a; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none;}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
+  .seg{display:flex; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:3px;}
+  .seg button{flex:1; padding:8px; border-radius:8px; font-size:13px; font-weight:600; color:var(--muted);}
+  .seg button.on{background:var(--sand); color:#1a1205;}
+  .spark{display:block;}
+  .delta{font-weight:700;}
+  .teamcols{}
+
+  /* desktop mode — auto-adapts on wider screens */
+  @media (min-width:900px){
+    body{padding-bottom:0; padding-left:210px;}
+    header{padding-left:226px;}
+    nav{flex-direction:column; top:0; bottom:0; right:auto; width:210px; height:100vh;
+      border-top:none; border-right:1px solid var(--border); justify-content:flex-start;
+      padding:20px 12px; gap:4px; background:rgba(12,13,16,.96);}
+    nav::before{content:'COURT'; display:block; color:var(--sand); font-weight:700;
+      letter-spacing:.18em; font-size:13px; padding:6px 14px 16px;}
+    nav button{flex:none; flex-direction:row; justify-content:flex-start; gap:13px;
+      padding:12px 14px; font-size:14px; width:100%; border-radius:10px;}
+    nav button.active{background:var(--surface2);}
+    nav button svg{width:20px; height:20px;}
+    main{max-width:900px; padding:26px 36px;}
+    .plist{display:grid; grid-template-columns:1fr 1fr; gap:0 14px; align-items:start;}
+    .scrim{align-items:center;}
+    .sheet{max-width:540px; border-radius:18px; border-bottom:1px solid var(--border);
+      max-height:88vh; padding:22px 22px;}
+    .grab{display:none;}
+    .teamcols{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; align-items:start;}
+    .teamcols .teamcol{margin-bottom:0;}
+    .ev button{min-width:60px; padding:11px 6px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <span class="dot"></span>
+    <h1>Court</h1>
+    <span class="sub" id="hideHint"></span>
+  </div>
+</header>
+
+<main id="main"></main>
+
+<nav id="nav">
+  <button data-tab="players" class="active">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14c2.6 0 4.5 1.8 4.5 4.4"/></svg>
+    Players</button>
+  <button data-tab="track">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18M4 8c4 2 12 2 16 0M4 16c4-2 12-2 16 0"/></svg>
+    Track</button>
+  <button data-tab="teams">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 7h4M5 12h4M5 17h4M15 7h4M15 12h4M15 17h4"/></svg>
+    Teams</button>
+  <button data-tab="games">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+    Games</button>
+  <button data-tab="more">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
+    More</button>
+</nav>
+
+<div id="toast" class="toast"></div>
+
+<script>
+/* ============================================================
+   STORAGE  — persists across sessions via window.storage,
+   with an in-memory fallback so it never hard-fails.
+   ============================================================ */
+const Store = (()=>{
+  const mem = {};
+  // Detect localStorage (works in a real browser / home-screen app)
+  let lsOK = false;
+  try { localStorage.setItem('__t','1'); localStorage.removeItem('__t'); lsOK = true; }
+  catch(e){ lsOK = false; }
+  // Detect Claude's cloud storage (works inside the Claude app artifact)
+  const wsOK = (typeof window!=='undefined' && window.storage && typeof window.storage.get==='function');
+
+  async function get(k){
+    if(lsOK){ try{ const v = localStorage.getItem(k); if(v!=null) return v; }catch(e){} }
+    if(wsOK){ try{ const r = await window.storage.get(k); if(r && r.value!=null) return r.value; }catch(e){} }
+    return mem[k] ?? null;
+  }
+  async function set(k,v){
+    mem[k]=v;
+    let saved=false;
+    if(lsOK){ try{ localStorage.setItem(k,v); saved=true; }catch(e){} }
+    if(wsOK){ try{ await window.storage.set(k,v,false); saved=true; }catch(e){} }
+    return saved;
+  }
+  return { get, set, mode: lsOK?'device':(wsOK?'cloud':'memory') };
+})();
+
+/* ============================================================
+   STATE
+   ============================================================ */
+const TIERS = [
+  {k:'Beginner',     seed:12, d:'New, learning'},
+  {k:'Novice',       seed:28, d:'Inconsistent'},
+  {k:'Recreational', seed:43, d:'Can rally'},
+  {k:'Intermediate', seed:58, d:'Reliable'},
+  {k:'Advanced',     seed:73, d:'Strong'},
+  {k:'College',      seed:88, d:'High level'},
+];
+const ROLE_DEFS = [
+  ['setter','Setter'], ['passer','Passer'], ['hitter','Hitter'],
+  ['defense','Defense'], ['blocker','Blocker'], ['beginner','Beginner'],
+];
+const SKILL_DEFS = [
+  ['passing','Passing / receive',25], ['serving','Serving',15], ['setting','Setting',15],
+  ['hitting','Hitting / block',20], ['defense','Defense / move',15], ['iq','IQ / comms',10],
+];
+// event types: k=key, l=label, w=weight, c=color class, common=quick view,
+// grade=part of serve/pass grading trio, detail=only shown in Detailed grading mode
+const EVENTS = [
+  {k:'ace',     l:'Ace',    w:3,    c:'g', common:true, grade:true},
+  {k:'sin',     l:'In',     w:0.5,  c:'g', detail:true, grade:true},
+  {k:'serr',    l:'Srv err',w:-2,   c:'b', grade:true},
+  {k:'goodPass',l:'Pass',   w:1,    c:'g', grade:true},
+  {k:'pget',    l:'Get',    w:0.4,  c:'g', detail:true, grade:true},
+  {k:'perr',    l:'Pass err',w:-1.5,c:'b', common:true, grade:true},
+  {k:'kill',    l:'Kill',   w:2,    c:'g', common:true},
+  {k:'kerr',    l:'Hit err',w:-1.5, c:'b'},
+  {k:'dig',     l:'Dig',    w:1.5,  c:'g', common:true},
+  {k:'block',   l:'Block',  w:2,    c:'g'},
+  {k:'assist',  l:'Set',    w:1,    c:'g'},
+  {k:'fault',   l:'Fault',  w:-1,   c:'b'},
+];
+const EV_MAP = Object.fromEntries(EVENTS.map(e=>[e.k,e]));
+// how events cluster in the live tracker, each group ordered great -> gettable -> error
+const EVENT_GROUPS = [
+  {g:'Serve',   keys:['ace','sin','serr']},
+  {g:'Receive', keys:['goodPass','pget','perr']},
+  {g:'Attack',  keys:['kill','kerr']},
+  {g:'Defense', keys:['dig','block']},
+  {g:'Other',   keys:['assist','fault']},
+];
+
+const DEFAULT_SETTINGS = {
+  teamSize:6, numTeams:2, hideRatings:false, detailed:false,
+  eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12,
+};
+
+let players = [];      // see makePlayer()
+let games = [];        // see makeGame()
+let settings = {...DEFAULT_SETTINGS};
+let live = null;       // in-progress game state
+let tab = 'players';
+
+function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+function zeroEvents(){ const o={}; EVENTS.forEach(e=>o[e.k]=0); return o; }
+function makePlayer(name, seed){
+  return { id:uid(), name:name.trim(), seedRating:seed,
+    rating:seed, gamesPlayed:0, wins:0, losses:0,
+    roles:{}, skills:null, lifetime:zeroEvents(),
+    history:[{i:0,r:seed}], notes:'', active:true };
+}
+
+/* ============================================================
+   LOAD / SAVE
+   ============================================================ */
+async function load(){
+  const p = await Store.get('vb:players'); if(p) players = JSON.parse(p);
+  const g = await Store.get('vb:games');   if(g) games = JSON.parse(g);
+  const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
+  // migrate any missing fields
+  players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
+    if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}]; });
+}
+async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
+async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
+async function saveSettings(){ await Store.set('vb:settings', JSON.stringify(settings)); }
+
+/* ============================================================
+   RATING ENGINE — deterministic replay of all games in order.
+   ============================================================ */
+function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
+function tierOf(r){
+  if(r<=20) return 'Beginner'; if(r<=35) return 'Novice'; if(r<=50) return 'Recreational';
+  if(r<=65) return 'Intermediate'; if(r<=80) return 'Advanced'; return 'College';
+}
+function reliability(p){
+  const gp=p.gamesPlayed, full=settings.confGames;
+  if(gp>=full) return {k:'established', c:'var(--good)'};
+  if(gp < Math.ceil(full/3)) return {k:'new', c:'var(--faint)'};
+  return {k:'settling', c:'var(--sand)'};
+}
+function band(p){
+  const conf=Math.min(1, p.gamesPlayed/settings.confGames);
+  return Math.round((1-conf)*11 + 3);              // ±range, wide when new
+}
+function winProbability(aIds,bIds){
+  const A=aIds.map(pById).filter(Boolean), B=bIds.map(pById).filter(Boolean);
+  if(!A.length||!B.length) return null;
+  const avgA=A.reduce((s,p)=>s+p.rating,0)/A.length;
+  const avgB=B.reduce((s,p)=>s+p.rating,0)/B.length;
+  return 1/(1+Math.pow(10,(avgB-avgA)/settings.eloD));
+}
+function recentDelta(p, n=5){
+  if(!p.history||p.history.length<2) return 0;
+  const cur=p.history[p.history.length-1].r;
+  const back=p.history[Math.max(0, p.history.length-1-n)].r;
+  return cur-back;
+}
+function accuracyStats(){
+  const g=games.filter(x=>x.winner && x.predCorrect!=null);
+  if(!g.length) return null;
+  const right=g.filter(x=>x.predCorrect).length;
+  return {pct:Math.round(right/g.length*100), n:g.length};
+}
+const SIGNALS=[
+  {k:'ace',label:'serving',dir:1},{k:'kill',label:'hitting',dir:1},
+  {k:'dig',label:'defense',dir:1},{k:'block',label:'blocking',dir:1},
+  {k:'assist',label:'setting',dir:1},{k:'goodPass',label:'passing',dir:1},
+  {k:'serr',label:'serving',dir:-1},{k:'kerr',label:'hitting',dir:-1},{k:'perr',label:'passing',dir:-1},
+];
+function analyze(p){
+  if(p.gamesPlayed<3) return null;
+  const peers=players.filter(x=>x.gamesPlayed>=1);
+  if(peers.length<3) return null;
+  const rate=(pl,k)=>(pl.lifetime[k]||0)/Math.max(1,pl.gamesPlayed);
+  function st(k){ const v=peers.map(x=>rate(x,k)); const m=v.reduce((s,x)=>s+x,0)/v.length;
+    const sd=Math.sqrt(v.reduce((s,x)=>s+(x-m)*(x-m),0)/v.length)||1e-6; return {m,sd}; }
+  let str=null,strZ=0.6, weak=null,weakZ=0.6;
+  SIGNALS.forEach(sig=>{
+    const {m,sd}=st(sig.k); const z=(rate(p,sig.k)-m)/sd;
+    if(sig.dir===1){
+      if(z>strZ){ strZ=z; str=sig.label; }
+      if(-z>weakZ){ weakZ=-z; weak=sig.label; }
+    } else {
+      if(z>weakZ){ weakZ=z; weak=sig.label+' errors'; }
+    }
+  });
+  if(!str && !weak) return null;
+  return {strength:str, weakness:weak};
+}
+function trendChart(hist){
+  if(!hist||hist.length<2) return '<div class="tiny faint" style="padding:8px 0">Play a few games to see a trend line.</div>';
+  const w=300,h=80,padX=4,padY=10;
+  const rs=hist.map(x=>x.r); const mn=Math.min(...rs),mx=Math.max(...rs),rng=(mx-mn)||1;
+  const X=i=>padX+(i/(hist.length-1))*(w-2*padX);
+  const Y=r=>h-padY-((r-mn)/rng)*(h-2*padY);
+  const line=hist.map((x,i)=>`${X(i).toFixed(1)},${Y(x.r).toFixed(1)}`).join(' ');
+  const up=rs[rs.length-1]>=rs[0]; const col=up?'var(--good)':'var(--bad)';
+  const area=`${padX},${(h-padY).toFixed(1)} ${line} ${(w-padX).toFixed(1)},${(h-padY).toFixed(1)}`;
+  return `<div class="row spread tiny faint" style="margin-bottom:2px"><span>high ${mx}</span><span>now ${rs[rs.length-1]}</span></div>
+  <svg width="100%" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="display:block;height:80px">
+    <polygon points="${area}" fill="${col}" opacity="0.10"/>
+    <polyline points="${line}" fill="none" stroke="${col}" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+  </svg>`;
+}
+function pById(id){ return players.find(p=>p.id===id); }
+function rawPerf(counts){ let s=0; for(const k in counts) s += (EV_MAP[k]?.w||0)*counts[k]; return s; }
+
+function recomputeAll(){
+  players.forEach(p=>{
+    p.rating = p.seedRating; p.gamesPlayed=0; p.wins=0; p.losses=0;
+    p.lifetime = zeroEvents(); p.history = [{i:0, r:Math.round(p.seedRating)}];
+  });
+  const done = games.filter(g=>g.winner || g.solo).slice().sort((a,b)=>a.date-b.date);
+  done.forEach(g=>applyGame(g));
+  players.forEach(p=>p.rating = clamp(p.rating,0,100));
+}
+
+function applyGame(g){
+  if(g.solo){ applySolo(g); return; }
+  const A = g.teamA.map(pById).filter(Boolean);
+  const B = g.teamB.map(pById).filter(Boolean);
+  g.deltas = {};
+  if(!A.length || !B.length) return;
+  const avgA = A.reduce((s,p)=>s+p.rating,0)/A.length;
+  const avgB = B.reduce((s,p)=>s+p.rating,0)/B.length;
+  const expA = 1/(1+Math.pow(10,(avgB-avgA)/settings.eloD));
+  g.winProb = expA;                                  // pre-game chance for team A
+  g.predCorrect = (Math.abs(expA-0.5)<0.02) ? null : ((expA>0.5) === (g.winner==='A'));
+  // margin-aware actual score (capped so blowouts don't over-swing)
+  let actA;
+  if(g.scoreA+g.scoreB>0){ actA = clamp(g.scoreA/(g.scoreA+g.scoreB), 0.2, 0.8); }
+  else actA = g.winner==='A'?1:0;
+
+  // per-game event raw perf, and the game average (self-normalises intensity)
+  const all = [...A,...B];
+  const perf = {};
+  all.forEach(p=>{ perf[p.id] = rawPerf((g.log&&g.log[p.id]) || {}); });
+  const anyEvents = Object.values(perf).some(v=>v!==0);
+  const avgPerf = anyEvents ? Object.values(perf).reduce((s,v)=>s+v,0)/all.length : 0;
+
+  function upd(p, isA){
+    const before = p.rating;
+    const conf = Math.min(1, p.gamesPlayed/settings.confGames);
+    const vol = 1.3 - conf;                       // new players move faster
+    const act = isA ? actA : (1-actA);
+    const exp = isA ? expA : (1-expA);
+    const eloD = clamp(settings.eloK*(act-exp)*vol, -settings.maxElo, settings.maxElo);
+    const evD  = anyEvents ? clamp((perf[p.id]-avgPerf)*settings.eventK*vol, -settings.maxEvent, settings.maxEvent) : 0;
+    p.rating = clamp(p.rating + eloD + evD, 0, 100);
+    p.gamesPlayed++;
+    if((isA&&g.winner==='A')||(!isA&&g.winner==='B')) p.wins++; else p.losses++;
+    const c = (g.log&&g.log[p.id])||{}; for(const k in c) p.lifetime[k]=(p.lifetime[k]||0)+c[k];
+    p.history.push({i:p.gamesPlayed, r:Math.round(p.rating)});
+    g.deltas[p.id] = {before:Math.round(before), after:Math.round(p.rating), elo:eloD, ev:evD};
+  }
+  A.forEach(p=>upd(p,true)); B.forEach(p=>upd(p,false));
+}
+
+// Solo (scout) game: one player, unknown opponent. Rating moves only from their
+// own production vs the group's typical output, gently. Result is recorded for
+// the W/L tally but never run through Elo.
+function applySolo(g){
+  g.deltas = {}; g.winProb = null; g.predCorrect = null;
+  const p = pById(g.teamA[0]); if(!p) return;
+  const perf = rawPerf((g.log&&g.log[p.id]) || {});
+  const peers = players.filter(x=>x.gamesPlayed>=1 && x.id!==p.id);
+  let baseline = 0;
+  if(peers.length){
+    baseline = peers.reduce((s,x)=> s + rawPerf(x.lifetime)/Math.max(1,x.gamesPlayed), 0)/peers.length;
+  }
+  const before = p.rating;
+  const conf = Math.min(1, p.gamesPlayed/settings.confGames);
+  const vol = 1.3 - conf;
+  const evD = clamp((perf-baseline)*settings.eventK*vol*0.7, -settings.maxEvent, settings.maxEvent);
+  p.rating = clamp(p.rating + evD, 0, 100);
+  p.gamesPlayed++;
+  if(g.winner==='A') p.wins++; else if(g.winner==='B') p.losses++;
+  const c = (g.log&&g.log[p.id])||{}; for(const k in c) p.lifetime[k]=(p.lifetime[k]||0)+c[k];
+  p.history.push({i:p.gamesPlayed, r:Math.round(p.rating)});
+  g.deltas[p.id] = {before:Math.round(before), after:Math.round(p.rating), elo:0, ev:evD};
+}
+
+async function commit(){ recomputeAll(); await savePlayers(); await saveGames(); }
+
+/* ============================================================
+   TEAM BALANCER
+   ============================================================ */
+function balance(pool, numTeams){
+  const sorted = pool.slice().sort((a,b)=>b.rating-a.rating);
+  const teams = Array.from({length:numTeams},()=>[]);
+  // snake (serpentine) draft -> near-equal team SIZES and rough balance
+  let i=0, d=1;
+  sorted.forEach(p=>{
+    teams[i].push(p);
+    i+=d;
+    if(i===numTeams){ i=numTeams-1; d=-1; }
+    else if(i<0){ i=0; d=1; }
+  });
+  // size-preserving swaps to minimise the gap between team AVERAGES
+  const avg = t => t.length ? t.reduce((s,p)=>s+p.rating,0)/t.length : 0;
+  for(let pass=0; pass<80; pass++){
+    let best=null, bestGain=0.05;
+    for(let a=0;a<numTeams;a++) for(let b=a+1;b<numTeams;b++){
+      const sumA=teams[a].reduce((s,p)=>s+p.rating,0), sumB=teams[b].reduce((s,p)=>s+p.rating,0);
+      const cur=Math.abs(sumA/teams[a].length - sumB/teams[b].length);
+      for(const pa of teams[a]) for(const pb of teams[b]){
+        const na=(sumA-pa.rating+pb.rating)/teams[a].length;
+        const nb=(sumB-pb.rating+pa.rating)/teams[b].length;
+        const gain=cur-Math.abs(na-nb);
+        if(gain>bestGain){ bestGain=gain; best={a,b,pa,pb}; }
+      }
+    }
+    if(!best) break;
+    teams[best.a]=teams[best.a].filter(p=>p!==best.pa).concat(best.pb);
+    teams[best.b]=teams[best.b].filter(p=>p!==best.pb).concat(best.pa);
+  }
+  spreadRole(teams,'setter');
+  spreadRole(teams,'passer');
+  spreadRole(teams,'beginner');
+  return teams;
+}
+// Even out how many players with a given role land on each team, swapping with
+// the closest-rating player who lacks the role so the rating balance barely moves.
+function spreadRole(teams, key){
+  const n=teams.length;
+  for(let guard=0; guard<50; guard++){
+    const counts=teams.map(t=>t.filter(p=>p.roles[key]).length);
+    let hi=0, lo=0;
+    for(let i=1;i<n;i++){ if(counts[i]>counts[hi]) hi=i; if(counts[i]<counts[lo]) lo=i; }
+    if(counts[hi]-counts[lo] <= 1) break;
+    const give = teams[hi].filter(p=>p.roles[key]).sort((a,b)=>a.rating-b.rating)[0];
+    const take = teams[lo].filter(p=>!p.roles[key]).sort((a,b)=>Math.abs(a.rating-give.rating)-Math.abs(b.rating-give.rating))[0];
+    if(!give || !take) break;
+    teams[hi]=teams[hi].filter(p=>p!==give).concat(take);
+    teams[lo]=teams[lo].filter(p=>p!==take).concat(give);
+  }
+}
+
+/* ============================================================
+   UI HELPERS
+   ============================================================ */
+const $ = (s,r=document)=>r.querySelector(s);
+const main = $('#main');
+function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function showRate(r){ return settings.hideRatings ? '••' : Math.round(r); }
+let toastT;
+function toast(msg){
+  const t=$('#toast'); t.textContent=msg; t.classList.add('show');
+  clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),1600);
+}
+function ratingColor(){ return 'var(--sand)'; }
+function sparkline(hist){
+  if(!hist||hist.length<2) return '';
+  const w=84,h=24,pad=2; const rs=hist.map(p=>p.r);
+  const mn=Math.min(...rs), mx=Math.max(...rs); const rng=(mx-mn)||1;
+  const pts=hist.map((p,i)=>{
+    const x=pad+(i/(hist.length-1))*(w-2*pad);
+    const y=h-pad-((p.r-mn)/rng)*(h-2*pad);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  const up = rs[rs.length-1]>=rs[0];
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="${up?'var(--good)':'var(--bad)'}" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/></svg>`;
+}
+
+/* ============================================================
+   RENDER — router
+   ============================================================ */
+function render(){
+  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
+  $('#hideHint').textContent = settings.hideRatings ? 'ratings hidden' : '';
+  if(tab==='players') renderPlayers();
+  else if(tab==='track') renderTrack();
+  else if(tab==='teams') renderTeams();
+  else if(tab==='games') renderGames();
+  else renderMore();
+  window.scrollTo(0,0);
+}
+
+/* ---------- PLAYERS ---------- */
+function renderPlayers(){
+  const sorted = players.slice().sort((a,b)=>b.rating-a.rating);
+  let html = `<h2 class="view">Roster · ${players.length}</h2>
+    <button class="btn primary block" onclick="openPlayer()">+ Add player</button>`;
+  if(!players.length){
+    html += `<div class="empty"><b>No players yet</b>Add everyone in your group, then track games or build balanced teams. Seed each person with a rough tier — the ratings self-correct as they play.</div>`;
+  } else {
+    if(!settings.hideRatings){
+      const movers = players.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d);
+      if(movers.length){
+        html += `<div class="card" style="border-color:#2c3a30;margin-top:12px">
+          <div class="small" style="font-weight:700;color:var(--good)">▲ Most improved</div>
+          ${movers.slice(0,3).map(m=>`<div class="row spread" style="margin-top:7px"><span class="small">${esc(m.p.name)}</span><span class="num small" style="color:var(--good);font-weight:700">+${m.d} over last 5</span></div>`).join('')}
+        </div>`;
+      }
+    }
+    html += `<div class="plist" style="margin-top:12px">`;
+    sorted.forEach(p=>{
+      const rel = reliability(p);
+      const rd = recentDelta(p);
+      const arrow = (p.gamesPlayed>=2 && Math.abs(rd)>=1 && !settings.hideRatings)
+        ? `<div class="tiny num delta" style="color:${rd>0?'var(--good)':'var(--bad)'}">${rd>0?'▲':'▼'}${Math.abs(rd)}</div>` : '';
+      const roles = ROLE_DEFS.filter(([k])=>p.roles[k]).map(([k,l])=>`<span class="pill">${l}</span>`).join('');
+      const sub = p.gamesPlayed
+        ? `${tierOf(p.rating)} · ${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
+        : `${tierOf(p.rating)} · <span style="color:${rel.c}">new</span>`;
+      html += `<div class="card" onclick="openPlayer('${p.id}')">
+        <div class="row spread">
+          <div style="min-width:0">
+            <div class="row" style="gap:8px">
+              <span style="font-weight:700;font-size:16px">${esc(p.name)}</span>
+            </div>
+            <div class="small muted" style="margin-top:3px">${sub}</div>
+          </div>
+          <div style="text-align:right">
+            <div class="rate num" style="color:${ratingColor()}">${showRate(p.rating)}</div>
+            ${arrow}
+            ${settings.hideRatings?'':sparkline(p.history)}
+          </div>
+        </div>
+        ${settings.hideRatings?'':`<div class="bar"><i style="width:${p.rating}%"></i></div>`}
+        ${roles?`<div class="roles">${roles}</div>`:''}
+      </div>`;
+    });
+    html += `</div>`;
+  }
+  main.innerHTML = html;
+}
+
+/* ---------- TRACK ---------- */
+function renderTrack(){
+  if(!live){ renderTrackSetup(); return; }
+  const A = (live.teamA||[]).map(pById).filter(Boolean);
+  const B = (live.teamB||[]).map(pById).filter(Boolean);
+  const pg = id => rawPerf(live.log[id]||{});
+  function evBtns(p, keys){
+    return keys.map(k=>{ const e=EV_MAP[k]; const c=(live.log[p.id]||{})[k]||0;
+      return `<button class="${e.c}" onclick="logEv('${p.id}','${k}')">${e.l}${c?`<span class="cnt">${c}</span>`:''}</button>`;
+    }).join('');
+  }
+  function prow(p){
+    const v = pg(p.id);
+    const cls = v>0?'pos':(v<0?'neg':'');
+    const exp = live.expanded[p.id];
+    const vis = e=>{
+      if(e.detail && !settings.detailed) return false;
+      if(exp) return true;
+      return settings.detailed ? (e.common||e.grade) : e.common;
+    };
+    const grouped = settings.detailed || exp;   // labeled groups when there's a lot to show
+    let evHtml;
+    if(grouped){
+      evHtml = EVENT_GROUPS.map(grp=>{
+        const ks = grp.keys.filter(k=> vis(EV_MAP[k]));
+        if(!ks.length) return '';
+        return `<div class="evrow"><span class="evlbl">${grp.g}</span><div class="ev">${evBtns(p,ks)}</div></div>`;
+      }).join('');
+    } else {
+      const ks = EVENTS.filter(vis).map(e=>e.k);
+      evHtml = `<div class="ev">${evBtns(p,ks)}</div>`;
+    }
+    return `<div class="prow">
+      <div class="top">
+        <span class="nm">${esc(p.name)}</span>
+        <span class="gpts ${cls} num">${v>0?'+':''}${v}</span>
+      </div>
+      ${live.quick?'':`${evHtml}
+      <span class="expand" onclick="toggleExpand('${p.id}')">${exp?'− fewer':'+ more events'}</span>`}
+    </div>`;
+  }
+  if(live.solo){
+    const p=pById(live.player);
+    main.innerHTML = `
+      <h2 class="view">Solo tracking</h2>
+      <div class="tiny faint" style="text-align:center;margin:-6px 0 12px">Unknown opponent — only ${esc(p?p.name:'this player')}'s own stats affect their rating.</div>
+      <div class="row" style="gap:8px;margin-bottom:8px">
+        <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled style=opacity:.4'}>↶ Undo</button>
+        <button class="btn sm ghost" style="margin-left:auto;color:var(--muted)" onclick="cancelGame()">Discard</button>
+      </div>
+      ${p?prow(p):'<div class="empty">Player not found.</div>'}
+      <div class="card">
+        <div class="small muted" style="margin-bottom:8px">Result (optional)</div>
+        <div class="seg">
+          <button class="${live.result==='W'?'on':''}" onclick="setSoloResult('W')">Won</button>
+          <button class="${live.result==='L'?'on':''}" onclick="setSoloResult('L')">Lost</button>
+          <button class="${live.result==null?'on':''}" onclick="setSoloResult(null)">No result</button>
+        </div>
+      </div>
+      <button class="btn primary block" style="margin-top:6px" onclick="finishSolo()">Save & update rating</button>
+      <p class="tiny faint" style="text-align:center;margin-top:10px">Won/Lost is saved to their record but doesn't move the rating, since the opponent is unknown.</p>
+    `;
+    return;
+  }
+  main.innerHTML = `
+    <h2 class="view">Live game</h2>
+    <div class="scorebar">
+      <div class="scorebox A">
+        <div class="lbl">Team A</div>
+        <div class="pts num">${live.scoreA}</div>
+        <div class="stepper"><button onclick="score('A',-1)">−</button><button onclick="score('A',1)">+</button></div>
+      </div>
+      <div class="scorebox B">
+        <div class="lbl">Team B</div>
+        <div class="pts num">${live.scoreB}</div>
+        <div class="stepper"><button onclick="score('B',-1)">−</button><button onclick="score('B',1)">+</button></div>
+      </div>
+    </div>
+    ${(!settings.hideRatings && live.winProb!=null)?`<div class="tiny faint" style="text-align:center;margin:-4px 0 8px">Pre-game: Team A ${Math.round(live.winProb*100)}% · Team B ${Math.round((1-live.winProb)*100)}%</div>`:''}
+    <div class="row" style="gap:8px;margin-bottom:4px">
+      <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled style=opacity:.4'}>↶ Undo</button>
+      <button class="btn sm ghost" onclick="toggleQuick()" style="color:${live.quick?'var(--sand)':'var(--muted)'}">${live.quick?'Quick: on':'Quick: off'}</button>
+      <button class="btn sm ghost" style="margin-left:auto;color:var(--muted)" onclick="cancelGame()">Discard</button>
+    </div>
+    <div class="teamhdr A">Team A</div>
+    ${A.map(prow).join('')}
+    <div class="teamhdr B">Team B</div>
+    ${B.map(prow).join('')}
+    <button class="btn primary block" style="margin-top:14px" onclick="finishGame()">Save game & update ratings</button>
+    <p class="tiny faint" style="text-align:center;margin-top:10px">Score decides the win; events fine-tune who carried it. Flip Quick on to log score only.</p>
+  `;
+}
+function renderTrackSetup(){
+  const act = players.filter(p=>p.active);
+  if(act.length<1){
+    main.innerHTML = `<h2 class="view">Track a game</h2>
+      <div class="empty"><b>Add players first</b>Add at least one player to your roster to start tracking.</div>`;
+    return;
+  }
+  if(!window._trackMode) window._trackMode='match';
+  const mode=window._trackMode;
+  const modeSeg = `<div class="seg" style="margin-bottom:12px">
+    <button class="${mode==='match'?'on':''}" onclick="setTrackMode('match')">Match</button>
+    <button class="${mode==='solo'?'on':''}" onclick="setTrackMode('solo')">Solo</button>
+  </div>`;
+  if(mode==='solo'){
+    if(!window._soloPick || !pById(window._soloPick)) window._soloPick=null;
+    const pick=window._soloPick;
+    const schip=p=>`<button class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:var(--sand);color:var(--sand);background:#2a2410':''}" onclick="pickSolo('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
+    main.innerHTML = `
+      <h2 class="view">Track a game</h2>
+      ${modeSeg}
+      <div class="card">
+        <div class="small muted" style="margin-bottom:10px">Watching one player somewhere else? Pick them and track just their game. The opponent stays unknown, so only their own stats nudge the rating.</div>
+        <div class="chips">${act.map(schip).join('')}</div>
+      </div>
+      <button class="btn primary block" onclick="startSolo()" ${pick?'':'disabled style=opacity:.4'}>Start solo tracking</button>
+    `;
+    return;
+  }
+  if(!window._sel) window._sel = {A:new Set(), B:new Set()};
+  const sel = window._sel;
+  function chip(p){
+    const inA=sel.A.has(p.id), inB=sel.B.has(p.id);
+    const state = inA?'A':inB?'B':'';
+    const bg = inA?'var(--teamA)':inB?'var(--teamB)':'';
+    return `<button class="chip ${state?'on':''}" style="${state?`border-color:${bg};color:${bg};background:${bg}1f`:''}"
+      onclick="cycleSel('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span>${state?` · ${state}`:''}</button>`;
+  }
+  main.innerHTML = `
+    <h2 class="view">Track a game</h2>
+    ${modeSeg}
+    <div class="card">
+      <div class="small muted" style="margin-bottom:10px">Tap a player once for <b style="color:var(--teamA)">Team A</b>, twice for <b style="color:var(--teamB)">Team B</b>, again to clear.</div>
+      <div class="chips">${act.map(chip).join('')}</div>
+    </div>
+    <div class="row small muted spread" style="padding:0 4px 10px">
+      <span>A: ${sel.A.size} · avg ${avgSel(sel.A)}</span>
+      <span>B: ${sel.B.size} · avg ${avgSel(sel.B)}</span>
+    </div>
+    ${(sel.A.size&&sel.B.size&&!settings.hideRatings)?(()=>{const wp=winProbability([...sel.A],[...sel.B]);return `<div class="card" style="text-align:center;padding:12px"><span class="small muted">Win chance</span><div class="num" style="font-weight:800;margin-top:4px;font-size:17px"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> &nbsp; <span class="faint" style="font-weight:600">vs</span> &nbsp; <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></div></div>`;})():''}
+    <button class="btn primary block" onclick="startGame()" ${sel.A.size&&sel.B.size?'':'disabled style=opacity:.4'}>Start tracking</button>
+  `;
+}
+window.setTrackMode=(m)=>{ window._trackMode=m; renderTrack(); };
+window.pickSolo=(id)=>{ window._soloPick = (window._soloPick===id)?null:id; renderTrack(); };
+window.startSolo=()=>{
+  if(!window._soloPick) return;
+  live = { solo:true, player:window._soloPick, log:{}, undo:[], expanded:{}, result:null };
+  render();
+};
+window.setSoloResult=(r)=>{ live.result=r; renderTrack(); };
+window.finishSolo=async()=>{
+  const winner = live.result==='W'?'A':live.result==='L'?'B':null;
+  const gid=uid();
+  games.push({ id:gid, date:Date.now(), solo:true, teamA:[live.player], teamB:[], scoreA:0, scoreB:0, winner, log:live.log });
+  await commit();
+  live=null;
+  showRecap(gid);
+};
+function avgSel(set){
+  if(!set.size) return '–';
+  let s=0; set.forEach(id=>s+=pById(id).rating); return showRate(s/set.size);
+}
+window.cycleSel=(id)=>{
+  const s=window._sel;
+  if(s.A.has(id)){ s.A.delete(id); s.B.add(id); }
+  else if(s.B.has(id)){ s.B.delete(id); }
+  else s.A.add(id);
+  renderTrack();
+};
+window.startGame=()=>{
+  const s=window._sel;
+  live = { teamA:[...s.A], teamB:[...s.B], scoreA:0, scoreB:0,
+    log:{}, undo:[], expanded:{}, quick:false, winProb: winProbability([...s.A],[...s.B]) };
+  render();
+};
+window.score=(t,d)=>{ live['score'+t]=Math.max(0, live['score'+t]+d); renderTrack(); };
+window.logEv=(pid,k)=>{
+  if(!live.log[pid]) live.log[pid]={};
+  live.log[pid][k]=(live.log[pid][k]||0)+1;
+  live.undo.push([pid,k]);
+  if(navigator.vibrate) navigator.vibrate(8);
+  renderTrack();
+};
+window.undoEv=()=>{
+  const last=live.undo.pop(); if(!last) return;
+  const [pid,k]=last; live.log[pid][k]--; if(live.log[pid][k]<=0) delete live.log[pid][k];
+  renderTrack();
+};
+window.toggleExpand=(pid)=>{ live.expanded[pid]=!live.expanded[pid]; renderTrack(); };
+window.toggleQuick=()=>{ live.quick=!live.quick; renderTrack(); };
+window.cancelGame=async()=>{ if(await askConfirm('Discard this game without saving?','Discard')){ live=null; render(); } };
+window.finishGame=async()=>{
+  if(live.scoreA===live.scoreB){
+    if(!(await askConfirm('Scores are tied, so no winner is recorded and the result won\'t change ratings. Save anyway?','Save anyway',false))){return;}
+  }
+  const winner = live.scoreA>live.scoreB?'A':(live.scoreB>live.scoreA?'B':null);
+  const gid=uid();
+  games.push({ id:gid, date:Date.now(), teamA:live.teamA, teamB:live.teamB,
+    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log });
+  await commit();
+  live=null; window._sel={A:new Set(),B:new Set()};
+  showRecap(gid);
+};
+function showRecap(gid){
+  const g=games.find(x=>x.id===gid);
+  if(!g){ tab='players'; render(); return; }
+  if(g.solo){
+    const p=pById(g.teamA[0]); const d=g.deltas&&g.deltas[g.teamA[0]];
+    const net=d?d.after-d.before:0; const col=net>0?'var(--good)':net<0?'var(--bad)':'var(--faint)';
+    openSheet(`<h3>Solo · ${esc(p?p.name:'player')}</h3>
+      ${g.winner?`<p class="small muted" style="margin:-8px 0 12px">Recorded as a ${g.winner==='A'?'win':'loss'} (rating not affected by the result).</p>`:`<p class="small muted" style="margin:-8px 0 12px">No result recorded.</p>`}
+      <div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border)">
+        <span class="small">${esc(p?p.name:'player')}</span>
+        <span class="num small">${d?`<span class="faint">${d.before} → ${d.after}</span> &nbsp; <b style="color:${col}">${net>0?'+':''}${net}</b>`:'—'}</span>
+      </div>
+      <div class="tiny faint" style="margin-top:10px">From events: ${formatLog(g.log[g.teamA[0]])||'none logged'}</div>
+      <button class="btn primary block" style="margin-top:12px" onclick="closeRecap()">Done</button>`);
+    return;
+  }
+  const wlabel = g.winner==='A'?'Team A':g.winner==='B'?'Team B':'Nobody';
+  let probLine='';
+  if(g.winProb!=null && !settings.hideRatings && g.winner){
+    const favProb=Math.round((g.winner==='A'?g.winProb:1-g.winProb)*100);
+    const tail = g.predCorrect===false?' — upset!':g.predCorrect?' — called it.':'';
+    probLine=`Court gave ${wlabel} a ${favProb}% chance${tail}`;
+  }
+  const rows=(ids)=>ids.map(id=>{ const p=pById(id); const d=g.deltas&&g.deltas[id]; if(!p||!d) return '';
+    const net=d.after-d.before; const col=net>0?'var(--good)':net<0?'var(--bad)':'var(--faint)';
+    return `<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border)">
+      <span class="small">${esc(p.name)}</span>
+      <span class="num small"><span class="faint">${d.before} → ${d.after}</span> &nbsp; <b style="color:${col}">${net>0?'+':''}${net}</b></span>
+    </div>`;}).join('');
+  openSheet(`<h3>${wlabel} won ${g.scoreA}–${g.scoreB}</h3>
+    ${probLine?`<p class="small muted" style="margin:-8px 0 14px">${probLine}</p>`:''}
+    <div class="teamhdr A" style="margin-top:0">Team A</div>${rows(g.teamA)}
+    <div class="teamhdr B">Team B</div>${rows(g.teamB)}
+    <p class="tiny faint" style="margin-top:12px">Open a player to see the full breakdown of why their number moved.</p>
+    <button class="btn primary block" style="margin-top:8px" onclick="closeRecap()">Done</button>`);
+}
+window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
+
+/* ---------- TEAMS ---------- */
+function renderTeams(){
+  const act = players.filter(p=>p.active);
+  if(!window._pool) window._pool = new Set(act.map(p=>p.id));
+  const pool = window._pool;
+  function chip(p){
+    const on=pool.has(p.id);
+    return `<button class="chip ${on?'on':''}" onclick="togglePool('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
+  }
+  let html = `<h2 class="view">Make even teams</h2>
+    <div class="card">
+      <div class="row spread" style="margin-bottom:6px">
+        <span class="small muted">Who's here today? (${pool.size} selected)</span>
+        <button class="btn sm ghost" onclick="poolAll()">All</button>
+      </div>
+      <div class="chips">${act.map(chip).join('')}</div>
+    </div>
+    <div class="card">
+      <div class="field" style="margin-bottom:0">
+        <label>Number of teams</label>
+        <div class="seg">
+          ${[2,3,4,5,6].map(n=>`<button class="${settings.numTeams===n?'on':''}" onclick="setTeams(${n})">${n}</button>`).join('')}
+        </div>
+      </div>
+    </div>
+    <button class="btn primary block" onclick="genTeams()" ${pool.size>=settings.numTeams?'':'disabled style=opacity:.4'}>Generate balanced teams</button>`;
+
+  if(window._teams){
+    const labels=['A','B','C','D','E','F','G','H'];
+    html += `<div style="margin-top:16px"><div class="teamcols">`;
+    window._teams.forEach((t,i)=>{
+      const tot=t.reduce((s,p)=>s+p.rating,0);
+      const avg= t.length? tot/t.length:0;
+      const hasSetter=t.some(p=>p.roles.setter);
+      const hasPasser=t.some(p=>p.roles.passer);
+      html += `<div class="teamcol">
+        <div class="hd"><span class="t">Team ${labels[i]}</span>
+          <span class="avg num">avg ${showRate(avg)} · total ${settings.hideRatings?'••':Math.round(tot)}</span></div>
+        ${t.sort((a,b)=>b.rating-a.rating).map(p=>`<div class="member">
+            <span class="nm">${esc(p.name)}</span>
+            ${ROLE_DEFS.filter(([k])=>p.roles[k]).slice(0,2).map(([k,l])=>`<span class="pill">${l}</span>`).join('')}
+            <span class="num muted" style="font-weight:700">${showRate(p.rating)}</span>
+            <button class="mv" onclick="movePlayer('${p.id}',${i})">Move ▸</button>
+          </div>`).join('')}
+        ${!hasSetter?'<div class="warn">No setter on this team</div>':''}
+        ${!hasPasser&&t.length>2?'<div class="warn" style="color:var(--muted)">No strong passer tagged</div>':''}
+      </div>`;
+    });
+    html += `</div>`;
+    const avgs=window._teams.map(t=> t.length? t.reduce((s,p)=>s+p.rating,0)/t.length : 0);
+    const spread=Math.round(Math.max(...avgs)-Math.min(...avgs));
+    if(window._teams.length===2 && !settings.hideRatings){
+      const wp=winProbability(window._teams[0].map(p=>p.id), window._teams[1].map(p=>p.id));
+      html += `<div class="card row spread"><span class="small muted">Predicted win chance</span>
+        <span class="num small" style="font-weight:700"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> · <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></span></div>`;
+    }
+    html += `<div class="card row spread"><span class="small muted">Avg rating gap between teams</span>
+      <span class="num" style="font-weight:800;color:${spread<=4?'var(--good)':spread<=9?'var(--sand)':'var(--bad)'}">${settings.hideRatings?'••':spread}</span></div>`;
+    if(window._teams.length===2){
+      html += `<button class="btn block" onclick="trackTheseTeams()">Track this matchup ▸</button>`;
+    }
+    html += `<button class="btn ghost block" style="margin-top:8px" onclick="genTeams()">Shuffle again</button></div>`;
+  }
+  main.innerHTML = html;
+}
+window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._pool.add(id); window._teams=null; renderTeams(); };
+window.poolAll=()=>{ window._pool=new Set(players.filter(p=>p.active).map(p=>p.id)); window._teams=null; renderTeams(); };
+window.setTeams=(n)=>{ settings.numTeams=n; saveSettings(); window._teams=null; renderTeams(); };
+window.genTeams=()=>{
+  const pool=players.filter(p=>window._pool.has(p.id));
+  window._teams=balance(pool, settings.numTeams);
+  renderTeams();
+};
+window.movePlayer=(id, from)=>{
+  const n=window._teams.length;
+  const to=(from+1)%n;
+  const p=window._teams[from].find(x=>x.id===id);
+  window._teams[from]=window._teams[from].filter(x=>x.id!==id);
+  window._teams[to].push(p);
+  renderTeams();
+};
+window.trackTheseTeams=()=>{
+  window._sel={A:new Set(window._teams[0].map(p=>p.id)), B:new Set(window._teams[1].map(p=>p.id))};
+  tab='track'; render();
+};
+
+/* ---------- GAMES ---------- */
+function renderGames(){
+  let html=`<h2 class="view">Game history · ${games.length}</h2>`;
+  if(!games.length){
+    html+=`<div class="empty"><b>No games yet</b>Track a game from the Track tab. Each saved game updates everyone's rating automatically.</div>`;
+  } else {
+    const sorted=games.slice().sort((a,b)=>b.date-a.date);
+    sorted.forEach(g=>{
+      const d=new Date(g.date);
+      if(g.solo){
+        const nm=pById(g.teamA[0])?.name||'player';
+        html+=`<div class="ghist" onclick="viewGame('${g.id}')">
+          <div style="flex:1;min-width:0">
+            <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)} <span class="pill" style="margin-left:4px">solo</span></div>
+            <div class="tiny faint">${g.winner?(g.winner==='A'?'won':'lost'):'no result'}</div>
+          </div>
+          <div style="text-align:right"><div class="tiny faint">${d.getMonth()+1}/${d.getDate()}</div></div>
+        </div>`;
+        return;
+      }
+      const an=g.teamA.map(id=>pById(id)?.name).filter(Boolean);
+      const bn=g.teamB.map(id=>pById(id)?.name).filter(Boolean);
+      html+=`<div class="ghist" onclick="viewGame('${g.id}')">
+        <div style="flex:1;min-width:0">
+          <div class="small ${g.winner==='A'?'win':''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(an.join(', '))}</div>
+          <div class="small ${g.winner==='B'?'win':''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(bn.join(', '))}</div>
+        </div>
+        <div style="text-align:right">
+          <div class="sc num">${g.scoreA} – ${g.scoreB}</div>
+          <div class="tiny faint">${d.getMonth()+1}/${d.getDate()}</div>
+        </div>
+      </div>`;
+    });
+  }
+  main.innerHTML=html;
+}
+window.viewGame=(id)=>{
+  const g=games.find(x=>x.id===id); if(!g) return;
+  if(g.solo){
+    const p=pById(g.teamA[0]); const d=g.deltas&&g.deltas[g.teamA[0]];
+    openSheet(`<h3>Solo · ${esc(p?p.name:'player')}</h3>
+      <p class="small muted" style="margin:-8px 0 12px">${g.winner?`Recorded ${g.winner==='A'?'win':'loss'} · rating unaffected by result`:'No result recorded'}</p>
+      <div class="row spread" style="padding:7px 0">
+        <span class="small" style="min-width:0">${esc(p?p.name:'player')}<div class="tiny faint">${formatLog(g.log[g.teamA[0]])||'no events'}</div></span>
+        <span style="text-align:right;white-space:nowrap">${d?`<div class="num small"><span class="faint">${d.before}→${d.after}</span></div><div class="tiny" style="color:var(--muted)">${whyMoved(d)}</div>`:'—'}</span>
+      </div>
+      <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>`);
+    return;
+  }
+  const probLine=(g.winProb!=null&&!settings.hideRatings&&g.winner)
+    ? `<p class="small muted" style="margin:-8px 0 12px">Pre-game: Team A ${Math.round(g.winProb*100)}% · Team B ${Math.round((1-g.winProb)*100)}%${g.predCorrect===false?' · upset':g.predCorrect?' · predicted':''}</p>` : '';
+  const list=(ids)=>ids.map(i=>{const p=pById(i); if(!p) return ''; const d=g.deltas&&g.deltas[i];
+    return `<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border)">
+      <span class="small" style="min-width:0">${esc(p.name)}<div class="tiny faint">${formatLog(g.log[i])||'no events'}</div></span>
+      <span style="text-align:right;white-space:nowrap">${d?`<div class="num small"><span class="faint">${d.before}→${d.after}</span></div><div class="tiny" style="color:var(--muted)">${whyMoved(d)}</div>`:'<span class="tiny faint">—</span>'}</span>
+    </div>`;}).join('');
+  openSheet(`
+    <h3>Game · ${g.scoreA}–${g.scoreB}</h3>
+    ${probLine}
+    <div class="teamhdr A" style="margin-top:0">Team A ${g.winner==='A'?'· won':''}</div>${list(g.teamA)}
+    <div class="teamhdr B">Team B ${g.winner==='B'?'· won':''}</div>${list(g.teamB)}
+    <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>
+  `);
+};
+function whyMoved(d){
+  const parts=[]; const e=Math.round(d.elo*10)/10, v=Math.round(d.ev*10)/10;
+  if(e) parts.push(`result ${e>0?'+':''}${e}`);
+  if(v) parts.push(`events ${v>0?'+':''}${v}`);
+  return parts.join(' · ')||'no change';
+}
+function formatLog(log){ if(!log) return ''; return Object.entries(log).map(([k,v])=>`${v}${EV_MAP[k]?.l||k}`).join('  '); }
+window.deleteGame=async(id)=>{
+  if(!(await askConfirm('Delete this game? Ratings will be recalculated for everyone who played in it.','Delete game'))) return;
+  games=games.filter(g=>g.id!==id); await commit(); closeSheet(); toast('Game deleted'); render();
+};
+
+/* ---------- MORE ---------- */
+function renderMore(){
+  main.innerHTML=`
+    <h2 class="view">Settings & data</h2>
+    <div class="card">
+      <div class="row spread">
+        <div><div style="font-weight:600">Hide ratings (stealth)</div>
+          <div class="tiny muted">Shows names only — looks like a scorekeeper.</div></div>
+        <button class="btn sm ${settings.hideRatings?'primary':''}" onclick="toggleHide()">${settings.hideRatings?'On':'Off'}</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="row spread">
+        <div><div style="font-weight:600">Detailed grading</div>
+          <div class="tiny muted">Adds In / Get tiers for serving & passing. Off = faster taps.</div></div>
+        <button class="btn sm ${settings.detailed?'primary':''}" onclick="toggleDetailed()">${settings.detailed?'On':'Off'}</button>
+      </div>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:4px">How sensitive should ratings be?</div>
+      <div class="tiny muted" style="margin-bottom:10px">Higher = ratings move faster per game.</div>
+      <div class="seg">
+        ${[['Steady',3],['Normal',5],['Reactive',8]].map(([l,v])=>`<button class="${settings.eloK===v?'on':''}" onclick="setK(${v})">${l}</button>`).join('')}
+      </div>
+    </div>
+    ${(()=>{ const ac=accuracyStats(); return ac?`<div class="card">
+      <div class="row spread">
+        <div><div style="font-weight:600">Prediction record</div>
+          <div class="tiny muted">How often the favored team actually won.</div></div>
+        <div class="num" style="font-weight:800;color:var(--sand);font-size:20px">${ac.pct}%</div>
+      </div>
+      <div class="tiny faint" style="margin-top:4px">across ${ac.n} ${ac.n===1?'game':'games'} with a clear favorite</div>
+    </div>`:''; })()}
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:8px">Your data</div>
+      <div class="tiny muted" style="margin-bottom:10px">${Store.mode==='memory'?'⚠ This view can\'t save on its own — open in Safari or use a backup to keep data.':'Saved automatically on this device.'} ${players.length} players · ${games.length} games.</div>
+      <button class="btn block" onclick="exportData()">Copy backup (JSON)</button>
+      <button class="btn block ghost" style="margin-top:8px" onclick="openImport()">Restore from backup</button>
+      <button class="btn block danger" style="margin-top:8px" onclick="resetAll()">Reset everything</button>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:6px">Testing & diagnostics</div>
+      <div class="tiny muted" style="margin-bottom:10px">Fill the app with a realistic fake season to click around, or run automatic correctness checks. Back up first if you have real data.</div>
+      <button class="btn block" onclick="loadDemo()">Load demo season</button>
+      <button class="btn block ghost" style="margin-top:8px" onclick="runTests()">Run self-test</button>
+    </div>
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:6px">How the rating works</div>
+      <p class="small muted" style="margin:0 0 8px">Each player has a 0–100 rating, seeded by the tier you pick. After every saved game, two things adjust it:</p>
+      <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Result</b> — beating a stronger team raises you more than beating a weaker one (Elo-style).</p>
+      <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Events</b> — the aces, kills, digs and errors you tap during the game nudge whoever actually carried or hurt their team that game.</p>
+      <p class="small muted" style="margin:0 0 8px">New players move fast; established players settle and move slowly, so one off night won't tank them.</p>
+      <p class="small muted" style="margin:0"><b style="color:var(--text)">Effort optional:</b> log just the score (Quick mode) and ratings still work from results. Tap events when you want sharper numbers. Both are valid.</p>
+    </div>
+    <p class="tiny faint" style="text-align:center;margin-top:10px">Court · private rating tracker</p>
+  `;
+}
+window.toggleHide=async()=>{ settings.hideRatings=!settings.hideRatings; await saveSettings(); render(); };
+window.toggleDetailed=async()=>{ settings.detailed=!settings.detailed; await saveSettings(); render(); };
+window.setK=async(v)=>{ settings.eloK=v; settings.eventK = v<=3?0.4:v>=8?0.9:0.6; await saveSettings(); await commit(); toast('Recalculated'); render(); };
+window.exportData=async()=>{
+  const data=JSON.stringify({players,games,settings,v:1});
+  let copied=false;
+  try{ await navigator.clipboard.writeText(data); copied=true; }catch(e){}
+  try{
+    const blob=new Blob([data],{type:'application/json'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a'); a.href=url; a.download='court-backup.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(url),1500);
+  }catch(e){}
+  if(copied) toast('Backup copied + saved to file');
+  else openSheet(`<h3>Backup</h3><p class="small muted">Copy this and save it somewhere safe.</p><textarea rows="8" onclick="this.select()">${esc(data)}</textarea>`);
+};
+window.openImport=()=>{
+  openSheet(`<h3>Restore from backup</h3>
+    <p class="small muted">Load a backup file, or paste one. This replaces your current data.</p>
+    <input type="file" accept="application/json,.json" id="impFile" onchange="importFile(event)" style="margin-bottom:12px">
+    <textarea id="impTxt" rows="6" placeholder="…or paste backup here"></textarea>
+    <button class="btn primary block" style="margin-top:12px" onclick="doImport()">Restore from paste</button>`);
+};
+window.importFile=(e)=>{
+  const f=e.target.files&&e.target.files[0]; if(!f) return;
+  const r=new FileReader();
+  r.onload=async()=>{ try{
+    const d=JSON.parse(r.result); if(!d.players) throw 0;
+    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+    await commit(); await saveSettings(); closeSheet(); toast('Restored from file'); render();
+  }catch(err){ toast('Could not read that file'); } };
+  r.readAsText(f);
+};
+window.doImport=async()=>{
+  try{
+    const d=JSON.parse($('#impTxt').value);
+    if(!d.players) throw 0;
+    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+    await commit(); await saveSettings(); closeSheet(); toast('Restored'); render();
+  }catch(e){ toast('Could not read that backup'); }
+};
+window.resetAll=async()=>{
+  if(!(await askConfirm('Delete ALL players and games? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
+  players=[]; games=[]; settings={...DEFAULT_SETTINGS};
+  await savePlayers(); await saveGames(); await saveSettings(); toast('Reset'); render();
+};
+
+/* ============================================================
+   DEMO DATA + SELF-TEST (for trying things without real games)
+   ============================================================ */
+function shuffle(a){ a=a.slice(); for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; } return a; }
+const DEMO_ROSTER = [
+  {n:'Alex',t:90,r:['setter','passer']},{n:'Bri',t:80,r:['hitter','blocker']},
+  {n:'Cy',t:74,r:['passer','defense']},{n:'Dom',t:68,r:['hitter']},
+  {n:'Eli',t:62,r:['setter']},{n:'Fin',t:58,r:['passer']},
+  {n:'Gabe',t:55,r:['defense']},{n:'Hana',t:50,r:['passer']},
+  {n:'Ivy',t:44,r:['hitter']},{n:'Jo',t:38,r:['beginner']},
+  {n:'Kit',t:30,r:['beginner']},{n:'Lou',t:22,r:['beginner']},
+];
+function demoEvents(p){
+  const s=p.seedRating/100, log={}, R=Math.random;
+  const add=(k,n)=>{ if(n>0) log[k]=(log[k]||0)+n; };
+  add('kill',  R()<s*0.9       ? Math.floor(R()*(1+s*4)) : 0);
+  add('ace',   R()<s*0.5       ? Math.floor(R()*(1+s*2)) : 0);
+  add('dig',   R()<0.5+s*0.3   ? Math.floor(R()*(1+s*3)) : 0);
+  add('block', R()<s*0.4       ? Math.floor(R()*(s*2))   : 0);
+  add('goodPass', R()<0.4+s*0.4? Math.floor(R()*(1+s*3)) : 0);
+  add('assist', p.roles.setter ? Math.floor(R()*(2+s*4)) : 0);
+  add('kerr',  R()<(1-s)*0.6   ? Math.floor(R()*(1+(1-s)*3)) : 0);
+  add('serr',  R()<(1-s)*0.5   ? Math.floor(R()*(1+(1-s)*2)) : 0);
+  add('perr',  R()<(1-s)*0.6   ? Math.floor(R()*(1+(1-s)*2)) : 0);
+  return log;
+}
+function buildDemo(){
+  players = DEMO_ROSTER.map(d=>{ const p=makePlayer(d.n, d.t); d.r.forEach(k=>p.roles[k]=true); return p; });
+  games = [];
+  const t0 = Date.now() - 50*24*3600*1000;
+  let gi=0;
+  for(let s=0;s<14;s++){
+    const present = shuffle(players).slice(0, 6 + Math.floor(Math.random()*7));
+    const nGames = 2 + Math.floor(Math.random()*3);
+    for(let k=0;k<nGames;k++){
+      const pool = shuffle(present);
+      const half = Math.floor(pool.length/2);
+      const A = pool.slice(0,half), B = pool.slice(half);
+      if(A.length<1||B.length<1) continue;
+      const sa=A.reduce((x,p)=>x+p.seedRating,0)/A.length;
+      const sb=B.reduce((x,p)=>x+p.seedRating,0)/B.length;
+      const aWins = Math.random() < 1/(1+Math.pow(10,(sb-sa)/15));
+      const winS=25, loseS=12+Math.floor(Math.random()*11);
+      const scoreA=aWins?winS:loseS, scoreB=aWins?loseS:winS;
+      const log={}; A.concat(B).forEach(p=>log[p.id]=demoEvents(p));
+      games.push({id:uid(),date:t0+gi*3600*1000,teamA:A.map(p=>p.id),teamB:B.map(p=>p.id),scoreA,scoreB,winner:scoreA>scoreB?'A':'B',log});
+      gi++;
+    }
+  }
+  for(let i=0;i<3;i++){
+    const p=players[Math.floor(Math.random()*players.length)];
+    games.push({id:uid(),date:t0+gi*3600*1000,solo:true,teamA:[p.id],teamB:[],scoreA:0,scoreB:0,winner:Math.random()<0.5?'A':'B',log:{[p.id]:demoEvents(p)}});
+    gi++;
+  }
+}
+window.loadDemo=async()=>{
+  if(!(await askConfirm('Load a demo season? This REPLACES your current players and games. Back up first if you have real data you want to keep.','Load demo'))) return;
+  buildDemo();
+  await commit();
+  toast('Demo loaded · '+players.length+' players, '+games.length+' games');
+  tab='players'; render();
+};
+
+function runSelfTest(){
+  const snapP=JSON.stringify(players), snapG=JSON.stringify(games), snapS=JSON.stringify(settings);
+  const Rs=[];
+  const ck=(name,cond,detail)=>Rs.push({name,pass:!!cond,detail:detail||''});
+  try{
+    players=[]; games=[];
+    for(let i=0;i<6;i++){ const p=makePlayer('T'+i, 25+i*13); if(i<2)p.roles.setter=true; if(i<3)p.roles.passer=true; if(i===5)p.roles.beginner=true; players.push(p); }
+    const P=players;
+    games.push({id:'g1',date:1,teamA:[P[5].id,P[3].id,P[1].id],teamB:[P[4].id,P[2].id,P[0].id],scoreA:25,scoreB:20,winner:'A',log:{[P[5].id]:{kill:3,ace:1},[P[0].id]:{kerr:2}}});
+    games.push({id:'g2',date:2,solo:true,teamA:[P[2].id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[P[2].id]:{kill:4,dig:2}}});
+    recomputeAll();
+
+    ck('Ratings stay within 0–100', players.every(p=>p.rating>=0&&p.rating<=100));
+    ck('No NaN ratings', players.every(p=>typeof p.rating==='number'&&!isNaN(p.rating)));
+    const s1=players.map(p=>p.rating); recomputeAll(); const s2=players.map(p=>p.rating);
+    ck('Recompute is deterministic', s1.every((r,i)=>Math.abs(r-s2[i])<1e-9));
+    const wpAB=winProbability([P[0].id],[P[5].id]), wpBA=winProbability([P[5].id],[P[0].id]);
+    ck('Win probability is symmetric', Math.abs((wpAB+wpBA)-1)<1e-9, '('+Math.round(wpBA*100)+'% / '+Math.round(wpAB*100)+'%)');
+    ck('Stronger team is the favorite', wpBA>0.5);
+    ck('Equal teams ≈ 50%', Math.abs(winProbability([P[3].id],[P[3].id])-0.5)<1e-9);
+    const g1=games.find(x=>x.id==='g1'); const d=g1.deltas[Object.keys(g1.deltas)[0]];
+    ck('Rating change = result + events', Math.abs((d.after-d.before)-(d.elo+d.ev))<1.2,'(within rounding)');
+    const g2=games.find(x=>x.id==='g2');
+    ck('Solo game has no win probability', g2.winProb==null);
+    ck('Solo result adds no opponent Elo', Object.values(g2.deltas).every(x=>x.elo===0));
+    ck('Solo events still counted', P[2].lifetime.kill>=4);
+    const ac=accuracyStats();
+    ck('Prediction record ignores solo games', !ac || ac.n===games.filter(x=>x.winner&&!x.solo&&x.predCorrect!=null).length);
+    const teams=balance(players.slice(),2);
+    const sizes=teams.map(t=>t.length);
+    ck('Teams differ in size by ≤1', Math.max(...sizes)-Math.min(...sizes)<=1);
+    const avgs=teams.map(t=>t.reduce((s,p)=>s+p.rating,0)/t.length);
+    ck('Team averages stay close (≤8)', (Math.max(...avgs)-Math.min(...avgs))<=8, 'gap '+(Math.max(...avgs)-Math.min(...avgs)).toFixed(1));
+    const orig=players.map(p=>p.rating);
+    const removed=games[0]; games=games.filter(g=>g!==removed); recomputeAll();
+    games.push(removed); recomputeAll();
+    ck('Deleting then re-adding a game is reversible', players.every((p,i)=>Math.abs(p.rating-orig[i])<1e-9));
+    const newP=makePlayer('new',50);
+    ck('Uncertainty range wider for new players', band(newP)>=band(P[0]));
+  } catch(e){
+    Rs.push({name:'Engine ran without crashing', pass:false, detail:String(e)});
+  } finally {
+    players=JSON.parse(snapP); games=JSON.parse(snapG); settings=JSON.parse(snapS);
+    try{ recomputeAll(); }catch(e){}
+  }
+  return Rs;
+}
+window.runTests=()=>{
+  const res=runSelfTest();
+  const pass=res.filter(r=>r.pass).length, total=res.length;
+  const rows=res.map(r=>`<div class="row" style="gap:9px;padding:7px 0;border-bottom:1px solid var(--border)">
+    <span style="color:${r.pass?'var(--good)':'var(--bad)'};font-weight:800">${r.pass?'✓':'✗'}</span>
+    <span class="small" style="flex:1">${r.name}${r.detail?` <span class="faint">${esc(r.detail)}</span>`:''}</span>
+  </div>`).join('');
+  openSheet(`<h3>Self-test · ${pass}/${total} passed</h3>
+    <p class="small" style="margin:-8px 0 12px;color:${pass===total?'var(--good)':'var(--bad)'};font-weight:600">${pass===total?'Everything checks out.':'Some checks failed — details below.'}</p>
+    ${rows}
+    <p class="tiny faint" style="margin-top:12px">Runs on isolated test data. Your real players and games are untouched.</p>
+    <button class="btn primary block" style="margin-top:12px" onclick="closeSheet()">Done</button>`);
+};
+
+/* ============================================================
+   PLAYER EDITOR (sheet)
+   ============================================================ */
+let editId=null, draft=null;
+window.openPlayer=(id)=>{
+  editId=id||null;
+  const p = id?pById(id):null;
+  draft = p ? JSON.parse(JSON.stringify(p)) : { name:'', seedRating:43, roles:{}, skills:null };
+  if(!draft.roles) draft.roles={};
+  window._seedMode = draft.skills ? 'skills' : 'tier';
+  renderPlayerSheet();
+};
+function renderPlayerSheet(){
+  const p = editId?pById(editId):null;
+  const mode = window._seedMode;
+  let body = `
+    <h3>${editId?'Edit player':'Add player'}</h3>
+    <div class="field"><label>Name</label>
+      <input id="pName" value="${esc(draft.name)}" placeholder="Player name" autocomplete="off"></div>
+    <div class="field"><label>Starting level</label>
+      <div class="seg" style="margin-bottom:10px">
+        <button class="${mode==='tier'?'on':''}" onclick="seedMode('tier')">Tier</button>
+        <button class="${mode==='skills'?'on':''}" onclick="seedMode('skills')">Rate skills</button>
+        <button onclick="startEval()">Evaluate</button>
+      </div>`;
+  if(mode==='tier'){
+    body += `<div class="tiergrid">${TIERS.map(t=>`
+      <button class="opt ${Math.abs(draft.seedRating-t.seed)<1?'on':''}" onclick="setSeed(${t.seed})">${t.k}<span class="o2">${t.d}</span></button>`).join('')}</div>
+      <div class="tiny faint" style="text-align:center;margin-top:8px">Seed: ${Math.round(draft.seedRating)} — it self-corrects as they play</div>`;
+  } else {
+    if(!draft.skills) draft.skills={passing:3,serving:3,setting:3,hitting:3,defense:3,iq:3};
+    body += `<div class="row" style="justify-content:flex-end;margin:-2px 0 8px"><button class="btn sm ghost" style="color:var(--sand)" onclick="openRubric()">How to rate ▸</button></div>`;
+    body += SKILL_DEFS.map(([k,l])=>`
+      <div class="skillrow"><span class="sn">${l}</span>
+        <div class="stars">${[1,2,3,4,5].map(n=>`<button class="${draft.skills[k]>=n?'on':''}" onclick="setSkill('${k}',${n})">${n}</button>`).join('')}</div>
+      </div>`).join('');
+    body += `<div class="tiny faint" style="text-align:center;margin-top:4px">Computed seed: ${computeSkillSeed()}</div>`;
+  }
+  body += `</div>
+    <div class="field">
+      <div class="row spread" style="margin-bottom:7px">
+        <label style="margin:0">Roles (tap all that apply)</label>
+        <button class="btn sm ghost" style="color:var(--sand);padding:4px 9px" onclick="startRoleGuide()">Help me choose ▸</button>
+      </div>
+      <div class="rolegrid">${ROLE_DEFS.map(([k,l])=>`
+        <button class="opt ${draft.roles[k]?'on':''}" onclick="toggleRole('${k}')">${l}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label>Notes</label>
+      <input id="pNotes" value="${esc(draft.notes||'')}" placeholder="e.g. great serve receive"></div>`;
+
+  if(p){
+    const rel=reliability(p);
+    const b=band(p);
+    const a=analyze(p);
+    const rd=recentDelta(p);
+    const rdTxt = rd>0?`▲ +${rd}`:rd<0?`▼ ${Math.abs(rd)}`:'flat';
+    const rdCol = rd>0?'var(--good)':rd<0?'var(--bad)':'var(--faint)';
+    body += `<div class="card" style="background:var(--surface2)">
+      <div class="row spread"><span class="muted small">Current rating</span><span class="rate num">${Math.round(p.rating)}<span style="font-size:13px;color:var(--faint);font-weight:600"> ±${b}</span></span></div>
+      <div class="row spread" style="margin-top:6px"><span class="muted small">Record · games</span><span class="num">${p.wins}-${p.losses} · ${p.gamesPlayed}</span></div>
+      <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
+      ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="num small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
+      ${a&&(a.strength||a.weakness)?`<div class="row spread" style="margin-top:6px"><span class="muted small">Profile</span><span class="small" style="text-align:right">${a.strength?`<span style="color:var(--good)">strong ${a.strength}</span>`:''}${a.strength&&a.weakness?'<br>':''}${a.weakness?`<span style="color:var(--bad)">work on ${a.weakness}</span>`:''}</span></div>`:''}
+      ${lifetimeLine(p)}
+    </div>
+    <div class="card" style="background:var(--surface2)">
+      <div class="small muted" style="margin-bottom:4px">Rating over time</div>
+      ${trendChart(p.history)}
+    </div>`;
+  }
+  body += `<button class="btn primary block" onclick="savePlayer()">${editId?'Save changes':'Add player'}</button>`;
+  if(editId){
+    body += `<button class="btn ghost block" style="margin-top:8px" onclick="toggleActive()">${draft.active===false?'Mark active':'Set as away / inactive'}</button>
+      <button class="btn danger block" style="margin-top:8px" onclick="deletePlayer()">Delete player</button>`;
+  }
+  openSheet(body);
+}
+function lifetimeLine(p){
+  const parts=EVENTS.filter(e=>p.lifetime[e.k]).map(e=>`${p.lifetime[e.k]} ${e.l.toLowerCase()}`);
+  return parts.length?`<div class="tiny faint" style="margin-top:8px">${parts.join(' · ')}</div>`:'';
+}
+function computeSkillSeed(){
+  if(!draft.skills) return draft.seedRating;
+  let s=0; SKILL_DEFS.forEach(([k,,w])=> s += (draft.skills[k]/5)*w);
+  return Math.round(s);
+}
+function captureInputs(){
+  const n=$('#pName'); if(n) draft.name=n.value;
+  const no=$('#pNotes'); if(no) draft.notes=no.value;
+}
+window.seedMode=(m)=>{ captureInputs(); window._seedMode=m; if(m==='tier') draft.skills=null; renderPlayerSheet(); };
+window.setSeed=(v)=>{ captureInputs(); draft.seedRating=v; renderPlayerSheet(); };
+window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=computeSkillSeed(); renderPlayerSheet(); };
+window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
+window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
+
+const RUBRIC = [
+  {n:'Passing / receive', watch:'Can they keep the first ball playable and near the setter?',
+   one:'Shanks often, can\'t return tougher serves',
+   three:'Passes medium serves up playable, not always on target',
+   five:'Tight to the setter off almost anything, even hard serves',
+   test:'Serve them 10 mixed balls. Count how many stay playable on their side AND land near the setter. ~5 playable = 3, ~8 on target = 4, 9-10 tight including hard serves = 5.'},
+  {n:'Serving', watch:'Consistency first, then placement and pressure.',
+   one:'Often misses the net or sends it out',
+   three:'Lands about 7 of 10, basic float or pace',
+   five:'Tough serve placed at seams and weak passers, low error rate, racks up aces',
+   test:'Have them serve 10. Count IN vs OUT, then how many were tough (ace or forced a bad pass). 5 in = 2, 7 in with some control = 3, 8-9 in plus targeting and an ace or two = 4, tough serves landing 8 of 10 with multiple aces = 5.'},
+  {n:'Setting', watch:'Do hitters get a good swing off their set?',
+   one:'Double contacts or throws, ball goes random',
+   three:'Usable hand set to the pins on a good pass',
+   five:'Hittable ball from almost anywhere, varies tempo and location, makes hitters look good',
+   test:'Feed 10 passes, some clean some off. Count clean, hittable sets that reach a target pin. In live play, watch whether hitters score off their sets.'},
+  {n:'Hitting / block', watch:'Do they terminate points and pressure the other side?',
+   one:'Can only tip or roll, no block',
+   three:'Scores some on a good set, gets hands up to block occasionally',
+   five:'Power plus shot variety, hits out of system, reads the block, gets stuff blocks',
+   test:'Over a game, count kills vs errors vs balls dug up. Kill rate over ~40% with mixed shots = 4-5. For blocking, count touches and stuffs vs swings let through clean.'},
+  {n:'Defense / move', watch:'Balls in their zone: kept alive or hit the floor?',
+   one:'Reacts late, balls drop near them',
+   three:'Covers their area, digs medium attacks up playable',
+   five:'Elite range and reads, turns hard swings into transition, runs down tips',
+   test:'In live play, count balls in their zone that hit the floor untouched vs balls they kept alive. Watch their reaction to both tips and hard-driven swings.'},
+  {n:'IQ / comms', watch:'Would you want them running your side of the net?',
+   one:'Unsure of rotations, silent, ball-watches',
+   three:'Knows rotations, calls mine/help, mostly sound decisions',
+   five:'Floor general, directs the team, anticipates, picks smart shots and serve targets',
+   test:'Harder to count, so judge over a game. Are they talking, in the right spot during rotations, making smart choices instead of forcing? Trust your read here.'},
+];
+window.openRubric=()=>{
+  captureInputs();
+  const rows = RUBRIC.map(r=>`
+    <div class="card" style="background:var(--surface2)">
+      <div style="font-weight:700;margin-bottom:3px">${r.n}</div>
+      <div class="small muted" style="margin-bottom:9px">${r.watch}</div>
+      <div class="small" style="margin-bottom:3px"><b style="color:var(--bad)">1</b> &nbsp;${r.one}</div>
+      <div class="small" style="margin-bottom:3px"><b style="color:var(--sand)">3</b> &nbsp;${r.three}</div>
+      <div class="small"><b style="color:var(--good)">5</b> &nbsp;${r.five}</div>
+      <div class="tiny faint" style="margin-top:9px"><b>Quick test:</b> ${r.test}</div>
+    </div>`).join('');
+  openSheet(`<h3>How to rate each skill</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Anchor to your group: <b style="color:var(--text)">3</b> = solid regular, <b style="color:var(--text)">5</b> = best in your gym, <b style="color:var(--text)">1</b> = brand new. 2 and 4 sit between. Don't overthink it, the game tracking corrects the rest over a few nights.</p>
+    ${rows}
+    <button class="btn primary block" onclick="renderPlayerSheet()">Back to player</button>`);
+};
+window.savePlayer=async()=>{
+  const name=$('#pName').value.trim();
+  if(!name){ toast('Enter a name'); return; }
+  const notes=$('#pNotes')?$('#pNotes').value:'';
+  if(window._seedMode==='skills') draft.seedRating=computeSkillSeed();
+  if(editId){
+    const p=pById(editId);
+    p.name=name; p.notes=notes; p.roles=draft.roles; p.skills=draft.skills;
+    p.seedRating=draft.seedRating; if(draft.active!==undefined)p.active=draft.active;
+  } else {
+    const np=makePlayer(name, draft.seedRating);
+    np.roles=draft.roles; np.skills=draft.skills; np.notes=notes;
+    players.push(np);
+  }
+  await commit();  // reseat ratings if seed changed
+  closeSheet(); toast(editId?'Saved':'Player added'); render();
+};
+window.deletePlayer=async()=>{
+  if(!(await askConfirm('Delete this player? Their past games stay, but they\'ll show as removed.','Delete player'))) return;
+  players=players.filter(p=>p.id!==editId); await commit(); closeSheet(); toast('Deleted'); render();
+};
+
+/* ============================================================
+   SHEET / MODAL
+   ============================================================ */
+/* ============================================================
+   GUIDED EVALUATION — counted 10-rep tests -> 1-5 baseline
+   ============================================================ */
+const EVAL = [
+  {skill:'serving', title:'Serving', n:10, prompt:'Have them serve 10 times. Tap the result of each serve.',
+   outs:[['Ace',1.0,'g'],['In',0.6,'g'],['Out',0,'b']]},
+  {skill:'passing', title:'Passing / receive', n:10, prompt:'Serve them 10 balls. Tap where each pass ends up.',
+   outs:[['On target',1.0,'g'],['Playable',0.5,'g'],['Shank',0,'b']]},
+  {skill:'setting', title:'Setting', n:10, prompt:'Feed them 10 passes. Tap the quality of each set.',
+   outs:[['Hittable',1.0,'g'],['Usable',0.5,'g'],['Bad',0,'b']]},
+  {skill:'hitting', title:'Hitting / block', n:10, prompt:'Give them 10 swings on a good set. Tap each outcome.',
+   outs:[['Kill',1.0,'g'],['In play',0.5,'g'],['Error',0,'b']]},
+  {skill:'defense', title:'Defense / move', n:10, prompt:'Hit or tip 10 balls at them. Tap what happens to each.',
+   outs:[['Dug to target',1.0,'g'],['Kept alive',0.5,'g'],['Floor',0,'b']]},
+];
+let evalState=null;
+function evalCounts(idx){ const c={}; evalState.order[idx].forEach(l=>c[l]=(c[l]||0)+1); return c; }
+function evalScore(idx){
+  const t=EVAL[idx], c=evalCounts(idx); let tot=0, raw=0;
+  t.outs.forEach(([l,w])=>{ const n=c[l]||0; tot+=n; raw+=w*n; });
+  if(!tot) return null;
+  return clamp(Math.round(1+(raw/tot)*4),1,5);
+}
+window.startEval=()=>{
+  captureInputs();
+  evalState={ i:0, order:EVAL.map(()=>[]), iq:(draft.skills&&draft.skills.iq)||3 };
+  renderEval();
+};
+function renderEval(){
+  const total = EVAL.length + 1;
+  if(evalState.i < EVAL.length){
+    const idx=evalState.i, t=EVAL[idx], c=evalCounts(idx);
+    const done=evalState.order[idx].length, sc=evalScore(idx);
+    openSheet(`
+      <h3>Evaluate · ${t.title}</h3>
+      <div class="tiny faint" style="margin:-10px 0 12px">Step ${idx+1} of ${total} · ${done} of ${t.n} logged</div>
+      <p class="small muted" style="margin-bottom:14px">${t.prompt}</p>
+      <div class="ev" style="gap:8px">
+        ${t.outs.map(([l,w,cls])=>`<button class="${cls}" style="flex:1;padding:18px 4px;font-size:14px" onclick="evalTap(${idx},'${l}')">${l}${(c[l]||0)?`<span class="cnt">${c[l]}</span>`:''}</button>`).join('')}
+      </div>
+      <div class="card" style="margin-top:14px;text-align:center;background:var(--surface2)">
+        <span class="muted small">Score so far</span>
+        <div class="rate num" style="color:var(--sand);margin-top:4px">${sc!=null?sc:'–'}<span style="font-size:14px;color:var(--faint)"> / 5</span></div>
+      </div>
+      <div class="row" style="gap:8px;margin-top:8px">
+        ${idx>0?`<button class="btn ghost sm" onclick="evalBack()">◂ Back</button>`:`<button class="btn ghost sm" style="color:var(--muted)" onclick="evalCancel()">Cancel</button>`}
+        <button class="btn ghost sm" style="margin-left:auto" onclick="evalUndo(${idx})" ${done?'':'disabled style="opacity:.4;margin-left:auto"'}>↶ Undo</button>
+        <button class="btn primary sm" onclick="evalNext()">${done?'Next ▸':'Skip ▸'}</button>
+      </div>
+    `);
+  } else {
+    const r=RUBRIC.find(x=>x.n==='IQ / comms');
+    openSheet(`
+      <h3>Evaluate · IQ / comms</h3>
+      <div class="tiny faint" style="margin:-10px 0 12px">Step ${total} of ${total}</div>
+      <p class="small muted" style="margin-bottom:10px">This one is a judgment call, not a rep test. Watch them play and use the anchors:</p>
+      <div class="card" style="background:var(--surface2)">
+        <div class="small" style="margin-bottom:3px"><b style="color:var(--bad)">1</b> &nbsp;${r.one}</div>
+        <div class="small" style="margin-bottom:3px"><b style="color:var(--sand)">3</b> &nbsp;${r.three}</div>
+        <div class="small"><b style="color:var(--good)">5</b> &nbsp;${r.five}</div>
+      </div>
+      <div class="stars" style="justify-content:center;gap:10px;margin:18px 0">
+        ${[1,2,3,4,5].map(n=>`<button style="width:48px;height:48px;font-size:16px" class="${evalState.iq>=n?'on':''}" onclick="evalSetIq(${n})">${n}</button>`).join('')}
+      </div>
+      <button class="btn primary block" onclick="evalFinish()">Finish & set baseline</button>
+      <button class="btn ghost block" style="margin-top:8px" onclick="evalBack()">◂ Back</button>
+    `);
+  }
+}
+window.evalTap=(idx,l)=>{ evalState.order[idx].push(l); if(navigator.vibrate)navigator.vibrate(6);
+  if(evalState.order[idx].length>=EVAL[idx].n) evalState.i++;
+  renderEval(); };
+window.evalUndo=(idx)=>{ evalState.order[idx].pop(); renderEval(); };
+window.evalNext=()=>{ evalState.i++; renderEval(); };
+window.evalBack=()=>{ if(evalState.i>0) evalState.i--; renderEval(); };
+window.evalCancel=()=>{ evalState=null; renderPlayerSheet(); };
+window.evalSetIq=(n)=>{ evalState.iq=n; renderEval(); };
+window.evalFinish=()=>{
+  draft.skills = draft.skills||{};
+  EVAL.forEach((t,idx)=>{ const s=evalScore(idx); if(s!=null) draft.skills[t.skill]=s; });
+  draft.skills.iq = evalState.iq;
+  SKILL_DEFS.forEach(([k])=>{ if(draft.skills[k]==null) draft.skills[k]=3; });
+  draft.seedRating = computeSkillSeed();
+  window._seedMode='skills';
+  evalState=null;
+  toast('Baseline set from evaluation');
+  renderPlayerSheet();
+};
+
+/* ============================================================
+   ROLE GUIDE — one simple question per role
+   ============================================================ */
+const ROLE_GUIDE = [
+  {k:'setter',  q:'Can they reliably set a hittable ball?',
+   look:'Clean hands, gets the ball to a hitter even off an okay pass.',
+   tag:'This is the one that matters most for fair teams. Tag only your real setters.'},
+  {k:'passer',  q:'Are they one of your better serve-receive players?',
+   look:'Calm platform, keeps the first ball near the setter, rarely shanks.',
+   tag:'Tag your few best passers, not everyone who can pass.'},
+  {k:'beginner',q:'Are they brand new to volleyball?',
+   look:'Still learning the rules, inconsistent contact, finding their footing.',
+   tag:'Tag the genuinely new players so teams get an even share of them.'},
+  {k:'hitter',  q:'Is hitting a standout strength, or mostly all they do?',
+   look:'Your go-to attacker who consistently terminates points.',
+   tag:'Most people: skip. Tag only if they clearly stand out as a hitter.'},
+  {k:'blocker', q:'Are they a real difference-maker at the net?',
+   look:'Height and timing that actually shut hitters down.',
+   tag:'Most people: skip. Tag only true net presences.'},
+  {k:'defense', q:'Are they a standout digger or libero type?',
+   look:'Reads attacks, runs everything down, your best back-row player.',
+   tag:'Most people: skip. Tag only standout defenders.'},
+];
+let roleGuideI=null;
+window.startRoleGuide=()=>{ captureInputs(); roleGuideI=0; renderRoleGuide(); };
+function renderRoleGuide(){
+  if(roleGuideI>=ROLE_GUIDE.length){ roleGuideI=null; renderPlayerSheet(); return; }
+  const g=ROLE_GUIDE[roleGuideI], cur=!!draft.roles[g.k];
+  openSheet(`
+    <h3>Choose roles · ${roleGuideI+1} of ${ROLE_GUIDE.length}</h3>
+    <div class="card" style="background:var(--surface2)">
+      <div style="font-weight:700;font-size:16px;margin-bottom:12px">${g.q}</div>
+      <div class="small" style="margin-bottom:7px"><b style="color:var(--sand)">Look for</b> &nbsp;${g.look}</div>
+      <div class="small muted">${g.tag}</div>
+    </div>
+    <div class="row" style="gap:8px;margin-top:14px">
+      <button class="btn block" style="${!cur?'border-color:var(--sand);color:var(--sand)':''}" onclick="roleGuideAns(false)">No / skip</button>
+      <button class="btn ${cur?'primary':''} block" onclick="roleGuideAns(true)">Yes, tag it</button>
+    </div>
+    <div class="row" style="margin-top:12px;align-items:center">
+      ${roleGuideI>0?`<button class="btn ghost sm" onclick="roleGuideBack()">◂ Back</button>`:`<button class="btn ghost sm" style="color:var(--muted)" onclick="roleGuideCancel()">Done</button>`}
+      <span class="tiny faint" style="margin-left:auto">Now: ${cur?'tagged':'not tagged'}</span>
+    </div>
+  `);
+}
+window.roleGuideAns=(v)=>{ draft.roles[ROLE_GUIDE[roleGuideI].k]=v; roleGuideI++; renderRoleGuide(); };
+window.roleGuideBack=()=>{ if(roleGuideI>0) roleGuideI--; renderRoleGuide(); };
+window.roleGuideCancel=()=>{ roleGuideI=null; renderPlayerSheet(); };
+
+function openSheet(html){
+  closeSheet();
+  const s=document.createElement('div'); s.className='scrim'; s.id='scrim';
+  s.innerHTML=`<div class="sheet"><div class="grab"></div>${html}</div>`;
+  s.addEventListener('click',e=>{ if(e.target===s) closeSheet(); });
+  document.body.appendChild(s);
+}
+function closeSheet(){ const s=$('#scrim'); if(s) s.remove(); }
+
+function askConfirm(msg, yesLabel='Confirm', danger=true){
+  return new Promise(resolve=>{
+    const sc=document.createElement('div'); sc.className='scrim'; sc.style.zIndex='70';
+    sc.innerHTML=`<div class="sheet" style="max-width:440px">
+      <div class="grab"></div>
+      <p style="font-size:15px; line-height:1.45; margin:2px 0 18px">${esc(msg)}</p>
+      <button class="btn ${danger?'danger':'primary'} block" id="cfYes">${esc(yesLabel)}</button>
+      <button class="btn ghost block" id="cfNo" style="margin-top:8px">Cancel</button>
+    </div>`;
+    document.body.appendChild(sc);
+    const done=(v)=>{ sc.remove(); resolve(v); };
+    sc.querySelector('#cfYes').onclick=()=>done(true);
+    sc.querySelector('#cfNo').onclick=()=>done(false);
+    sc.addEventListener('click',e=>{ if(e.target===sc) done(false); });
+  });
+}
+
+/* ============================================================
+   BOOT
+   ============================================================ */
+document.querySelectorAll('nav button').forEach(b=>{
+  b.addEventListener('click',()=>{ tab=b.dataset.tab; if(tab!=='teams')window._teams=null; render(); });
+});
+(async()=>{
+  try{ await load(); }catch(e){ console.warn('load skipped', e); }
+  try{ recomputeAll(); }catch(e){ console.warn('recompute skipped', e); }
+  try{ await savePlayers(); }catch(e){}
+  render();
+})();
+</script>
+</body>
+</html>
