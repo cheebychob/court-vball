@@ -109,6 +109,7 @@ test('app boots and built-in self-test passes', async ({ page }) => {
   await page.getByRole('button', { name: /Run self-test/i }).click();
 
   await expect(page.getByText(/Self-test · \d+\/\d+ passed/i)).toBeVisible();
+  await expect(page.getByText('Everything checks out.')).toBeVisible();
 });
 
 test('volleyball level helper maps rating bands', async ({ page }) => {
@@ -349,6 +350,38 @@ test('player detail sheet groups lifetime stats with readable labels and still s
     name: 'Stats Alpha Saved',
     lifetime: expect.objectContaining({ serr: 1, perr: 1, kill: 5 })
   });
+});
+
+test('player insights render for demo season and hide rating trend deltas', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: /More/i }).click();
+  await page.getByRole('button', { name: 'Load demo season', exact: true }).click();
+  await page.locator('.scrim').last().getByRole('button', { name: 'Load demo', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: /Roster/i })).toBeVisible();
+  await page.locator('.plist .card').first().click();
+
+  const insights = page.locator('.sheet .insight-card');
+  await expect(insights.getByText('Player insights', { exact: true })).toBeVisible();
+  await expect(insights.getByText('Serve in', { exact: true })).toBeVisible();
+
+  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.getByRole('button', { name: /More/i }).click();
+  await page
+    .locator('.card')
+    .filter({ hasText: 'Hide ratings (stealth)' })
+    .getByRole('button', { name: 'Off', exact: true })
+    .click();
+  await page.getByRole('button', { name: /Players/i }).click();
+  await page.locator('.plist .card').first().click();
+
+  const hiddenInsights = page.locator('.sheet .insight-card');
+  await expect(hiddenInsights.getByText('Player insights', { exact: true })).toBeVisible();
+  await expect(hiddenInsights.getByText('Serve in', { exact: true })).toBeVisible();
+
+  const hiddenText = await page.locator('.sheet').innerText();
+  expect(hiddenText).not.toMatch(/[▲▼]\s*[+-]?\d+/);
+  expect(hiddenText).not.toMatch(/[+-]\d+\s+last\s+\d+/i);
 });
 
 test('migrates old imported players with missing active to active', async ({ page }) => {

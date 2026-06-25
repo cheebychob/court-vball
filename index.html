@@ -188,6 +188,11 @@
   .stat-count{font-size:15px; font-weight:800; color:var(--text);}
   .stat-row.err .stat-name,.stat-row.err .stat-count{color:var(--bad); opacity:.86;}
   .stat-empty{font-size:13px; color:var(--faint); padding:2px 0 1px;}
+  .insight-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px;}
+  .insight-metric{background:rgba(10,11,13,.22); border:1px solid var(--border); border-radius:10px; padding:8px 9px;}
+  .insight-label{font-size:11px; color:var(--muted); margin-bottom:3px;}
+  .insight-value{font-size:16px; font-weight:800;}
+  .insight-metric.wide{grid-column:1/-1;}
   .teamcols{}
 
   /* desktop mode — auto-adapts on wider screens */
@@ -480,6 +485,115 @@ function recentDelta(p, n=5){
   const cur=p.history[p.history.length-1].r;
   const back=p.history[Math.max(0, p.history.length-1-n)].r;
   return cur-back;
+}
+const DASH = '—';
+function evCount(p,k){ return Number(((p&&p.lifetime)||{})[k])||0; }
+function eventTotal(p){ return EVENTS.reduce((s,e)=>s+evCount(p,e.k),0); }
+function pct(n,d){ return d>0 ? `${Math.round((n/d)*100)}%` : DASH; }
+function rateOrDash(n,d,places=1,suffix=''){
+  if(!(d>0)) return DASH;
+  return `${(n/d).toFixed(places)}${suffix}`;
+}
+function hitEff(n,d){
+  if(!(d>0)) return DASH;
+  const v=n/d;
+  if(v===0) return '.000';
+  const abs=Math.abs(v).toFixed(3);
+  if(Math.abs(v)<1) return `${v<0?'-':''}${abs.replace(/^0/,'')}`;
+  return `${v<0?'-':''}${abs}`;
+}
+function sampleLabel(count, lowThreshold, trustedThreshold){
+  const n=Number(count)||0;
+  if(n<lowThreshold) return 'low sample';
+  if(n<trustedThreshold) return 'building sample';
+  return 'trusted sample';
+}
+function recentRatingTrend(p, n=5){
+  const hist=(p&&p.history||[]).filter(x=>Number.isFinite(Number(x.r)));
+  if(!p || p.gamesPlayed<3 || hist.length<4){
+    return {label:'Not enough games', delta:0, games:Math.max(0,Number(p&&p.gamesPlayed)||0), tone:'var(--faint)'};
+  }
+  const games=Math.min(n, hist.length-1);
+  const cur=Number(hist[hist.length-1].r);
+  const back=Number(hist[hist.length-1-games].r);
+  const delta=cur-back;
+  if(delta>=2) return {label:'Rising', delta, games, tone:'var(--good)'};
+  if(delta<=-2) return {label:'Cooling off', delta, games, tone:'var(--bad)'};
+  return {label:'Stable', delta, games, tone:'var(--faint)'};
+}
+function statConfidence(p){
+  const total=eventTotal(p);
+  return {label:sampleLabel(total,12,40), count:total};
+}
+function playerInsights(p){
+  const ace=evCount(p,'ace'), sin=evCount(p,'sin'), serr=evCount(p,'serr');
+  const goodPass=evCount(p,'goodPass'), pget=evCount(p,'pget'), perr=evCount(p,'perr');
+  const kill=evCount(p,'kill'), kerr=evCount(p,'kerr'), dig=evCount(p,'dig'), block=evCount(p,'block');
+  const serveDen=ace+sin+serr, passDen=goodPass+pget+perr, hitDen=kill+kerr;
+  const overall={label:sampleLabel(p.gamesPlayed, Math.ceil(settings.confGames/3), settings.confGames), count:p.gamesPlayed};
+  const stat=statConfidence(p);
+  const a=analyze(p);
+  const notes=[];
+  if(stat.label==='low sample'){
+    notes.push('Need more logged events for reliable stat insights');
+  } else {
+    if(a&&a.strength) notes.push(`${stat.label==='trusted sample'?'Strong signal':'Early signal'}: ${a.strength}`);
+    if(a&&a.weakness) notes.push(`Watch: ${a.weakness}`);
+    if(!notes.length) notes.push(stat.label==='trusted sample' ? 'No standout stat pattern yet' : 'More logged events will sharpen these notes');
+  }
+  return {
+    trend:recentRatingTrend(p),
+    overallConfidence:overall,
+    statConfidence:stat,
+    rates:{
+      serveIn:pct(ace+sin,serveDen),
+      aceRate:pct(ace,serveDen),
+      passErr:pct(perr,passDen),
+      hitEff:hitEff(kill-kerr,hitDen),
+      defense:rateOrDash(dig+block,p.gamesPlayed,1,'/game')
+    },
+    notes
+  };
+}
+function confidenceColor(label){
+  return label==='trusted sample'?'var(--good)':label==='building sample'?'var(--sand)':'var(--faint)';
+}
+function insightCard(p){
+  const ins=playerInsights(p);
+  const trend=ins.trend;
+  const delta = trend.delta>0?`+${trend.delta}`:`${trend.delta}`;
+  const trendMeta = (!settings.hideRatings && trend.label!=='Not enough games')
+    ? `<span class="tiny faint" style="margin-left:6px">${delta} last ${trend.games}</span>`
+    : '';
+  const lowNote = ins.statConfidence.label==='low sample'
+    ? `<div class="tiny faint" style="margin-top:5px">Low sample stats can swing quickly; do not overread them yet.</div>`
+    : '';
+  const metrics=[
+    ['Serve in',ins.rates.serveIn,''],
+    ['Ace rate',ins.rates.aceRate,''],
+    ['Pass err %',ins.rates.passErr,''],
+    ['Hit eff.',ins.rates.hitEff,''],
+    ['Defense',ins.rates.defense,'wide'],
+  ];
+  return `<div class="card insight-card" style="background:var(--surface2)">
+    <div class="row spread">
+      <div class="stat-title" style="margin:0">Player insights</div>
+      <span class="pill" style="color:${trend.tone};border-color:${trend.tone}">${esc(trend.label)}${trendMeta}</span>
+    </div>
+    <div style="margin-top:9px">
+      <div class="row spread" style="margin-top:5px"><span class="small muted">Overall sample</span><span class="small" style="font-weight:700;color:${confidenceColor(ins.overallConfidence.label)}">${ins.overallConfidence.label}</span></div>
+      <div class="row spread" style="margin-top:5px"><span class="small muted">Stat sample</span><span class="small" style="font-weight:700;color:${confidenceColor(ins.statConfidence.label)}">${ins.statConfidence.label}</span></div>
+      ${lowNote}
+    </div>
+    <div class="insight-grid">
+      ${metrics.map(([label,value,wide])=>`<div class="insight-metric ${wide}">
+        <div class="insight-label">${esc(label)}</div>
+        <div class="insight-value num">${esc(value)}</div>
+      </div>`).join('')}
+    </div>
+    <div class="tiny faint" style="margin-top:7px">Hit eff. (kills - errors) / logged attacks. Ratings still use saved results + event weights.</div>
+    <div style="margin-top:8px">${ins.notes.map(n=>`<div class="small">${esc(n)}</div>`).join('')}</div>
+  </div>`;
 }
 function accuracyStats(){
   const g=games.filter(x=>x.winner && x.predCorrect!=null);
@@ -1307,9 +1421,11 @@ function demoEvents(p){
   const add=(k,n)=>{ if(n>0) log[k]=(log[k]||0)+n; };
   add('kill',  R()<s*0.9       ? Math.floor(R()*(1+s*4)) : 0);
   add('ace',   R()<s*0.5       ? Math.floor(R()*(1+s*2)) : 0);
+  add('sin',   Math.floor(R()*(2+s*3)));
   add('dig',   R()<0.5+s*0.3   ? Math.floor(R()*(1+s*3)) : 0);
   add('block', R()<s*0.4       ? Math.floor(R()*(s*2))   : 0);
   add('goodPass', R()<0.4+s*0.4? Math.floor(R()*(1+s*3)) : 0);
+  add('pget',  R()<0.35+s*0.3  ? Math.floor(R()*(1+s*2)) : 0);
   add('assist', p.roles.setter ? Math.floor(R()*(2+s*4)) : 0);
   add('kerr',  R()<(1-s)*0.6   ? Math.floor(R()*(1+(1-s)*3)) : 0);
   add('serr',  R()<(1-s)*0.5   ? Math.floor(R()*(1+(1-s)*2)) : 0);
@@ -1358,27 +1474,51 @@ function runSelfTest(){
   const Rs=[];
   const ck=(name,cond,detail)=>Rs.push({name,pass:!!cond,detail:detail||''});
   try{
-    players=[]; games=[];
+    players=[]; games=[]; settings={...DEFAULT_SETTINGS};
     for(let i=0;i<6;i++){ const p=makePlayer('T'+i, 25+i*13); if(i<2)p.roles.setter=true; if(i<3)p.roles.passer=true; if(i===5)p.roles.beginner=true; players.push(p); }
     const P=players;
     games.push({id:'g1',date:1,teamA:[P[5].id,P[3].id,P[1].id],teamB:[P[4].id,P[2].id,P[0].id],scoreA:25,scoreB:20,winner:'A',log:{[P[5].id]:{kill:3,ace:1},[P[0].id]:{kerr:2}}});
     games.push({id:'g2',date:2,solo:true,teamA:[P[2].id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[P[2].id]:{kill:4,dig:2}}});
     recomputeAll();
 
+    const empty=makePlayer('Empty',50);
+    const emptyRates=playerInsights(empty).rates;
+    ck('Stat rates do not divide by zero', Object.values(emptyRates).every(v=>v===DASH));
+    const rateP=makePlayer('Rates',50);
+    rateP.gamesPlayed=4;
+    rateP.lifetime={...zeroEvents(), ace:2, sin:6, serr:2, goodPass:7, pget:1, perr:2, kill:7, kerr:2, dig:5, block:3};
+    const rateIns=playerInsights(rateP);
+    ck('Serve in % is calculated correctly', rateIns.rates.serveIn==='80%', rateIns.rates.serveIn);
+    ck('Ace rate is calculated correctly', rateIns.rates.aceRate==='20%', rateIns.rates.aceRate);
+    ck('Pass err % is calculated correctly', rateIns.rates.passErr==='20%', rateIns.rates.passErr);
+    ck('Hit efficiency uses kills minus errors over logged attacks', rateIns.rates.hitEff==='.556', rateIns.rates.hitEff);
+    ck('Low sample players show low confidence', playerInsights(empty).overallConfidence.label==='low sample' && playerInsights(empty).statConfidence.label==='low sample');
+    const trusted=makePlayer('Trusted',50);
+    trusted.lifetime={...zeroEvents(), ace:10, sin:20, goodPass:10};
+    ck('Players with enough logged events show higher stat confidence', statConfidence(trusted).label==='trusted sample', statConfidence(trusted).label);
+    const trendP=makePlayer('Trend',50);
+    trendP.gamesPlayed=5; trendP.history=[{i:0,r:50},{i:1,r:51},{i:2,r:52},{i:3,r:53},{i:4,r:54},{i:5,r:55}];
+    settings.hideRatings=true;
+    const hiddenTrendHtml=insightCard(trendP);
+    ck('Hide ratings mode does not display numeric rating deltas in insight output', !hiddenTrendHtml.includes('+5') && !hiddenTrendHtml.includes('last 5'));
+    settings.hideRatings=false;
+
     ck('Ratings stay within 0–100', players.every(p=>p.rating>=0&&p.rating<=100));
     ck('No NaN ratings', players.every(p=>typeof p.rating==='number'&&!isNaN(p.rating)));
     const s1=players.map(p=>p.rating); recomputeAll(); const s2=players.map(p=>p.rating);
-    ck('Recompute is deterministic', s1.every((r,i)=>Math.abs(r-s2[i])<1e-9));
+    ck('Existing rating recompute remains deterministic', s1.every((r,i)=>Math.abs(r-s2[i])<1e-9));
     const wpAB=winProbability([P[0].id],[P[5].id]), wpBA=winProbability([P[5].id],[P[0].id]);
     ck('Win probability is symmetric', Math.abs((wpAB+wpBA)-1)<1e-9, '('+Math.round(wpBA*100)+'% / '+Math.round(wpAB*100)+'%)');
     ck('Stronger team is the favorite', wpBA>0.5);
     ck('Equal teams ≈ 50%', Math.abs(winProbability([P[3].id],[P[3].id])-0.5)<1e-9);
     const g1=games.find(x=>x.id==='g1'); const d=g1.deltas[Object.keys(g1.deltas)[0]];
     ck('Rating change = result + events', Math.abs((d.after-d.before)-(d.elo+d.ev))<1.2,'(within rounding)');
+    ck('Existing match-game rating behavior remains unchanged', Object.keys(g1.deltas).length===6 && d.elo!==0 && d.ev!==0);
     const g2=games.find(x=>x.id==='g2');
     ck('Solo game has no win probability', g2.winProb==null);
     ck('Solo result adds no opponent Elo', Object.values(g2.deltas).every(x=>x.elo===0));
     ck('Solo events still counted', P[2].lifetime.kill>=4);
+    ck('Existing solo-game rating behavior remains unchanged', g2.winProb==null && Object.values(g2.deltas).every(x=>x.elo===0) && P[2].lifetime.kill>=4);
     const ac=accuracyStats();
     ck('Prediction record ignores solo games', !ac || ac.n===games.filter(x=>x.winner&&!x.solo&&x.predCorrect!=null).length);
     const teams=balance(players.slice(),2);
@@ -1478,25 +1618,25 @@ function renderPlayerSheet(){
   if(p){
     const rel=reliability(p);
     const b=band(p);
-    const a=analyze(p);
     const rd=recentDelta(p);
-    const rdTxt = rd>0?`▲ +${rd}`:rd<0?`▼ ${Math.abs(rd)}`:'flat';
-    const rdCol = rd>0?'var(--good)':rd<0?'var(--bad)':'var(--faint)';
+    const rt=recentRatingTrend(p);
+    const rdTxt = settings.hideRatings ? rt.label : (rd>0?`▲ +${rd}`:rd<0?`▼ ${Math.abs(rd)}`:'flat');
+    const rdCol = settings.hideRatings ? rt.tone : (rd>0?'var(--good)':rd<0?'var(--bad)':'var(--faint)');
     const level=volleyballLevelOf(p.rating);
     body += `<div class="card" style="background:var(--surface2)">
-      <div class="row spread"><span class="muted small">Current rating</span><span class="rate num">${Math.round(p.rating)}<span style="font-size:13px;color:var(--faint);font-weight:600"> ±${b}</span></span></div>
+      <div class="row spread"><span class="muted small">Current rating</span><span class="rate num">${showRate(p.rating)}${settings.hideRatings?'':`<span style="font-size:13px;color:var(--faint);font-weight:600"> ±${b}</span>`}</span></div>
       ${settings.hideRatings?'':`<div class="row spread" style="margin-top:6px"><span class="muted small">Court Level</span><span class="small" style="font-weight:700">${esc(level.label)}</span></div>
       <div class="tiny faint" style="margin-top:4px">${esc(level.overall)}</div>`}
       <div class="row spread" style="margin-top:6px"><span class="muted small">Record · games</span><span class="num">${p.wins}-${p.losses} · ${p.gamesPlayed}</span></div>
       <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
-      ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="num small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
-      ${a&&(a.strength||a.weakness)?`<div class="row spread" style="margin-top:6px"><span class="muted small">Profile</span><span class="small" style="text-align:right">${a.strength?`<span style="color:var(--good)">strong ${a.strength}</span>`:''}${a.strength&&a.weakness?'<br>':''}${a.weakness?`<span style="color:var(--bad)">work on ${a.weakness}</span>`:''}</span></div>`:''}
+      ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="${settings.hideRatings?'':'num '}small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
     </div>
+    ${insightCard(p)}
     ${lifetimeStatsSection(p)}
-    <div class="card" style="background:var(--surface2)">
+    ${settings.hideRatings?'':`<div class="card" style="background:var(--surface2)">
       <div class="small muted" style="margin-bottom:4px">Rating over time</div>
       ${trendChart(p.history)}
-    </div>`;
+    </div>`}`;
   }
   body += `<button class="btn primary block" onclick="savePlayer()">${editId?'Save changes':'Add player'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="cancelPlayerEdit()">Cancel</button>`;
