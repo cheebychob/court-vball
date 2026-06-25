@@ -1798,14 +1798,20 @@ function askConfirm(msg, yesLabel='Confirm', danger=true){
     sc.innerHTML=`<div class="sheet" style="max-width:440px">
       <div class="grab"></div>
       <p style="font-size:15px; line-height:1.45; margin:2px 0 18px">${esc(msg)}</p>
-      <button class="btn ${danger?'danger':'primary'} block" id="cfYes">${esc(yesLabel)}</button>
-      <button class="btn ghost block" id="cfNo" style="margin-top:8px">Cancel</button>
+      <button type="button" class="btn ${danger?'danger':'primary'} block" data-action="confirm">${esc(yesLabel)}</button>
+      <button type="button" class="btn ghost block" data-action="cancel" style="margin-top:8px">Cancel</button>
     </div>`;
     document.body.appendChild(sc);
-    const done=(v)=>{ sc.remove(); resolve(v); };
-    sc.querySelector('#cfYes').onclick=()=>done(true);
-    sc.querySelector('#cfNo').onclick=()=>done(false);
-    sc.addEventListener('click',e=>{ if(e.target===sc) done(false); });
+    let settled=false;
+    const done=(v)=>{ if(settled) return; settled=true; sc.remove(); resolve(v); };
+    sc.addEventListener('click',e=>{
+      const btn = e.target.closest ? e.target.closest('button[data-action]') : null;
+      if(btn && sc.contains(btn)){
+        done(btn.dataset.action==='confirm');
+        return;
+      }
+      if(e.target===sc) done(false);
+    });
   });
 }
 

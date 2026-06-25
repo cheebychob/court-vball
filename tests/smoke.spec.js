@@ -37,6 +37,68 @@ function expectReplayedGame(state, playerIds) {
   expect([true, false, null]).toContain(state.game.predCorrect);
 }
 
+const trackingRoster = [
+  { id: 'solo-alpha', name: 'Solo Alpha', seedRating: 60, active: true, archived: false },
+  { id: 'match-alpha', name: 'Match Alpha', seedRating: 58, active: true, archived: false },
+  { id: 'match-beta', name: 'Match Beta', seedRating: 52, active: true, archived: false }
+];
+
+async function seedCourt(page, { players: seededPlayers, games: seededGames = [], settings: seededSettings = { hideRatings: false } }) {
+  await page.addInitScript(({ seededPlayers, seededGames, seededSettings }) => {
+    localStorage.setItem('vb:players', JSON.stringify(seededPlayers));
+    localStorage.setItem('vb:games', JSON.stringify(seededGames));
+    localStorage.setItem('vb:settings', JSON.stringify(seededSettings));
+  }, { seededPlayers, seededGames, seededSettings });
+}
+
+async function seedTrackingRoster(page) {
+  await seedCourt(page, { players: trackingRoster.map(p => ({ ...p })) });
+}
+
+async function currentLive(page) {
+  return page.evaluate(() => live ? JSON.parse(JSON.stringify(live)) : null);
+}
+
+async function gameCounts(page) {
+  return page.evaluate(() => ({
+    memory: games.length,
+    stored: JSON.parse(localStorage.getItem('vb:games') || '[]').length
+  }));
+}
+
+async function startSoloTracking(page) {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Track/i }).click();
+  await page.getByRole('button', { name: 'Solo', exact: true }).click();
+  await page.getByRole('button', { name: /Solo Alpha/ }).click();
+  await page.getByRole('button', { name: 'Start solo tracking', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
+}
+
+async function startMatchTracking(page) {
+  await page.goto('/');
+  await page.getByRole('button', { name: /Track/i }).click();
+  await page.getByRole('button', { name: 'Match', exact: true }).click();
+  await page.getByRole('button', { name: /Match Alpha/ }).click();
+  await page.getByRole('button', { name: /Match Beta/ }).click();
+  await page.getByRole('button', { name: /Match Beta/ }).click();
+  await page.getByRole('button', { name: 'Start tracking', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Live game' })).toBeVisible();
+}
+
+async function logSoloAce(page) {
+  const playerRow = page.locator('.prow').filter({ hasText: 'Solo Alpha' });
+  await playerRow.getByRole('button', { name: 'Ace', exact: true }).click();
+  await expect(playerRow.locator('.cnt')).toHaveText('1');
+}
+
+async function openDiscardConfirm(page) {
+  await page.locator('main').getByRole('button', { name: 'Discard', exact: true }).click();
+  const confirm = page.locator('.scrim').last();
+  await expect(confirm.getByText('Discard this game without saving?')).toBeVisible();
+  return confirm;
+}
+
 test('app boots and built-in self-test passes', async ({ page }) => {
   await page.goto('/');
 
@@ -430,6 +492,118 @@ test('generated teams exclude inactive players left in the pool', async ({ page 
 
   expect(generatedNames).toEqual(expect.arrayContaining(['Active A', 'Active B']));
   expect(generatedNames).not.toContain('Inactive C');
+});
+
+test('solo discard confirm cancel keeps live solo stats', async ({ page }) => {
+  await seedTrackingRoster(page);
+  await startSoloTracking(page);
+  await logSoloAce(page);
+
+  const confirm = await openDiscardConfirm(page);
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await expect(page.locator('.scrim')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
+  await expect(page.locator('.prow').filter({ hasText: 'Solo Alpha' }).locator('.cnt')).toHaveText('1');
+  expect(await currentLive(page)).toMatchObject({
+    solo: true,
+    player: 'solo-alpha',
+    log: { 'solo-alpha': { ace: 1 } }
+  });
+  expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
+});
+
+test('solo discard confirm discard exits without saving', async ({ page }) => {
+  await seedTrackingRoster(page);
+  await startSoloTracking(page);
+  await logSoloAce(page);
+
+  const confirm = await openDiscardConfirm(page);
+  await confirm.getByRole('button', { name: 'Discard', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Track a game' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start solo tracking', exact: true })).toBeVisible();
+  expect(await currentLive(page)).toBeNull();
+  expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
+});
+
+test('solo discard confirm scrim click cancels and keeps live solo stats', async ({ page }) => {
+  await seedTrackingRoster(page);
+  await startSoloTracking(page);
+  await logSoloAce(page);
+
+  await openDiscardConfirm(page);
+  await page.mouse.click(5, 5);
+
+  await expect(page.locator('.scrim')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
+  await expect(page.locator('.prow').filter({ hasText: 'Solo Alpha' }).locator('.cnt')).toHaveText('1');
+  expect(await currentLive(page)).toMatchObject({
+    solo: true,
+    player: 'solo-alpha',
+    log: { 'solo-alpha': { ace: 1 } }
+  });
+});
+
+test('match discard confirm cancel keeps live score', async ({ page }) => {
+  await seedTrackingRoster(page);
+  await startMatchTracking(page);
+
+  await page.locator('.scorebox.A .stepper').getByRole('button', { name: '+', exact: true }).click();
+  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+
+  const confirm = await openDiscardConfirm(page);
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await expect(page.locator('.scrim')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Live game' })).toBeVisible();
+  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+  expect(await currentLive(page)).toMatchObject({
+    teamA: ['match-alpha'],
+    teamB: ['match-beta'],
+    scoreA: 1,
+    scoreB: 0
+  });
+  expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
+});
+
+test('match discard confirm discard exits without saving', async ({ page }) => {
+  await seedTrackingRoster(page);
+  await startMatchTracking(page);
+
+  await page.locator('.scorebox.A .stepper').getByRole('button', { name: '+', exact: true }).click();
+  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+
+  const confirm = await openDiscardConfirm(page);
+  await confirm.getByRole('button', { name: 'Discard', exact: true }).click();
+
+  await expect(page.getByRole('heading', { name: 'Track a game' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Start tracking', exact: true })).toBeVisible();
+  expect(await currentLive(page)).toBeNull();
+  expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
+});
+
+test('delete player confirmation cancel does not delete the player', async ({ page }) => {
+  await seedCourt(page, {
+    players: [
+      { id: 'delete-cancel-player', name: 'Delete Cancel Player', seedRating: 43, active: true, archived: false }
+    ]
+  });
+
+  await page.goto('/');
+  await page.getByText('Delete Cancel Player').click();
+  await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
+
+  const confirm = page.locator('.scrim').last();
+  await expect(confirm.getByText('Delete this player? This cannot be undone.')).toBeVisible();
+  await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await expect(page.locator('.scrim')).toHaveCount(1);
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Edit player' })).toBeVisible();
+  await expect(page.getByText('Delete Cancel Player')).toBeVisible();
+
+  const savedPlayerIds = await page.evaluate(() => JSON.parse(localStorage.getItem('vb:players')).map(p => p.id));
+  expect(savedPlayerIds).toContain('delete-cancel-player');
 });
 
 test('deleting an unplayed player hard-deletes them', async ({ page }) => {
