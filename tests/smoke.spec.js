@@ -55,6 +55,60 @@ async function seedTrackingRoster(page) {
   await seedCourt(page, { players: trackingRoster.map(p => ({ ...p })) });
 }
 
+async function clickNav(page, name) {
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name, exact: true })
+    .click();
+}
+
+async function expectScreenLabel(page, label) {
+  await expect(page.locator('main .screen-head .eyebrow')).toHaveText(label);
+}
+
+async function goToPlayers(page) {
+  await clickNav(page, 'Players');
+  await expectScreenLabel(page, 'Roster');
+}
+
+async function goToTrack(page) {
+  await clickNav(page, 'Track');
+  await expectScreenLabel(page, 'Track');
+}
+
+async function goToTeams(page) {
+  await clickNav(page, 'Teams');
+  await expectScreenLabel(page, 'Teams');
+}
+
+async function goToGames(page) {
+  await clickNav(page, 'Games');
+  await expectScreenLabel(page, 'History');
+}
+
+async function goToMore(page) {
+  await clickNav(page, 'More');
+  await expectScreenLabel(page, 'More');
+}
+
+async function openAddPlayer(page) {
+  await goToPlayers(page);
+  await page.locator('main').getByRole('button', { name: 'Add player', exact: true }).click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Add player', exact: true })).toBeVisible();
+}
+
+function playerCard(page, name) {
+  return page.locator('.player-card').filter({ hasText: name }).first();
+}
+
+function gameHistoryRow(page, text) {
+  return page.locator('.history-row').filter({ hasText: text }).first();
+}
+
+function trackCard(page, name) {
+  return page.locator('.tcard').filter({ hasText: name }).first();
+}
+
 async function currentLive(page) {
   return page.evaluate(() => live ? JSON.parse(JSON.stringify(live)) : null);
 }
@@ -68,26 +122,27 @@ async function gameCounts(page) {
 
 async function startSoloTracking(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Track/i }).click();
-  await page.getByRole('button', { name: 'Solo', exact: true }).click();
-  await page.getByRole('button', { name: /Solo Alpha/ }).click();
+  await goToTrack(page);
+  await page.locator('main .mode-btn').filter({ hasText: 'Scout / Solo' }).click();
+  await page.locator('main .chip').filter({ hasText: 'Solo Alpha' }).click();
   await page.getByRole('button', { name: 'Start solo tracking', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
+  await expectScreenLabel(page, 'Scout / Solo');
+  await expect(page.getByRole('heading', { name: 'Solo Alpha', exact: true })).toBeVisible();
 }
 
 async function startMatchTracking(page) {
   await page.goto('/');
-  await page.getByRole('button', { name: /Track/i }).click();
-  await page.getByRole('button', { name: 'Match', exact: true }).click();
-  await page.getByRole('button', { name: /Match Alpha/ }).click();
-  await page.getByRole('button', { name: /Match Beta/ }).click();
-  await page.getByRole('button', { name: /Match Beta/ }).click();
+  await goToTrack(page);
+  await page.locator('main .mode-btn').filter({ hasText: 'Match' }).click();
+  await page.locator('main .chip').filter({ hasText: 'Match Alpha' }).click();
+  await page.locator('main .chip').filter({ hasText: 'Match Beta' }).click();
+  await page.locator('main .chip').filter({ hasText: 'Match Beta' }).click();
   await page.getByRole('button', { name: 'Start tracking', exact: true }).click();
-  await expect(page.getByRole('heading', { name: 'Live game' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Track this game', exact: true })).toBeVisible();
 }
 
 async function logSoloAce(page) {
-  const playerRow = page.locator('.prow').filter({ hasText: 'Solo Alpha' });
+  const playerRow = trackCard(page, 'Solo Alpha');
   await playerRow.getByRole('button', { name: 'Ace', exact: true }).click();
   await expect(playerRow.locator('.cnt')).toHaveText('1');
 }
@@ -103,13 +158,203 @@ test('app boots and built-in self-test passes', async ({ page }) => {
   await page.goto('/');
 
   await expect(page).toHaveTitle(/Court/);
-  await expect(page.getByRole('heading', { name: /Roster/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Set up your gym.', exact: true })).toBeVisible();
+  await goToPlayers(page);
+  await expectScreenLabel(page, 'Roster');
 
-  await page.getByRole('button', { name: /More/i }).click();
-  await page.getByRole('button', { name: /Run self-test/i }).click();
+  await goToMore(page);
+  await page.getByRole('button', { name: 'Run self-test', exact: true }).click();
 
   await expect(page.getByText(/Self-test · \d+\/\d+ passed/i)).toBeVisible();
   await expect(page.getByText('Everything checks out.')).toBeVisible();
+});
+
+test('event schedule spreads fewer pools across available courts', async ({ page }) => {
+  const teams = Array.from({ length: 24 }, (_, i) => ({
+    id: `sched-team-${i}`,
+    name: `Schedule Team ${i + 1}`,
+    pool: ['A', 'B', 'C'][Math.floor(i / 8)],
+    players: []
+  }));
+
+  await page.addInitScript(({ teams }) => {
+    const now = new Date();
+    now.setHours(9, 0, 0, 0);
+    Date.now = () => now.getTime();
+    localStorage.setItem('vb:players', '[]');
+    localStorage.setItem('vb:games', '[]');
+    localStorage.setItem('vb:settings', JSON.stringify({ hideRatings: false }));
+    localStorage.setItem('vb:events', JSON.stringify([{
+      id: 'schedule-ui',
+      name: 'Schedule UI Cup',
+      created: 1,
+      done: false,
+      teams,
+      sched: { start: '10:00', courts: 8, courtStyle: 'num', setMin: 20, matchMin: 45, breakMin: 10 },
+      brackets: []
+    }]));
+  }, { teams });
+
+  await page.goto('/');
+
+  const schedule = await page.evaluate(() => {
+    const noDouble = sc => sc.slots.every(slot => {
+      const used = new Set();
+      return slot.every(match => {
+        if (used.has(match.a) || used.has(match.b)) return false;
+        used.add(match.a);
+        used.add(match.b);
+        return true;
+      });
+    });
+    const sc8 = buildSchedule(evts[0]);
+    const sc12 = buildSchedule({
+      ...evts[0],
+      id: 'schedule-ui-12',
+      sched: { ...evts[0].sched, courts: 12 }
+    });
+    return {
+      eight: {
+        courts: sc8.courts.length,
+        firstSlot: sc8.slots[0].length,
+        noDouble: noDouble(sc8),
+        allHavePool: sc8.slots.flat().every(match => match.pool)
+      },
+      twelve: {
+        courts: sc12.courts.length,
+        firstSlot: sc12.slots[0].length,
+        noDouble: noDouble(sc12),
+        allHavePool: sc12.slots.flat().every(match => match.pool)
+      }
+    };
+  });
+
+  expect(schedule.eight).toMatchObject({
+    firstSlot: 8,
+    noDouble: true,
+    allHavePool: true
+  });
+  expect(schedule.eight.courts).toBeGreaterThan(3);
+  expect(schedule.twelve).toMatchObject({
+    courts: 12,
+    firstSlot: 12,
+    noDouble: true,
+    allHavePool: true
+  });
+
+  await clickNav(page, 'Events');
+  await page.locator('.ev-row').filter({ hasText: 'Schedule UI Cup' }).click();
+  const scheduleCard = page.locator('.card').filter({
+    has: page.locator('.stat-title', { hasText: /^Schedule$/ })
+  }).first();
+  await expect(scheduleCard.getByText('Planned from 10:00 AM.')).toBeVisible();
+  await expect(scheduleCard.getByText('Court 8')).toBeVisible();
+  await expect(scheduleCard.getByText('Pool A').first()).toBeVisible();
+  await expect(scheduleCard.getByText('Pool B').first()).toBeVisible();
+});
+
+test('event schedule explains live time adjustments', async ({ page }) => {
+  const teams = Array.from({ length: 4 }, (_, i) => ({
+    id: `time-team-${i}`,
+    name: `Time Team ${i + 1}`,
+    pool: 'A',
+    players: []
+  }));
+
+  await page.addInitScript(({ teams }) => {
+    const now = new Date();
+    now.setHours(11, 10, 0, 0);
+    Date.now = () => now.getTime();
+    localStorage.setItem('vb:players', '[]');
+    localStorage.setItem('vb:games', JSON.stringify([{
+      id: 'progress-game',
+      date: 1,
+      teamA: [],
+      teamB: [],
+      scoreA: 21,
+      scoreB: 15,
+      winner: 'A',
+      log: {},
+      evId: 'progress-event',
+      evA: 'time-team-0',
+      evB: 'time-team-3'
+    }]));
+    localStorage.setItem('vb:events', JSON.stringify([
+      {
+        id: 'passed-event',
+        name: 'Passed Start Cup',
+        created: 2,
+        done: false,
+        teams,
+        sched: { start: '10:00', courts: 4, courtStyle: 'num', setMin: 20, matchMin: 45, breakMin: 10 },
+        brackets: []
+      },
+      {
+        id: 'progress-event',
+        name: 'Progress Cup',
+        created: 1,
+        done: false,
+        teams,
+        sched: { start: '10:00', courts: 4, courtStyle: 'num', setMin: 20, matchMin: 45, breakMin: 10 },
+        brackets: []
+      }
+    ]));
+  }, { teams });
+
+  await page.goto('/');
+  await clickNav(page, 'Events');
+
+  await page.locator('.ev-row').filter({ hasText: 'Passed Start Cup' }).click();
+  await expect(page.getByText('Live-adjusted from now because the 10:00 AM start time has passed.')).toBeVisible();
+
+  await page.getByRole('button', { name: '‹ All events', exact: true }).click();
+  await page.locator('.ev-row').filter({ hasText: 'Progress Cup' }).click();
+  await expect(page.getByText('Live-adjusted from current progress.')).toBeVisible();
+});
+
+test('event schedule clamps extreme custom court saves', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:players', '[]');
+    localStorage.setItem('vb:games', '[]');
+    localStorage.setItem('vb:events', JSON.stringify([{
+      id: 'extreme-courts',
+      name: 'Extreme Courts Cup',
+      created: 1,
+      done: false,
+      teams: [
+        { id: 'extreme-a', name: 'Extreme A', pool: 'A', players: [] },
+        { id: 'extreme-b', name: 'Extreme B', pool: 'A', players: [] }
+      ],
+      sched: { start: '10:00', courts: 2, courtStyle: 'num', setMin: 20, matchMin: 45, breakMin: 10 },
+      brackets: []
+    }]));
+  });
+
+  await page.goto('/');
+  await clickNav(page, 'Events');
+  await page.locator('.ev-row').filter({ hasText: 'Extreme Courts Cup' }).click();
+  await page.getByRole('button', { name: 'Courts & schedule', exact: true }).click();
+  await page.locator('#evsCourts').fill('1000000000');
+  await page.locator('.sheet').getByRole('button', { name: 'Save schedule', exact: true }).click();
+
+  const saved = await page.evaluate(() => {
+    const ev = evts.find(event => event.id === 'extreme-courts');
+    const sc = buildSchedule(ev);
+    return {
+      persistedCourts: ev.sched.courts,
+      requestedCourts: sc.requestedCourts,
+      effectiveCourts: sc.effectiveCourts,
+      renderedCourts: sc.courts.length,
+      firstSlot: sc.slots[0].length
+    };
+  });
+  expect(saved).toEqual({
+    persistedCourts: 64,
+    requestedCourts: 64,
+    effectiveCourts: 1,
+    renderedCourts: 1,
+    firstSlot: 1
+  });
 });
 
 test('volleyball level helper maps rating bands', async ({ page }) => {
@@ -147,7 +392,7 @@ test('volleyball level helper maps rating bands', async ({ page }) => {
 test('can add a player and persist after reload', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await openAddPlayer(page);
   await page.getByPlaceholder('Player name').fill('Test Player');
   await page.getByRole('button', { name: /B\s+Functional/i }).click();
 
@@ -159,6 +404,7 @@ test('can add a player and persist after reload', async ({ page }) => {
   await expect(page.getByText('Test Player')).toBeVisible();
 
   await page.reload();
+  await goToPlayers(page);
 
   await expect(page.getByText('Test Player')).toBeVisible();
 });
@@ -166,7 +412,7 @@ test('can add a player and persist after reload', async ({ page }) => {
 test('starting level buttons use volleyball placement labels and seeds', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await openAddPlayer(page);
 
   const startingLevels = await page.locator('.sheet .tiergrid button').evaluateAll(buttons =>
     buttons.map(button => ({
@@ -190,7 +436,7 @@ test('starting level buttons use volleyball placement labels and seeds', async (
 test('add player sheet has cancel button that closes without saving', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await openAddPlayer(page);
   await page.getByPlaceholder('Player name').fill('Cancel Draft');
 
   await expect(page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
@@ -210,7 +456,8 @@ test('edit player cancel closes and discards draft changes', async ({ page }) =>
 
   await page.goto('/');
 
-  await page.getByText('Cancel Original').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Cancel Original').click();
   await page.getByPlaceholder('Player name').fill('Cancel Changed');
   await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
 
@@ -227,7 +474,7 @@ test('edit player cancel closes and discards draft changes', async ({ page }) =>
 test('starting level guide opens and returns to the player draft', async ({ page }) => {
   await page.goto('/');
 
-  await page.getByRole('button', { name: '+ Add player', exact: true }).click();
+  await openAddPlayer(page);
   await page.getByPlaceholder('Player name').fill('Guide Draft');
 
   await page
@@ -258,7 +505,8 @@ test('shows volleyball level on roster and player details when ratings are visib
 
   await page.goto('/');
 
-  const card = page.locator('.plist .card').filter({ hasText: 'Level Visible' });
+  await goToPlayers(page);
+  const card = playerCard(page, 'Level Visible');
   await expect(card.getByText(/BB/)).toBeVisible();
 
   await page.getByText('Level Visible').click();
@@ -278,7 +526,8 @@ test('hides volleyball level when hide ratings is on', async ({ page }) => {
 
   await page.goto('/');
 
-  const card = page.locator('.plist .card').filter({ hasText: 'Level Hidden' });
+  await goToPlayers(page);
+  const card = playerCard(page, 'Level Hidden');
   await expect(card.getByText('AA/Open')).toHaveCount(0);
 
   await page.getByText('Level Hidden').click();
@@ -324,7 +573,8 @@ test('player detail sheet groups lifetime stats with readable labels and still s
   });
 
   await page.goto('/');
-  await page.getByText('Stats Alpha').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Stats Alpha').click();
 
   const sheet = page.locator('.sheet');
   const stats = sheet.locator('.stat-card');
@@ -354,26 +604,26 @@ test('player detail sheet groups lifetime stats with readable labels and still s
 
 test('player insights render for demo season and hide rating trend deltas', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('button', { name: /More/i }).click();
+  await goToMore(page);
   await page.getByRole('button', { name: 'Load demo season', exact: true }).click();
   await page.locator('.scrim').last().getByRole('button', { name: 'Load demo', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: /Roster/i })).toBeVisible();
-  await page.locator('.plist .card').first().click();
+  await expectScreenLabel(page, 'Roster');
+  await page.locator('.player-card').first().click();
 
   const insights = page.locator('.sheet .insight-card');
   await expect(insights.getByText('Player insights', { exact: true })).toBeVisible();
   await expect(insights.getByText('Serve in', { exact: true })).toBeVisible();
 
   await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
-  await page.getByRole('button', { name: /More/i }).click();
+  await goToMore(page);
   await page
     .locator('.card')
     .filter({ hasText: 'Hide ratings (stealth)' })
     .getByRole('button', { name: 'Off', exact: true })
     .click();
-  await page.getByRole('button', { name: /Players/i }).click();
-  await page.locator('.plist .card').first().click();
+  await goToPlayers(page);
+  await page.locator('.player-card').first().click();
 
   const hiddenInsights = page.locator('.sheet .insight-card');
   await expect(hiddenInsights.getByText('Player insights', { exact: true })).toBeVisible();
@@ -401,13 +651,13 @@ test('migrates old imported players with missing active to active', async ({ pag
   expect(migrationStates).toContainEqual({ name: 'Old Import', active: true, archived: false });
   expect(migrationStates).toContainEqual({ name: 'Away Import', active: false, archived: false });
 
-  await page.getByRole('button', { name: /Teams/i }).click();
-  await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
+  await goToTeams(page);
+  await expect(page.locator('main .chip').filter({ hasText: 'Old Import' })).toBeVisible();
+  await expect(page.locator('main .chip').filter({ hasText: 'Away Import' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Track/i }).click();
-  await expect(page.getByRole('button', { name: /Old Import/i })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Away Import/i })).toHaveCount(0);
+  await goToTrack(page);
+  await expect(page.locator('main .chip').filter({ hasText: 'Old Import' })).toBeVisible();
+  await expect(page.locator('main .chip').filter({ hasText: 'Away Import' })).toHaveCount(0);
 });
 
 test('restore from backup paste keeps players, game history, and replay details after reload', async ({ page }) => {
@@ -436,30 +686,31 @@ test('restore from backup paste keeps players, game history, and replay details 
   };
 
   await page.goto('/');
-  await page.getByRole('button', { name: /More/i }).click();
-  await page.getByRole('button', { name: /Restore from backup/i }).click();
+  await goToMore(page);
+  await page.getByRole('button', { name: 'Restore from backup', exact: true }).click();
   await page.locator('#impTxt').fill(JSON.stringify(backup));
   await page.locator('.sheet').getByRole('button', { name: 'Restore from paste', exact: true }).click();
 
-  await page.getByRole('button', { name: /Players/i }).click();
+  await goToPlayers(page);
   await expect(page.getByText('Restore Alpha')).toBeVisible();
   await expect(page.getByText('Restore Beta')).toBeVisible();
 
-  await page.getByRole('button', { name: /Games/i }).click();
-  await expect(page.locator('.ghist').filter({ hasText: 'Restore Alpha' })).toBeVisible();
+  await goToGames(page);
+  await expect(gameHistoryRow(page, 'Restore Alpha')).toBeVisible();
 
   const beforeReload = await replayState(page, 'restore-game');
   expectReplayedGame(beforeReload, ['restore-a', 'restore-b']);
 
   await page.reload();
+  await goToPlayers(page);
   await expect(page.getByText('Restore Alpha')).toBeVisible();
 
   const afterReload = await replayState(page, 'restore-game');
   expectReplayedGame(afterReload, ['restore-a', 'restore-b']);
   expect(afterReload).toEqual(beforeReload);
 
-  await page.getByRole('button', { name: /Games/i }).click();
-  await page.locator('.ghist').filter({ hasText: 'Restore Alpha' }).click();
+  await goToGames(page);
+  await gameHistoryRow(page, 'Restore Alpha').click();
   await expect(page.locator('.sheet').getByText('Restore Alpha')).toBeVisible();
   await expect(page.locator('.sheet').getByText(/result/).first()).toBeVisible();
 });
@@ -490,6 +741,7 @@ test('raw stored games without derived fields replay into usable game details', 
   });
 
   await page.goto('/');
+  await goToPlayers(page);
   await expect(page.getByText('Raw Alpha')).toBeVisible();
 
   const state = await replayState(page, 'raw-game');
@@ -497,8 +749,8 @@ test('raw stored games without derived fields replay into usable game details', 
   expect(state.players.find(p => p.id === 'raw-a')).toMatchObject({ gamesPlayed: 1, wins: 1, losses: 0 });
   expect(state.players.find(p => p.id === 'raw-b')).toMatchObject({ gamesPlayed: 1, wins: 0, losses: 1 });
 
-  await page.getByRole('button', { name: /Games/i }).click();
-  await page.locator('.ghist').filter({ hasText: 'Raw Alpha' }).click();
+  await goToGames(page);
+  await gameHistoryRow(page, 'Raw Alpha').click();
   await expect(page.locator('.sheet').getByText('Raw Alpha')).toBeVisible();
   await expect(page.locator('.sheet').getByText('Raw Gamma')).toBeVisible();
   await expect(page.locator('.sheet').getByText(/result/).first()).toBeVisible();
@@ -515,7 +767,7 @@ test('generated teams exclude inactive players left in the pool', async ({ page 
   });
 
   await page.goto('/');
-  await expect(page.getByRole('heading', { name: /Roster/i })).toBeVisible();
+  await goToPlayers(page);
 
   const generatedNames = await page.evaluate(() => {
     window._pool = new Set(['active-a', 'active-b', 'inactive-c']);
@@ -536,8 +788,8 @@ test('solo discard confirm cancel keeps live solo stats', async ({ page }) => {
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
 
   await expect(page.locator('.scrim')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
-  await expect(page.locator('.prow').filter({ hasText: 'Solo Alpha' }).locator('.cnt')).toHaveText('1');
+  await expectScreenLabel(page, 'Scout / Solo');
+  await expect(trackCard(page, 'Solo Alpha').locator('.cnt')).toHaveText('1');
   expect(await currentLive(page)).toMatchObject({
     solo: true,
     player: 'solo-alpha',
@@ -554,7 +806,8 @@ test('solo discard confirm discard exits without saving', async ({ page }) => {
   const confirm = await openDiscardConfirm(page);
   await confirm.getByRole('button', { name: 'Discard', exact: true }).click();
 
-  await expect(page.getByRole('heading', { name: 'Track a game' })).toBeVisible();
+  await expectScreenLabel(page, 'Track');
+  await expect(page.getByRole('heading', { name: 'Scout one player', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Start solo tracking', exact: true })).toBeVisible();
   expect(await currentLive(page)).toBeNull();
   expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
@@ -569,8 +822,8 @@ test('solo discard confirm scrim click cancels and keeps live solo stats', async
   await page.mouse.click(5, 5);
 
   await expect(page.locator('.scrim')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Solo tracking' })).toBeVisible();
-  await expect(page.locator('.prow').filter({ hasText: 'Solo Alpha' }).locator('.cnt')).toHaveText('1');
+  await expectScreenLabel(page, 'Scout / Solo');
+  await expect(trackCard(page, 'Solo Alpha').locator('.cnt')).toHaveText('1');
   expect(await currentLive(page)).toMatchObject({
     solo: true,
     player: 'solo-alpha',
@@ -582,15 +835,15 @@ test('match discard confirm cancel keeps live score', async ({ page }) => {
   await seedTrackingRoster(page);
   await startMatchTracking(page);
 
-  await page.locator('.scorebox.A .stepper').getByRole('button', { name: '+', exact: true }).click();
-  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+  await page.locator('.score-box.A').getByRole('button', { name: 'Team A plus one', exact: true }).click();
+  await expect(page.locator('.score-box.A .score-num')).toHaveText('1');
 
   const confirm = await openDiscardConfirm(page);
   await confirm.getByRole('button', { name: 'Cancel', exact: true }).click();
 
   await expect(page.locator('.scrim')).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Live game' })).toBeVisible();
-  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+  await expect(page.getByRole('heading', { name: 'Track this game', exact: true })).toBeVisible();
+  await expect(page.locator('.score-box.A .score-num')).toHaveText('1');
   expect(await currentLive(page)).toMatchObject({
     teamA: ['match-alpha'],
     teamB: ['match-beta'],
@@ -604,8 +857,8 @@ test('match discard confirm discard exits without saving', async ({ page }) => {
   await seedTrackingRoster(page);
   await startMatchTracking(page);
 
-  await page.locator('.scorebox.A .stepper').getByRole('button', { name: '+', exact: true }).click();
-  await expect(page.locator('.scorebox.A .pts')).toHaveText('1');
+  await page.locator('.score-box.A').getByRole('button', { name: 'Team A plus one', exact: true }).click();
+  await expect(page.locator('.score-box.A .score-num')).toHaveText('1');
 
   const confirm = await openDiscardConfirm(page);
   await confirm.getByRole('button', { name: 'Discard', exact: true }).click();
@@ -624,7 +877,8 @@ test('delete player confirmation cancel does not delete the player', async ({ pa
   });
 
   await page.goto('/');
-  await page.getByText('Delete Cancel Player').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Delete Cancel Player').click();
   await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
 
   const confirm = page.locator('.scrim').last();
@@ -649,7 +903,8 @@ test('deleting an unplayed player hard-deletes them', async ({ page }) => {
 
   await page.goto('/');
 
-  await page.getByText('Unused Player').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Unused Player').click();
   await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
   await page.locator('.scrim').last().getByRole('button', { name: 'Delete player', exact: true }).click();
 
@@ -680,7 +935,8 @@ test('editing a historical player seed asks before rewriting rating history', as
 
   await page.goto('/');
 
-  await page.getByText('Seed Player').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Seed Player').click();
   await page.locator('.sheet').getByRole('button', { name: /A\s+Strong/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
 
@@ -711,7 +967,8 @@ test('editing an unplayed player seed saves without rating-history warning', asy
 
   await page.goto('/');
 
-  await page.getByText('Fresh Seed').click();
+  await goToPlayers(page);
+  await playerCard(page, 'Fresh Seed').click();
   await page.locator('.sheet').getByRole('button', { name: /A\s+Strong/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Save changes', exact: true }).click();
 
@@ -747,6 +1004,7 @@ test('deleting a historical player archives and hides them from active flows', a
   });
 
   await page.goto('/');
+  await goToPlayers(page);
 
   const before = await page.evaluate(() => {
     recomputeAll();
@@ -754,7 +1012,7 @@ test('deleting a historical player archives and hides them from active flows', a
     return { deltas: JSON.stringify(g.deltas), ratings: players.map(p => p.rating) };
   });
 
-  await page.getByText('Historic Player').click();
+  await playerCard(page, 'Historic Player').click();
   await page.locator('.sheet').getByRole('button', { name: 'Delete player', exact: true }).click();
   await page.locator('.scrim').last().getByRole('button', { name: 'Archive player', exact: true }).click();
 
@@ -775,13 +1033,14 @@ test('deleting a historical player archives and hides them from active flows', a
 
   await page.reload();
 
+  await goToPlayers(page);
   await expect(page.getByText('Historic Player')).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Track/i }).click();
-  await expect(page.getByRole('button', { name: /Historic Player/i })).toHaveCount(0);
+  await goToTrack(page);
+  await expect(page.locator('main .chip').filter({ hasText: 'Historic Player' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: /Teams/i }).click();
-  await expect(page.getByRole('button', { name: /Historic Player/i })).toHaveCount(0);
+  await goToTeams(page);
+  await expect(page.locator('main .chip').filter({ hasText: 'Historic Player' })).toHaveCount(0);
 
   const generatedNames = await page.evaluate(() => {
     window._pool = new Set(['historic-player', 'active-teammate', 'active-opponent']);
@@ -790,8 +1049,8 @@ test('deleting a historical player archives and hides them from active flows', a
   });
   expect(generatedNames).not.toContain('Historic Player');
 
-  await page.getByRole('button', { name: /Games/i }).click();
-  await page.getByText(/Historic Player, Active Teammate/).click();
+  await goToGames(page);
+  await gameHistoryRow(page, 'Historic Player, Active Teammate').click();
   await expect(page.locator('.sheet').getByRole('heading', { name: /Game · 25–20/i })).toBeVisible();
   await expect(page.locator('.sheet').getByText('Historic Player')).toBeVisible();
 });
