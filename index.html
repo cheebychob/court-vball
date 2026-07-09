@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no">
-<meta name="theme-color" content="#0a0b0d">
+<meta name="theme-color" content="#070a12">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -11,247 +11,538 @@
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
-    --bg:#0a0b0d; --surface:#15171b; --surface2:#1c1f24; --border:#262a30;
-    --text:#e8eaed; --muted:#8a919c; --faint:#5b626d;
-    --sand:#d9a24a;        /* signature accent: leather/sand */
-    --good:#54c59a;        /* positive events */
-    --bad:#e8705f;         /* errors */
-    --teamA:#6aa0f0; --teamB:#d99a6a;
-    --radius:14px;
-    --tap:#ffffff14;
+    /* new palette */
+    --bg:#070a12;
+    --text:#f4f7fc;
+    --muted:#a9b4c8;
+    --soft:#74819a;
+    --faint:#4d5a70;
+    --gold:#f2c66d;
+    --gold-deep:#d99e37;
+    --mint:#5fe3ae;
+    --cyan:#74d7ff;
+    --coral:#ff7d72;
+    --warn:#ffd36d;
+    --line:#ffffff1c;
+    --line-strong:#ffffff2e;
+    --glass:linear-gradient(150deg,#ffffff12,#ffffff07);
+    --glass-strong:linear-gradient(150deg,#1a2438ee,#111a2cee);
+    --radius:19px;
+    --shadow:0 18px 60px #00000073;
+    /* legacy aliases — the engine, editor & sheets reference these */
+    --surface:#131b2b;
+    --surface2:#1b2539;
+    --border:#ffffff1f;
+    --sand:#f2c66d;
+    --good:#5fe3ae;
+    --bad:#ff7d72;
+    --teamA:#6db4ff;
+    --teamB:#ffb36e;
+    --tap:#ffffff1e;
   }
-  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
-  html,body{margin:0; padding:0; background:var(--bg); color:var(--text);
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{background:var(--bg)}
+  html,body{margin:0;padding:0;color:var(--text);
+    font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     -webkit-font-smoothing:antialiased;}
-  body{padding-bottom:calc(72px + env(safe-area-inset-bottom));}
-  .num{font-variant-numeric:tabular-nums; letter-spacing:-0.01em;}
-  button{font-family:inherit; color:inherit; cursor:pointer; border:none; background:none;}
-  input,select,textarea{font-family:inherit; font-size:16px; color:var(--text);
-    background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:11px 12px; width:100%;}
-  input:focus,select,textarea:focus{outline:2px solid var(--sand); outline-offset:0;}
-  ::placeholder{color:var(--faint);}
+  body{
+    min-height:100vh;
+    overflow-x:hidden;
+    background:
+      radial-gradient(circle at 16% -6%, #29507c5c 0, transparent 32rem),
+      radial-gradient(circle at 98% 2%, #7c58305c 0, transparent 24rem),
+      linear-gradient(172deg,#060810 0%,#0a0f1b 44%,#0e1424 100%);
+    padding-bottom:calc(92px + env(safe-area-inset-bottom));
+  }
+  /* ambient court lines, fading toward the bottom */
+  body::before{
+    content:"";
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:
+      linear-gradient(90deg, transparent 0 14%, #ffffff08 14% 14.3%, transparent 14.3% 85.7%, #ffffff08 85.7% 86%, transparent 86%),
+      linear-gradient(0deg, transparent 0 47.5%, #ffffff07 47.5% 47.8%, transparent 47.8% 52.2%, #ffffff07 52.2% 52.5%, transparent 52.5%);
+    mask-image:linear-gradient(to bottom,#000 0,#000 42%,transparent 96%);
+    -webkit-mask-image:linear-gradient(to bottom,#000 0,#000 42%,transparent 96%);
+    opacity:.5;
+  }
+  body::after{
+    content:"";
+    position:fixed; inset:0; pointer-events:none; z-index:0;
+    background:linear-gradient(180deg,transparent 40%,#070a12cc 100%);
+  }
 
-  /* top bar */
-  header{position:sticky; top:0; z-index:30; background:rgba(10,11,13,.86);
-    backdrop-filter:blur(12px); border-bottom:1px solid var(--border);
-    padding:calc(10px + env(safe-area-inset-top)) 16px 10px;}
-  .brand{display:flex; align-items:center; gap:10px;}
-  .brand .dot{width:10px; height:10px; border-radius:3px; background:var(--sand);
-    box-shadow:0 0 16px var(--sand);}
-  .brand h1{font-size:16px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; margin:0;}
-  .brand .sub{margin-left:auto; font-size:11px; color:var(--faint); letter-spacing:.06em;}
+  button{font:inherit;color:inherit;cursor:pointer;border:0;background:transparent;padding:0}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  :focus-visible{outline:2px solid var(--gold);outline-offset:2px;border-radius:6px}
+  .num{font-variant-numeric:tabular-nums;letter-spacing:-0.01em}
 
-  main{padding:16px; max-width:680px; margin:0 auto;}
-  h2.view{font-size:13px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted);
-    margin:4px 0 14px; font-weight:700;}
-  .card{background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
-    padding:14px; margin-bottom:12px;}
-  .row{display:flex; align-items:center; gap:10px;}
-  .spread{justify-content:space-between;}
-  .muted{color:var(--muted);} .faint{color:var(--faint);}
-  .small{font-size:12px;} .tiny{font-size:11px;}
-  .pill{display:inline-flex; align-items:center; gap:5px; padding:3px 8px; border-radius:999px;
-    font-size:11px; background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+  input,select,textarea{font-family:inherit;font-size:16px;color:var(--text);
+    background:#ffffff0d;border:1px solid var(--line);border-radius:14px;
+    padding:12px 13px;width:100%;}
+  input:focus,select:focus,textarea:focus{outline:2px solid var(--gold);outline-offset:0;border-color:transparent}
+  ::placeholder{color:var(--faint)}
+  textarea{resize:vertical}
+  input[type="file"]{padding:10px;font-size:13px;color:var(--muted)}
+
+  /* ---------- top bar & brand ---------- */
+  .topbar{position:sticky;top:0;z-index:30;
+    padding:calc(12px + env(safe-area-inset-top)) 16px 10px;
+    background:linear-gradient(180deg,#070a12f4,#070a12c4 72%,transparent);
+    backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);}
+  .topbar-inner{display:flex;align-items:center;gap:12px;max-width:1140px;margin:0 auto}
+  .brand-mark{width:38px;height:38px;flex:none;border-radius:13px;position:relative;overflow:hidden;
+    background:linear-gradient(135deg,#ffffff21,#ffffff06),linear-gradient(145deg,#2a4a70,#1a1f31 58%,#54401f);
+    border:1px solid #ffffff26;
+    box-shadow:0 0 26px #6db4ff20, inset 0 1px 0 #ffffff2e;}
+  .brand-mark::before,.brand-mark::after{content:"";position:absolute;left:50%;top:50%;
+    border:1.5px solid #f2c66dcc;border-radius:50%;}
+  .brand-mark::before{width:22px;height:22px;margin:-11px 0 0 -11px;transform:rotate(24deg)}
+  .brand-mark::after{width:30px;height:11px;margin:-5.5px 0 0 -15px;
+    border-left-color:transparent;border-right-color:transparent;transform:rotate(-18deg)}
+  .brand-copy{min-width:0}
+  .brand-copy h1{margin:0;font-size:17px;line-height:1;font-weight:850;letter-spacing:.1em;text-transform:uppercase}
+  .brand-copy span{display:block;margin-top:4px;color:var(--soft);font-size:12px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .night-pill{margin-left:auto;min-height:34px;display:inline-flex;align-items:center;gap:8px;
+    padding:7px 11px;border-radius:999px;background:#ffffff0e;border:1px solid var(--line);
+    color:var(--muted);font-size:12px;font-weight:650;white-space:nowrap;}
+  .pulse{width:8px;height:8px;border-radius:999px;background:var(--mint);box-shadow:0 0 16px var(--mint)}
+  .pulse.idle{background:var(--soft);box-shadow:none}
+
+  main{position:relative;z-index:1;max-width:1140px;margin:0 auto;padding:8px 16px 30px;
+    animation:rise .24s ease-out;}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  /* ---------- screen headers ---------- */
+  .screen-head{margin:6px 1px 14px}
+  .eyebrow{color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.15em;text-transform:uppercase}
+  .screen-head h2{margin:7px 0 0;font-size:26px;line-height:1.05;letter-spacing:-.01em}
+  .subcopy{margin:8px 0 0;color:var(--muted);font-size:14px;line-height:1.45;max-width:560px}
+  .section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:22px 1px 10px}
+  .section-head h3{margin:0;font-size:13px;text-transform:uppercase;letter-spacing:.13em;color:var(--muted);font-weight:800}
+  .section-head span{color:var(--soft);font-size:12px}
+
+  /* ---------- hero (Home) ---------- */
+  .hero{position:relative;overflow:hidden;border-radius:26px;padding:18px;
+    background:linear-gradient(140deg,#182c48dd 0%,#111a2cde 48%,#2c2412de 100%);
+    border:1px solid #ffffff24;
+    box-shadow:var(--shadow), inset 0 1px 0 #ffffff22;}
+  .hero::before{content:"";position:absolute;inset:11px;border:1px solid #ffffff16;border-radius:18px;
+    background:
+      linear-gradient(90deg,transparent 0 49%,#ffffff17 49% 49.4%,transparent 49.4%),
+      linear-gradient(0deg,transparent 0 50%,#ffffff12 50% 50.5%,transparent 50.5%);
+    pointer-events:none;}
+  .hero::after{content:"";position:absolute;width:220px;height:220px;right:-88px;top:-92px;border-radius:50%;
+    border:1px solid #f2c66d33;box-shadow:0 0 76px #f2c66d24, inset 0 0 46px #ffffff08;}
+  .hero-content{position:relative;z-index:1}
+  .hero h2{margin:9px 0 6px;font-size:27px;line-height:1.05;letter-spacing:-.01em}
+  .hero .subcopy{margin:0}
+  .hero-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:15px}
+  .mini-stat{min-width:0;padding:11px 10px;border-radius:15px;background:#ffffff10;border:1px solid #ffffff19;
+    backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);}
+  .mini-stat b{display:block;font-size:19px;line-height:1}
+  .mini-stat span{display:block;margin-top:5px;color:var(--muted);font-size:11px;
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  /* ---------- cards ---------- */
+  .card{position:relative;border-radius:var(--radius);background:var(--glass);
+    border:1px solid var(--line);box-shadow:0 10px 34px #00000029, inset 0 1px 0 #ffffff17;
+    padding:14px;margin-bottom:11px;}
+  .card.flat{box-shadow:none}
+  .grid{display:grid;gap:11px}
+  .grid.two{grid-template-columns:1fr}
+
+  .pressable{transition:transform .12s ease,border-color .16s ease,background-color .16s ease}
+  .pressable:active{transform:scale(.976)}
+  @media (hover:hover){ .pressable:hover{border-color:var(--line-strong)} }
+
+  /* ---------- quick action tiles ---------- */
+  .action-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .action-tile{min-height:88px;display:flex;flex-direction:column;align-items:flex-start;
+    justify-content:space-between;gap:10px;padding:13px;border-radius:var(--radius);text-align:left;
+    background:var(--glass);border:1px solid var(--line);
+    box-shadow:0 10px 34px #00000029, inset 0 1px 0 #ffffff17;}
+  .action-tile b{font-size:15px}
+  .action-tile span{color:var(--soft);font-size:12px;line-height:1.3}
+  .tile-icon{width:32px;height:32px;border-radius:12px;display:grid;place-items:center;color:#0a1220;
+    background:var(--gold);box-shadow:0 0 20px #f2c66d40;}
+  .tile-icon svg{width:17px;height:17px}
+  .t-cyan .tile-icon{background:var(--cyan);box-shadow:0 0 20px #74d7ff40}
+  .t-mint .tile-icon{background:var(--mint);box-shadow:0 0 20px #5fe3ae40}
+  .t-coral .tile-icon{background:var(--coral);box-shadow:0 0 20px #ff7d7240}
+
+  /* ---------- buttons (legacy .btn, restyled) ---------- */
+  .btn{min-height:46px;display:inline-flex;align-items:center;justify-content:center;gap:8px;
+    padding:12px 15px;border-radius:15px;border:1px solid #ffffff22;background:#ffffff10;
+    color:var(--text);font-weight:750;font-size:14px;
+    transition:transform .1s ease,background .16s ease,border-color .16s ease;}
+  .btn:active{transform:scale(.97)}
+  .btn svg{width:17px;height:17px}
+  .btn.primary{background:linear-gradient(135deg,#f5d47b,var(--gold-deep));color:#191106;
+    border-color:#f6d98c5f;box-shadow:0 10px 30px #d99e3740;}
+  .btn.ghost{background:#ffffff08;color:var(--muted);border-color:#ffffff17}
+  .btn.danger{color:var(--coral);border-color:#ff7d7238;background:#ff7d7210}
+  .btn.block{width:100%}
+  .btn.sm{min-height:35px;padding:7px 11px;font-size:12.5px;border-radius:11px}
+
+  /* ---------- pills / status ---------- */
+  .pill{display:inline-flex;align-items:center;gap:5px;min-height:24px;padding:4px 9px;border-radius:999px;
+    font-size:11px;font-weight:700;background:#ffffff0c;border:1px solid var(--line);color:var(--muted);
     white-space:nowrap;}
-  .btn{background:var(--surface2); border:1px solid var(--border); border-radius:11px;
-    padding:11px 14px; font-weight:600; font-size:14px; display:inline-flex; align-items:center;
-    justify-content:center; gap:7px; transition:transform .04s, background .15s;}
-  .btn:active{transform:scale(.97);}
-  .btn.primary{background:var(--sand); color:#1a1205; border-color:transparent;}
-  .btn.ghost{background:transparent;}
-  .btn.block{width:100%;}
-  .btn.danger{color:var(--bad); border-color:#3a2624;}
-  .btn.sm{padding:8px 11px; font-size:13px; border-radius:9px;}
+  .pill.solo{color:var(--cyan);border-color:#74d7ff42;background:#74d7ff12}
+  .pill.partial{color:var(--gold);border-color:#f2c66d42;background:#f2c66d12}
+  .pill.good{color:var(--mint);border-color:#5fe3ae42;background:#5fe3ae12}
+  .pill.bad{color:var(--coral);border-color:#ff7d7242;background:#ff7d7212}
+  .pill.warn{color:var(--warn);border-color:#ffd36d42;background:#ffd36d12}
 
-  /* rating chip */
-  .rate{font-weight:800; font-size:22px; line-height:1;}
-  .rate.big{font-size:34px;}
-  .tier{font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint);}
-  .bar{height:6px; border-radius:4px; background:var(--surface2); overflow:hidden; margin-top:7px;}
-  .bar > i{display:block; height:100%; background:linear-gradient(90deg,#6a5a2a,var(--sand));}
+  .row{display:flex;align-items:center;gap:10px}
+  .spread{justify-content:space-between}
+  .muted{color:var(--muted)} .faint{color:var(--faint)} .soft{color:var(--soft)}
+  .small{font-size:12.5px} .tiny{font-size:11px}
 
-  /* player list */
-  .plist .card{padding:12px 14px;}
-  .roles{display:flex; flex-wrap:wrap; gap:5px; margin-top:7px;}
-  .empty{text-align:center; color:var(--faint); padding:42px 16px; font-size:14px;}
-  .empty b{display:block; color:var(--muted); font-size:15px; margin-bottom:6px;}
+  .rate{font-weight:850;font-size:22px;line-height:1;color:var(--gold)}
+  .rate.big{font-size:34px}
+  .bar{display:block;height:7px;border-radius:5px;background:#ffffff10;overflow:hidden;margin-top:10px;border:1px solid #ffffff0f}
+  .bar > i{display:block;height:100%;border-radius:inherit;
+    background:linear-gradient(90deg,#7a6027,var(--gold));box-shadow:0 0 16px #f2c66d55;}
+  .meter{height:10px;border-radius:999px;background:#ffffff10;overflow:hidden;border:1px solid #ffffff12}
+  .meter i{display:block;height:100%;border-radius:inherit;
+    background:linear-gradient(90deg,var(--coral),var(--gold),var(--mint));box-shadow:0 0 20px #5fe3ae55}
 
-  /* nav */
-  nav{position:fixed; bottom:0; left:0; right:0; z-index:40; display:flex;
-    background:rgba(14,15,18,.94); backdrop-filter:blur(14px); border-top:1px solid var(--border);
-    padding-bottom:env(safe-area-inset-bottom);}
-  nav button{flex:1; padding:9px 2px 8px; display:flex; flex-direction:column; align-items:center;
-    gap:3px; color:var(--faint); font-size:10px; letter-spacing:.04em;}
-  nav button.active{color:var(--sand);}
-  nav button svg{width:23px; height:23px;}
-  nav button.active svg{filter:drop-shadow(0 0 8px var(--sand));}
+  .avatar{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:14px;
+    background:linear-gradient(150deg,#274563,#151c2e);border:1px solid #ffffff22;
+    color:var(--text);font-weight:850;font-size:14px;box-shadow:inset 0 1px 0 #ffffff1c;position:relative;}
+  .avatar.sm{width:34px;height:34px;border-radius:12px;font-size:12px}
+  .avatar .off-dot{position:absolute;right:-3px;top:-3px;width:11px;height:11px;border-radius:999px;
+    background:var(--soft);border:2px solid var(--bg)}
 
-  /* track */
-  .scorebar{display:flex; gap:10px; margin-bottom:12px;}
-  .scorebox{flex:1; background:var(--surface); border:1px solid var(--border); border-radius:var(--radius);
-    padding:10px; text-align:center;}
-  .scorebox .lbl{font-size:11px; letter-spacing:.1em; text-transform:uppercase; font-weight:700;}
-  .scorebox.A{border-color:#2b3a52;} .scorebox.A .lbl{color:var(--teamA);}
-  .scorebox.B{border-color:#52402b;} .scorebox.B .lbl{color:var(--teamB);}
-  .scorebox .pts{font-size:40px; font-weight:800; line-height:1; margin:4px 0;}
-  .stepper{display:flex; gap:8px; justify-content:center;}
-  .stepper button{width:40px; height:36px; border-radius:9px; background:var(--surface2);
-    border:1px solid var(--border); font-size:20px; font-weight:700;}
-  .teamhdr{font-size:11px; letter-spacing:.12em; text-transform:uppercase; font-weight:700;
-    margin:16px 0 8px; padding-left:2px;}
-  .teamhdr.A{color:var(--teamA);} .teamhdr.B{color:var(--teamB);}
-  .prow{background:var(--surface); border:1px solid var(--border); border-radius:12px;
-    padding:10px 12px; margin-bottom:8px;}
-  .prow .top{display:flex; align-items:center; gap:9px;}
-  .prow .nm{font-weight:600; font-size:15px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  .gpts{font-weight:800; font-size:16px; min-width:30px; text-align:right;}
-  .gpts.pos{color:var(--good);} .gpts.neg{color:var(--bad);}
-  .ev{display:flex; flex-wrap:wrap; gap:6px; margin-top:9px;}
-  .ev button{flex:1 1 auto; min-width:52px; padding:9px 4px; border-radius:9px; font-size:12px;
-    font-weight:700; background:var(--surface2); border:1px solid var(--border);}
-  .ev button.g{color:var(--good); border-color:#26392f;}
-  .ev button.b{color:var(--bad); border-color:#3a2624;}
-  .ev button:active{background:var(--tap); transform:scale(.94);}
-  .ev .cnt{font-size:10px; opacity:.6; margin-left:3px;}
-  .evrow{display:flex; align-items:center; gap:10px; margin-top:8px;}
-  .evrow .evlbl{flex:0 0 46px; font-size:10px; color:var(--faint); text-transform:uppercase; letter-spacing:.05em;}
-  .evrow .ev{flex:1; margin-top:0;}
-  .expand{font-size:12px; color:var(--muted); margin-top:8px; display:inline-block;}
+  /* ---------- segmented controls ---------- */
+  .seg{display:flex;gap:7px;flex-wrap:wrap}
+  .seg button{flex:1;min-height:42px;min-width:52px;padding:9px 8px;border-radius:13px;
+    background:#ffffff0b;border:1px solid #ffffff17;color:var(--muted);font-weight:750;font-size:13.5px;
+    transition:transform .1s ease,background .16s ease,border-color .16s ease,color .16s ease;}
+  .seg button:active{transform:scale(.96)}
+  .seg button.on{color:var(--gold);background:#f2c66d16;border-color:#f2c66d55;
+    box-shadow:0 0 0 1px #f2c66d22, 0 8px 26px #f2c66d14;}
 
-  /* teams builder */
-  .chips{display:flex; flex-wrap:wrap; gap:8px;}
-  .chip{padding:8px 12px; border-radius:10px; background:var(--surface2); border:1px solid var(--border);
-    font-size:13px; font-weight:600; display:flex; align-items:center; gap:6px;}
-  .chip.on{background:#2a2410; border-color:var(--sand); color:var(--sand);}
-  .chip .r{font-size:11px; opacity:.7;}
-  .teamcol{margin-bottom:12px;}
-  .teamcol .hd{display:flex; align-items:baseline; justify-content:space-between; margin-bottom:8px;}
-  .teamcol .hd .t{font-weight:700; letter-spacing:.08em; text-transform:uppercase; font-size:12px;}
-  .teamcol .hd .avg{font-size:12px; color:var(--muted);}
-  .member{display:flex; align-items:center; gap:8px; background:var(--surface); border:1px solid var(--border);
-    border-radius:10px; padding:9px 11px; margin-bottom:6px;}
-  .member .nm{flex:1; font-weight:600; font-size:14px;}
-  .member .mv{font-size:11px; color:var(--muted); padding:5px 8px; border:1px solid var(--border);
-    border-radius:8px;}
-  .warn{color:var(--bad); font-size:12px; margin-top:4px;}
+  /* ---------- chips (player pool / selection) ---------- */
+  .chips{display:flex;flex-wrap:wrap;gap:8px}
+  .chip{display:inline-flex;align-items:center;gap:7px;min-height:38px;padding:8px 12px;border-radius:999px;
+    background:#ffffff0a;border:1px solid #ffffff19;color:var(--muted);font-weight:700;font-size:12.5px;
+    transition:transform .1s ease,background .16s ease,border-color .16s ease,color .16s ease;}
+  .chip:active{transform:scale(.95)}
+  .chip .r{color:var(--soft);font-weight:800;font-size:11.5px}
+  .chip.on{background:#5fe3ae16;border-color:#5fe3ae5c;color:var(--mint)}
+  .chip.on .r{color:inherit;opacity:.85}
 
-  /* games */
-  .ghist{display:flex; align-items:center; gap:10px; background:var(--surface); border:1px solid var(--border);
-    border-radius:12px; padding:11px 13px; margin-bottom:8px;}
-  .ghist .sc{font-weight:800; font-size:15px;}
-  .win{color:var(--good);}
+  /* ---------- player cards ---------- */
+  .player-list{display:grid;gap:10px;margin-top:12px}
+  .player-card{width:100%;text-align:left;padding:13px;border-radius:var(--radius);
+    background:var(--glass);border:1px solid var(--line);
+    box-shadow:0 10px 34px #00000029, inset 0 1px 0 #ffffff17;}
+  .player-card.inactive{opacity:.62}
+  .player-top{display:flex;align-items:flex-start;gap:11px}
+  .player-meta{min-width:0;flex:1}
+  .player-meta > b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-sub{display:block;margin-top:4px;color:var(--muted);font-size:12px}
+  .tags{display:flex;flex-wrap:wrap;gap:5px;margin-top:9px}
+  .rating-badge{text-align:right;flex:none}
+  .rating-badge > b{display:block;font-size:25px;line-height:.95;font-weight:850;color:var(--gold)}
+  .rating-badge .spark{display:block;margin-left:auto;margin-top:7px}
+  .delta{display:inline-block;margin-top:5px;font-size:11px;font-weight:850}
+  .delta.up{color:var(--mint)} .delta.down{color:var(--coral)}
+  .spark{opacity:.95}
 
-  /* modal */
-  .scrim{position:fixed; inset:0; background:#000a; z-index:60; display:flex; align-items:flex-end;
-    justify-content:center;}
-  .sheet{background:var(--surface); border:1px solid var(--border); border-bottom:none;
-    border-radius:18px 18px 0 0; width:100%; max-width:680px; max-height:90vh; overflow-y:auto;
-    padding:18px 16px calc(20px + env(safe-area-inset-bottom));}
-  .sheet h3{margin:2px 0 16px; font-size:17px;}
-  .grab{width:40px; height:4px; border-radius:2px; background:var(--border); margin:0 auto 14px;}
-  .field{margin-bottom:13px;}
-  .field label{display:block; font-size:12px; color:var(--muted); margin-bottom:6px; letter-spacing:.04em;}
-  .tiergrid,.rolegrid{display:grid; grid-template-columns:repeat(3,1fr); gap:8px;}
-  .opt{padding:11px 8px; text-align:center; border-radius:10px; background:var(--surface2);
-    border:1px solid var(--border); font-size:13px; font-weight:600;}
-  .opt.on{background:#2a2410; border-color:var(--sand); color:var(--sand);}
-  .opt .o2{display:block; font-size:10px; color:var(--faint); font-weight:500; margin-top:2px;}
-  .opt.on .o2{color:var(--sand); opacity:.8;}
-  .skillrow{display:flex; align-items:center; gap:10px; margin-bottom:9px;}
-  .skillrow .sn{flex:1; font-size:13px;}
-  .stars{display:flex; gap:4px;}
-  .stars button{width:30px; height:30px; border-radius:8px; background:var(--surface2);
-    border:1px solid var(--border); font-size:13px; font-weight:700; color:var(--faint);}
-  .stars button.on{background:var(--sand); color:#1a1205; border-color:transparent;}
-  .toast{position:fixed; bottom:84px; left:50%; transform:translateX(-50%); z-index:80;
-    background:var(--surface2); border:1px solid var(--border); color:var(--text);
-    padding:10px 16px; border-radius:999px; font-size:13px; font-weight:600;
-    box-shadow:0 8px 30px #000a; opacity:0; transition:opacity .2s, transform .2s; pointer-events:none;}
-  .toast.show{opacity:1; transform:translateX(-50%) translateY(-4px);}
-  .seg{display:flex; background:var(--surface2); border:1px solid var(--border); border-radius:10px; padding:3px;}
-  .seg button{flex:1; padding:8px; border-radius:8px; font-size:13px; font-weight:600; color:var(--muted);}
-  .seg button.on{background:var(--sand); color:#1a1205;}
-  .spark{display:block;}
-  .delta{font-weight:700;}
-  .stat-title{font-size:12px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted);
-    font-weight:800; margin-bottom:10px;}
-  .stat-grid{display:grid; gap:8px;}
-  .stat-group{background:rgba(10,11,13,.22); border:1px solid var(--border); border-radius:12px;
-    padding:10px 11px;}
-  .stat-group-title{font-size:11px; letter-spacing:.1em; text-transform:uppercase; color:var(--sand);
-    font-weight:800; margin-bottom:8px;}
-  .stat-row{display:flex; align-items:center; justify-content:space-between; gap:12px;
-    padding:5px 0; border-top:1px solid #ffffff0a;}
-  .stat-group-title + .stat-row{border-top:none; padding-top:0;}
-  .stat-name{font-size:13px; color:var(--muted);}
-  .stat-count{font-size:15px; font-weight:800; color:var(--text);}
-  .stat-row.err .stat-name,.stat-row.err .stat-count{color:var(--bad); opacity:.86;}
-  .stat-empty{font-size:13px; color:var(--faint); padding:2px 0 1px;}
-  .insight-grid{display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; margin-top:10px;}
-  .insight-metric{background:rgba(10,11,13,.22); border:1px solid var(--border); border-radius:10px; padding:8px 9px;}
-  .insight-label{font-size:11px; color:var(--muted); margin-bottom:3px;}
-  .insight-value{font-size:16px; font-weight:800;}
-  .insight-metric.wide{grid-column:1/-1;}
-  .teamcols{}
+  .mover{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:14px;
+    background:#ffffff08;border:1px solid #ffffff12;margin-top:8px}
+  .mover .who{min-width:0;flex:1}
+  .mover .who b{display:block;font-size:13.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mover .who span{display:block;margin-top:2px;color:var(--soft);font-size:11.5px}
+  .delta-up{color:var(--mint);font-weight:850} .delta-down{color:var(--coral);font-weight:850}
 
-  /* desktop mode — auto-adapts on wider screens */
-  @media (min-width:900px){
-    body{padding-bottom:0; padding-left:210px;}
-    header{padding-left:226px;}
-    nav{flex-direction:column; top:0; bottom:0; right:auto; width:210px; height:100vh;
-      border-top:none; border-right:1px solid var(--border); justify-content:flex-start;
-      padding:20px 12px; gap:4px; background:rgba(12,13,16,.96);}
-    nav::before{content:'COURT'; display:block; color:var(--sand); font-weight:700;
-      letter-spacing:.18em; font-size:13px; padding:6px 14px 16px;}
-    nav button{flex:none; flex-direction:row; justify-content:flex-start; gap:13px;
-      padding:12px 14px; font-size:14px; width:100%; border-radius:10px;}
-    nav button.active{background:var(--surface2);}
-    nav button svg{width:20px; height:20px;}
-    main{max-width:900px; padding:26px 36px;}
-    .plist{display:grid; grid-template-columns:1fr 1fr; gap:0 14px; align-items:start;}
-    .scrim{align-items:center;}
-    .sheet{max-width:540px; border-radius:18px; border-bottom:1px solid var(--border);
-      max-height:88vh; padding:22px 22px;}
-    .grab{display:none;}
-    .stat-grid{grid-template-columns:repeat(2,minmax(0,1fr));}
-    .teamcols{display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:16px; align-items:start;}
-    .teamcols .teamcol{margin-bottom:0;}
-    .ev button{min-width:60px; padding:11px 6px;}
+  .empty{text-align:center;color:var(--soft);padding:44px 18px;font-size:14px;line-height:1.5}
+  .empty b{display:block;color:var(--text);font-size:16px;margin-bottom:7px}
+
+  /* ---------- track: mode selector ---------- */
+  .mode-row{display:grid;grid-template-columns:1fr;gap:9px;margin:2px 0 14px}
+  .mode-btn{text-align:left;min-height:64px;display:flex;align-items:center;gap:12px;padding:12px;
+    border-radius:18px;background:#ffffff0a;border:1px solid #ffffff16;}
+  .mode-btn.active{background:linear-gradient(150deg,#1e334d,#141d31);border-color:#74d7ff5c;
+    box-shadow:0 0 0 1px #74d7ff20, 0 12px 36px #74d7ff14;}
+  .mode-icon{width:40px;height:40px;flex:none;border-radius:14px;display:grid;place-items:center;
+    background:#ffffff0f;border:1px solid #ffffff1c;color:var(--cyan);}
+  .mode-icon svg{width:19px;height:19px}
+  .mode-copy{min-width:0}
+  .mode-copy b{display:block;font-size:14px}
+  .mode-copy span{display:block;margin-top:3px;color:var(--soft);font-size:12px;line-height:1.3}
+
+  /* ---------- track: live score ---------- */
+  .score-card{padding:13px;border-radius:23px;background:var(--glass-strong);
+    border:1px solid #ffffff20;box-shadow:var(--shadow), inset 0 1px 0 #ffffff1c;margin-bottom:11px;}
+  .score-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .score-box{padding:12px 10px;border-radius:18px;background:#ffffff0b;border:1px solid #ffffff16;text-align:center}
+  .score-box.A{border-color:#6db4ff4d} .score-box.B{border-color:#ffb36e4d}
+  .score-lbl{font-size:11px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
+  .score-box.A .score-lbl{color:var(--teamA)} .score-box.B .score-lbl{color:var(--teamB)}
+  .score-num{font-size:46px;line-height:.95;font-weight:900;margin:8px 0 10px}
+  .score-steps{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .score-steps button{min-height:44px;border-radius:14px;background:#ffffff10;border:1px solid #ffffff1c;
+    font-size:22px;font-weight:850;transition:transform .1s ease,background .14s ease;}
+  .score-steps button:active{transform:scale(.94);background:var(--tap)}
+  .prob-line{text-align:center;color:var(--faint);font-size:11.5px;margin:9px 2px 0}
+
+  .strip{display:flex;align-items:center;gap:8px;margin:0 0 12px}
+  .strip .btn.sm{flex:none}
+
+  .teamhdr{font-size:11px;letter-spacing:.13em;text-transform:uppercase;font-weight:850;margin:15px 1px 8px}
+  .teamhdr.A{color:var(--teamA)} .teamhdr.B{color:var(--teamB)}
+  .unktag{color:var(--faint);font-weight:600;text-transform:none;letter-spacing:0;font-size:11px}
+  .unkline{color:var(--soft);font-size:12px;line-height:1.45;padding:10px 12px;border-radius:14px;
+    background:#ffffff07;border:1px dashed #ffffff1f;margin-bottom:10px}
+
+  /* ---------- tracked player card ---------- */
+  .tcard{padding:12px;border-radius:18px;background:var(--glass);border:1px solid var(--line);
+    box-shadow:0 8px 26px #00000024, inset 0 1px 0 #ffffff15;margin-bottom:9px}
+  .thead{display:flex;align-items:center;gap:10px}
+  .tname{min-width:0;flex:1}
+  .tname b{display:block;font-size:14.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tname span{display:block;margin-top:2px;color:var(--soft);font-size:11.5px}
+  .perf{flex:none;min-width:44px;text-align:right;font-weight:900;font-size:19px;color:var(--faint)}
+  .perf.good{color:var(--mint)} .perf.bad{color:var(--coral)}
+
+  .ev{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .ev button{flex:1 1 auto;min-width:56px;min-height:44px;padding:9px 5px;border-radius:12px;
+    font-size:12px;font-weight:800;background:#ffffff0c;border:1px solid #ffffff17;color:var(--muted);
+    position:relative;transition:transform .1s ease,background .12s ease;}
+  .ev button:active{transform:scale(.93);background:var(--tap)}
+  .ev button.g{color:var(--mint);border-color:#5fe3ae2c}
+  .ev button.b{color:var(--coral);border-color:#ff7d722c}
+  .ev .cnt{font-size:10px;opacity:.75;margin-left:4px;color:var(--text)}
+  .evrow{display:flex;align-items:center;gap:9px;margin-top:8px}
+  .evrow .evlbl{flex:0 0 50px;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;font-weight:800}
+  .evrow .ev{flex:1;margin-top:0}
+  .expand{display:inline-block;font-size:12px;color:var(--soft);margin-top:9px;padding:4px 2px;font-weight:650}
+
+  /* ---------- teams ---------- */
+  .team-results{display:grid;gap:11px;margin-top:4px}
+  .team-card{padding:13px;border-radius:20px;background:var(--glass);border:1px solid var(--line);
+    box-shadow:0 10px 34px #00000029, inset 0 1px 0 #ffffff17;}
+  .team-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .team-title b{display:block;font-size:16px}
+  .team-title span{display:block;margin-top:3px;color:var(--soft);font-size:12px}
+  .team-avg{text-align:right;color:var(--gold);font-weight:900;font-size:23px;line-height:1}
+  .team-avg span{display:block;margin-top:4px;color:var(--soft);font-size:10.5px;font-weight:650}
+  .member{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:13px;
+    background:#00000021;border:1px solid #ffffff0e;margin-top:7px}
+  .member .nm{min-width:0;flex:1;font-size:13px;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .member .mrate{color:var(--muted);font-weight:850;font-size:12px}
+  .mv{flex:none;min-height:30px;padding:5px 9px;border-radius:9px;font-size:11px;font-weight:750;
+    color:var(--cyan);background:#74d7ff12;border:1px solid #74d7ff33;}
+  .warning-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .match-action{margin-top:11px;width:100%;min-height:46px;border-radius:14px;background:#74d7ff14;
+    border:1px solid #74d7ff42;color:var(--cyan);font-weight:850;font-size:14px;
+    transition:transform .1s ease;}
+  .match-action:active{transform:scale(.97)}
+
+  /* ---------- games history ---------- */
+  .history-row{display:flex;gap:11px;align-items:center;width:100%;text-align:left;padding:12px;
+    border-radius:18px;background:var(--glass);border:1px solid var(--line);margin-bottom:9px;
+    box-shadow:0 8px 26px #00000022, inset 0 1px 0 #ffffff14;}
+  .history-line{min-width:0;flex:1}
+  .history-line .ln{display:block;font-size:13.5px;font-weight:650;color:var(--muted);
+    white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:1.45}
+  .history-line .ln.win{color:var(--text);font-weight:750}
+  .history-line .tags{margin-top:7px}
+  .result-block{flex:none;text-align:right;min-width:64px}
+  .result-block b{display:block;font-size:17px;font-weight:850}
+  .result-block span{display:block;margin-top:4px;color:var(--faint);font-size:11px}
+
+  /* ---------- more / settings ---------- */
+  .toggle-line{display:flex;align-items:center;gap:12px}
+  .toggle-line .copy{min-width:0;flex:1}
+  .toggle-line .copy b{display:block;font-size:14px}
+  .toggle-line .copy span{display:block;margin-top:3px;color:var(--soft);font-size:12px;line-height:1.35}
+  .explain-grid{display:grid;gap:10px}
+  .explain-card{padding:12px;border-radius:16px;background:#ffffff08;border:1px solid #ffffff13}
+  .explain-card b{display:block;font-size:13.5px;margin-bottom:5px}
+  .explain-card p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.5}
+
+  /* ---------- legacy editor / sheet internals ---------- */
+  .field{margin-bottom:15px}
+  .field label{display:block;font-size:12px;color:var(--muted);font-weight:750;margin-bottom:7px;
+    letter-spacing:.03em}
+  .tiergrid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .opt{padding:11px 10px;border-radius:14px;background:#ffffff0a;border:1px solid #ffffff17;
+    font-weight:750;font-size:13.5px;text-align:left;color:var(--text);
+    transition:border-color .14s ease,background .14s ease;}
+  .opt .o2{display:block;font-size:11px;color:var(--soft);font-weight:550;margin-top:3px}
+  .opt.on{border-color:#f2c66d5c;background:#f2c66d14;color:var(--gold)}
+  .opt.on .o2{color:#f2c66db0}
+  .rolegrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .rolegrid .opt{text-align:center}
+  .skillrow{display:flex;align-items:center;gap:10px;margin-bottom:9px}
+  .skillrow .sn{flex:1;font-size:13px;color:var(--muted);font-weight:650}
+  .stars{display:flex;gap:6px}
+  .stars button{width:38px;height:38px;border-radius:11px;background:#ffffff0a;border:1px solid #ffffff17;
+    font-weight:800;font-size:13px;color:var(--faint);
+    transition:background .12s ease,color .12s ease,border-color .12s ease;}
+  .stars button.on{background:#f2c66d18;border-color:#f2c66d5c;color:var(--gold)}
+
+  .stat-title{font-size:12px;text-transform:uppercase;letter-spacing:.11em;color:var(--muted);
+    font-weight:800;margin-bottom:9px}
+  .stat-card .stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .stat-group{padding:10px;border-radius:13px;background:#00000022;border:1px solid #ffffff0d}
+  .stat-group-title{font-size:10.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--faint);
+    font-weight:800;margin-bottom:6px}
+  .stat-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:3px 0}
+  .stat-name{font-size:12px;color:var(--muted)}
+  .stat-count{font-size:13px;font-weight:850}
+  .stat-row.err .stat-name{color:#e0938c} .stat-row.err .stat-count{color:var(--coral)}
+  .stat-empty{color:var(--faint);font-size:12.5px}
+  .insight-card .insight-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:11px}
+  .insight-metric{padding:9px 10px;border-radius:12px;background:#00000022;border:1px solid #ffffff0d}
+  .insight-metric.wide{grid-column:1 / -1}
+  .insight-label{font-size:10.5px;text-transform:uppercase;letter-spacing:.08em;color:var(--faint);font-weight:750}
+  .insight-value{font-size:16px;font-weight:850;margin-top:3px}
+
+  /* ---------- sheets / modals ---------- */
+  .scrim{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;
+    background:#000000a1;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding-top:56px;}
+  .sheet{width:100%;max-width:620px;max-height:88vh;overflow:auto;overscroll-behavior:contain;
+    border-radius:26px 26px 0 0;background:linear-gradient(150deg,#182236,#0f1626);
+    border:1px solid #ffffff24;border-bottom:0;
+    box-shadow:0 -18px 64px #000000a0, inset 0 1px 0 #ffffff1e;
+    padding:10px 16px calc(20px + env(safe-area-inset-bottom));
+    animation:sheetUp .2s ease-out;}
+  @keyframes sheetUp{from{transform:translateY(22px);opacity:.4}to{transform:none;opacity:1}}
+  .grab{width:42px;height:5px;border-radius:999px;background:#ffffff2a;margin:4px auto 15px}
+  .sheet h3{margin:0 0 13px;font-size:20px;letter-spacing:-.01em}
+  .sheet .card{background:var(--surface2)}
+  .sheet p{color:var(--muted);font-size:13px;line-height:1.5}
+
+  .toast{position:fixed;z-index:100;left:50%;bottom:calc(96px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(10px);
+    background:#141c2ef2;border:1px solid #ffffff26;box-shadow:0 12px 40px #00000088;
+    color:var(--text);padding:11px 16px;border-radius:999px;font-size:13px;font-weight:700;
+    opacity:0;pointer-events:none;transition:opacity .18s ease,transform .18s ease;
+    max-width:calc(100vw - 32px);text-align:center;}
+  .toast.show{opacity:1;transform:translateX(-50%)}
+
+  /* ---------- dock nav ---------- */
+  .dock-wrap{position:fixed;z-index:40;left:0;right:0;bottom:0;pointer-events:none;
+    padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
+  .dock{pointer-events:auto;max-width:600px;margin:0 auto;display:grid;
+    grid-template-columns:repeat(7,1fr);gap:3px;padding:6px;border-radius:23px;
+    background:#0a101cdd;border:1px solid #ffffff22;
+    box-shadow:0 16px 60px #000000a6, inset 0 1px 0 #ffffff19;
+    backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);}
+  .dock button{min-width:0;min-height:54px;display:flex;flex-direction:column;align-items:center;
+    justify-content:center;gap:4px;border-radius:17px;color:var(--soft);font-size:9.5px;font-weight:750;
+    letter-spacing:.02em;transition:color .14s ease,background .14s ease;}
+  .dock button svg{width:20px;height:20px}
+  .dock button.active{color:var(--gold);background:#f2c66d14;
+    box-shadow:inset 0 0 0 1px #f2c66d2c, 0 0 22px #f2c66d14;}
+
+  /* ---------- desktop sidebar ---------- */
+  .side{display:none}
+
+  /* ---------- events / standings ---------- */
+  .ev-row{display:block;width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);
+    border-radius:16px;padding:13px 14px;margin-top:10px;color:inherit;font:inherit;cursor:pointer}
+  .ev-team{display:flex;width:100%;background:none;border:none;border-bottom:1px solid var(--border);
+    padding:10px 0;color:inherit;font:inherit;text-align:left;cursor:pointer;align-items:center;justify-content:space-between;gap:10px}
+  .ev-team:last-child{border-bottom:none}
+  .ev-team .tiny{text-align:right;max-width:55%}
+  .stand-row{display:grid;grid-template-columns:18px minmax(0,1fr) 56px 50px;gap:8px;align-items:center;
+    padding:9px 0;border-bottom:1px solid var(--border)}
+  .stand-row:last-child{border-bottom:none}
+  .stand-head{padding:2px 0 5px;font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
+  .pool-title{font-size:11px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 2px}
+  .pool-title:first-of-type{margin-top:6px}
+  .set-grid{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px}
+  .set-grid .lbl{font-size:12px;color:var(--faint);font-weight:700}
+  /* ---------- bracket ---------- */
+  .bracket-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -6px;padding:2px 6px 6px}
+  .bracket{display:flex;gap:16px;min-width:max-content;align-items:stretch}
+  .br-col{display:flex;flex-direction:column;min-width:132px}
+  .br-round{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);
+    text-align:center;font-weight:800;padding-bottom:8px}
+  .br-slots{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:10px}
+  .br-match{display:block;width:100%;background:var(--surface2);border:1px solid var(--border);
+    border-radius:12px;padding:0;color:inherit;font:inherit;text-align:left}
+  .br-match.open{cursor:pointer;border-color:#f2c66d44}
+  .br-team{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:600}
+  .br-team+.br-team{border-top:1px solid var(--border)}
+  .br-team .sd{font-size:10px;color:var(--faint);font-weight:700;min-width:12px}
+  .br-team.win{color:var(--gold);font-weight:800}
+  .br-team.lose{color:var(--faint)}
+  .br-team.tbd{color:var(--faint);font-weight:500;font-style:italic}
+  .br-champ{border:1px solid #f2c66d66;background:#f2c66d12;border-radius:12px;padding:12px 10px;text-align:center}
+  .br-champ b{color:var(--gold);font-size:13.5px}
+  @media (min-width:760px){
+    body{padding-bottom:110px}
+    .topbar{padding-left:24px;padding-right:24px}
+    main{padding:16px 24px 44px}
+    .grid.two{grid-template-columns:1.05fr .95fr;align-items:start}
+    .player-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .team-results{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .mode-row{grid-template-columns:1fr 1fr}
+    .action-grid{grid-template-columns:repeat(4,1fr)}
+    .hero{padding:22px}
+    .hero h2{font-size:34px;max-width:640px}
+    .screen-head h2{font-size:30px}
+    .scrim{align-items:center;padding:24px}
+    .sheet{border-radius:26px;border-bottom:1px solid #ffffff24;padding:18px 20px 20px}
+    .grab{display:none}
+  }
+
+  @media (min-width:1060px){
+    body{padding-left:230px;padding-bottom:44px}
+    .dock-wrap{display:none}
+    .topbar .brand-mark{display:none}
+    .side{position:fixed;z-index:50;left:0;top:0;bottom:0;width:230px;display:flex;flex-direction:column;
+      padding:22px 14px;background:#080c15e0;border-right:1px solid #ffffff17;
+      backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);}
+    .side-logo{display:flex;align-items:center;gap:11px;padding:0 8px 22px}
+    .side-logo b{letter-spacing:.14em;text-transform:uppercase;font-size:14px}
+    .side-nav{display:grid;gap:6px}
+    .side-nav button{min-height:48px;display:flex;flex-direction:row;align-items:center;gap:11px;
+      border-radius:15px;padding:0 13px;color:var(--soft);font-weight:750;font-size:13.5px;text-align:left;
+      transition:color .14s ease,background .14s ease;}
+    .side-nav button svg{width:20px;height:20px}
+    .side-nav button.active{color:var(--gold);background:#f2c66d12;box-shadow:inset 0 0 0 1px #f2c66d2a}
+    .side-note{margin-top:auto;padding:12px;border-radius:16px;background:#ffffff09;
+      border:1px solid #ffffff14;color:var(--soft);font-size:12px;line-height:1.45}
+  }
+
+  @media (prefers-reduced-motion:reduce){
+    *,*::before,*::after{animation:none!important;transition:none!important}
   }
 </style>
 </head>
 <body>
+<aside class="side">
+  <div class="side-logo"><div class="brand-mark"></div><b>Court</b></div>
+  <div class="side-nav" id="sideNav"></div>
+  <div class="side-note">Private volleyball rating tracker. Everything stays on this device — back it up from More.</div>
+</aside>
 
-<header>
-  <div class="brand">
-    <span class="dot"></span>
-    <h1>Court</h1>
-    <span class="sub" id="hideHint"></span>
+<header class="topbar">
+  <div class="topbar-inner">
+    <div class="brand-mark"></div>
+    <div class="brand-copy">
+      <h1>Court</h1>
+      <span id="topSub">Volleyball ratings</span>
+    </div>
+    <div class="night-pill" id="sessionPill"><i class="pulse idle"></i><span>Ready</span></div>
   </div>
 </header>
 
 <main id="main"></main>
 
-<nav id="nav">
-  <button data-tab="players" class="active">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c0-3 2.5-5 5.5-5s5.5 2 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M16 14c2.6 0 4.5 1.8 4.5 4.4"/></svg>
-    Players</button>
-  <button data-tab="track">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 3a9 9 0 0 1 0 18M4 8c4 2 12 2 16 0M4 16c4-2 12-2 16 0"/></svg>
-    Track</button>
-  <button data-tab="teams">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M5 7h4M5 12h4M5 17h4M15 7h4M15 12h4M15 17h4"/></svg>
-    Teams</button>
-  <button data-tab="games">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
-    Games</button>
-  <button data-tab="more">
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="6" cy="12" r="1.6"/><circle cx="12" cy="12" r="1.6"/><circle cx="18" cy="12" r="1.6"/></svg>
-    More</button>
-</nav>
-
-<div id="toast" class="toast"></div>
+<div class="dock-wrap"><nav class="dock" id="dock" aria-label="Main navigation"></nav></div>
+<div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
 /* ============================================================
@@ -414,12 +705,13 @@ const PLAYER_STAT_LABELS = {
 const PLAYER_STAT_ERRORS = new Set(['serr','perr','kerr','fault']);
 
 const DEFAULT_SETTINGS = {
-  numTeams:2, hideRatings:false, detailed:false,
+  numTeams:2, hideRatings:false, detailed:false, playerSort:'az',
   eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12,
 };
 
 let players = [];      // see makePlayer()
 let games = [];        // see makeGame()
+let evts = [];         // events/tournaments: {id,name,created,done,teams:[{id,name,players:[ids]}]}
 let settings = {...DEFAULT_SETTINGS};
 let live = null;       // in-progress game state
 let tab = 'players';
@@ -428,7 +720,8 @@ function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(
 function zeroEvents(){ const o={}; EVENTS.forEach(e=>o[e.k]=0); return o; }
 function makePlayer(name, seed){
   return { id:uid(), name:name.trim(), seedRating:seed,
-    rating:seed, gamesPlayed:0, wins:0, losses:0,
+    rating:seed, gamesPlayed:0, trackedGames:0, wins:0, losses:0,
+    fullGames:0, partialGames:0, soloGames:0,
     roles:{}, skills:null, lifetime:zeroEvents(),
     history:[{i:0,r:seed}], notes:'', active:true, archived:false };
 }
@@ -440,16 +733,26 @@ async function load(){
   const p = await Store.get('vb:players'); if(p) players = JSON.parse(p);
   const g = await Store.get('vb:games');   if(g) games = JSON.parse(g);
   const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
+  const e = await Store.get('vb:events');  if(e) evts = JSON.parse(e);
+  migrateEvents();
   // migrate any missing fields
   migratePlayers();
+}
+function migrateEvents(){
+  evts.forEach(ev=>{
+    if(ev.bracket){ ev.brackets=[{id:uid(), name:'Playoffs', created:ev.bracket.created, seeds:ev.bracket.seeds}]; delete ev.bracket; }
+    if(!ev.brackets) ev.brackets=[];
+  });
 }
 function migratePlayers(){
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
     if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
-    if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false; });
+    if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false;
+    if(pl.trackedGames === undefined) pl.trackedGames = pl.gamesPlayed || 0; });
 }
 async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
+async function saveEvents(){ await Store.set('vb:events', JSON.stringify(evts)); }
 async function saveSettings(){ await Store.set('vb:settings', JSON.stringify(settings)); }
 
 /* ============================================================
@@ -464,13 +767,16 @@ function volleyballLevelOf(rating){
   return VOLLEYBALL_LEVELS.find(l=>r>=l.min && r<=l.max) || VOLLEYBALL_LEVELS[0];
 }
 function reliability(p){
-  const gp=p.gamesPlayed, full=settings.confGames;
+  // Confidence is driven by games that actually taught us something about this
+  // player — their own logged events, or a both-sides-tracked result — not by
+  // every game their name appeared on a team. See trackedGames in the engine.
+  const gp=p.trackedGames||0, full=settings.confGames;
   if(gp>=full) return {k:'established', c:'var(--good)'};
   if(gp < Math.ceil(full/3)) return {k:'new', c:'var(--faint)'};
   return {k:'settling', c:'var(--sand)'};
 }
 function band(p){
-  const conf=Math.min(1, p.gamesPlayed/settings.confGames);
+  const conf=Math.min(1, (p.trackedGames||0)/settings.confGames);
   return Math.round((1-conf)*11 + 3);              // ±range, wide when new
 }
 function winProbability(aIds,bIds){
@@ -530,7 +836,7 @@ function playerInsights(p){
   const goodPass=evCount(p,'goodPass'), pget=evCount(p,'pget'), perr=evCount(p,'perr');
   const kill=evCount(p,'kill'), kerr=evCount(p,'kerr'), dig=evCount(p,'dig'), block=evCount(p,'block');
   const serveDen=ace+sin+serr, passDen=goodPass+pget+perr, hitDen=kill+kerr;
-  const overall={label:sampleLabel(p.gamesPlayed, Math.ceil(settings.confGames/3), settings.confGames), count:p.gamesPlayed};
+  const overall={label:sampleLabel(p.trackedGames||0, Math.ceil(settings.confGames/3), settings.confGames), count:p.trackedGames||0};
   const stat=statConfidence(p);
   const a=analyze(p);
   const notes=[];
@@ -658,10 +964,34 @@ function clearPlayerRuntimeState(id){
   if(window._teams) window._teams=null;
 }
 function rawPerf(counts){ let s=0; for(const k in counts) s += (EV_MAP[k]?.w||0)*counts[k]; return s; }
+function hasLoggedEvents(log){ return Object.values(log||{}).some(v=>v>0); }
+
+/* Untracked fill slots are stored as COUNTS on the game (g.unkA / g.unkB),
+   never as roster players — so autofilled games can't pollute the roster,
+   can't break replay, and old backups (which lack these fields) still load
+   unchanged and replay as fully tracked games. */
+function unkCount(g, side){ return Math.max(0, Math.round(Number(side==='A'?g.unkA:g.unkB))||0); }
+function gameKind(g){
+  if(g.solo) return 'solo';
+  if(unkCount(g,'A')+unkCount(g,'B') > 0) return 'partial';
+  return 'full';
+}
+function scoreOnly(g){
+  const log=g.log||{};
+  return !Object.keys(log).some(pid=>hasLoggedEvents(log[pid]));
+}
+// Group's typical per-game event output — the conservative comparison point
+// used whenever a player's opponents/teammates are unknown.
+function peerBaseline(exceptId){
+  const peers = players.filter(x=>x.gamesPlayed>=1 && x.id!==exceptId);
+  if(!peers.length) return 0;
+  return peers.reduce((s,x)=> s + rawPerf(x.lifetime)/Math.max(1,x.gamesPlayed), 0)/peers.length;
+}
 
 function recomputeAll(){
   players.forEach(p=>{
-    p.rating = p.seedRating; p.gamesPlayed=0; p.wins=0; p.losses=0;
+    p.rating = p.seedRating; p.gamesPlayed=0; p.trackedGames=0; p.wins=0; p.losses=0;
+    p.fullGames=0; p.partialGames=0; p.soloGames=0;
     p.lifetime = zeroEvents(); p.history = [{i:0, r:Math.round(p.seedRating)}];
   });
   const done = games.filter(g=>g.winner || g.solo).slice().sort((a,b)=>a.date-b.date);
@@ -669,21 +999,44 @@ function recomputeAll(){
   players.forEach(p=>p.rating = clamp(p.rating,0,100));
 }
 
+/* Rating policy by how much of the court is tracked (most → least information):
+   • FULL (no untracked slots): Elo on team averages + event deltas vs the game
+     average. Identical math to before — legacy games replay unchanged.
+   • PARTIAL, tracked players on BOTH sides: same math, but the result (Elo)
+     component is scaled by ctx = min(trackedA/sizeA, trackedB/sizeB), because
+     the team averages only describe the players we can actually see. Events
+     stay full strength — they're direct observations of tracked players.
+     Partial games are excluded from the prediction record.
+   • PARTIAL, only ONE side tracked: opponent strength is unknown, so no Elo at
+     all. Win/loss still tallies. Each tracked player's rating moves only from
+     their own logged events vs the roster baseline — the same conservative
+     model as solo tracking. Score-only games like this record the result and
+     move nothing.
+   g.ctx / g.winProb / g.predCorrect / g.deltas are derived and rebuilt on
+   every replay; they're stored for recap display only. */
 function applyGame(g){
   if(g.solo){ applySolo(g); return; }
   const A = g.teamA.map(pById).filter(Boolean);
   const B = g.teamB.map(pById).filter(Boolean);
   g.deltas = {};
-  if(!A.length || !B.length) return;
-  const avgA = A.reduce((s,p)=>s+p.rating,0)/A.length;
-  const avgB = B.reduce((s,p)=>s+p.rating,0)/B.length;
-  const expA = 1/(1+Math.pow(10,(avgB-avgA)/settings.eloD));
-  g.winProb = expA;                                  // pre-game chance for team A
-  g.predCorrect = (Math.abs(expA-0.5)<0.02) ? null : ((expA>0.5) === (g.winner==='A'));
-  // margin-aware actual score (capped so blowouts don't over-swing)
-  let actA;
-  if(g.scoreA+g.scoreB>0){ actA = clamp(g.scoreA/(g.scoreA+g.scoreB), 0.2, 0.8); }
-  else actA = g.winner==='A'?1:0;
+  if(!A.length && !B.length) return;
+  const uA = unkCount(g,'A'), uB = unkCount(g,'B');
+  const bothTracked = A.length>0 && B.length>0;
+  const sizeA = A.length + uA, sizeB = B.length + uB;
+  const ctx = bothTracked ? Math.min(A.length/sizeA, B.length/sizeB) : 0;
+  g.ctx = ctx;
+
+  let expA = null, actA = 0;
+  if(bothTracked){
+    const avgA = A.reduce((s,p)=>s+p.rating,0)/A.length;
+    const avgB = B.reduce((s,p)=>s+p.rating,0)/B.length;
+    expA = 1/(1+Math.pow(10,(avgB-avgA)/settings.eloD));
+    // margin-aware actual score (capped so blowouts don't over-swing)
+    if(g.scoreA+g.scoreB>0){ actA = clamp(g.scoreA/(g.scoreA+g.scoreB), 0.2, 0.8); }
+    else actA = g.winner==='A'?1:0;
+  }
+  g.winProb = expA;                                  // pre-game chance for team A (tracked players only)
+  g.predCorrect = (expA==null || ctx<1 || Math.abs(expA-0.5)<0.02) ? null : ((expA>0.5) === (g.winner==='A'));
 
   // per-game event raw perf, and the game average (self-normalises intensity)
   const all = [...A,...B];
@@ -691,17 +1044,32 @@ function applyGame(g){
   all.forEach(p=>{ perf[p.id] = rawPerf((g.log&&g.log[p.id]) || {}); });
   const anyEvents = Object.values(perf).some(v=>v!==0);
   const avgPerf = anyEvents ? Object.values(perf).reduce((s,v)=>s+v,0)/all.length : 0;
+  const kind = gameKind(g);
 
   function upd(p, isA){
     const before = p.rating;
-    const conf = Math.min(1, p.gamesPlayed/settings.confGames);
+    const conf = Math.min(1, (p.trackedGames||0)/settings.confGames);
     const vol = 1.3 - conf;                       // new players move faster
-    const act = isA ? actA : (1-actA);
-    const exp = isA ? expA : (1-expA);
-    const eloD = clamp(settings.eloK*(act-exp)*vol, -settings.maxElo, settings.maxElo);
-    const evD  = anyEvents ? clamp((perf[p.id]-avgPerf)*settings.eventK*vol, -settings.maxEvent, settings.maxEvent) : 0;
+    let eloD = 0, evD = 0;
+    if(bothTracked){
+      const act = isA ? actA : (1-actA);
+      const exp = isA ? expA : (1-expA);
+      eloD = clamp(settings.eloK*(act-exp)*vol*ctx, -settings.maxElo, settings.maxElo);
+      evD  = anyEvents ? clamp((perf[p.id]-avgPerf)*settings.eventK*vol, -settings.maxEvent, settings.maxEvent) : 0;
+    } else {
+      // one-sided tracking: solo-style — own events vs roster baseline, gently,
+      // and never punish a player just because nothing was logged for them.
+      evD = hasLoggedEvents(g.log&&g.log[p.id])
+        ? clamp((perf[p.id]-peerBaseline(p.id))*settings.eventK*vol*0.7, -settings.maxEvent, settings.maxEvent)
+        : 0;
+    }
     p.rating = clamp(p.rating + eloD + evD, 0, 100);
     p.gamesPlayed++;
+    // Confidence only advances when the game actually informed this player's
+    // rating: a both-sides-tracked result (Elo ran for them) OR their own logged
+    // events. A player parked on a roster while others are tracked stays "new".
+    if(bothTracked || hasLoggedEvents(g.log&&g.log[p.id])) p.trackedGames++;
+    if(kind==='partial') p.partialGames++; else p.fullGames++;
     if((isA&&g.winner==='A')||(!isA&&g.winner==='B')) p.wins++; else p.losses++;
     const c = (g.log&&g.log[p.id])||{}; for(const k in c) p.lifetime[k]=(p.lifetime[k]||0)+c[k];
     p.history.push({i:p.gamesPlayed, r:Math.round(p.rating)});
@@ -714,20 +1082,23 @@ function applyGame(g){
 // own production vs the group's typical output, gently. Result is recorded for
 // the W/L tally but never run through Elo.
 function applySolo(g){
-  g.deltas = {}; g.winProb = null; g.predCorrect = null;
+  g.deltas = {}; g.winProb = null; g.predCorrect = null; g.ctx = 0;
   const p = pById(g.teamA[0]); if(!p) return;
   const perf = rawPerf((g.log&&g.log[p.id]) || {});
-  const peers = players.filter(x=>x.gamesPlayed>=1 && x.id!==p.id);
-  let baseline = 0;
-  if(peers.length){
-    baseline = peers.reduce((s,x)=> s + rawPerf(x.lifetime)/Math.max(1,x.gamesPlayed), 0)/peers.length;
-  }
+  const baseline = peerBaseline(p.id);
   const before = p.rating;
-  const conf = Math.min(1, p.gamesPlayed/settings.confGames);
+  const conf = Math.min(1, (p.trackedGames||0)/settings.confGames);
   const vol = 1.3 - conf;
-  const evD = clamp((perf-baseline)*settings.eventK*vol*0.7, -settings.maxEvent, settings.maxEvent);
+  // no events logged → no movement (don't punish a quiet scouting entry)
+  const evD = hasLoggedEvents(g.log&&g.log[p.id])
+    ? clamp((perf-baseline)*settings.eventK*vol*0.7, -settings.maxEvent, settings.maxEvent)
+    : 0;
   p.rating = clamp(p.rating + evD, 0, 100);
   p.gamesPlayed++;
+  // A bare scouting entry (no events, no opponent) teaches us nothing, so it
+  // records the appearance but doesn't build confidence.
+  if(hasLoggedEvents(g.log&&g.log[p.id])) p.trackedGames++;
+  p.soloGames++;
   if(g.winner==='A') p.wins++; else if(g.winner==='B') p.losses++;
   const c = (g.log&&g.log[p.id])||{}; for(const k in c) p.lifetime[k]=(p.lifetime[k]||0)+c[k];
   p.history.push({i:p.gamesPlayed, r:Math.round(p.rating)});
@@ -818,220 +1189,440 @@ function sparkline(hist){
 }
 
 /* ============================================================
-   RENDER — router
+   NAV + ROUTER (new shell)
    ============================================================ */
+const icons = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 11.5 12 5l8 6.5v7a1 1 0 0 1-1 1h-5v-5H10v5H5a1 1 0 0 1-1-1v-7Z"/></svg>',
+  players:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-3.2 2.6-5 5.5-5s4.8 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.8 14.5c2.5.3 4 1.8 4.7 4.5"/></svg>',
+  track:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5c2.3 2.3 3.3 5.1 3.3 8.5S14.3 18.2 12 20.5M12 3.5C9.7 5.8 8.7 8.6 8.7 12s1 6.2 3.3 8.5M4.5 9c4 1.5 11 1.5 15 0M4.5 15c4-1.5 11-1.5 15 0"/></svg>',
+  teams:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 7h4M5 12h4M5 17h4M15 7h4M15 12h4M15 17h4"/></svg>',
+  games:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14M5 12h14M5 19h9"/><path d="m18 17 2 2-2 2"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
+  scout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s7-4.4 7-10a7 7 0 1 0-14 0c0 5.6 7 10 7 10Z"/><circle cx="12" cy="10" r="2.2"/></svg>',
+  trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3"/></svg>',
+  bolt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 5 6v5c0 4.4 2.8 8.2 7 10 4.2-1.8 7-5.6 7-10V6l-7-3Z"/></svg>'
+};
+const NAV = [
+  ['home','Home',icons.home],
+  ['players','Players',icons.players],
+  ['track','Track',icons.track],
+  ['teams','Teams',icons.teams],
+  ['events','Events',icons.trophy],
+  ['games','Games',icons.games],
+  ['more','More',icons.more]
+];
+window.setTab=(t)=>{ tab=t; if(t!=='teams') window._teams=null; render(); };
+function renderNav(){
+  const html = NAV.map(([id,label,svg])=>
+    `<button data-tab="${id}" class="${tab===id?'active':''}" aria-label="${label}" onclick="setTab('${id}')">${svg}<span>${label}</span></button>`).join('');
+  $('#dock').innerHTML = html;
+  const side=$('#sideNav'); if(side) side.innerHTML = html;
+}
+function isToday(ts){ const d=new Date(ts), n=new Date();
+  return d.getFullYear()===n.getFullYear() && d.getMonth()===n.getMonth() && d.getDate()===n.getDate(); }
+function ago(ts){
+  const days=Math.floor((Date.now()-ts)/86400000);
+  if(days<=0) return 'earlier today';
+  if(days===1) return 'yesterday';
+  if(days<30) return days+' days ago';
+  const mo=Math.floor(days/30); return mo===1?'a month ago':mo+' months ago';
+}
+function initials(name){ return (name||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
+function screenHead(eyebrow, title, sub){
+  return `<div class="screen-head"><div class="eyebrow">${eyebrow}</div><h2>${title}</h2>${sub?`<p class="subcopy">${sub}</p>`:''}</div>`;
+}
+
+function sortPlayers(arr){
+  return arr.slice().sort((a,b)=> settings.playerSort==='rating'
+    ? (b.rating-a.rating || a.name.localeCompare(b.name))
+    : a.name.localeCompare(b.name));
+}
+window.togglePlayerSort=async()=>{ settings.playerSort = settings.playerSort==='rating'?'az':'rating'; await saveSettings(); render(); };
 function render(){
-  document.querySelectorAll('nav button').forEach(b=>b.classList.toggle('active', b.dataset.tab===tab));
-  $('#hideHint').textContent = settings.hideRatings ? 'ratings hidden' : '';
-  if(tab==='players') renderPlayers();
+  renderNav();
+  const roster = players.filter(p=>!isArchived(p));
+  const act = roster.filter(p=>p.active);
+  const todayN = games.filter(g=>isToday(g.date)).length;
+  $('#topSub').textContent = settings.hideRatings
+    ? 'Ratings hidden'
+    : (roster.length ? `${act.length} active · ${games.length} game${games.length===1?'':'s'}` : 'Volleyball ratings');
+  $('#sessionPill').innerHTML = `<i class="pulse ${todayN?'':'idle'}"></i><span>${todayN?`${todayN} tonight`:'Ready'}</span>`;
+  if(tab==='home') renderHome();
+  else if(tab==='players') renderPlayers();
   else if(tab==='track') renderTrack();
   else if(tab==='teams') renderTeams();
   else if(tab==='games') renderGames();
+  else if(tab==='events') renderEvents();
   else renderMore();
   window.scrollTo(0,0);
+}
+
+/* ---------- HOME ---------- */
+window.scoutQuick=()=>{ window._trackMode='solo'; setTab('track'); };
+function renderHome(){
+  const roster = players.filter(p=>!isArchived(p));
+  const act = roster.filter(p=>p.active);
+  const todayGames = games.filter(g=>isToday(g.date));
+  const now = new Date();
+  const dateLabel = now.toLocaleDateString(undefined,{weekday:'long', month:'long', day:'numeric'});
+  const est = roster.filter(p=>reliability(p).k==='established').length;
+  const settling = roster.filter(p=>reliability(p).k==='settling').length;
+  const fresh = roster.length - est - settling;
+  const confAvg = roster.length ? roster.reduce((s,p)=>s+Math.min(1,(p.trackedGames||0)/settings.confGames),0)/roster.length : 0;
+  const ac = accuracyStats();
+
+  let heroTitle, heroCopy;
+  if(!roster.length){ heroTitle='Set up your gym.'; heroCopy='Add your regulars, seed a rough level for each, and Court keeps everyone\u2019s rating honest game after game.'; }
+  else if(todayGames.length){ heroTitle=`${todayGames.length} game${todayGames.length===1?'':'s'} saved tonight.`; heroCopy='Ratings update after every save. Keep tracking, or check who\u2019s moving below.'; }
+  else if(games.length){ heroTitle='Ready for the next session.'; heroCopy=`Last game was ${ago(games.slice().sort((a,b)=>b.date-a.date)[0].date)}. Build teams or jump straight into tracking.`; }
+  else { heroTitle='Ready for game one.'; heroCopy='Score-only tracking counts. Tap events when you have a free thumb \u2014 they sharpen the numbers.'; }
+
+  const stat3 = ac ? `<b class="num">${ac.pct}%</b><span>predictions right</span>`
+    : `<b class="num">${roster.length?Math.round(confAvg*100)+'%':'\u2014'}</b><span>rating confidence</span>`;
+
+  let sug;
+  if(!roster.length) sug={t:'Add your first players', c:'Seed each person with a rough level \u2014 ratings self-correct as they play.', a:'openPlayer()', b:'Add player'};
+  else if(act.length<2) sug={t:'Mark who\u2019s around', c:'You need at least two active players to track a match. Open the roster to flip people back to active.', a:"setTab('players')", b:'Open roster'};
+  else if(!games.length) sug={t:'Track your first game', c:'Pick who\u2019s on each side and log just the score \u2014 or tap events for sharper numbers.', a:"setTab('track')", b:'Start tracking'};
+  else if(!todayGames.length) sug={t:'Start tonight\u2019s first game', c:'Build balanced teams first, or go straight to tracking if the court\u2019s already set.', a:"setTab('teams')", b:'Build teams'};
+  else sug={t:'Keep the night going', c:'Every saved game teaches Court a little more about who\u2019s carrying.', a:"setTab('track')", b:'Track next game'};
+
+  let html = `
+    <div class="hero">
+      <div class="hero-content">
+        <div class="eyebrow">${esc(dateLabel)}</div>
+        <h2>${heroTitle}</h2>
+        <p class="subcopy">${heroCopy}</p>
+        <div class="hero-stats">
+          <div class="mini-stat"><b class="num">${act.length}</b><span>active player${act.length===1?'':'s'}</span></div>
+          <div class="mini-stat"><b class="num">${todayGames.length}</b><span>game${todayGames.length===1?'':'s'} tonight</span></div>
+          <div class="mini-stat">${stat3}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-head"><h3>Quick actions</h3></div>
+    <div class="action-grid">
+      <button class="action-tile pressable" onclick="setTab('track')"><span class="tile-icon">${icons.bolt}</span><span><b>Track game</b><br><span>Live score + events</span></span></button>
+      <button class="action-tile pressable t-cyan" onclick="setTab('teams')"><span class="tile-icon">${icons.teams}</span><span><b>Build teams</b><br><span>Balanced by rating</span></span></button>
+      <button class="action-tile pressable t-mint" onclick="openPlayer()"><span class="tile-icon">${icons.plus}</span><span><b>Add player</b><br><span>Seed a starting level</span></span></button>
+      <button class="action-tile pressable t-coral" onclick="scoutQuick()"><span class="tile-icon">${icons.scout}</span><span><b>Scout player</b><br><span>Solo, unknown opponent</span></span></button>
+    </div>
+
+    <div class="section-head"><h3>Up next</h3></div>
+    <div class="card">
+      <div class="row spread" style="align-items:flex-start">
+        <div style="min-width:0;flex:1">
+          <div style="font-weight:750;font-size:15px">${sug.t}</div>
+          <div class="small soft" style="margin-top:4px;line-height:1.45">${sug.c}</div>
+        </div>
+      </div>
+      <button class="btn primary block" style="margin-top:12px" onclick="${sug.a}">${sug.b}</button>
+    </div>`;
+
+  const liveEv = evts.filter(e=>!e.done).sort((a,b)=>b.created-a.created)[0];
+  if(liveEv){
+    const st=eventStandings(liveEv), n=evGameCount(liveEv);
+    html += `<button class="ev-row pressable" onclick="openEvent('${liveEv.id}')">
+      <div class="row spread"><span class="small"><b style="color:var(--gold)">Event live</b> · ${esc(liveEv.name)}</span><span class="tiny faint">›</span></div>
+      <div class="tiny faint" style="margin-top:4px">${(liveEv.teams||[]).length} teams · ${n} game${n===1?'':'s'}${(st.length&&n)?` · ${esc(st[0].t.name)} leads ${st[0].mw}-${st[0].ml}`:''}</div>
+    </button>`;
+  }
+
+  if(roster.length){
+    html += `
+    <div class="grid two">
+      <div>
+        <div class="section-head"><h3>Rating confidence</h3><span>${settings.confGames} informative games = established</span></div>
+        <div class="card">
+          <div class="meter"><i style="width:${Math.round(confAvg*100)}%"></i></div>
+          <div class="row spread" style="margin-top:11px">
+            <span class="small muted">${est} established</span>
+            <span class="small" style="color:var(--gold)">${settling} settling</span>
+            <span class="small faint">${fresh} new</span>
+          </div>
+          <div class="tiny faint" style="margin-top:8px">Confidence grows only from games that actually inform a player \u2014 both sides tracked, or their own logged events.</div>
+        </div>
+      </div>
+      <div>`;
+    if(!settings.hideRatings){
+      const movers = roster.filter(p=>p.gamesPlayed>=3)
+        .map(p=>({p, d:recentDelta(p)})).filter(x=>Math.abs(x.d)>=2)
+        .sort((a,b)=>Math.abs(b.d)-Math.abs(a.d)).slice(0,4);
+      html += `<div class="section-head"><h3>Recent movers</h3><span>last 5 games each</span></div><div class="card">`;
+      if(movers.length){
+        html += movers.map(({p,d})=>`
+          <div class="mover">
+            <div class="avatar sm">${initials(p.name)}</div>
+            <div class="who"><b>${esc(p.name)}</b><span>${esc(volleyballLevelOf(p.rating).label)} · ${p.wins}-${p.losses}</span></div>
+            <span class="num ${d>0?'delta-up':'delta-down'}">${d>0?'▲ +':'▼ '}${Math.abs(d)}</span>
+          </div>`).join('');
+      } else {
+        html += `<div class="small soft" style="padding:6px 2px">No big movers over the last few games \u2014 ratings are holding steady.</div>`;
+      }
+      html += `</div>`;
+    } else {
+      html += `<div class="section-head"><h3>Stealth mode</h3></div>
+        <div class="card"><div class="small soft">Ratings are hidden. Court still updates them behind the scenes \u2014 flip them back on in More.</div></div>`;
+    }
+    html += `</div></div>`;
+  }
+
+  if(games.length){
+    const recent = games.slice().sort((a,b)=>b.date-a.date).slice(0,3);
+    html += `<div class="section-head"><h3>Recent games</h3><button class="btn sm ghost" onclick="setTab('games')">All history</button></div>`;
+    html += recent.map(g=>historyRow(g)).join('');
+  }
+
+  main.innerHTML = html;
 }
 
 /* ---------- PLAYERS ---------- */
 function renderPlayers(){
   const roster = players.filter(p=>!isArchived(p));
-  const sorted = roster.slice().sort((a,b)=>b.rating-a.rating);
-  let html = `<h2 class="view">Roster · ${roster.length}</h2>
-    <button class="btn primary block" onclick="openPlayer()">+ Add player</button>`;
+  const sorted = sortPlayers(roster);
+  let html = screenHead('Roster', roster.length?`${roster.length} player${roster.length===1?'':'s'}`:'Build your roster');
+  html += `<div class="row" style="gap:8px">
+    <button class="btn primary" style="flex:1" onclick="openPlayer()">${icons.plus} Add player</button>
+    ${roster.length?`<button class="btn ghost" onclick="togglePlayerSort()">${settings.playerSort==='rating'?'Sort: rating':'Sort: A–Z'}</button>`:''}
+  </div>`;
   if(!roster.length){
-    html += `<div class="empty"><b>No players yet</b>Add everyone in your group, then track games or build balanced teams. Seed each person with a rough tier — the ratings self-correct as they play.</div>`;
+    html += `<div class="empty"><b>No players yet</b>Add everyone in your group, then track games or build balanced teams. Seed each person with a rough level \u2014 the ratings self-correct as they play.</div>`;
   } else {
     if(!settings.hideRatings){
       const movers = roster.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d);
       if(movers.length){
-        html += `<div class="card" style="border-color:#2c3a30;margin-top:12px">
-          <div class="small" style="font-weight:700;color:var(--good)">▲ Most improved</div>
-          ${movers.slice(0,3).map(m=>`<div class="row spread" style="margin-top:7px"><span class="small">${esc(m.p.name)}</span><span class="num small" style="color:var(--good);font-weight:700">+${m.d} over last 5</span></div>`).join('')}
+        html += `<div class="card" style="margin-top:12px;border-color:#5fe3ae33">
+          <div class="small" style="font-weight:800;color:var(--mint)">▲ Most improved</div>
+          ${movers.slice(0,3).map(m=>`<div class="row spread" style="margin-top:7px"><span class="small">${esc(m.p.name)}</span><span class="num small" style="color:var(--mint);font-weight:800">+${m.d} over last 5</span></div>`).join('')}
         </div>`;
       }
     }
-    html += `<div class="plist" style="margin-top:12px">`;
-    sorted.forEach(p=>{
-      const rel = reliability(p);
-      const rd = recentDelta(p);
-      const arrow = (p.gamesPlayed>=2 && Math.abs(rd)>=1 && !settings.hideRatings)
-        ? `<div class="tiny num delta" style="color:${rd>0?'var(--good)':'var(--bad)'}">${rd>0?'▲':'▼'}${Math.abs(rd)}</div>` : '';
-      const roles = ROLE_DEFS.filter(([k])=>p.roles[k]).map(([k,l])=>`<span class="pill">${l}</span>`).join('');
-      const levelPart = settings.hideRatings ? '' : `${volleyballLevelOf(p.rating).label} · `;
-      const sub = p.gamesPlayed
-        ? `${levelPart}${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
-        : `${levelPart}<span style="color:${rel.c}">new</span>`;
-      html += `<div class="card" onclick="openPlayer('${p.id}')">
-        <div class="row spread">
-          <div style="min-width:0">
-            <div class="row" style="gap:8px">
-              <span style="font-weight:700;font-size:16px">${esc(p.name)}</span>
-            </div>
-            <div class="small muted" style="margin-top:3px">${sub}</div>
-          </div>
-          <div style="text-align:right">
-            <div class="rate num" style="color:${ratingColor()}">${showRate(p.rating)}</div>
-            ${arrow}
-            ${settings.hideRatings?'':sparkline(p.history)}
-          </div>
-        </div>
-        ${settings.hideRatings?'':`<div class="bar"><i style="width:${p.rating}%"></i></div>`}
-        ${roles?`<div class="roles">${roles}</div>`:''}
-      </div>`;
-    });
-    html += `</div>`;
+    html += `<div class="player-list">${sorted.map(playerCard).join('')}</div>`;
   }
   main.innerHTML = html;
 }
+function playerCard(p){
+  const rel = reliability(p);
+  const rd = recentDelta(p);
+  const level = volleyballLevelOf(p.rating).label;
+  const roles = ROLE_DEFS.filter(([k])=>p.roles[k]).map(([k,l])=>`<span class="pill">${l}</span>`).join('');
+  const levelPart = settings.hideRatings ? '' : `${esc(level)} · `;
+  const sub = p.gamesPlayed
+    ? `${levelPart}${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
+    : `${levelPart}<span style="color:${rel.c}">new</span>`;
+  const arrow = (p.gamesPlayed>=2 && Math.abs(rd)>=1 && !settings.hideRatings)
+    ? `<span class="delta ${rd>0?'up':'down'} num">${rd>0?'▲':'▼'}${Math.abs(rd)}</span>` : '';
+  return `<button class="player-card pressable ${p.active?'':'inactive'}" onclick="openPlayer('${p.id}')">
+    <span class="player-top">
+      <span class="avatar">${initials(p.name)}${p.active?'':'<i class="off-dot"></i>'}</span>
+      <span class="player-meta">
+        <b>${esc(p.name)}</b>
+        <span class="player-sub">${sub}${p.active?'':' · away'}</span>
+        ${roles?`<span class="tags">${roles}</span>`:''}
+      </span>
+      <span class="rating-badge"><b class="num">${showRate(p.rating)}</b>${arrow}${settings.hideRatings?'':sparkline(p.history)}</span>
+    </span>
+    ${settings.hideRatings?'':`<span class="bar"><i style="width:${clamp(p.rating,0,100)}%"></i></span>`}
+  </button>`;
+}
 
 /* ---------- TRACK ---------- */
+function trackCard(p){
+  const v = Math.round(rawPerf(live.log[p.id]||{})*10)/10;
+  const cls = v>0?'good':(v<0?'bad':'');
+  const exp = live.expanded[p.id];
+  const vis = e=>{
+    if(e.detail && !settings.detailed) return false;
+    if(exp) return true;
+    return settings.detailed ? (e.common||e.grade) : e.common;
+  };
+  const grouped = settings.detailed || exp;
+  const btn = k=>{ const e=EV_MAP[k]; const c=(live.log[p.id]||{})[k]||0;
+    return `<button class="${e.c}" onclick="logEv('${p.id}','${k}')">${e.l}${c?`<span class="cnt">${c}</span>`:''}</button>`; };
+  let evHtml;
+  if(grouped){
+    evHtml = EVENT_GROUPS.map(grp=>{
+      const ks = grp.keys.filter(k=>vis(EV_MAP[k]));
+      if(!ks.length) return '';
+      return `<div class="evrow"><span class="evlbl">${grp.g}</span><div class="ev">${ks.map(btn).join('')}</div></div>`;
+    }).join('');
+  } else {
+    evHtml = `<div class="ev">${EVENTS.filter(vis).map(e=>btn(e.k)).join('')}</div>`;
+  }
+  const meta = `${settings.hideRatings?'':esc(volleyballLevelOf(p.rating).label)}${p.gamesPlayed?`${settings.hideRatings?'':' · '}${p.wins}-${p.losses}`:''}`;
+  return `<div class="tcard">
+    <div class="thead">
+      <div class="avatar sm">${initials(p.name)}</div>
+      <div class="tname"><b>${esc(p.name)}</b>${meta?`<span>${meta}</span>`:''}</div>
+      <div class="perf ${cls} num">${v>0?'+':''}${v}</div>
+    </div>
+    ${live.quick?'':evHtml+`<button class="expand" onclick="toggleExpand('${p.id}')">${exp?'− fewer':'+ more events'}</button>`}
+  </div>`;
+}
+
 function renderTrack(){
   if(!live){ renderTrackSetup(); return; }
-  const A = (live.teamA||[]).map(pById).filter(Boolean);
-  const B = (live.teamB||[]).map(pById).filter(Boolean);
-  const pg = id => rawPerf(live.log[id]||{});
-  function evBtns(p, keys){
-    return keys.map(k=>{ const e=EV_MAP[k]; const c=(live.log[p.id]||{})[k]||0;
-      return `<button class="${e.c}" onclick="logEv('${p.id}','${k}')">${e.l}${c?`<span class="cnt">${c}</span>`:''}</button>`;
-    }).join('');
-  }
-  function prow(p){
-    const v = pg(p.id);
-    const cls = v>0?'pos':(v<0?'neg':'');
-    const exp = live.expanded[p.id];
-    const vis = e=>{
-      if(e.detail && !settings.detailed) return false;
-      if(exp) return true;
-      return settings.detailed ? (e.common||e.grade) : e.common;
-    };
-    const grouped = settings.detailed || exp;   // labeled groups when there's a lot to show
-    let evHtml;
-    if(grouped){
-      evHtml = EVENT_GROUPS.map(grp=>{
-        const ks = grp.keys.filter(k=> vis(EV_MAP[k]));
-        if(!ks.length) return '';
-        return `<div class="evrow"><span class="evlbl">${grp.g}</span><div class="ev">${evBtns(p,ks)}</div></div>`;
-      }).join('');
-    } else {
-      const ks = EVENTS.filter(vis).map(e=>e.k);
-      evHtml = `<div class="ev">${evBtns(p,ks)}</div>`;
-    }
-    return `<div class="prow">
-      <div class="top">
-        <span class="nm">${esc(p.name)}</span>
-        <span class="gpts ${cls} num">${v>0?'+':''}${v}</span>
-      </div>
-      ${live.quick?'':`${evHtml}
-      <span class="expand" onclick="toggleExpand('${p.id}')">${exp?'− fewer':'+ more events'}</span>`}
-    </div>`;
-  }
   if(live.solo){
-    const p=pById(live.player);
+    const p = pById(live.player);
     main.innerHTML = `
-      <h2 class="view">Solo tracking</h2>
-      <div class="tiny faint" style="text-align:center;margin:-6px 0 12px">Unknown opponent — only ${esc(p?p.name:'this player')}'s own stats affect their rating.</div>
-      <div class="row" style="gap:8px;margin-bottom:8px">
-        <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled style=opacity:.4'}>↶ Undo</button>
-        <button class="btn sm ghost" style="margin-left:auto;color:var(--muted)" onclick="cancelGame()">Discard</button>
+      ${screenHead('Scout / Solo', p?esc(p.name):'Solo tracking', `Unknown opponent \u2014 only ${p?esc(p.name):'this player'}\u2019s own logged events move their rating.`)}
+      <div class="strip">
+        <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled'}>↶ Undo</button>
+        <button class="btn sm ghost" style="margin-left:auto" onclick="cancelGame()">Discard</button>
       </div>
-      ${p?prow(p):'<div class="empty">Player not found.</div>'}
+      ${p?trackCard(p):'<div class="empty">Player not found.</div>'}
       <div class="card">
-        <div class="small muted" style="margin-bottom:8px">Result (optional)</div>
+        <div class="small muted" style="margin-bottom:9px;font-weight:700">Result (optional)</div>
         <div class="seg">
           <button class="${live.result==='W'?'on':''}" onclick="setSoloResult('W')">Won</button>
           <button class="${live.result==='L'?'on':''}" onclick="setSoloResult('L')">Lost</button>
           <button class="${live.result==null?'on':''}" onclick="setSoloResult(null)">No result</button>
         </div>
       </div>
-      <button class="btn primary block" style="margin-top:6px" onclick="finishSolo()">Save & update rating</button>
-      <p class="tiny faint" style="text-align:center;margin-top:10px">Won/Lost is saved to their record but doesn't move the rating, since the opponent is unknown.</p>
+      <button class="btn primary block" style="margin-top:4px" onclick="finishSolo()">Save & update rating</button>
+      <p class="tiny faint" style="text-align:center;margin-top:11px">Won/Lost goes on their record but doesn\u2019t move the rating, since the opponent is unknown.</p>
     `;
     return;
   }
+  const A = (live.teamA||[]).map(pById).filter(Boolean);
+  const B = (live.teamB||[]).map(pById).filter(Boolean);
   main.innerHTML = `
-    <h2 class="view">Live game</h2>
-    <div class="scorebar">
-      <div class="scorebox A">
-        <div class="lbl">Team A</div>
-        <div class="pts num">${live.scoreA}</div>
-        <div class="stepper"><button onclick="score('A',-1)">−</button><button onclick="score('A',1)">+</button></div>
+    ${screenHead('Live', 'Track this game')}
+    <div class="score-card">
+      <div class="score-grid">
+        <div class="score-box A">
+          <div class="score-lbl">Team A${live.unkA?` <span class="unktag">+${live.unkA}</span>`:''}</div>
+          <div class="score-num num">${live.scoreA}</div>
+          <div class="score-steps"><button onclick="score('A',-1)" aria-label="Team A minus one">−</button><button onclick="score('A',1)" aria-label="Team A plus one">+</button></div>
+        </div>
+        <div class="score-box B">
+          <div class="score-lbl">Team B${live.unkB?` <span class="unktag">+${live.unkB}</span>`:''}</div>
+          <div class="score-num num">${live.scoreB}</div>
+          <div class="score-steps"><button onclick="score('B',-1)" aria-label="Team B minus one">−</button><button onclick="score('B',1)" aria-label="Team B plus one">+</button></div>
+        </div>
       </div>
-      <div class="scorebox B">
-        <div class="lbl">Team B</div>
-        <div class="pts num">${live.scoreB}</div>
-        <div class="stepper"><button onclick="score('B',-1)">−</button><button onclick="score('B',1)">+</button></div>
-      </div>
+      ${(!settings.hideRatings && live.winProb!=null)?`<div class="prob-line">Pre-game: <span style="color:var(--teamA)">A ${Math.round(live.winProb*100)}%</span> · <span style="color:var(--teamB)">B ${Math.round((1-live.winProb)*100)}%</span>${(live.unkA||live.unkB)?' · tracked players only':''}</div>`:''}
+      ${((live.unkA||live.unkB)&&live.winProb==null)?`<div class="prob-line">One side is untracked \u2014 result counts for the record; ratings move on logged events.</div>`:''}
     </div>
-    ${(!settings.hideRatings && live.winProb!=null)?`<div class="tiny faint" style="text-align:center;margin:-4px 0 8px">Pre-game: Team A ${Math.round(live.winProb*100)}% · Team B ${Math.round((1-live.winProb)*100)}%</div>`:''}
-    <div class="row" style="gap:8px;margin-bottom:4px">
-      <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled style=opacity:.4'}>↶ Undo</button>
-      <button class="btn sm ghost" onclick="toggleQuick()" style="color:${live.quick?'var(--sand)':'var(--muted)'}">${live.quick?'Quick: on':'Quick: off'}</button>
-      <button class="btn sm ghost" style="margin-left:auto;color:var(--muted)" onclick="cancelGame()">Discard</button>
+    <div class="strip">
+      <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled'}>↶ Undo</button>
+      <button class="btn sm ghost" onclick="toggleQuick()" style="${live.quick?'color:var(--gold);border-color:#f2c66d4a':''}">${live.quick?'Score only: on':'Score only: off'}</button>
+      <button class="btn sm ghost" style="margin-left:auto" onclick="cancelGame()">Discard</button>
     </div>
-    <div class="teamhdr A">Team A</div>
-    ${A.map(prow).join('')}
-    <div class="teamhdr B">Team B</div>
-    ${B.map(prow).join('')}
-    <button class="btn primary block" style="margin-top:14px" onclick="finishGame()">Save game & update ratings</button>
-    <p class="tiny faint" style="text-align:center;margin-top:10px">Score decides the win; events fine-tune who carried it. Flip Quick on to log score only.</p>
+    ${live.quick?`<div class="unkline">Score-only mode \u2014 event buttons are tucked away. The final score still moves ratings; flip it off any time to log events.</div>`:''}
+    <div class="teamhdr A">Team A${live.unkA?` <span class="unktag">· +${live.unkA} untracked</span>`:''}</div>
+    ${A.map(trackCard).join('')}
+    ${(!A.length&&live.unkA)?`<div class="unkline">Fully untracked side \u2014 nothing to log here.</div>`:''}
+    <div class="teamhdr B">Team B${live.unkB?` <span class="unktag">· +${live.unkB} untracked</span>`:''}</div>
+    ${B.map(trackCard).join('')}
+    ${(!B.length&&live.unkB)?`<div class="unkline">Fully untracked side \u2014 nothing to log here.</div>`:''}
+    <button class="btn primary block" style="margin-top:13px" onclick="finishGame()">Save game & update ratings</button>
+    <p class="tiny faint" style="text-align:center;margin-top:11px">Score decides the win; events fine-tune who carried it. Both are valid ways to track.</p>
   `;
 }
+
 function renderTrackSetup(){
-  const act = players.filter(p=>p.active&&!isArchived(p));
+  const act = sortPlayers(players.filter(p=>p.active&&!isArchived(p)));
   const activeIds = new Set(act.map(p=>p.id));
   if(window._sel){
     window._sel.A = new Set([...window._sel.A].filter(id=>activeIds.has(id)));
     window._sel.B = new Set([...window._sel.B].filter(id=>activeIds.has(id)));
   }
   if(act.length<1){
-    main.innerHTML = `<h2 class="view">Track a game</h2>
-      <div class="empty"><b>Add players first</b>Add at least one player to your roster to start tracking.</div>`;
+    main.innerHTML = `${screenHead('Track','Track a game')}
+      <div class="empty"><b>Add players first</b>Add at least one player to your roster to start tracking.</div>
+      <button class="btn primary block" onclick="openPlayer()">${icons.plus} Add player</button>`;
     return;
   }
   if(!window._trackMode) window._trackMode='match';
-  const mode=window._trackMode;
-  const modeSeg = `<div class="seg" style="margin-bottom:12px">
-    <button class="${mode==='match'?'on':''}" onclick="setTrackMode('match')">Match</button>
-    <button class="${mode==='solo'?'on':''}" onclick="setTrackMode('solo')">Solo</button>
+  const mode = window._trackMode;
+  const modeRow = `<div class="mode-row">
+    <button class="mode-btn pressable ${mode==='match'?'active':''}" onclick="setTrackMode('match')">
+      <span class="mode-icon">${icons.track}</span>
+      <span class="mode-copy"><b>Match</b><span>Full court or just the players you can see \u2014 open slots autofill as untracked.</span></span>
+    </button>
+    <button class="mode-btn pressable ${mode==='solo'?'active':''}" onclick="setTrackMode('solo')">
+      <span class="mode-icon">${icons.scout}</span>
+      <span class="mode-copy"><b>Scout / Solo</b><span>Watch one player anywhere. Unknown opponent, events only.</span></span>
+    </button>
   </div>`;
   if(mode==='solo'){
     if(!window._soloPick || !activeIds.has(window._soloPick)) window._soloPick=null;
-    const pick=window._soloPick;
-    const schip=p=>`<button class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:var(--sand);color:var(--sand);background:#2a2410':''}" onclick="pickSolo('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
+    const pick = window._soloPick;
+    const schip = p=>`<button class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:#f2c66d66;color:var(--gold);background:#f2c66d16':''}" onclick="pickSolo('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
     main.innerHTML = `
-      <h2 class="view">Track a game</h2>
-      ${modeSeg}
+      ${screenHead('Track','Scout one player')}
+      ${modeRow}
       <div class="card">
         <div class="small muted" style="margin-bottom:10px">Watching one player somewhere else? Pick them and track just their game. The opponent stays unknown, so only their own stats nudge the rating.</div>
         <div class="chips">${act.map(schip).join('')}</div>
       </div>
-      <button class="btn primary block" onclick="startSolo()" ${pick?'':'disabled style=opacity:.4'}>Start solo tracking</button>
+      <button class="btn primary block" onclick="startSolo()" ${pick?'':'disabled'}>Start solo tracking</button>
     `;
     return;
   }
   if(!window._sel) window._sel = {A:new Set(), B:new Set()};
   const sel = window._sel;
+  if(window._fmt===undefined) window._fmt=null;
+  const fmt = window._fmt;
+  const unkA = fmt ? Math.max(0, fmt - sel.A.size) : 0;
+  const unkB = fmt ? Math.max(0, fmt - sel.B.size) : 0;
+  const partial = (unkA+unkB)>0;
+  const canStart = fmt ? (sel.A.size+sel.B.size)>=1 : (sel.A.size>0 && sel.B.size>0);
   function chip(p){
     const inA=sel.A.has(p.id), inB=sel.B.has(p.id);
     const state = inA?'A':inB?'B':'';
     const bg = inA?'var(--teamA)':inB?'var(--teamB)':'';
-    return `<button class="chip ${state?'on':''}" style="${state?`border-color:${bg};color:${bg};background:${bg}1f`:''}"
+    return `<button class="chip ${state?'on':''}" style="${state?`border-color:${bg};color:${bg};background:${inA?'#6db4ff1c':'#ffb36e1c'}`:''}"
       onclick="cycleSel('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span>${state?` · ${state}`:''}</button>`;
   }
+  const sideLine = (label, n, u, set) =>
+    `<span>${label}: <b>${n}</b>${u?` <span class="faint">+${u} untracked</span>`:''}${n?` · avg ${avgSel(set)}`:''}</span>`;
+  let evBanner='';
+  if(window._evtPending){
+    const pev=evById(window._evtPending.evId);
+    if(!pev){ window._evtPending=null; }
+    else {
+      const tA=evTeamById(pev,window._evtPending.evA), tB=evTeamById(pev,window._evtPending.evB);
+      evBanner = `<div class="card" style="border-color:#f2c66d55">
+        <div class="row spread"><span class="small" style="min-width:0"><b style="color:var(--gold)">${esc(pev.name)}</b> · ${esc(tA?.name||'?')} vs ${esc(tB?.name||'?')}${window._evtPending.label?` · ${esc(window._evtPending.label)}`:''}</span>
+          <button class="btn sm ghost" onclick="window._evtPending=null;render()">detach</button></div>
+        <div class="tiny faint" style="margin-top:4px">This game will count toward the event standings.</div>
+      </div>`;
+    }
+  }
   main.innerHTML = `
-    <h2 class="view">Track a game</h2>
-    ${modeSeg}
+    ${screenHead('Track','Track a game')}
+    ${modeRow}
+    ${evBanner}
     <div class="card">
       <div class="small muted" style="margin-bottom:10px">Tap a player once for <b style="color:var(--teamA)">Team A</b>, twice for <b style="color:var(--teamB)">Team B</b>, again to clear.</div>
       <div class="chips">${act.map(chip).join('')}</div>
     </div>
-    <div class="row small muted spread" style="padding:0 4px 10px">
-      <span>A: ${sel.A.size} · avg ${avgSel(sel.A)}</span>
-      <span>B: ${sel.B.size} · avg ${avgSel(sel.B)}</span>
+    <div class="card">
+      <div class="row spread" style="margin-bottom:9px">
+        <span class="small muted" style="font-weight:700">Players per side</span>
+        <span class="tiny faint">${fmt?'open slots fill as untracked':'exactly who you tapped'}</span>
+      </div>
+      <div class="seg">
+        ${[2,3,4,6].map(n=>`<button class="${fmt===n?'on':''}" onclick="setFmt(${n})">${n}s</button>`).join('')}
+        <button class="${!fmt?'on':''}" onclick="setFmt(null)">Any</button>
+      </div>
     </div>
-    ${(sel.A.size&&sel.B.size&&!settings.hideRatings)?(()=>{const wp=winProbability([...sel.A],[...sel.B]);return `<div class="card" style="text-align:center;padding:12px"><span class="small muted">Win chance</span><div class="num" style="font-weight:800;margin-top:4px;font-size:17px"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> &nbsp; <span class="faint" style="font-weight:600">vs</span> &nbsp; <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></div></div>`;})():''}
-    <button class="btn primary block" onclick="startGame()" ${sel.A.size&&sel.B.size?'':'disabled style=opacity:.4'}>Start tracking</button>
+    <div class="row small muted spread" style="padding:0 4px 10px">
+      ${sideLine('A', sel.A.size, unkA, sel.A)}
+      ${sideLine('B', sel.B.size, unkB, sel.B)}
+    </div>
+    ${(partial&&canStart)?`<div class="unkline">Open slots are filled by untracked players \u2014 they get no stat buttons and never join your roster. With part of the court untracked, the result moves ratings less; logged events do most of the work.</div>`:''}
+    ${(sel.A.size&&sel.B.size&&!settings.hideRatings)?(()=>{const wp=winProbability([...sel.A],[...sel.B]);return `<div class="card" style="text-align:center"><span class="small muted">Win chance${partial?' <span class="tiny faint">· tracked players only</span>':''}</span><div class="num" style="font-weight:850;margin-top:5px;font-size:18px"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> &nbsp; <span class="faint" style="font-weight:600">vs</span> &nbsp; <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></div></div>`;})():''}
+    <button class="btn primary block" onclick="startGame()" ${canStart?'':'disabled'}>Start tracking</button>
+    <button class="btn block" style="margin-top:8px" onclick="openQuickResult()" ${canStart?'':'disabled'}>Log final score only</button>
   `;
 }
+window.setFmt=(n)=>{ window._fmt=n; renderTrack(); };
 window.setTrackMode=(m)=>{ window._trackMode=m; renderTrack(); };
 window.pickSolo=(id)=>{ window._soloPick = (window._soloPick===id)?null:id; renderTrack(); };
 window.startSolo=()=>{
@@ -1060,11 +1651,51 @@ window.cycleSel=(id)=>{
   else s.A.add(id);
   renderTrack();
 };
+function setupSlots(){
+  const s=window._sel, fmt=window._fmt||null;
+  const unkA = fmt ? Math.max(0, fmt - s.A.size) : 0;
+  const unkB = fmt ? Math.max(0, fmt - s.B.size) : 0;
+  const ok = fmt ? (s.A.size+s.B.size)>=1 : (s.A.size>0 && s.B.size>0);
+  return { s, fmt, unkA, unkB, ok };
+}
 window.startGame=()=>{
-  const s=window._sel;
-  live = { teamA:[...s.A], teamB:[...s.B], scoreA:0, scoreB:0,
-    log:{}, undo:[], expanded:{}, quick:false, winProb: winProbability([...s.A],[...s.B]) };
+  const {s,fmt,unkA,unkB,ok}=setupSlots(); if(!ok) return;
+  live = { teamA:[...s.A], teamB:[...s.B], unkA, unkB, fmt, scoreA:0, scoreB:0,
+    log:{}, undo:[], expanded:{}, quick:false,
+    winProb: (s.A.size&&s.B.size) ? winProbability([...s.A],[...s.B]) : null };
+  if(window._evtPending){ live.evt=window._evtPending; window._evtPending=null; }
   render();
+};
+// Quick result: save a final score for the selected teams with no live tracking.
+window.openQuickResult=()=>{
+  const {s,unkA,unkB,ok}=setupSlots(); if(!ok) return;
+  const oneSided = !(s.A.size&&s.B.size);
+  openSheet(`<h3>Log final score</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Saves the result for the selected teams without live tracking. No events are logged, so ${oneSided?'with one side fully untracked this just records the win or loss — ratings don\'t move.':'ratings move on the result alone'+((unkA+unkB)?', scaled down for the untracked slots.':'.')}</p>
+    <div class="row" style="gap:10px;margin-bottom:14px">
+      <div style="flex:1"><label class="small" style="color:var(--teamA);font-weight:700;display:block;margin-bottom:6px">Team A${unkA?` <span class="faint" style="font-weight:500">+${unkA}</span>`:''}</label>
+        <input id="qsA" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+      <div style="flex:1"><label class="small" style="color:var(--teamB);font-weight:700;display:block;margin-bottom:6px">Team B${unkB?` <span class="faint" style="font-weight:500">+${unkB}</span>`:''}</label>
+        <input id="qsB" type="number" inputmode="numeric" min="0" placeholder="0"></div>
+    </div>
+    <button class="btn primary block" onclick="saveQuickResult()">Save result</button>`);
+};
+window.saveQuickResult=async()=>{
+  const {s,fmt,unkA,unkB,ok}=setupSlots(); if(!ok) return;
+  const a=Math.max(0, Math.round(Number($('#qsA').value)||0));
+  const b=Math.max(0, Math.round(Number($('#qsB').value)||0));
+  if(a===b){
+    if(!(await askConfirm('Scores are tied, so no winner is recorded and the result won\'t change ratings. Save anyway?','Save anyway',false))) return;
+  }
+  const gid=uid();
+  games.push({ id:gid, date:Date.now(), teamA:[...s.A], teamB:[...s.B],
+    unkA, unkB, fmt, scoreA:a, scoreB:b, winner:a>b?'A':(b>a?'B':null), log:{},
+    ...(window._evtPending||{}) });
+  window._evtPending=null;
+  await commit();
+  window._sel={A:new Set(),B:new Set()};
+  closeSheet();
+  showRecap(gid);
 };
 window.score=(t,d)=>{ live['score'+t]=Math.max(0, live['score'+t]+d); renderTrack(); };
 window.logEv=(pid,k)=>{
@@ -1089,7 +1720,8 @@ window.finishGame=async()=>{
   const winner = live.scoreA>live.scoreB?'A':(live.scoreB>live.scoreA?'B':null);
   const gid=uid();
   games.push({ id:gid, date:Date.now(), teamA:live.teamA, teamB:live.teamB,
-    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log });
+    unkA:live.unkA||0, unkB:live.unkB||0, fmt:live.fmt||null,
+    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log, ...(live.evt||{}) });
   await commit();
   live=null; window._sel={A:new Set(),B:new Set()};
   showRecap(gid);
@@ -1115,7 +1747,14 @@ function showRecap(gid){
   if(g.winProb!=null && !settings.hideRatings && g.winner){
     const favProb=Math.round((g.winner==='A'?g.winProb:1-g.winProb)*100);
     const tail = g.predCorrect===false?' — upset!':g.predCorrect?' — called it.':'';
-    probLine=`Court gave ${wlabel} a ${favProb}% chance${tail}`;
+    probLine=`Court gave ${wlabel} a ${favProb}% chance${gameKind(g)==='partial'?' (tracked players only)':''}${tail}`;
+  }
+  const uA=unkCount(g,'A'), uB=unkCount(g,'B');
+  let ctxLine='';
+  if(g.winner && gameKind(g)==='partial'){
+    ctxLine = g.winProb==null
+      ? 'Partial tracking — the other side was untracked, so the result counts for the record and ratings moved on each player\'s own logged events.'
+      : `Partial tracking — ${uA+uB} untracked slot${uA+uB===1?'':'s'}, so the result's rating impact was scaled to ${Math.round((g.ctx||0)*100)}%.`;
   }
   const rows=(ids)=>ids.map(id=>{ const p=pById(id); const d=g.deltas&&g.deltas[id]; if(!p||!d) return '';
     const net=d.after-d.before; const col=net>0?'var(--good)':net<0?'var(--bad)':'var(--faint)';
@@ -1123,79 +1762,91 @@ function showRecap(gid){
       <span class="small">${esc(p.name)}</span>
       <span class="num small"><span class="faint">${d.before} → ${d.after}</span> &nbsp; <b style="color:${col}">${net>0?'+':''}${net}</b></span>
     </div>`;}).join('');
-  openSheet(`<h3>${wlabel} won ${g.scoreA}–${g.scoreB}</h3>
+  openSheet(`<h3>${g.winner?`${wlabel} won ${g.scoreA}–${g.scoreB}`:`Tie · ${g.scoreA}–${g.scoreB}`}</h3>
+    ${g.winner?'':`<p class="small muted" style="margin:-8px 0 14px">Saved for reference — tied games don't change ratings, records, or games played.</p>`}
     ${probLine?`<p class="small muted" style="margin:-8px 0 14px">${probLine}</p>`:''}
-    <div class="teamhdr A" style="margin-top:0">Team A</div>${rows(g.teamA)}
-    <div class="teamhdr B">Team B</div>${rows(g.teamB)}
-    <p class="tiny faint" style="margin-top:12px">Open a player to see the full breakdown of why their number moved.</p>
+    ${ctxLine?`<p class="small muted" style="margin:${probLine?'-6px':'-8px'} 0 14px">${ctxLine}</p>`:''}
+    <div class="teamhdr A" style="margin-top:0">Team A${uA?` <span class="unktag">· +${uA} untracked</span>`:''}</div>${rows(g.teamA)}
+    <div class="teamhdr B">Team B${uB?` <span class="unktag">· +${uB} untracked</span>`:''}</div>${rows(g.teamB)}
+    ${scoreOnly(g)?`<p class="tiny faint" style="margin-top:12px">Score only — no events were logged for this game.</p>`:''}
+    <p class="tiny faint" style="margin-top:${scoreOnly(g)?'6px':'12px'}">Open a player to see the full breakdown of why their number moved.</p>
     <button class="btn primary block" style="margin-top:8px" onclick="closeRecap()">Done</button>`);
 }
 window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
 function renderTeams(){
-  const act = players.filter(p=>p.active&&!isArchived(p));
+  const act = sortPlayers(players.filter(p=>p.active&&!isArchived(p)));
   const activeIds = new Set(act.map(p=>p.id));
   if(!window._pool) window._pool = new Set(activeIds);
   else window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
   const pool = window._pool;
   function chip(p){
-    const on=pool.has(p.id);
+    const on = pool.has(p.id);
     return `<button class="chip ${on?'on':''}" onclick="togglePool('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
   }
-  let html = `<h2 class="view">Make even teams</h2>
+  let html = `${screenHead('Teams','Make even teams','Balanced by rating, then sanity-checked for setters, passers, and beginners. Running fixed teams instead? Use the Events tab.')}`;
+  if(!act.length){
+    html += `<div class="empty"><b>No active players</b>Add players or mark some as active to build teams.</div>
+      <button class="btn primary block" onclick="openPlayer()">${icons.plus} Add player</button>`;
+    main.innerHTML = html; return;
+  }
+  html += `
     <div class="card">
-      <div class="row spread" style="margin-bottom:6px">
-        <span class="small muted">Who's here today? (${pool.size} selected)</span>
+      <div class="row spread" style="margin-bottom:9px">
+        <span class="small muted" style="font-weight:700">Who\u2019s here today? (${pool.size} selected)</span>
         <button class="btn sm ghost" onclick="poolAll()">All</button>
       </div>
       <div class="chips">${act.map(chip).join('')}</div>
     </div>
     <div class="card">
-      <div class="field" style="margin-bottom:0">
-        <label>Number of teams</label>
-        <div class="seg">
-          ${[2,3,4,5,6].map(n=>`<button class="${settings.numTeams===n?'on':''}" onclick="setTeams(${n})">${n}</button>`).join('')}
-        </div>
+      <div class="small muted" style="font-weight:700;margin-bottom:9px">Number of teams</div>
+      <div class="seg">
+        ${[2,3,4,5,6].map(n=>`<button class="${settings.numTeams===n?'on':''}" onclick="setTeams(${n})">${n}</button>`).join('')}
       </div>
     </div>
-    <button class="btn primary block" onclick="genTeams()" ${pool.size>=settings.numTeams?'':'disabled style=opacity:.4'}>Generate balanced teams</button>`;
+    <button class="btn primary block" onclick="genTeams()" ${pool.size>=settings.numTeams?'':'disabled'}>${icons.bolt} Generate balanced teams</button>`;
 
   if(window._teams){
     const labels=['A','B','C','D','E','F','G','H'];
-    html += `<div style="margin-top:16px"><div class="teamcols">`;
+    html += `<div class="section-head"><h3>Balanced teams</h3><span>tap Move to shift a player</span></div><div class="team-results">`;
     window._teams.forEach((t,i)=>{
-      const tot=t.reduce((s,p)=>s+p.rating,0);
-      const avg= t.length? tot/t.length:0;
-      const hasSetter=t.some(p=>p.roles.setter);
-      const hasPasser=t.some(p=>p.roles.passer);
-      html += `<div class="teamcol">
-        <div class="hd"><span class="t">Team ${labels[i]}</span>
-          <span class="avg num">avg ${showRate(avg)} · total ${settings.hideRatings?'••':Math.round(tot)}</span></div>
-        ${t.sort((a,b)=>b.rating-a.rating).map(p=>`<div class="member">
-            <span class="nm">${esc(p.name)}</span>
-            ${ROLE_DEFS.filter(([k])=>p.roles[k]).slice(0,2).map(([k,l])=>`<span class="pill">${l}</span>`).join('')}
-            <span class="num muted" style="font-weight:700">${showRate(p.rating)}</span>
-            <button class="mv" onclick="movePlayer('${p.id}',${i})">Move ▸</button>
-          </div>`).join('')}
-        ${!hasSetter?'<div class="warn">No setter on this team</div>':''}
-        ${!hasPasser&&t.length>2?'<div class="warn" style="color:var(--muted)">No strong passer tagged</div>':''}
+      const tot = t.reduce((s,p)=>s+p.rating,0);
+      const avg = t.length ? tot/t.length : 0;
+      const hasSetter = t.some(p=>p.roles.setter);
+      const hasPasser = t.some(p=>p.roles.passer);
+      const warnings = [];
+      if(!hasSetter) warnings.push(`<span class="pill bad">No setter</span>`);
+      if(!hasPasser && t.length>2) warnings.push(`<span class="pill warn">No strong passer tagged</span>`);
+      if(t.filter(p=>p.roles.beginner).length>1) warnings.push(`<span class="pill warn">Beginner-heavy</span>`);
+      html += `<div class="team-card">
+        <div class="team-head">
+          <div class="team-title"><b>Team ${labels[i]}</b><span>${t.length} player${t.length===1?'':'s'} · total ${settings.hideRatings?'••':Math.round(tot)}</span></div>
+          <div class="team-avg num">${showRate(avg)}<span>avg rating</span></div>
+        </div>
+        ${t.slice().sort((a,b)=>b.rating-a.rating).map(p=>`<div class="member">
+          <span class="nm">${esc(p.name)}</span>
+          ${ROLE_DEFS.filter(([k])=>p.roles[k]).slice(0,2).map(([k,l])=>`<span class="pill">${l}</span>`).join('')}
+          <span class="mrate num">${showRate(p.rating)}</span>
+          <button class="mv" onclick="movePlayer('${p.id}',${i})">Move ▸</button>
+        </div>`).join('')}
+        <div class="warning-row">${warnings.length?warnings.join(''):'<span class="pill good">Roles covered</span>'}</div>
       </div>`;
     });
     html += `</div>`;
-    const avgs=window._teams.map(t=> t.length? t.reduce((s,p)=>s+p.rating,0)/t.length : 0);
-    const spread=Math.round(Math.max(...avgs)-Math.min(...avgs));
+    const avgs = window._teams.map(t=> t.length ? t.reduce((s,p)=>s+p.rating,0)/t.length : 0);
+    const spread = Math.round(Math.max(...avgs)-Math.min(...avgs));
     if(window._teams.length===2 && !settings.hideRatings){
-      const wp=winProbability(window._teams[0].map(p=>p.id), window._teams[1].map(p=>p.id));
-      html += `<div class="card row spread"><span class="small muted">Predicted win chance</span>
-        <span class="num small" style="font-weight:700"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> · <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></span></div>`;
+      const wp = winProbability(window._teams[0].map(p=>p.id), window._teams[1].map(p=>p.id));
+      html += `<div class="card row spread" style="margin-top:11px"><span class="small muted">Predicted win chance</span>
+        <span class="num small" style="font-weight:800"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> · <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></span></div>`;
     }
     html += `<div class="card row spread"><span class="small muted">Avg rating gap between teams</span>
-      <span class="num" style="font-weight:800;color:${spread<=4?'var(--good)':spread<=9?'var(--sand)':'var(--bad)'}">${settings.hideRatings?'••':spread}</span></div>`;
+      <span class="num" style="font-weight:850;font-size:17px;color:${spread<=4?'var(--mint)':spread<=9?'var(--gold)':'var(--coral)'}">${settings.hideRatings?'••':spread}</span></div>`;
     if(window._teams.length===2){
-      html += `<button class="btn block" onclick="trackTheseTeams()">Track this matchup ▸</button>`;
+      html += `<button class="match-action" onclick="trackTheseTeams()">Track this matchup ▸</button>`;
     }
-    html += `<button class="btn ghost block" style="margin-top:8px" onclick="genTeams()">Shuffle again</button></div>`;
+    html += `<button class="btn ghost block" style="margin-top:9px" onclick="genTeams()">Shuffle again</button>`;
   }
   main.innerHTML = html;
 }
@@ -1217,44 +1868,52 @@ window.movePlayer=(id, from)=>{
 };
 window.trackTheseTeams=()=>{
   window._sel={A:new Set(window._teams[0].map(p=>p.id)), B:new Set(window._teams[1].map(p=>p.id))};
+  window._fmt=null;   // generated teams are fully tracked — no autofill needed
   tab='track'; render();
 };
 
 /* ---------- GAMES ---------- */
-function renderGames(){
-  let html=`<h2 class="view">Game history · ${games.length}</h2>`;
-  if(!games.length){
-    html+=`<div class="empty"><b>No games yet</b>Track a game from the Track tab. Each saved game updates everyone's rating automatically.</div>`;
-  } else {
-    const sorted=games.slice().sort((a,b)=>b.date-a.date);
-    sorted.forEach(g=>{
-      const d=new Date(g.date);
-      if(g.solo){
-        const nm=pById(g.teamA[0])?.name||'player';
-        html+=`<div class="ghist" onclick="viewGame('${g.id}')">
-          <div style="flex:1;min-width:0">
-            <div class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)} <span class="pill" style="margin-left:4px">solo</span></div>
-            <div class="tiny faint">${g.winner?(g.winner==='A'?'won':'lost'):'no result'}</div>
-          </div>
-          <div style="text-align:right"><div class="tiny faint">${d.getMonth()+1}/${d.getDate()}</div></div>
-        </div>`;
-        return;
-      }
-      const an=g.teamA.map(id=>pById(id)?.name).filter(Boolean);
-      const bn=g.teamB.map(id=>pById(id)?.name).filter(Boolean);
-      html+=`<div class="ghist" onclick="viewGame('${g.id}')">
-        <div style="flex:1;min-width:0">
-          <div class="small ${g.winner==='A'?'win':''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(an.join(', '))}</div>
-          <div class="small ${g.winner==='B'?'win':''}" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(bn.join(', '))}</div>
-        </div>
-        <div style="text-align:right">
-          <div class="sc num">${g.scoreA} – ${g.scoreB}</div>
-          <div class="tiny faint">${d.getMonth()+1}/${d.getDate()}</div>
-        </div>
-      </div>`;
-    });
+function historyRow(g){
+  const d = new Date(g.date);
+  const dateStr = `${d.getMonth()+1}/${d.getDate()}`;
+  if(g.solo){
+    const nm = pById(g.teamA[0])?.name || 'player';
+    return `<button class="history-row pressable" onclick="viewGame('${g.id}')">
+      <span class="avatar sm">${initials(nm)}</span>
+      <span class="history-line">
+        <span class="ln win">${esc(nm)}</span>
+        <span class="tags"><span class="pill solo">solo scout</span></span>
+      </span>
+      <span class="result-block"><b>${g.winner?(g.winner==='A'?'Won':'Lost'):'\u2014'}</b><span>${dateStr}</span></span>
+    </button>`;
   }
-  main.innerHTML=html;
+  const an = g.teamA.map(id=>pById(id)?.name).filter(Boolean);
+  const bn = g.teamB.map(id=>pById(id)?.name).filter(Boolean);
+  const uA = unkCount(g,'A'), uB = unkCount(g,'B');
+  const nameLine = (names,u)=> `${esc(names.join(', '))}${u?`${names.length?' ':''}<span class="faint">+${u} untracked</span>`:''}`;
+  const tags = [];
+  if(g.evId){ const ev=evById(g.evId); tags.push(`<span class="pill" style="color:var(--gold);border-color:#f2c66d55">${esc(g.label||(ev?ev.name:'event'))}</span>`); }
+  if(gameKind(g)==='partial') tags.push('<span class="pill partial">partial</span>');
+  if(!g.winner) tags.push('<span class="pill">tie · not rated</span>');
+  else if(scoreOnly(g)) tags.push('<span class="pill">score only</span>');
+  return `<button class="history-row pressable" onclick="viewGame('${g.id}')">
+    <span class="history-line">
+      <span class="ln ${g.winner==='A'?'win':''}">${nameLine(an,uA)}</span>
+      <span class="ln ${g.winner==='B'?'win':''}">${nameLine(bn,uB)}</span>
+      ${tags.length?`<span class="tags">${tags.join('')}</span>`:''}
+    </span>
+    <span class="result-block"><b class="num">${g.scoreA} – ${g.scoreB}</b><span>${dateStr}</span></span>
+  </button>`;
+}
+function renderGames(){
+  let html = screenHead('History', games.length?`${games.length} game${games.length===1?'':'s'}`:'Game history');
+  if(!games.length){
+    html += `<div class="empty"><b>No games yet</b>Track a game from the Track tab. Each saved game updates everyone\u2019s rating automatically.</div>
+      <button class="btn primary block" onclick="setTab('track')">Track a game</button>`;
+  } else {
+    html += games.slice().sort((a,b)=>b.date-a.date).map(historyRow).join('');
+  }
+  main.innerHTML = html;
 }
 window.viewGame=(id)=>{
   const g=games.find(x=>x.id===id); if(!g) return;
@@ -1269,18 +1928,29 @@ window.viewGame=(id)=>{
       <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>`);
     return;
   }
+  const uA=unkCount(g,'A'), uB=unkCount(g,'B');
   const probLine=(g.winProb!=null&&!settings.hideRatings&&g.winner)
-    ? `<p class="small muted" style="margin:-8px 0 12px">Pre-game: Team A ${Math.round(g.winProb*100)}% · Team B ${Math.round((1-g.winProb)*100)}%${g.predCorrect===false?' · upset':g.predCorrect?' · predicted':''}</p>` : '';
+    ? `<p class="small muted" style="margin:-8px 0 12px">Pre-game: Team A ${Math.round(g.winProb*100)}% · Team B ${Math.round((1-g.winProb)*100)}%${gameKind(g)==='partial'?' · tracked only':''}${g.predCorrect===false?' · upset':g.predCorrect?' · predicted':''}</p>` : '';
+  const tieLine = !g.winner
+    ? `<p class="small muted" style="margin:-8px 0 12px">Tie — saved for reference. Tied games don't change ratings, records, or games played.</p>` : '';
+  const ctxLine = (g.winner && gameKind(g)==='partial')
+    ? `<p class="small muted" style="margin:${probLine?'-6px':'-8px'} 0 12px">${g.winProb==null
+        ? 'Partial tracking · other side untracked — result counted for win/loss; ratings moved on logged events only.'
+        : `Partial tracking · ${uA+uB} untracked slot${uA+uB===1?'':'s'} — result impact scaled to ${Math.round((g.ctx||0)*100)}%.`}</p>`
+    : '';
   const list=(ids)=>ids.map(i=>{const p=pById(i); if(!p) return ''; const d=g.deltas&&g.deltas[i];
     return `<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border)">
       <span class="small" style="min-width:0">${esc(p.name)}<div class="tiny faint">${formatLog(g.log[i])||'no events'}</div></span>
       <span style="text-align:right;white-space:nowrap">${d?`<div class="num small"><span class="faint">${d.before}→${d.after}</span></div><div class="tiny" style="color:var(--muted)">${whyMoved(d)}</div>`:'<span class="tiny faint">—</span>'}</span>
     </div>`;}).join('');
+  const evLine = (()=>{ if(!g.evId) return '';
+    const ev=evById(g.evId); const a=ev&&evTeamById(ev,g.evA), b=ev&&evTeamById(ev,g.evB);
+    return `<p class="small" style="margin:-8px 0 12px;color:var(--gold)">${esc(ev?ev.name:'Event')}${(a&&b)?` · ${esc(a.name)} vs ${esc(b.name)}`:''}${g.label?` · ${esc(g.label)}`:''}</p>`; })();
   openSheet(`
     <h3>Game · ${g.scoreA}–${g.scoreB}</h3>
-    ${probLine}
-    <div class="teamhdr A" style="margin-top:0">Team A ${g.winner==='A'?'· won':''}</div>${list(g.teamA)}
-    <div class="teamhdr B">Team B ${g.winner==='B'?'· won':''}</div>${list(g.teamB)}
+    ${evLine}${probLine}${tieLine}${ctxLine}
+    <div class="teamhdr A" style="margin-top:0">Team A${uA?` <span class="unktag">· +${uA} untracked</span>`:''} ${g.winner==='A'?'· won':''}</div>${list(g.teamA)}
+    <div class="teamhdr B">Team B${uB?` <span class="unktag">· +${uB} untracked</span>`:''} ${g.winner==='B'?'· won':''}</div>${list(g.teamB)}
     <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>
   `);
 };
@@ -1296,69 +1966,739 @@ window.deleteGame=async(id)=>{
   games=games.filter(g=>g.id!==id); await commit(); closeSheet(); toast('Game deleted'); render();
 };
 
+/* ---------- EVENTS (tournaments · fixed teams · standings) ----------
+   Format-agnostic by design: an event is just a named group of games
+   between locked teams. Pool play, brackets, round robin — you pick each
+   matchup, standings do the math. Games carry optional evId/evA/evB/label
+   fields which the rating engine never reads, so event games rate exactly
+   like normal games and old backups replay unchanged. */
+function evById(id){ return evts.find(e=>e.id===id); }
+function evTeamById(ev,tid){ return (ev.teams||[]).find(t=>t.id===tid); }
+function evGameCount(ev){ return games.filter(g=>g.evId===ev.id).length; }
+function eventStandings(ev){
+  /* A "match" is a group of sets sharing a matchId (best-of-3 logging);
+     a game without matchId is a one-set match. Match winner = more set
+     wins in the group. Rank: match W → match L → set diff → point diff. */
+  const rows=(ev.teams||[]).map(t=>({t,mw:0,ml:0,sw:0,sl:0,ties:0,pf:0,pa:0,gp:0}));
+  const by={}; rows.forEach(r=>by[r.t.id]=r);
+  const groups={};
+  games.forEach(g=>{
+    if(g.evId!==ev.id) return;
+    const key=g.matchId||g.id;
+    (groups[key]=groups[key]||[]).push(g);
+  });
+  Object.values(groups).forEach(sets=>{
+    const tally={};
+    sets.forEach(g=>{
+      const a=by[g.evA], b=by[g.evB]; if(!a||!b) return;
+      a.pf+=g.scoreA||0; a.pa+=g.scoreB||0; b.pf+=g.scoreB||0; b.pa+=g.scoreA||0;
+      a.gp++; b.gp++;
+      tally[g.evA]=tally[g.evA]||0; tally[g.evB]=tally[g.evB]||0;
+      if(g.winner==='A'){ a.sw++; b.sl++; tally[g.evA]++; }
+      else if(g.winner==='B'){ b.sw++; a.sl++; tally[g.evB]++; }
+      else { a.ties++; b.ties++; }
+    });
+    const ids=Object.keys(tally).filter(id=>by[id]);
+    if(ids.length===2){
+      const [x,y]=ids;
+      if(tally[x]>tally[y]){ by[x].mw++; by[y].ml++; }
+      else if(tally[y]>tally[x]){ by[y].mw++; by[x].ml++; }
+      /* equal set wins → drawn match: points and sets count, no match W-L */
+    }
+  });
+  rows.forEach(r=>{ r.diff=r.pf-r.pa; r.sdiff=r.sw-r.sl; });
+  rows.sort((x,y)=> y.mw-x.mw || x.ml-y.ml || y.sdiff-x.sdiff || y.diff-x.diff || x.t.name.localeCompare(y.t.name));
+  return rows;
+}
+/* --- brackets: ev.brackets is a list; each stores ONLY {id, name, created, seeds}.
+   Who has advanced is derived from games on every render — same rule as
+   standings and ratings — so fixing or deleting a game self-corrects the
+   bracket. Only matches played after a bracket's creation count toward it.
+   Any team count 2–32 works: seeds are padded to the next power of two and
+   top seeds receive first-round byes. --- */
+function bracketSeedOrder(P){
+  /* standard bracket position order: 1 meets 2 only in the final */
+  let a=[0];
+  while(a.length<P) a=a.flatMap(x=>[x, a.length*2-1-x]);
+  return a;
+}
+function bracketRoundNames(P){
+  const all=['Round of 32','Round of 16','Quarterfinals','Semifinals','Final'];
+  return all.slice(all.length-Math.log2(P));
+}
+function bracketMatchLabel(br, P, roundIdx, i, count){
+  const all=['Round of 32','Round of 16','Quarterfinal','Semifinal','Final'];
+  const nm=all.slice(all.length-Math.log2(P))[roundIdx];
+  return (br.name?br.name+' · ':'')+nm+(count>1?' '+(i+1):'');
+}
+function bracketPairResult(ev, br, ta, tb){
+  const groups={};
+  games.forEach(g=>{
+    if(g.evId!==ev.id || g.date<br.created) return;
+    if(!((g.evA===ta&&g.evB===tb)||(g.evA===tb&&g.evB===ta))) return;
+    const k=g.matchId||g.id; (groups[k]=groups[k]||[]).push(g);
+  });
+  let best=null, bestDate=0;
+  Object.values(groups).forEach(sets=>{
+    let wa=0, wb=0, latest=0;
+    const sc=[];
+    sets.slice().sort((x,y)=>x.date-y.date).forEach(g=>{
+      const sa=g.evA===ta?g.scoreA:g.scoreB, sb=g.evA===ta?g.scoreB:g.scoreA;
+      if(sa>sb)wa++; else if(sb>sa)wb++;
+      latest=Math.max(latest,g.date); sc.push(sa+'\u2013'+sb);
+    });
+    if(wa===wb) return;
+    if(latest>=bestDate){
+      bestDate=latest;
+      best={winner: wa>wb?ta:tb, disp: sc.length>1?`${Math.max(wa,wb)}-${Math.min(wa,wb)}`:sc[0]};
+    }
+  });
+  return best;
+}
+function bracketState(ev, br){
+  if(!br||!br.seeds||br.seeds.length<2) return null;
+  const N=br.seeds.length;
+  let P=2; while(P<N) P*=2;
+  const order=bracketSeedOrder(P);
+  const seedNum={}; br.seeds.forEach((id,i)=>seedNum[id]=i+1);
+  const padded=i=> i<N ? br.seeds[i] : null;
+  let round=[];
+  for(let i=0;i<order.length;i+=2){
+    const a=padded(order[i]), b=padded(order[i+1]);
+    round.push({a, b, bye: (a&&!b)||(b&&!a)});
+  }
+  const rounds=[];
+  for(;;){
+    round.forEach(m=>{
+      if(m.bye){ m.winner=m.a||m.b; m.res=null; return; }
+      const res=(m.a&&m.b)?bracketPairResult(ev,br,m.a,m.b):null;
+      m.res=res; m.winner=res?res.winner:null;
+    });
+    rounds.push(round);
+    if(round.length===1) break;
+    const next=[];
+    for(let i=0;i<round.length;i+=2) next.push({a:round[i].winner, b:round[i+1].winner, bye:false});
+    round=next;
+  }
+  return {rounds, seedNum, size:P, byes:P-N};
+}
+/* --- courts & schedule: ev.sched stores the plan {start, courts, courtStyle,
+   setMin, matchMin, breakMin}. The timeline itself is DERIVED on every render:
+   pool matchups come from round-robin math, played pairs drop off, and the
+   next pending match re-anchors to "now" when the day runs late (or early).
+   Nothing to manually adjust — delays and breaks are absorbed automatically. --- */
+function evSchedDefaults(){ return {start:'10:00', courts:2, courtStyle:'num', setMin:25, matchMin:45, breakMin:15}; }
+function courtLabel(s,i){ return s.courtStyle==='letter' ? 'Court '+String.fromCharCode(65+i) : 'Court '+(i+1); }
+function fmtClock(ms){ return new Date(ms).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'}); }
+function roundRobinRounds(ids){
+  /* circle method: n-1 rounds (even n) or n rounds (odd n, one bye each round) */
+  const t=ids.slice(); if(t.length<2) return [];
+  if(t.length%2===1) t.push(null);
+  const n=t.length, rounds=[];
+  for(let r=0;r<n-1;r++){
+    const rd=[];
+    for(let i=0;i<n/2;i++){
+      const a=t[i], b=t[n-1-i];
+      if(a!=null&&b!=null) rd.push(r%2? [b,a]:[a,b]);
+    }
+    rounds.push(rd);
+    t.splice(1,0,t.pop());
+  }
+  return rounds;
+}
+function buildSchedule(ev){
+  const s=ev.sched; if(!s) return null;
+  const teams=ev.teams||[]; if(teams.length<2) return null;
+  const poolVals=[...new Set(teams.map(t=>t.pool||''))].filter(Boolean).sort();
+  if(!poolVals.length && teams.length>8) return {needPools:true, n:teams.length, s};
+  const grps = poolVals.length
+    ? poolVals.map(p=>({pool:p, ids:teams.filter(t=>(t.pool||'')===p).map(t=>t.id)}))
+    : [{pool:'', ids:teams.map(t=>t.id)}];
+  const C=Math.max(1, Math.min(8, s.courts||1));
+  const courtPools=Array.from({length:C},()=>[]);
+  grps.forEach((g,i)=>courtPools[i%C].push(g));
+  const playedPair=(a,b)=> games.some(g=> g.evId===ev.id && ((g.evA===a&&g.evB===b)||(g.evA===b&&g.evB===a)));
+  const [hh,mm]=(s.start||'10:00').split(':').map(Number);
+  const sd=new Date(); sd.setHours(hh||10, mm||0, 0, 0);
+  const startMs=sd.getTime(), now=Date.now(), MIN=60000;
+  const courts=courtPools.map((pl,ci)=>{
+    const roundsPer=pl.map(g=>roundRobinRounds(g.ids));
+    const q=[];
+    const maxR=Math.max(0,...roundsPer.map(r=>r.length));
+    for(let r=0;r<maxR;r++) roundsPer.forEach((rr,gi)=>{ (rr[r]||[]).forEach(([a,b])=>q.push({a,b,pool:pl[gi].pool})); });
+    const done=q.filter(m=>playedPair(m.a,m.b)).length;
+    const remaining=q.filter(m=>!playedPair(m.a,m.b)).map((m,k)=>{
+      let est=startMs + (done+k)*s.setMin*MIN;
+      if(now>startMs) est=Math.max(est, now + k*s.setMin*MIN);
+      return {...m, est};
+    });
+    const end = remaining.length ? remaining[remaining.length-1].est + s.setMin*MIN
+      : Math.max(startMs + done*s.setMin*MIN, now>startMs?now:startMs);
+    return {label:courtLabel(s,ci), pools:pl.map(g=>g.pool).filter(Boolean), items:remaining, done, total:q.length, end};
+  }).filter(c=>c.total>0);
+  if(!courts.length) return null;
+  const poolsEnd=Math.max(...courts.map(c=>c.end));
+  const playoffStart=poolsEnd + s.breakMin*MIN;
+  const brRounds=Math.max(0, ...(ev.brackets||[]).map(br=>{ const bs=bracketState(ev,br); return bs?bs.rounds.length:0; }));
+  const playoff=brRounds ? Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1), est:playoffStart + i*s.matchMin*MIN})) : null;
+  return {courts, poolsEnd, playoffStart, playoff, s,
+    awards: playoff ? playoff[playoff.length-1].est + s.matchMin*MIN : null};
+}
+function renderEvents(){
+  const openEv = window._evOpen ? evById(window._evOpen) : null;
+  if(window._evOpen && !openEv) window._evOpen=null;
+  if(openEv){ renderEventDetail(openEv); return; }
+  let html = screenHead('Events','Tournaments & events','Lock in team rosters, log scores, and Court keeps the standings. Works for pool play, brackets, round robin — you pick each matchup.');
+  html += `<button class="btn primary block" onclick="openNewEvent()">${icons.plus} New event</button>`;
+  if(!evts.length){
+    html += `<div class="empty" style="margin-top:12px"><b>No events yet</b>Create one on tournament day: name it, add fixed teams, then log each result. Ratings still update quietly underneath — score-only games count.</div>`;
+  } else {
+    const sorted=evts.slice().sort((a,b)=>((a.done?1:0)-(b.done?1:0)) || (b.created-a.created));
+    html += sorted.map(ev=>{
+      const n=evGameCount(ev);
+      const st=eventStandings(ev);
+      const lead=st.length?st[0]:null;
+      return `<button class="ev-row pressable" onclick="openEvent('${ev.id}')">
+        <div class="row spread"><b>${esc(ev.name)}</b><span class="pill" style="${ev.done?'':'color:var(--gold);border-color:#f2c66d55'}">${ev.done?'final':'live'}</span></div>
+        <div class="tiny faint" style="margin-top:5px">${(ev.teams||[]).length} team${(ev.teams||[]).length===1?'':'s'} · ${n} game${n===1?'':'s'}${(lead&&n)?` · ${esc(lead.t.name)} ${ev.done?'won':'leads'}`:''}</div>
+      </button>`;
+    }).join('');
+  }
+  main.innerHTML=html;
+}
+function renderEventDetail(ev){
+  const st=eventStandings(ev);
+  const gs=games.filter(g=>g.evId===ev.id).sort((a,b)=>b.date-a.date);
+  const canLog=(ev.teams||[]).length>=2;
+  let html = `<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>`;
+  html += screenHead(ev.done?'Event · final':'Event · live', esc(ev.name));
+  html += `<div class="card">
+    <div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">Standings</div>
+      <span class="tiny faint">matches · set diff · point diff</span></div>`;
+  if(!st.length) html+=`<div class="stat-empty">Add at least two teams to start.</div>`;
+  else {
+    const poolVals=[...new Set((ev.teams||[]).map(t=>t.pool||''))];
+    const usePools = poolVals.some(p=>p!=='');
+    const groups = usePools
+      ? poolVals.slice().sort((a,b)=> (a===''?1:b===''?-1:a.localeCompare(b))).map(p=>({label:p?`Pool ${p}`:'No pool', rows:st.filter(r=>(r.t.pool||'')===p)}))
+      : [{label:null, rows:st}];
+    const table = rows => `<div class="stand-row stand-head"><span>#</span><span>Team</span><span style="text-align:right">Match</span><span style="text-align:right">Diff</span></div>`
+      + rows.map((r,i)=>`<div class="stand-row"><span class="num faint small">${i+1}</span>
+        <span class="small" style="font-weight:700;min-width:0">${esc(r.t.name)}<div class="tiny faint" style="font-weight:500">sets ${r.sw}-${r.sl}${r.ties?` · ${r.ties} tie${r.ties===1?'':'s'}`:''} · ${r.gp} played</div></span>
+        <span class="num small" style="text-align:right;font-weight:700">${r.mw}-${r.ml}</span>
+        <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></div>`).join('');
+    html += groups.filter(g=>g.rows.length).map(g=>`${g.label?`<div class="pool-title">${esc(g.label)}</div>`:''}${table(g.rows)}`).join('');
+  }
+  html += `</div>`;
+  const sc = ev.done ? null : buildSchedule(ev);
+  if(sc && sc.needPools){
+    html += `<div class="card" style="margin-top:12px">
+      <div class="stat-title">Schedule</div>
+      <div class="small muted">A single round robin of ${sc.n} teams would be ${sc.n*(sc.n-1)/2} matches — assign pools first (edit each team, or use Add many's pool split) and the schedule will build itself.</div>
+    </div>`;
+  } else if(sc){
+    html += `<div class="card" style="margin-top:12px">
+      <div class="row spread" style="margin-bottom:2px"><div class="stat-title" style="margin:0">Schedule</div>
+        <span class="tiny faint">estimates · re-anchor live</span></div>
+      ${sc.courts.map(c=>`
+        <div class="pool-title">${esc(c.label)}${c.pools.length?` · Pool ${c.pools.map(esc).join(' & ')}`:''}${c.done?` <span class="tiny faint" style="text-transform:none;letter-spacing:0">· ${c.done}/${c.total} played</span>`:''}</div>
+        ${c.items.length ? c.items.map(m=>{
+          const ta=evTeamById(ev,m.a), tb=evTeamById(ev,m.b);
+          return `<div class="row spread" style="padding:5px 0;border-bottom:1px solid var(--border)">
+            <span class="small" style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(ta?ta.name:'?')} vs ${esc(tb?tb.name:'?')}</span>
+            <span class="tiny num faint" style="white-space:nowrap;margin-left:8px">${fmtClock(m.est)}</span></div>`;
+        }).join('') : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}
+      `).join('')}
+      ${sc.playoff
+        ? `<div class="pool-title">Playoffs <span class="tiny faint" style="text-transform:none;letter-spacing:0">· best of 3 · after ${sc.s.breakMin}-min break</span></div>`
+          + sc.playoff.map(r=>`<div class="row spread" style="padding:4px 0"><span class="small">${esc(r.name)}</span><span class="tiny num faint">≈ ${fmtClock(r.est)}</span></div>`).join('')
+          + `<div class="row spread" style="padding:4px 0"><span class="small" style="color:var(--gold);font-weight:700">Awards</span><span class="tiny num" style="color:var(--gold)">≈ ${fmtClock(sc.awards)}</span></div>`
+        : `<div class="tiny faint" style="margin-top:8px">Pool play ends ≈ ${fmtClock(sc.poolsEnd)} · add a bracket to project the playoff timeline.</div>`}
+    </div>`;
+  }
+  (ev.brackets||[]).forEach(br=>{
+    const bs=bracketState(ev, br); if(!bs) return;
+    const names=bracketRoundNames(bs.size);
+    const teamName=id=>{ const t=id&&evTeamById(ev,id); return t?t.name:null; };
+    const cols=bs.rounds.map((round,ri)=>{
+      const slots=round.map((m,i)=>{
+        const label=bracketMatchLabel(br,bs.size,ri,i,round.length);
+        const canLog=!ev.done && m.a && m.b && !m.winner;
+        const row=(id,isBye)=>{
+          if(isBye) return `<div class="br-team tbd"><span class="sd"></span><span>bye</span></div>`;
+          const nm=teamName(id);
+          if(!nm) return `<div class="br-team tbd"><span class="sd"></span><span>TBD</span></div>`;
+          const cls=m.winner?(m.winner===id?'win':'lose'):'';
+          const right=(m.winner===id&&m.res)?`<span class="tiny num" style="font-weight:700">${m.res.disp}</span>`:'';
+          return `<div class="br-team ${cls}"><span class="sd">${bs.seedNum[id]||''}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}</span>${right}</div>`;
+        };
+        const inner=m.bye ? row(m.a||m.b,false)+row(null,true) : row(m.a,false)+row(m.b,false);
+        return canLog
+          ? `<button class="br-match open" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${esc(label)}','bo3')">${inner}</button>`
+          : `<div class="br-match">${inner}</div>`;
+      }).join('');
+      return `<div class="br-col"><div class="br-round">${names[ri]}</div><div class="br-slots">${slots}</div></div>`;
+    }).join('');
+    const champ=bs.rounds[bs.rounds.length-1][0].winner;
+    const champTeam=champ?evTeamById(ev,champ):null;
+    const champCol=`<div class="br-col" style="min-width:112px"><div class="br-round">Champion</div><div class="br-slots"><div class="br-champ">${champTeam?`<b>${esc(champTeam.name)}</b>`:`<span class="tiny faint">TBD</span>`}</div></div></div>`;
+    html += `<div class="card" style="margin-top:12px">
+      <div class="row spread" style="margin-bottom:8px"><div class="stat-title" style="margin:0;color:var(--gold)">${esc(br.name||'Bracket')}</div>
+        ${ev.done?'':`<button class="btn sm ghost" onclick="resetBracket('${ev.id}','${br.id}')">Remove</button>`}</div>
+      <div class="bracket-scroll"><div class="bracket">${cols}${champCol}</div></div>
+      ${bs.byes?`<div class="tiny faint" style="margin-top:6px">${bs.byes===1?'Top seed has':'Top '+bs.byes+' seeds have'} a first-round bye.</div>`:''}
+      ${ev.done?'':`<div class="tiny faint" style="margin-top:6px">Tap an open matchup to log it. Winners advance automatically — and un-advance if a game is deleted or corrected.</div>`}
+    </div>`;
+  });
+  if(!ev.done){
+    html += `<button class="btn primary block" style="margin-top:12px" ${canLog?'':'disabled'} onclick="openEventGame('${ev.id}')">Log a game</button>
+      <div class="row" style="gap:8px;margin-top:8px">
+        <button class="btn ghost" style="flex:1" onclick="openEventTeam('${ev.id}')">${icons.plus} Add team</button>
+        <button class="btn ghost" style="flex:1" onclick="openBulkTeams('${ev.id}')">${icons.plus} Add many</button>
+      </div>
+      ${((ev.teams||[]).length>=2)?`<button class="btn ghost block" style="margin-top:8px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add bracket</button>`:''}
+      <button class="btn ghost block" style="margin-top:8px" onclick="openEvSettings('${ev.id}')">Courts & schedule</button>`;
+  }
+  if((ev.teams||[]).length){
+    html += `<div class="card" style="margin-top:12px"><div class="stat-title">Teams${ev.done?'':' <span class="tiny faint" style="font-weight:500">· tap to edit / sub players</span>'}</div>`
+      + ev.teams.map(t=>`<button class="ev-team pressable" onclick="openEventTeam('${ev.id}','${t.id}')">
+          <span class="small" style="font-weight:700;white-space:nowrap">${esc(t.name)}${t.pool?` <span class="tiny" style="color:var(--gold);font-weight:800">· ${esc(t.pool)}</span>`:''}</span>
+          <span class="tiny faint">${t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')||'guest team'}</span>
+        </button>`).join('') + `</div>`;
+  }
+  if(gs.length){
+    html += `<div class="card" style="margin-top:12px"><div class="stat-title">Games</div>`
+      + gs.map(g=>{
+        const a=evTeamById(ev,g.evA), b=evTeamById(ev,g.evB);
+        const wname = g.winner==='A'?(a?.name||'A'):g.winner==='B'?(b?.name||'B'):null;
+        return `<button class="ev-team pressable" onclick="viewGame('${g.id}')">
+          <span class="small" style="min-width:0">${esc(a?a.name:'?')} <b class="num">${g.scoreA}</b>–<b class="num">${g.scoreB}</b> ${esc(b?b.name:'?')}</span>
+          <span class="tiny faint" style="white-space:nowrap">${g.label?esc(g.label)+' · ':''}${wname?esc(wname)+' won':'tie'}</span>
+        </button>`;
+      }).join('') + `</div>`;
+  }
+  html += `<button class="btn ghost block" style="margin-top:12px" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Rename event</button>
+    <button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;
+  main.innerHTML=html;
+}
+window.openEvent=(id)=>{ window._evOpen=id; tab='events'; render(); };
+window.closeEvent=()=>{ window._evOpen=null; render(); };
+window.openNewEvent=()=>{
+  openSheet(`<h3>New event</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Any format works — pool play, bracket, round robin, or just a night of fixed teams. You pick each matchup; Court keeps the standings.</p>
+    <div class="field"><label>Event name</label><input id="evName" placeholder="e.g. Spring Smash · July 18"></div>
+    <button class="btn primary block" onclick="createNewEvent()">Create event</button>`);
+};
+window.createNewEvent=async()=>{
+  const name=($('#evName').value||'').trim(); if(!name){ toast('Give the event a name'); return; }
+  const ev={id:uid(), name, created:Date.now(), done:false, teams:[]};
+  evts.push(ev); await saveEvents(); closeSheet();
+  window._evOpen=ev.id; tab='events'; render();
+};
+window.renameEvent=(id)=>{ const ev=evById(id); if(!ev) return;
+  openSheet(`<h3>Rename event</h3>
+    <div class="field"><label>Name</label><input id="evName" value="${esc(ev.name)}"></div>
+    <button class="btn primary block" onclick="saveEventName('${id}')">Save</button>`);
+};
+window.saveEventName=async(id)=>{ const ev=evById(id); if(!ev) return;
+  const n=($('#evName').value||'').trim(); if(!n){ toast('Name required'); return; }
+  ev.name=n; await saveEvents(); closeSheet(); render();
+};
+window.toggleEventDone=async(id)=>{ const ev=evById(id); if(!ev) return;
+  ev.done=!ev.done; await saveEvents(); render();
+};
+window.deleteEvent=async(id)=>{
+  const ev=evById(id); if(!ev) return;
+  const n=evGameCount(ev);
+  if(!(await askConfirm(`Delete "${ev.name}"?${n?` Its ${n} game${n===1?'':'s'} stay in history and keep their rating impact — they just lose the event grouping and standings.`:''}`,'Delete event'))) return;
+  games.forEach(g=>{ if(g.evId===id){ delete g.evId; delete g.evA; delete g.evB; delete g.label; delete g.matchId; } });
+  evts=evts.filter(e=>e.id!==id);
+  await saveEvents(); await saveGames();
+  window._evOpen=null; toast('Event deleted · games kept'); render();
+};
+/* --- event team editor (add / rename / sub players) --- */
+window.openEventTeam=(evId, tid)=>{
+  const ev=evById(evId); if(!ev) return;
+  const t = tid ? evTeamById(ev,tid) : null;
+  window._evTeamDraft = { evId, tid: t?t.id:null, name: t?t.name:'', pool: t?(t.pool||''):'', players: new Set(t?t.players:[]) };
+  renderEventTeamSheet();
+};
+function renderEventTeamSheet(){
+  const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev) return;
+  const roster=players.filter(p=>!isArchived(p)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const hasGames = d.tid && games.some(g=>g.evId===ev.id && (g.evA===d.tid||g.evB===d.tid));
+  const chips=roster.map(p=>{
+    const mine=d.players.has(p.id);
+    const other=!mine && (ev.teams||[]).some(t=>t.id!==d.tid && t.players.includes(p.id));
+    return `<button class="chip ${mine?'on':''}" ${other?'disabled style="opacity:.35"':''} onclick="evTeamToggle('${p.id}')">${esc(p.name)}${other?' <span class="tiny faint">· taken</span>':''}</button>`;
+  }).join('');
+  openSheet(`<h3>${d.tid?'Edit team':'Add team'} · ${esc(ev.name)}</h3>
+    <div class="field"><label>Team name</label><input id="evtName" value="${esc(d.name)}" placeholder="e.g. Net Ninjas"></div>
+    <div class="field"><label>Pool <span class="faint" style="font-weight:500">· optional, groups the standings</span></label>
+      <div class="seg">${['','A','B','C','D','E','F','G','H'].map(p=>`<button class="${(d.pool||'')===p?'on':''}" onclick="evTeamPool('${p}')">${p||'–'}</button>`).join('')}</div>
+    </div>
+    <div class="field"><label>Roster · ${d.players.size?d.players.size+' picked':'none — guest team'}</label>
+      <div class="chips">${chips}</div>
+      <div class="tiny faint" style="margin-top:7px">One team per player per event. Leave the roster empty for a <b>guest team</b> (people not in your player list) — their results count for standings and the bracket, but nobody\u2019s rating moves. Roster changes only affect future games.</div>
+    </div>
+    <button class="btn primary block" onclick="saveEventTeam()">${d.tid?'Save team':'Add team'}</button>
+    ${d.tid?`<button class="btn danger block" style="margin-top:8px" ${hasGames?'disabled':''} onclick="deleteEventTeam()">${hasGames?'Team has games — can’t delete':'Delete team'}</button>`:''}`);
+}
+window.evTeamToggle=(pid)=>{
+  const d=window._evTeamDraft; const n=$('#evtName'); if(n) d.name=n.value;
+  d.players.has(pid)?d.players.delete(pid):d.players.add(pid);
+  renderEventTeamSheet();
+};
+window.evTeamPool=(p)=>{
+  const d=window._evTeamDraft; const n=$('#evtName'); if(n) d.name=n.value;
+  d.pool=p; renderEventTeamSheet();
+};
+window.saveEventTeam=async()=>{
+  const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev) return;
+  const name=($('#evtName').value||'').trim();
+  if(!name){ toast('Team needs a name'); return; }
+  if(d.tid){ const t=evTeamById(ev,d.tid); if(t){ t.name=name; t.players=[...d.players]; t.pool=d.pool||''; } }
+  else ev.teams.push({id:uid(), name, pool:d.pool||'', players:[...d.players]});
+  await saveEvents(); closeSheet(); render();
+};
+window.deleteEventTeam=async()=>{
+  const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev||!d.tid) return;
+  ev.teams=ev.teams.filter(t=>t.id!==d.tid);
+  await saveEvents(); closeSheet(); render();
+};
+/* --- courts & schedule settings sheet --- */
+window.openEvSettings=(evId)=>{
+  const ev=evById(evId); if(!ev) return;
+  window._evsDraft={...evSchedDefaults(), ...(ev.sched||{}), evId};
+  renderEvSettingsSheet();
+};
+function evsCapture(){
+  const d=window._evsDraft;
+  const g=(id,key,num)=>{ const el=$(id); if(el) d[key]=num?el.value:el.value; };
+  g('#evsStart','start'); g('#evsSetMin','setMin'); g('#evsMatchMin','matchMin'); g('#evsBreakMin','breakMin');
+  return d;
+}
+function renderEvSettingsSheet(){
+  const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
+  openSheet(`<h3>Courts & schedule · ${esc(ev.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Assign pools to courts and get an estimated timeline for the whole day. Times re-anchor automatically as results come in, so delays and breaks are absorbed without any manual fixing.</p>
+    <div class="field"><label>Start time</label><input id="evsStart" type="time" value="${esc(d.start)}"></div>
+    <div class="field"><label>Courts</label>
+      <div class="seg">${[1,2,3,4,5,6,7,8].map(n=>`<button class="${Number(d.courts)===n?'on':''}" onclick="evsSet('courts',${n})">${n}</button>`).join('')}</div>
+      <div class="tiny faint" style="margin-top:5px">Pools are dealt across courts in order; a court with two pools alternates their rounds.</div></div>
+    <div class="field"><label>Court names</label>
+      <div class="seg"><button class="${d.courtStyle!=='letter'?'on':''}" onclick="evsSet('courtStyle','num')">Court 1, 2…</button><button class="${d.courtStyle==='letter'?'on':''}" onclick="evsSet('courtStyle','letter')">Court A, B…</button></div></div>
+    <div class="row" style="gap:10px">
+      <div class="field" style="flex:1"><label>Min / pool set</label><input id="evsSetMin" type="number" inputmode="numeric" min="5" value="${esc(String(d.setMin))}"></div>
+      <div class="field" style="flex:1"><label>Min / playoff match</label><input id="evsMatchMin" type="number" inputmode="numeric" min="10" value="${esc(String(d.matchMin))}"></div>
+      <div class="field" style="flex:1"><label>Break (min)</label><input id="evsBreakMin" type="number" inputmode="numeric" min="0" value="${esc(String(d.breakMin))}"></div>
+    </div>
+    <button class="btn primary block" onclick="saveEvSettings()">Save schedule</button>
+    ${ev.sched?`<button class="btn ghost block" style="margin-top:8px" onclick="clearEvSettings()">Remove schedule</button>`:''}`);
+}
+window.evsSet=(k,v)=>{ const d=evsCapture(); d[k]=v; renderEvSettingsSheet(); };
+window.saveEvSettings=async()=>{
+  const d=evsCapture(); const ev=evById(d.evId); if(!ev) return;
+  ev.sched={ start:d.start||'10:00', courts:Math.max(1,Math.min(8,Number(d.courts)||1)), courtStyle:d.courtStyle==='letter'?'letter':'num',
+    setMin:Math.max(5,Math.round(Number(d.setMin)||25)), matchMin:Math.max(10,Math.round(Number(d.matchMin)||45)), breakMin:Math.max(0,Math.round(Number(d.breakMin)||0)) };
+  await saveEvents(); closeSheet(); render();
+};
+window.clearEvSettings=async()=>{
+  const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
+  delete ev.sched; await saveEvents(); closeSheet(); render();
+};
+
+/* --- bracket setup: name it, seed by pool rank / top-N / by hand; any 2–32 teams --- */
+window.openBracketSetup=(evId)=>{
+  const ev=evById(evId); if(!ev) return;
+  window._brDraft={evId, name:'', seeds:[]};
+  renderBracketSetupSheet();
+};
+function renderBracketSetupSheet(){
+  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  const nameEl=$('#brName'); if(nameEl) d.name=nameEl.value;
+  const st=eventStandings(ev);
+  const seedOf=id=>d.seeds.indexOf(id);
+  const usedElsewhere=new Set(); (ev.brackets||[]).forEach(b=>b.seeds.forEach(id=>usedElsewhere.add(id)));
+  const chips=st.map(r=>{
+    const i=seedOf(r.t.id);
+    const dim = i<0 && usedElsewhere.has(r.t.id);
+    return `<button class="chip ${i>=0?'on':''}" ${d.seeds.length>=32&&i<0?'disabled':''} style="${dim?'opacity:.55':''}" onclick="brSeedToggle('${r.t.id}')">${i>=0?`<b style="color:var(--gold)">${i+1}</b> `:''}${esc(r.t.name)} <span class="tiny faint">${r.mw}-${r.ml}</span></button>`;
+  }).join('');
+  const pools=[...new Set((ev.teams||[]).map(t=>t.pool||''))].filter(Boolean).sort();
+  const rankBtns = pools.length
+    ? `<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:7px">
+        ${[1,2,3,4].map(k=>`<button class="btn sm ghost" style="color:var(--gold);padding:4px 9px" onclick="brSeedRank(${k})">${k===1?'1st':k===2?'2nd':k===3?'3rd':'4th'} of each pool</button>`).join('')}
+      </div>` : '';
+  const N=d.seeds.length;
+  let P=2; while(P<Math.max(N,2)) P*=2;
+  const byeNote = N>=2 && P>N ? `<div class="tiny" style="color:var(--gold);margin-top:6px">${N} teams → top ${P-N} seed${P-N===1?'':'s'} get a first-round bye.</div>` : '';
+  openSheet(`<h3>Add bracket · ${esc(ev.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Single elimination, best-of-3 by default. Seeds pair 1 vs lowest so top seeds meet late. Run several brackets side by side — Gold for pool winners, Silver for runners-up, and so on.</p>
+    <div class="field"><label>Bracket name</label>
+      <input id="brName" value="${esc(d.name)}" placeholder="e.g. Gold">
+      <div class="row" style="gap:6px;margin-top:7px">${['Gold','Silver','Bronze','Playoffs'].map(n=>`<button class="btn sm ghost" style="padding:4px 10px" onclick="brName('${n}')">${n}</button>`).join('')}</div>
+    </div>
+    <div class="field">
+      <div class="row spread" style="margin-bottom:7px">
+        <label style="margin:0">Seeding · ${N} team${N===1?'':'s'}</label>
+        <button class="btn sm ghost" style="color:var(--gold);padding:4px 9px" onclick="brSeedTop(8)">Top 8 overall</button>
+      </div>
+      ${rankBtns}
+      <div class="chips">${chips}</div>
+      <div class="tiny faint" style="margin-top:6px">Tap teams in seed order (1 first), tap again to remove. Dimmed teams are already in another bracket — allowed, just flagged. Standings order shown as W-L.</div>
+      ${byeNote}
+    </div>
+    <button class="btn primary block" ${N>=2?'':'disabled'} onclick="createBracketNow()">Create bracket</button>`);
+}
+window.brName=(n)=>{ const d=window._brDraft; d.name=n; renderBracketSetupSheet(); };
+window.brSeedToggle=(tid)=>{
+  const d=window._brDraft;
+  const i=d.seeds.indexOf(tid);
+  if(i>=0) d.seeds.splice(i,1);
+  else if(d.seeds.length<32) d.seeds.push(tid);
+  renderBracketSetupSheet();
+};
+window.brSeedRank=(k)=>{
+  /* the k-th place team of every pool, ordered by overall standing */
+  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  const st=eventStandings(ev);
+  const pools=[...new Set((ev.teams||[]).map(t=>t.pool||''))].filter(Boolean).sort();
+  const picks=[];
+  pools.forEach(p=>{
+    const rows=st.filter(r=>(r.t.pool||'')===p);
+    if(rows[k-1]) picks.push(rows[k-1].t.id);
+  });
+  /* keep overall-standing order so the strongest k-th seed is #1 */
+  d.seeds=st.filter(r=>picks.includes(r.t.id)).map(r=>r.t.id);
+  renderBracketSetupSheet();
+};
+window.brSeedTop=(n)=>{
+  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  d.seeds=eventStandings(ev).slice(0,n).map(r=>r.t.id);
+  renderBracketSetupSheet();
+};
+window.createBracketNow=async()=>{
+  const d=window._brDraft; const ev=evById(d.evId); if(!ev||d.seeds.length<2) return;
+  const nameEl=$('#brName'); if(nameEl) d.name=nameEl.value;
+  ev.brackets=ev.brackets||[];
+  ev.brackets.push({id:uid(), name:(d.name||'').trim()||'Playoffs', created:Date.now(), seeds:d.seeds.slice()});
+  await saveEvents(); closeSheet();
+  toast('Bracket ready · tap a matchup to log it');
+  render();
+};
+window.resetBracket=async(evId, brId)=>{
+  const ev=evById(evId); if(!ev) return;
+  const br=(ev.brackets||[]).find(b=>b.id===brId); if(!br) return;
+  if(!(await askConfirm(`Remove the ${br.name} bracket? Games and standings are untouched — only the bracket structure and seeding are cleared.`,'Remove bracket'))) return;
+  ev.brackets=ev.brackets.filter(b=>b.id!==brId);
+  await saveEvents(); render();
+};
+
+/* --- bulk team creation: one name per line, optional auto pool split --- */
+window.openBulkTeams=(evId)=>{
+  const ev=evById(evId); if(!ev) return;
+  window._bulkDraft={evId, pools:0};
+  renderBulkTeamsSheet();
+};
+function renderBulkTeamsSheet(){
+  const d=window._bulkDraft; const ev=evById(d.evId); if(!ev) return;
+  const keep=$('#bulkNames')? $('#bulkNames').value : (d.txt||'');
+  d.txt=keep;
+  openSheet(`<h3>Quick add teams · ${esc(ev.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">One team name per line. Teams are added as <b>guest teams</b> (no rosters) — perfect for outside teams. You can open any team afterward to attach your own players.</p>
+    <div class="field"><label>Team names</label>
+      <textarea id="bulkNames" rows="8" placeholder="Net Ninjas\nBlock Party\nSets on the Beach\n…">${esc(keep)}</textarea></div>
+    <div class="field"><label>Split into pools <span class="faint" style="font-weight:500">· optional</span></label>
+      <div class="seg">${[0,2,3,4,5,6,7,8].map(n=>`<button class="${d.pools===n?'on':''}" onclick="bulkPools(${n})">${n||'None'}</button>`).join('')}</div>
+      ${d.pools?`<div class="tiny faint" style="margin-top:5px">Assigned in order: A, B, C… then repeating, so pools stay even.</div>`:''}
+    </div>
+    <button class="btn primary block" onclick="saveBulkTeams()">Add teams</button>`);
+}
+window.bulkPools=(n)=>{ const d=window._bulkDraft; const t=$('#bulkNames'); if(t) d.txt=t.value; d.pools=n; renderBulkTeamsSheet(); };
+window.saveBulkTeams=async()=>{
+  const d=window._bulkDraft; const ev=evById(d.evId); if(!ev) return;
+  const names=($('#bulkNames').value||'').split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!names.length){ toast('Enter at least one team name'); return; }
+  const letters=['A','B','C','D','E','F','G','H'];
+  names.forEach((name,i)=>{
+    ev.teams.push({id:uid(), name, pool:d.pools?letters[i%d.pools]:'', players:[]});
+  });
+  await saveEvents(); closeSheet();
+  toast(names.length+' team'+(names.length===1?'':'s')+' added');
+  render();
+};
+
+/* --- log an event game: single set or best-of-3 match; or hand off to live tracking --- */
+window.openEventGame=(evId, preA, preB, preLabel, preMode)=>{
+  const ev=evById(evId); if(!ev||(ev.teams||[]).length<2) return;
+  window._evGameDraft={evId, a:preA||null, b:preB||null, mode:preMode||'set', sA:'', sB:'', s1A:'',s1B:'',s2A:'',s2B:'',s3A:'',s3B:'', label:preLabel||''};
+  renderEventGameSheet();
+};
+function evGameCapture(){
+  const d=window._evGameDraft; if(!d) return d;
+  const grab=(id,key)=>{ const el=$(id); if(el) d[key]=el.value; };
+  grab('#evsA','sA'); grab('#evsB','sB'); grab('#evLabel','label');
+  ['1','2','3'].forEach(n=>{ grab('#evs'+n+'A','s'+n+'A'); grab('#evs'+n+'B','s'+n+'B'); });
+  return d;
+}
+window.evGameMode=(m)=>{ const d=evGameCapture(); d.mode=m; renderEventGameSheet(); };
+function renderEventGameSheet(){
+  const d=window._evGameDraft; const ev=evById(d.evId); if(!ev) return;
+  const pick=(side)=> ev.teams.map(t=>{
+    const on = d[side]===t.id;
+    const taken = d[side==='a'?'b':'a']===t.id;
+    return `<button class="chip ${on?'on':''}" ${taken?'disabled style="opacity:.35"':''} onclick="evPickTeam('${side}','${t.id}')">${esc(t.name)}</button>`;
+  }).join('');
+  const ready = d.a&&d.b;
+  const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b);
+  const nA=tA?tA.name:'Team A', nB=tB?tB.name:'Team B';
+  const scoreBody = d.mode==='bo3'
+    ? `<div class="set-grid stand-head" style="border:none;padding:0"><span></span><span style="color:var(--teamA)">${esc(nA)}</span><span style="color:var(--teamB)">${esc(nB)}</span></div>
+       ${['1','2','3'].map(n=>`<div class="set-grid">
+         <span class="lbl">Set ${n}</span>
+         <input id="evs${n}A" type="number" inputmode="numeric" min="0" placeholder="${n==='3'?'—':'0'}" value="${esc(d['s'+n+'A']||'')}">
+         <input id="evs${n}B" type="number" inputmode="numeric" min="0" placeholder="${n==='3'?'—':'0'}" value="${esc(d['s'+n+'B']||'')}">
+       </div>`).join('')}
+       <div class="tiny faint" style="margin-bottom:12px">Leave Set 3 blank if the match ended 2-0. Each set counts as its own game for ratings; standings score it as one match.</div>`
+    : `<div class="row" style="gap:10px;margin-bottom:14px">
+      <div style="flex:1"><label class="small" style="color:var(--teamA);font-weight:700;display:block;margin-bottom:6px">${esc(nA)}</label>
+        <input id="evsA" type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(d.sA||'')}"></div>
+      <div style="flex:1"><label class="small" style="color:var(--teamB);font-weight:700;display:block;margin-bottom:6px">${esc(nB)}</label>
+        <input id="evsB" type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(d.sB||'')}"></div>
+    </div>`;
+  openSheet(`<h3>Log a game · ${esc(ev.name)}</h3>
+    <div class="field"><label style="color:var(--teamA)">Team A</label><div class="chips">${pick('a')}</div></div>
+    <div class="field"><label style="color:var(--teamB)">Team B</label><div class="chips">${pick('b')}</div></div>
+    <div class="seg" style="margin-bottom:14px">
+      <button class="${d.mode!=='bo3'?'on':''}" onclick="evGameMode('set')">Single set</button>
+      <button class="${d.mode==='bo3'?'on':''}" onclick="evGameMode('bo3')">Best of 3</button>
+    </div>
+    ${scoreBody}
+    <div class="field"><label>Label <span class="faint" style="font-weight:500">· optional</span></label>
+      <input id="evLabel" value="${esc(d.label||'')}" placeholder="e.g. Pool A · Semifinal · Final"></div>
+    <button class="btn primary block" ${ready?'':'disabled'} onclick="saveEventGame()">Save result</button>
+    <button class="btn ghost block" style="margin-top:8px" ${ready?'':'disabled'} onclick="trackEventGame()">Track live with events ▸</button>
+    <p class="tiny faint" style="margin-top:8px">Score-only is the fast path — ratings still move on the result. Track live only when you have a free thumb.</p>`);
+}
+window.evPickTeam=(side,tid)=>{
+  const d=evGameCapture();
+  d[side] = d[side]===tid ? null : tid;
+  renderEventGameSheet();
+};
+window.saveEventGame=async()=>{
+  const d=evGameCapture(); const ev=evById(d.evId); if(!ev) return;
+  const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b); if(!tA||!tB) return;
+  const label=(d.label||'').trim();
+  const num=v=>Math.max(0, Math.round(Number(v)||0));
+  const pA=tA.players.filter(id=>pById(id)), pB=tB.players.filter(id=>pById(id));
+  /* Playerless (guest) sides save as untracked slots — the engine's existing
+     partial-game model then guarantees: guest vs guest moves no ratings;
+     rostered vs guest counts the win/loss without result-based rating moves. */
+  const mk=(a,b,extra)=>({ id:uid(), date:Date.now(),
+    teamA:pA, teamB:pB, unkA:pA.length?0:1, unkB:pB.length?0:1,
+    scoreA:a, scoreB:b, winner:a>b?'A':(b>a?'B':null), log:{},
+    evId:ev.id, evA:tA.id, evB:tB.id, ...extra });
+  if(d.mode==='bo3'){
+    const sets=[];
+    ['1','2','3'].forEach(n=>{
+      const ra=(d['s'+n+'A']||'').trim(), rb=(d['s'+n+'B']||'').trim();
+      if(ra===''&&rb==='') return;
+      sets.push([num(ra),num(rb),n]);
+    });
+    if(!sets.length){ toast('Enter at least one set score'); return; }
+    let wa=0, wb=0;
+    sets.forEach(([a,b])=>{ if(a>b)wa++; else if(b>a)wb++; });
+    if(wa===wb && !(await askConfirm('Set wins are even, so no match winner is recorded in standings. Save anyway?','Save anyway',false))) return;
+    const matchId=uid();
+    sets.forEach(([a,b,n])=>{
+      games.push(mk(a,b,{ matchId, label:(label?label+' · ':'')+'Set '+n }));
+    });
+    await commit(); closeSheet();
+    toast(wa===wb?'Match saved · drawn on sets':`${esc(wa>wb?tA.name:tB.name)} wins the match ${Math.max(wa,wb)}-${Math.min(wa,wb)}`);
+  } else {
+    const a=num(d.sA), b=num(d.sB);
+    if(a===b && !(await askConfirm('Tied score — it shows in standings points but won\u2019t count as a win, loss, or rating change. Save anyway?','Save anyway',false))) return;
+    games.push(mk(a,b, label?{label}:{}));
+    await commit(); closeSheet();
+    toast(a===b?'Tie saved · points counted':`${esc(a>b?tA.name:tB.name)} wins · standings updated`);
+  }
+  render();
+};
+window.trackEventGame=()=>{
+  const d=evGameCapture(); const ev=evById(d.evId); if(!ev) return;
+  const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b); if(!tA||!tB) return;
+  const usable=ids=>new Set(ids.filter(id=>{ const p=pById(id); return p&&p.active&&!isArchived(p); }));
+  const sA=usable(tA.players), sB=usable(tB.players);
+  if(!sA.size && !sB.size){ toast('Both teams are guest teams — nobody to track. Log the score instead.'); return; }
+  window._sel={A:sA, B:sB};
+  window._fmt=(!sA.size||!sB.size)?Math.max(sA.size,sB.size,2):null;
+  window._trackMode='match'; window._soloPick=null;
+  window._evtPending={evId:ev.id, evA:tA.id, evB:tB.id, ...((d.label||'').trim()?{label:d.label.trim()}:{})};
+  closeSheet(); tab='track'; render();
+};
+
 /* ---------- MORE ---------- */
 function renderMore(){
-  main.innerHTML=`
-    <h2 class="view">Settings & data</h2>
-    <div class="card">
-      <div class="row spread">
-        <div><div style="font-weight:600">Hide ratings (stealth)</div>
-          <div class="tiny muted">Shows names only — looks like a scorekeeper.</div></div>
-        <button class="btn sm ${settings.hideRatings?'primary':''}" onclick="toggleHide()">${settings.hideRatings?'On':'Off'}</button>
-      </div>
+  const ac = accuracyStats();
+  main.innerHTML = `
+    ${screenHead('More','Settings & data')}
+    <div class="card toggle-line">
+      <span class="mode-icon">${icons.shield}</span>
+      <span class="copy"><b>Hide ratings (stealth)</b><span>Shows names only \u2014 looks like a plain scorekeeper.</span></span>
+      <button class="btn sm ${settings.hideRatings?'primary':'ghost'}" onclick="toggleHide()">${settings.hideRatings?'On':'Off'}</button>
+    </div>
+    <div class="card toggle-line">
+      <span class="mode-icon">${icons.track}</span>
+      <span class="copy"><b>Detailed grading</b><span>Adds In / Get tiers for serving & passing. Off = faster taps.</span></span>
+      <button class="btn sm ${settings.detailed?'primary':'ghost'}" onclick="toggleDetailed()">${settings.detailed?'On':'Off'}</button>
     </div>
     <div class="card">
-      <div class="row spread">
-        <div><div style="font-weight:600">Detailed grading</div>
-          <div class="tiny muted">Adds In / Get tiers for serving & passing. Off = faster taps.</div></div>
-        <button class="btn sm ${settings.detailed?'primary':''}" onclick="toggleDetailed()">${settings.detailed?'On':'Off'}</button>
-      </div>
-    </div>
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:4px">How sensitive should ratings be?</div>
-      <div class="tiny muted" style="margin-bottom:10px">Higher = ratings move faster per game.</div>
+      <div style="font-weight:750;margin-bottom:4px">How sensitive should ratings be?</div>
+      <div class="tiny soft" style="margin-bottom:10px">Higher = ratings move faster per game. Changing this recalculates history.</div>
       <div class="seg">
         ${[['Steady',3],['Normal',5],['Reactive',8]].map(([l,v])=>`<button class="${settings.eloK===v?'on':''}" onclick="setK(${v})">${l}</button>`).join('')}
       </div>
     </div>
-    ${(()=>{ const ac=accuracyStats(); return ac?`<div class="card">
+    ${ac?`<div class="card">
       <div class="row spread">
-        <div><div style="font-weight:600">Prediction record</div>
-          <div class="tiny muted">How often the favored team actually won.</div></div>
-        <div class="num" style="font-weight:800;color:var(--sand);font-size:20px">${ac.pct}%</div>
+        <div><div style="font-weight:750">Prediction record</div>
+          <div class="tiny soft" style="margin-top:3px">How often the favored team actually won.</div></div>
+        <div class="num" style="font-weight:900;color:var(--gold);font-size:22px">${ac.pct}%</div>
       </div>
-      <div class="tiny faint" style="margin-top:4px">across ${ac.n} ${ac.n===1?'game':'games'} with a clear favorite</div>
-    </div>`:''; })()}
+      <div class="tiny faint" style="margin-top:6px">across ${ac.n} ${ac.n===1?'game':'games'} with a clear favorite</div>
+    </div>`:''}
+    <div class="section-head"><h3>Your data</h3><span>${players.length} players · ${games.length} games</span></div>
     <div class="card">
-      <div style="font-weight:600;margin-bottom:8px">Your data</div>
-      <div class="tiny muted" style="margin-bottom:10px">${Store.mode==='memory'?'⚠ This view can\'t save on its own — open in Safari or use a backup to keep data.':'Saved automatically on this device.'} ${players.length} players · ${games.length} games.</div>
+      <div class="tiny soft" style="margin-bottom:11px">${Store.mode==='memory'?'⚠ This view can\u2019t save on its own \u2014 open in Safari or use a backup to keep data.':'Saved automatically on this device. Back up occasionally to be safe.'}</div>
       <button class="btn block" onclick="exportData()">Copy backup (JSON)</button>
       <button class="btn block ghost" style="margin-top:8px" onclick="openImport()">Restore from backup</button>
       <button class="btn block danger" style="margin-top:8px" onclick="resetAll()">Reset everything</button>
     </div>
+    <div class="section-head"><h3>Testing & diagnostics</h3></div>
     <div class="card">
-      <div style="font-weight:600;margin-bottom:6px">Testing & diagnostics</div>
-      <div class="tiny muted" style="margin-bottom:10px">Fill the app with a realistic fake season to click around, or run automatic correctness checks. Back up first if you have real data.</div>
+      <div class="tiny soft" style="margin-bottom:11px">Fill the app with a realistic fake season to click around, or run automatic correctness checks. Back up first if you have real data.</div>
       <button class="btn block" onclick="loadDemo()">Load demo season</button>
       <button class="btn block ghost" style="margin-top:8px" onclick="runTests()">Run self-test</button>
     </div>
-    <div class="card">
-      <div style="font-weight:600;margin-bottom:6px">How the rating works</div>
-      <p class="small muted" style="margin:0 0 8px">Each player has a 0–100 rating, seeded by the tier you pick. After every saved game, two things adjust it:</p>
-      <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Result</b> — beating a stronger team raises you more than beating a weaker one (Elo-style).</p>
-      <p class="small muted" style="margin:0 0 8px"><b style="color:var(--text)">Events</b> — the aces, kills, digs and errors you tap during the game nudge whoever actually carried or hurt their team that game.</p>
-      <p class="small muted" style="margin:0 0 8px">Court Level is a practical label derived from the 0–100 rating. Different leagues define levels differently, so treat it as an estimate, not an official certification.</p>
-      <p class="small muted" style="margin:0 0 8px">New players move fast; established players settle and move slowly, so one off night won't tank them.</p>
-      <p class="small muted" style="margin:0"><b style="color:var(--text)">Effort optional:</b> log just the score (Quick mode) and ratings still work from results. Tap events when you want sharper numbers. Both are valid.</p>
+    <div class="section-head"><h3>How ratings work</h3><span>plain language</span></div>
+    <div class="explain-grid">
+      <div class="explain-card"><b>Results set the direction</b><p>Each player has a 0\u2013100 rating, seeded by the level you pick. Beating a stronger team raises you more than beating a weaker one (Elo-style), and blowouts are capped so one lopsided game can\u2019t over-swing anyone.</p></div>
+      <div class="explain-card"><b>Events explain who carried it</b><p>The aces, kills, digs and errors you tap during a game nudge whoever actually helped or hurt their team that game. Logging events is optional \u2014 but it makes ratings sharper and confidence stronger.</p></div>
+      <div class="explain-card"><b>Unknown players stay unknown</b><p>Pick a team size (2s\u20136s) and open slots fill with untracked players who never join your roster. Court can\u2019t judge people it can\u2019t see, so the result\u2019s impact is scaled down \u2014 and skipped entirely when the other side is fully untracked, where only logged events move ratings.</p></div>
+      <div class="explain-card"><b>Confidence is earned</b><p>New players move fast; established players settle and move slowly, so one off night won\u2019t tank them. A player becomes established only through informative games \u2014 both sides tracked, or their own logged events.</p></div>
+      <div class="explain-card"><b>Court Level is an estimate</b><p>Rec, C, B, BB, A and AA/Open are practical labels derived from the 0\u2013100 rating. Different leagues define these differently, so treat it as a guide, not a certification.</p></div>
+      <div class="explain-card"><b>Effort is optional</b><p>Log just the score (Score-only mode or \u201cLog final score only\u201d) and ratings still work from results. Tap events when you want sharper numbers. Both are valid.</p></div>
     </div>
-    <p class="tiny faint" style="text-align:center;margin-top:10px">Court · private rating tracker</p>
+    <p class="tiny faint" style="text-align:center;margin-top:16px">Court · private rating tracker</p>
   `;
 }
 window.toggleHide=async()=>{ settings.hideRatings=!settings.hideRatings; await saveSettings(); render(); };
 window.toggleDetailed=async()=>{ settings.detailed=!settings.detailed; await saveSettings(); render(); };
 window.setK=async(v)=>{ settings.eloK=v; settings.eventK = v<=3?0.4:v>=8?0.9:0.6; await saveSettings(); await commit(); toast('Recalculated'); render(); };
 window.exportData=async()=>{
-  const data=JSON.stringify({players,games,settings,v:1});
+  const data=JSON.stringify({players,games,settings,events:evts,v:1});
   let copied=false;
   try{ await navigator.clipboard.writeText(data); copied=true; }catch(e){}
   try{
@@ -1383,9 +2723,9 @@ window.importFile=(e)=>{
   const r=new FileReader();
   r.onload=async()=>{ try{
     const d=JSON.parse(r.result); if(!d.players) throw 0;
-    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
-    migratePlayers();
-    await commit(); await saveSettings(); closeSheet(); toast('Restored from file'); render();
+    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
+    migrateEvents(); migratePlayers();
+    await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored from file'); render();
   }catch(err){ toast('Could not read that file'); } };
   r.readAsText(f);
 };
@@ -1393,17 +2733,16 @@ window.doImport=async()=>{
   try{
     const d=JSON.parse($('#impTxt').value);
     if(!d.players) throw 0;
-    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})};
-    migratePlayers();
-    await commit(); await saveSettings(); closeSheet(); toast('Restored'); render();
+    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
+    migrateEvents(); migratePlayers();
+    await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored'); render();
   }catch(e){ toast('Could not read that backup'); }
 };
 window.resetAll=async()=>{
   if(!(await askConfirm('Delete ALL players and games? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
-  players=[]; games=[]; settings={...DEFAULT_SETTINGS};
-  await savePlayers(); await saveGames(); await saveSettings(); toast('Reset'); render();
+  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; window._evOpen=null;
+  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents(); toast('Reset'); render();
 };
-
 /* ============================================================
    DEMO DATA + SELF-TEST (for trying things without real games)
    ============================================================ */
@@ -1539,6 +2878,201 @@ function runSelfTest(){
     archived.archived=false; archived.active=true; recomputeAll();
     const newP=makePlayer('new',50);
     ck('Uncertainty range wider for new players', band(newP)>=band(P[0]));
+
+    /* ---- partial / untracked game model ---- */
+    ck('Legacy games without untracked fields replay as full', gameKind(g1)==='full' && g1.ctx===1);
+    const rosterBefore=players.length;
+    // g3: 2 tracked vs 1 tracked + 1 untracked fill (both sides tracked → scaled Elo)
+    games.push({id:'g3',date:3,teamA:[P[0].id,P[1].id],teamB:[P[2].id],unkA:0,unkB:1,fmt:2,
+      scoreA:21,scoreB:15,winner:'A',log:{[P[0].id]:{kill:2},[P[2].id]:{dig:1}}});
+    // g4: 1 tracked + 1 untracked vs fully untracked side (one-sided → events only)
+    games.push({id:'g4',date:4,teamA:[P[3].id],teamB:[],unkA:1,unkB:2,fmt:2,
+      scoreA:21,scoreB:18,winner:'A',log:{[P[3].id]:{kill:3,dig:1}}});
+    // g6: score-only vs fully untracked side (should record result, move nothing)
+    games.push({id:'g6',date:5,teamA:[P[4].id],teamB:[],unkA:2,unkB:3,fmt:3,
+      scoreA:25,scoreB:20,winner:'A',log:{}});
+    recomputeAll();
+    const g3=games.find(x=>x.id==='g3'), g4=games.find(x=>x.id==='g4'), g6=games.find(x=>x.id==='g6');
+    ck('Game kinds classified (full / partial / solo)', gameKind(g1)==='full' && gameKind(g3)==='partial' && gameKind(g4)==='partial' && gameKind(g2)==='solo');
+    ck('Untracked fill slots never join the roster', players.length===rosterBefore);
+    ck('Partial game scales result impact by tracked context', Math.abs(g3.ctx-0.5)<1e-9 && Object.values(g3.deltas).every(x=>Math.abs(x.elo)<=settings.maxElo*0.5+1e-9));
+    ck('Partial game still applies event deltas at full strength', Object.values(g3.deltas).some(x=>x.ev!==0));
+    ck('Partial games are excluded from the prediction record', g3.predCorrect==null && g4.predCorrect==null);
+    ck('One-sided partial has no win probability and no Elo', g4.winProb==null && g4.ctx===0 && Object.values(g4.deltas).every(x=>x.elo===0));
+    ck('One-sided partial still credits the win', P[3].wins===2, 'wins='+P[3].wins);
+    ck('One-sided partial moves rating from logged events', Object.values(g4.deltas).some(x=>x.ev!==0));
+    ck('Score-only game vs untracked side records result without moving rating',
+      P[4].wins>=1 && Object.values(g6.deltas).every(x=>x.elo===0&&x.ev===0));
+    ck('Score-only detection', scoreOnly(g6) && !scoreOnly(g3));
+    ck('Game-mix counters add up to games played',
+      players.every(p=>p.gamesPlayed===(p.fullGames||0)+(p.partialGames||0)+(p.soloGames||0)));
+    ck('Game-mix counters classify correctly', P[0].fullGames===1 && P[0].partialGames===1 && P[2].soloGames===1 && P[3].partialGames===1);
+    // solo game with zero logged events must not move the rating
+    games.push({id:'g7',date:6,solo:true,teamA:[P[5].id],teamB:[],scoreA:0,scoreB:0,winner:'B',log:{}});
+    recomputeAll();
+    const g7=games.find(x=>x.id==='g7');
+    ck('Solo game with no logged events records result without moving rating',
+      g7.deltas[P[5].id].ev===0 && g7.deltas[P[5].id].elo===0 && P[5].losses>=1);
+
+    /* ---- confidence counts informative games, not bare appearances ---- */
+    ck('Tracked-games never exceeds games played',
+      players.every(p=>(p.trackedGames||0)<=p.gamesPlayed));
+    // P4 appeared in g1 (both sides tracked, no events for P4 → still informative
+    // via the result) and g6 (one-sided, score-only → not informative).
+    ck('Both-sides-tracked result builds confidence even with no logged events',
+      P[4].trackedGames===1, 'tracked='+P[4].trackedGames);
+    ck('One-sided game with no logged events does not build confidence',
+      P[4].gamesPlayed===2 && P[4].trackedGames===1,
+      'gp='+P[4].gamesPlayed+' tracked='+P[4].trackedGames);
+    // P5 appeared in g1 (informative) and g7 (solo, no events → not informative).
+    ck('Solo entry with no logged events does not build confidence',
+      P[5].gamesPlayed===2 && P[5].trackedGames===1,
+      'gp='+P[5].gamesPlayed+' tracked='+P[5].trackedGames);
+    // The confidence label must read tracked games, not raw appearances.
+    const confP=makePlayer('Conf',50); confP.gamesPlayed=20; confP.trackedGames=2;
+    ck('Confidence label counts informative games, not appearances',
+      reliability(confP).k==='new');
+    confP.trackedGames=settings.confGames;
+    ck('Confidence label reaches established on tracked games alone',
+      reliability(confP).k==='established');
+    // tied games stay saved-but-inert
+    const preTie=players.map(p=>p.rating), preTieGp=players.map(p=>p.gamesPlayed);
+    games.push({id:'g5',date:7,teamA:[P[4].id],teamB:[P[5].id],scoreA:20,scoreB:20,winner:null,log:{}});
+    recomputeAll();
+    ck('Tied games do not affect ratings or games played',
+      players.every((p,i)=>Math.abs(p.rating-preTie[i])<1e-9 && p.gamesPlayed===preTieGp[i]));
+    // determinism + reversibility must hold with partial games in history
+    const q1=players.map(p=>p.rating); recomputeAll(); const q2=players.map(p=>p.rating);
+    ck('Recompute stays deterministic with partial games', q1.every((r,i)=>Math.abs(r-q2[i])<1e-9));
+    const removedPartial=games.find(x=>x.id==='g4');
+    games=games.filter(x=>x!==removedPartial); recomputeAll();
+    games.push(removedPartial); recomputeAll();
+    const q3=players.map(p=>p.rating);
+    ck('Deleting then re-adding a partial game is reversible', q1.every((r,i)=>Math.abs(r-q3[i])<1e-9));
+
+    /* ---- events / tournament standings ---- */
+    recomputeAll();
+    const preEvt=players.map(p=>p.rating);
+    const evT={id:'ev1', name:'Test Cup', created:9, done:false, teams:[
+      {id:'t1', name:'Red',  pool:'A', players:[P[0].id,P[1].id]},
+      {id:'t2', name:'Blue', pool:'A', players:[P[2].id,P[3].id]},
+      {id:'t3', name:'Gold', pool:'B', players:[P[4].id,P[5].id]},
+    ]};
+    games.push({id:'ge1',date:10,teamA:evT.teams[0].players.slice(),teamB:evT.teams[1].players.slice(),scoreA:25,scoreB:20,winner:'A',log:{},evId:'ev1',evA:'t1',evB:'t2',label:'Pool A'});
+    games.push({id:'ge2',date:11,teamA:evT.teams[2].players.slice(),teamB:evT.teams[0].players.slice(),scoreA:25,scoreB:23,winner:'A',log:{},evId:'ev1',evA:'t3',evB:'t1'});
+    games.push({id:'ge3',date:12,teamA:evT.teams[1].players.slice(),teamB:evT.teams[2].players.slice(),scoreA:21,scoreB:21,winner:null,log:{},evId:'ev1',evA:'t2',evB:'t3'});
+    recomputeAll();
+    const st=eventStandings(evT);
+    ck('Standings rank by match record (1-0 above 1-1)', st[0].t.id==='t3' && st[1].t.id==='t1' && st[2].t.id==='t2',
+      st.map(r=>r.t.id).join(','));
+    ck('Single-set matches count as match W-L', st[0].mw===1&&st[0].ml===0 && st[1].mw===1&&st[1].ml===1 && st[2].mw===0&&st[2].ml===1);
+    ck('Point differential computed correctly', st[0].diff===2 && st[1].diff===3 && st[2].diff===-5,
+      st.map(r=>r.diff).join(','));
+    const t2row=st.find(r=>r.t.id==='t2');
+    ck('Tied sets count points and games, not W-L', t2row.ties===1 && t2row.gp===2 && t2row.pf===41);
+
+    /* best-of-3: t2 beats t3 two sets to one — one match win despite losing a set */
+    games.push({id:'ge4',date:13,teamA:evT.teams[1].players.slice(),teamB:evT.teams[2].players.slice(),scoreA:25,scoreB:22,winner:'A',log:{},evId:'ev1',evA:'t2',evB:'t3',matchId:'m1',label:'Semifinal · Set 1'});
+    games.push({id:'ge5',date:14,teamA:evT.teams[1].players.slice(),teamB:evT.teams[2].players.slice(),scoreA:19,scoreB:25,winner:'B',log:{},evId:'ev1',evA:'t2',evB:'t3',matchId:'m1',label:'Semifinal · Set 2'});
+    games.push({id:'ge6',date:15,teamA:evT.teams[2].players.slice(),teamB:evT.teams[1].players.slice(),scoreA:11,scoreB:15,winner:'B',log:{},evId:'ev1',evA:'t3',evB:'t2',matchId:'m1',label:'Semifinal · Set 3'});
+    recomputeAll();
+    const st2=eventStandings(evT);
+    const r2=st2.find(r=>r.t.id==='t2'), r3=st2.find(r=>r.t.id==='t3');
+    ck('Best-of-3 counts as ONE match win for the 2-1 winner', r2.mw===1 && r3.ml===1, `t2 ${r2.mw}-${r2.ml} t3 ${r3.mw}-${r3.ml}`);
+    ck('Best-of-3 sets tallied individually', r2.sw===2 && r2.sl===1+1, `sets ${r2.sw}-${r2.sl}`);
+    ck('Best-of-3 handles swapped team orientation across sets', r3.sw===1+1);
+    ck('Match points feed differential', r2.pf===41+25+19+15 && r2.diff===(41+59)-(46+58), r2.pf+' / '+r2.diff);
+
+    const withEvt=players.map(p=>p.rating);
+    games.forEach(g=>{ if(g.evId==='ev1'){ delete g.evId; delete g.evA; delete g.evB; delete g.label; delete g.matchId; } });
+    recomputeAll();
+    ck('Event fields never affect ratings', players.every((p,i)=>Math.abs(p.rating-withEvt[i])<1e-9));
+    ck('Unlinking games empties standings', eventStandings(evT).every(r=>r.mw===0&&r.ml===0&&r.gp===0&&r.pf===0));
+    games=games.filter(g=>!['ge1','ge2','ge3','ge4','ge5','ge6'].includes(g.id));
+    recomputeAll();
+    ck('Removing event games restores prior ratings', players.every((p,i)=>Math.abs(p.rating-preEvt[i])<1e-9));
+
+    /* ---- bracket derivation (multi-bracket, byes) ---- */
+    const evB={id:'ev2', name:'Bracket Cup', created:99, done:false,
+      teams:[{id:'u1',name:'S1',players:[P[0].id]},{id:'u2',name:'S2',players:[P[1].id]},
+             {id:'u3',name:'S3',players:[P[2].id]},{id:'u4',name:'S4',players:[P[3].id]}],
+      brackets:[{id:'b1', name:'Gold', created:100, seeds:['u1','u2','u3','u4']}]};
+    const B1=evB.brackets[0];
+    games.push({id:'gb0',date:50,teamA:[P[0].id],teamB:[P[3].id],scoreA:25,scoreB:10,winner:'A',log:{},evId:'ev2',evA:'u1',evB:'u4'});
+    let bst=bracketState(evB,B1);
+    ck('Bracket pairs seeds 1v4 and 2v3', bst.rounds[0][0].a==='u1'&&bst.rounds[0][0].b==='u4'&&bst.rounds[0][1].a==='u2'&&bst.rounds[0][1].b==='u3');
+    ck('Pre-bracket games never fill bracket slots', !bst.rounds[0][0].winner);
+    games.push({id:'gb1',date:101,teamA:[P[0].id],teamB:[P[3].id],scoreA:25,scoreB:20,winner:'A',log:{},evId:'ev2',evA:'u1',evB:'u4'});
+    games.push({id:'gb2',date:102,teamA:[P[1].id],teamB:[P[2].id],scoreA:25,scoreB:23,winner:'A',log:{},evId:'ev2',evA:'u2',evB:'u3',matchId:'bm1'});
+    games.push({id:'gb3',date:103,teamA:[P[1].id],teamB:[P[2].id],scoreA:18,scoreB:25,winner:'B',log:{},evId:'ev2',evA:'u2',evB:'u3',matchId:'bm1'});
+    games.push({id:'gb4',date:104,teamA:[P[2].id],teamB:[P[1].id],scoreA:15,scoreB:9,winner:'A',log:{},evId:'ev2',evA:'u3',evB:'u2',matchId:'bm1'});
+    bst=bracketState(evB,B1);
+    ck('Winners advance to the final automatically', bst.rounds[1][0].a==='u1' && bst.rounds[1][0].b==='u3');
+    ck('Best-of-3 bracket result shows set count', !!bst.rounds[0][1].res && bst.rounds[0][1].res.disp==='2-1', bst.rounds[0][1].res&&bst.rounds[0][1].res.disp);
+    games.push({id:'gb5',date:105,teamA:[P[2].id],teamB:[P[0].id],scoreA:25,scoreB:22,winner:'A',log:{},evId:'ev2',evA:'u3',evB:'u1'});
+    bst=bracketState(evB,B1);
+    ck('Champion derived when final decided', bst.rounds[1][0].winner==='u3');
+    games=games.filter(g=>g.id!=='gb5');
+    bst=bracketState(evB,B1);
+    ck('Deleting the final un-crowns the champion', !bst.rounds[1][0].winner);
+    /* second bracket on the same event: its later creation time isolates it */
+    evB.brackets.push({id:'b2', name:'Silver', created:200, seeds:['u1','u2','u3','u4']});
+    const bst2=bracketState(evB, evB.brackets[1]);
+    ck('Multiple brackets derive independently (creation-time guard)',
+      !!bracketState(evB,B1).rounds[0][0].winner && !bst2.rounds[0][0].winner);
+    games=games.filter(g=>!/^gb/.test(g.id)); recomputeAll();
+    ck('Bracket cleanup restores prior ratings', players.every((p,i)=>Math.abs(p.rating-preEvt[i])<1e-9));
+
+    /* ---- byes for non-power-of-2 brackets ---- */
+    const evY={id:'evy', name:'Bye Cup', created:1, done:false,
+      teams:['y1','y2','y3','y4','y5','y6'].map(id=>({id,name:id,players:[]})), brackets:[]};
+    const b3={id:'y3b', name:'Gold', created:1, seeds:['y1','y2','y3']};
+    const s3=bracketState(evY,b3);
+    ck('3-team bracket: top seed byes to the final', s3.byes===1 && s3.rounds[0][0].bye && s3.rounds[0][0].winner==='y1' && s3.rounds[1][0].a==='y1');
+    const b6={id:'y6b', name:'Playoffs', created:1, seeds:['y1','y2','y3','y4','y5','y6']};
+    const s6=bracketState(evY,b6);
+    ck('6-team bracket: top two seeds get byes', s6.byes===2 && s6.rounds[0][0].winner==='y1' && s6.rounds[0].some(m=>m.bye&&m.winner==='y2'));
+    ck('6-team bracket pairs 4v5 and 3v6', s6.rounds[0].some(m=>m.a==='y4'&&m.b==='y5') && s6.rounds[0].some(m=>m.a==='y3'&&m.b==='y6'));
+
+    /* ---- 16-team bracket pairing ---- */
+    const s16=Array.from({length:16},(_,i)=>'s'+(i+1));
+    const ev16={id:'ev16',name:'Big',created:1,done:false,
+      teams:s16.map(id=>({id,name:id,players:[]})), brackets:[{id:'bb',name:'Playoffs',created:1,seeds:s16}]};
+    const r16=bracketState(ev16,ev16.brackets[0]).rounds[0].map(m=>[m.a,m.b]);
+    const seedPairs=r16.map(([a,b])=>[Number(a.slice(1)),Number(b.slice(1))]);
+    ck('16-team bracket: every pair sums to 17 (standard seeding)', seedPairs.every(([a,b])=>a+b===17), JSON.stringify(seedPairs));
+    ck('16-team bracket: halves keep 1 and 2 apart', (()=>{
+      const topHalf=seedPairs.slice(0,4).flat(), botHalf=seedPairs.slice(4).flat();
+      return topHalf.includes(1)!==botHalf.includes(1) && topHalf.includes(2)!==botHalf.includes(2) && topHalf.includes(1)!==topHalf.includes(2);
+    })());
+    ck('16-team bracket has four rounds', bracketState(ev16,ev16.brackets[0]).rounds.length===4);
+
+    /* ---- round robin generator ---- */
+    const rr4=roundRobinRounds(['a','b','c','d']);
+    const pairs4=rr4.flat().map(p=>p.slice().sort().join('-'));
+    ck('Round robin of 4: three rounds, all six unique pairs', rr4.length===3 && new Set(pairs4).size===6 && pairs4.length===6);
+    const rr5=roundRobinRounds(['a','b','c','d','e']);
+    const pairs5=rr5.flat().map(p=>p.slice().sort().join('-'));
+    const cnt={}; rr5.flat().flat().forEach(x=>cnt[x]=(cnt[x]||0)+1);
+    ck('Round robin of 5 (odd): ten unique pairs, four games each', new Set(pairs5).size===10 && pairs5.length===10 && Object.values(cnt).every(n=>n===4));
+
+    /* ---- guest teams never touch ratings ---- */
+    const preG=players.map(p=>p.rating);
+    const winsB=players[0].wins, trkB=players[0].trackedGames;
+    const evG={id:'ev3',name:'Guest Cup',created:200,done:false,teams:[
+      {id:'h1',name:'Home',players:[P[0].id]},
+      {id:'x1',name:'Guest One',players:[]},
+      {id:'x2',name:'Guest Two',players:[]}]};
+    games.push({id:'gg1',date:201,teamA:[],teamB:[],unkA:1,unkB:1,scoreA:25,scoreB:20,winner:'A',log:{},evId:'ev3',evA:'x1',evB:'x2'});
+    games.push({id:'gg2',date:202,teamA:[P[0].id],teamB:[],unkA:0,unkB:1,scoreA:25,scoreB:15,winner:'A',log:{},evId:'ev3',evA:'h1',evB:'x1'});
+    recomputeAll();
+    ck('Guest games never move ratings', players.every((p,i)=>Math.abs(p.rating-preG[i])<1e-9) && !players.some(p=>Number.isNaN(p.rating)));
+    ck('Rostered player still gets the W vs a guest team', players[0].wins===winsB+1);
+    ck('Guest games never inflate confidence', players[0].trackedGames===trkB);
+    const stG=eventStandings(evG);
+    const x1row=stG.find(r=>r.t.id==='x1');
+    ck('Guest games fully drive standings', stG[0].t.id==='h1'&&stG[0].mw===1&&stG[0].ml===0 && x1row.mw===1&&x1row.ml===1);
+    games=games.filter(g=>!/^gg/.test(g.id)); recomputeAll();
   } catch(e){
     Rs.push({name:'Engine ran without crashing', pass:false, detail:String(e)});
   } finally {
@@ -1560,7 +3094,6 @@ window.runTests=()=>{
     <p class="tiny faint" style="margin-top:12px">Runs on isolated test data. Your real players and games are untouched.</p>
     <button class="btn primary block" style="margin-top:12px" onclick="closeSheet()">Done</button>`);
 };
-
 /* ============================================================
    PLAYER EDITOR (sheet)
    ============================================================ */
@@ -1628,6 +3161,8 @@ function renderPlayerSheet(){
       ${settings.hideRatings?'':`<div class="row spread" style="margin-top:6px"><span class="muted small">Court Level</span><span class="small" style="font-weight:700">${esc(level.label)}</span></div>
       <div class="tiny faint" style="margin-top:4px">${esc(level.overall)}</div>`}
       <div class="row spread" style="margin-top:6px"><span class="muted small">Record · games</span><span class="num">${p.wins}-${p.losses} · ${p.gamesPlayed}</span></div>
+      ${((p.partialGames||0)+(p.soloGames||0))?`<div class="row spread" style="margin-top:6px"><span class="muted small">Game mix</span><span class="small num">${p.fullGames||0} full · ${p.partialGames||0} partial · ${p.soloGames||0} solo</span></div>
+      <div class="tiny faint" style="margin-top:4px">Partial and solo games count toward the record, but move the rating more gently than fully tracked games.</div>`:''}
       <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
       ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="${settings.hideRatings?'':'num '}small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
     </div>
@@ -1958,13 +3493,11 @@ function askConfirm(msg, yesLabel='Confirm', danger=true){
 /* ============================================================
    BOOT
    ============================================================ */
-document.querySelectorAll('nav button').forEach(b=>{
-  b.addEventListener('click',()=>{ tab=b.dataset.tab; if(tab!=='teams')window._teams=null; render(); });
-});
 (async()=>{
   try{ await load(); }catch(e){ console.warn('load skipped', e); }
   try{ recomputeAll(); }catch(e){ console.warn('recompute skipped', e); }
   try{ await savePlayers(); }catch(e){}
+  tab = 'home';
   render();
 })();
 </script>

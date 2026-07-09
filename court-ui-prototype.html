@@ -1,0 +1,1449 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="theme-color" content="#070912">
+<title>Court UI Prototype</title>
+<style>
+  :root{
+    --bg:#070912;
+    --bg2:#0d1220;
+    --panel:#111827cc;
+    --panel-strong:#172133ee;
+    --glass:#ffffff0f;
+    --glass2:#ffffff17;
+    --line:#ffffff1c;
+    --line-strong:#ffffff2c;
+    --text:#f5f7fb;
+    --muted:#aab5c8;
+    --soft:#738097;
+    --faint:#4d596d;
+    --gold:#f4c86a;
+    --mint:#62e4b0;
+    --cyan:#72d8ff;
+    --coral:#ff8178;
+    --blue:#86a8ff;
+    --purple:#b78cff;
+    --team-a:#67b7ff;
+    --team-b:#ffb36a;
+    --good:#65e6ad;
+    --bad:#ff766d;
+    --warn:#ffd36d;
+    --shadow:0 22px 70px #00000080;
+    --radius:18px;
+    --tap:#ffffff20;
+  }
+
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html{background:var(--bg);color:var(--text);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+  body{
+    margin:0;
+    min-height:100vh;
+    overflow-x:hidden;
+    background:
+      radial-gradient(circle at 18% -4%, #294f7b66 0, transparent 34rem),
+      radial-gradient(circle at 96% 4%, #7b573166 0, transparent 26rem),
+      linear-gradient(170deg,#060811 0%,#0b0f1a 42%,#101522 100%);
+    color:var(--text);
+    -webkit-font-smoothing:antialiased;
+    padding-bottom:calc(94px + env(safe-area-inset-bottom));
+  }
+  body::before{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    background:
+      linear-gradient(90deg, transparent 0 15%, #ffffff09 15% 15.35%, transparent 15.35% 84.65%, #ffffff09 84.65% 85%, transparent 85%),
+      linear-gradient(0deg, transparent 0 47.4%, #ffffff08 47.4% 47.75%, transparent 47.75% 52.25%, #ffffff08 52.25% 52.6%, transparent 52.6%),
+      radial-gradient(circle at 50% 8%, #ffffff0c 0 1px, transparent 1px);
+    background-size:100% 100%,100% 100%,18px 18px;
+    mask-image:linear-gradient(to bottom,#000 0,#000 48%,transparent 100%);
+    opacity:.46;
+  }
+  body::after{
+    content:"";
+    position:fixed;
+    inset:0;
+    pointer-events:none;
+    background:linear-gradient(180deg,transparent 0%,#070912cc 100%);
+  }
+  button,input,select{font:inherit}
+  button{border:0;background:transparent;color:inherit;cursor:pointer}
+  button:disabled{opacity:.45;cursor:not-allowed}
+  .num{font-variant-numeric:tabular-nums}
+  .app-shell{position:relative;z-index:1;min-height:100vh}
+
+  .topbar{
+    position:sticky;
+    top:0;
+    z-index:30;
+    padding:calc(12px + env(safe-area-inset-top)) 16px 10px;
+    background:linear-gradient(180deg,#070912f2,#070912cc 70%,transparent);
+    backdrop-filter:blur(20px);
+  }
+  .topbar-inner{display:flex;align-items:center;gap:12px;max-width:1180px;margin:0 auto}
+  .brand-mark{
+    width:38px;height:38px;border-radius:14px;
+    display:grid;place-items:center;
+    background:
+      linear-gradient(135deg,#ffffff22,#ffffff07),
+      linear-gradient(145deg,#2a496f,#1b1f31 58%,#543c21);
+    border:1px solid #ffffff24;
+    box-shadow:0 0 30px #67b7ff22, inset 0 1px 0 #ffffff30;
+    position:relative;
+    overflow:hidden;
+  }
+  .brand-mark::before,.brand-mark::after{
+    content:"";
+    position:absolute;
+    border:1.5px solid #f4c86acc;
+    border-radius:50%;
+  }
+  .brand-mark::before{width:23px;height:23px;transform:rotate(24deg)}
+  .brand-mark::after{width:31px;height:11px;border-left-color:transparent;border-right-color:transparent;transform:rotate(-18deg)}
+  .brand-copy{min-width:0}
+  .brand-copy h1{margin:0;font-size:17px;line-height:1;font-weight:850;letter-spacing:.08em;text-transform:uppercase}
+  .brand-copy span{display:block;margin-top:4px;color:var(--soft);font-size:12px}
+  .night-pill{
+    margin-left:auto;
+    min-height:34px;
+    display:inline-flex;align-items:center;gap:8px;
+    padding:7px 10px;
+    border-radius:999px;
+    background:#ffffff0f;
+    border:1px solid #ffffff1c;
+    color:var(--muted);
+    font-size:12px;
+    white-space:nowrap;
+  }
+  .pulse{width:8px;height:8px;border-radius:999px;background:var(--mint);box-shadow:0 0 18px var(--mint)}
+
+  main{max-width:1180px;margin:0 auto;padding:8px 16px 28px}
+  .screen{display:none;animation:rise .24s ease-out}
+  .screen.active{display:block}
+  @keyframes rise{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+
+  .hero-panel{
+    position:relative;
+    overflow:hidden;
+    border-radius:28px;
+    padding:18px;
+    min-height:194px;
+    background:
+      linear-gradient(140deg,#172b46d9 0%,#111827db 46%,#2b2315de 100%);
+    border:1px solid #ffffff22;
+    box-shadow:var(--shadow), inset 0 1px 0 #ffffff22;
+  }
+  .hero-panel::before{
+    content:"";
+    position:absolute;
+    inset:12px;
+    border:1px solid #ffffff18;
+    border-radius:20px;
+    background:
+      linear-gradient(90deg,transparent 0 48.8%,#ffffff1b 48.8% 49.2%,transparent 49.2%),
+      linear-gradient(0deg,transparent 0 50%,#ffffff16 50% 50.6%,transparent 50.6%);
+    pointer-events:none;
+  }
+  .hero-panel::after{
+    content:"";
+    position:absolute;
+    width:230px;height:230px;
+    right:-92px;top:-96px;
+    border-radius:50%;
+    border:1px solid #f4c86a33;
+    box-shadow:0 0 80px #f4c86a26,inset 0 0 50px #ffffff08;
+  }
+  .hero-content{position:relative;z-index:1}
+  .eyebrow{
+    color:var(--gold);
+    font-size:11px;
+    font-weight:850;
+    letter-spacing:.14em;
+    text-transform:uppercase;
+  }
+  h2{font-size:29px;line-height:1.02;margin:9px 0 8px;letter-spacing:0}
+  .subcopy{margin:0;color:var(--muted);line-height:1.45;font-size:14px}
+  .hero-stats{
+    display:grid;
+    grid-template-columns:repeat(3,1fr);
+    gap:8px;
+    margin-top:16px;
+  }
+  .mini-stat{
+    min-width:0;
+    padding:11px 10px;
+    border-radius:16px;
+    background:#ffffff10;
+    border:1px solid #ffffff18;
+    backdrop-filter:blur(18px);
+  }
+  .mini-stat b{display:block;font-size:19px;line-height:1}
+  .mini-stat span{display:block;margin-top:5px;color:var(--muted);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+  .grid{display:grid;gap:12px;margin-top:14px}
+  .grid.two{grid-template-columns:1fr}
+  .grid.tight{gap:9px}
+  .section-head{display:flex;align-items:end;justify-content:space-between;gap:12px;margin:22px 1px 10px}
+  .section-head h3{margin:0;font-size:14px;text-transform:uppercase;letter-spacing:.12em;color:var(--muted)}
+  .section-head span{color:var(--soft);font-size:12px}
+
+  .card{
+    position:relative;
+    border-radius:var(--radius);
+    background:linear-gradient(145deg,#ffffff12,#ffffff08);
+    border:1px solid var(--line);
+    box-shadow:0 12px 40px #0000002f, inset 0 1px 0 #ffffff1a;
+    overflow:hidden;
+  }
+  .card.pad{padding:14px}
+  .card.strong{background:linear-gradient(145deg,#182235e8,#101827e8);border-color:#ffffff24}
+  .card.pressable,.action-tile,.player-card,.history-row,.pool-chip,.stat-btn,.dock button,.mode-btn,.size-btn,.score-step,.toggle-row,.seg-btn,.match-action{transition:transform .12s ease,background .18s ease,border-color .18s ease,box-shadow .18s ease}
+  .card.pressable:active,.action-tile:active,.player-card:active,.history-row:active,.pool-chip:active,.stat-btn:active,.dock button:active,.mode-btn:active,.size-btn:active,.score-step:active,.toggle-row:active,.seg-btn:active,.match-action:active{transform:scale(.975)}
+  @media (hover:hover){
+    .card.pressable:hover,.action-tile:hover,.player-card:hover,.history-row:hover,.pool-chip:hover,.stat-btn:hover,.match-action:hover{
+      border-color:#ffffff35;
+      background-color:#ffffff08;
+    }
+  }
+
+  .action-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:14px}
+  .action-tile{
+    min-height:84px;
+    display:flex;
+    flex-direction:column;
+    align-items:flex-start;
+    justify-content:space-between;
+    gap:12px;
+    padding:13px;
+    border-radius:19px;
+    background:linear-gradient(145deg,#ffffff14,#ffffff08);
+    border:1px solid #ffffff1d;
+  }
+  .action-tile b{font-size:15px}
+  .action-tile span{color:var(--soft);font-size:12px;line-height:1.25}
+  .tile-icon{
+    width:31px;height:31px;border-radius:12px;
+    display:grid;place-items:center;
+    color:#08101b;
+    background:var(--gold);
+    box-shadow:0 0 22px #f4c86a44;
+  }
+  .tile-icon svg,.icon svg{width:17px;height:17px}
+  .tile-blue .tile-icon{background:var(--cyan);box-shadow:0 0 22px #72d8ff44}
+  .tile-mint .tile-icon{background:var(--mint);box-shadow:0 0 22px #62e4b044}
+  .tile-coral .tile-icon{background:var(--coral);box-shadow:0 0 22px #ff817844}
+
+  .button{
+    min-height:46px;
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:8px;
+    padding:12px 15px;
+    border-radius:15px;
+    border:1px solid #ffffff22;
+    background:#ffffff12;
+    color:var(--text);
+    font-weight:780;
+    font-size:14px;
+  }
+  .button.primary{
+    background:linear-gradient(135deg,#f5d374,#db9f37);
+    color:#171006;
+    border-color:#f6d98c66;
+    box-shadow:0 12px 34px #d99d3540;
+  }
+  .button.ghost{background:#ffffff0a;color:var(--muted)}
+  .button.block{width:100%}
+  .button.small{min-height:36px;border-radius:12px;padding:8px 11px;font-size:12px}
+
+  .confidence-strip{display:grid;grid-template-columns:1fr;gap:10px}
+  .meter{height:10px;border-radius:999px;background:#ffffff12;overflow:hidden;border:1px solid #ffffff14}
+  .meter i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,var(--coral),var(--gold),var(--mint));box-shadow:0 0 24px #62e4b066}
+  .row{display:flex;align-items:center;gap:10px}
+  .spread{justify-content:space-between}
+  .muted{color:var(--muted)}
+  .soft{color:var(--soft)}
+  .good{color:var(--mint)}
+  .warn{color:var(--warn)}
+  .bad{color:var(--coral)}
+  .dim{color:var(--soft)}
+  .tiny{font-size:11px}
+  .small{font-size:12px}
+  .pill{
+    display:inline-flex;align-items:center;gap:6px;
+    min-height:25px;
+    padding:5px 8px;
+    border-radius:999px;
+    border:1px solid #ffffff1f;
+    background:#ffffff0c;
+    color:var(--muted);
+    font-size:11px;
+    font-weight:720;
+    white-space:nowrap;
+  }
+  .pill.good{color:var(--mint);border-color:#62e4b044;background:#62e4b012}
+  .pill.warn{color:var(--warn);border-color:#ffd36d44;background:#ffd36d12}
+  .pill.bad{color:var(--coral);border-color:#ff817844;background:#ff817812}
+  .pill.blue{color:var(--cyan);border-color:#72d8ff44;background:#72d8ff12}
+  .pill.gold{color:var(--gold);border-color:#f4c86a44;background:#f4c86a12}
+  .pill.dim{color:var(--soft)}
+
+  .mover-list{display:grid;gap:9px}
+  .mover{display:flex;align-items:center;gap:10px;padding:10px;border-radius:14px;background:#ffffff0a;border:1px solid #ffffff14}
+  .avatar{
+    width:38px;height:38px;
+    display:grid;place-items:center;
+    border-radius:14px;
+    background:linear-gradient(145deg,#274560,#151b2c);
+    border:1px solid #ffffff20;
+    color:var(--text);
+    font-weight:850;
+    box-shadow:inset 0 1px 0 #ffffff1c;
+  }
+  .mover .who{min-width:0;flex:1}
+  .mover .who b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .mover .who span{display:block;margin-top:3px;color:var(--soft);font-size:12px}
+  .delta-up{color:var(--mint);font-weight:850}
+  .delta-down{color:var(--coral);font-weight:850}
+
+  .player-tools{display:flex;gap:10px;margin:14px 0}
+  .search-box{
+    flex:1;
+    min-height:46px;
+    border:1px solid #ffffff1f;
+    background:#ffffff0d;
+    color:var(--text);
+    border-radius:15px;
+    padding:0 13px;
+    outline:none;
+  }
+  .search-box::placeholder{color:var(--soft)}
+  .player-list{display:grid;gap:10px}
+  .player-card{
+    padding:13px;
+    border-radius:19px;
+    background:linear-gradient(145deg,#ffffff13,#ffffff08);
+    border:1px solid #ffffff1b;
+    text-align:left;
+    width:100%;
+  }
+  .player-top{display:flex;align-items:flex-start;gap:11px}
+  .player-meta{min-width:0;flex:1}
+  .player-meta b{display:block;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-sub{margin-top:4px;color:var(--muted);font-size:12px}
+  .rating-badge{text-align:right;min-width:64px}
+  .rating-badge b{display:block;font-size:25px;line-height:.95;color:var(--gold)}
+  .rating-badge span{display:block;margin-top:5px;color:var(--soft);font-size:11px}
+  .tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+  .sparkline{width:92px;height:27px;display:block;margin-left:auto;margin-top:7px}
+  .status-dot{width:9px;height:9px;border-radius:999px;background:var(--mint);box-shadow:0 0 14px #62e4b066;margin-top:7px}
+  .status-dot.inactive{background:var(--soft);box-shadow:none}
+
+  .mode-row{
+    display:grid;
+    grid-template-columns:1fr;
+    gap:9px;
+    margin:13px 0;
+  }
+  .mode-btn{
+    text-align:left;
+    min-height:68px;
+    display:flex;
+    align-items:center;
+    gap:12px;
+    padding:12px;
+    border-radius:18px;
+    background:#ffffff0c;
+    border:1px solid #ffffff18;
+  }
+  .mode-btn.active{
+    background:linear-gradient(145deg,#1f334c,#151e31);
+    border-color:#72d8ff66;
+    box-shadow:0 0 0 1px #72d8ff22,0 14px 40px #72d8ff17;
+  }
+  .mode-icon{
+    width:40px;height:40px;flex:none;
+    border-radius:15px;
+    display:grid;place-items:center;
+    background:#ffffff11;
+    border:1px solid #ffffff1d;
+    color:var(--cyan);
+  }
+  .mode-copy{min-width:0}
+  .mode-copy b{display:block;font-size:14px}
+  .mode-copy span{display:block;margin-top:4px;color:var(--soft);font-size:12px;line-height:1.25}
+
+  .track-layout{display:grid;gap:12px}
+  .score-card{
+    padding:13px;
+    border-radius:24px;
+    background:linear-gradient(145deg,#182235dd,#0f1728dd);
+    border:1px solid #ffffff20;
+    box-shadow:var(--shadow);
+  }
+  .score-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .score-box{
+    padding:12px;
+    border-radius:20px;
+    background:#ffffff0d;
+    border:1px solid #ffffff18;
+    text-align:center;
+  }
+  .score-box.team-a{border-color:#67b7ff55}
+  .score-box.team-b{border-color:#ffb36a55}
+  .score-label{font-size:11px;font-weight:850;letter-spacing:.12em;text-transform:uppercase}
+  .team-a .score-label{color:var(--team-a)}
+  .team-b .score-label{color:var(--team-b)}
+  .score-number{font-size:47px;line-height:.95;font-weight:900;margin:8px 0 10px}
+  .score-steps{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+  .score-step{
+    min-height:42px;
+    border-radius:14px;
+    background:#ffffff12;
+    border:1px solid #ffffff1d;
+    font-size:22px;
+    font-weight:850;
+  }
+  .quick-strip{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    margin-top:11px;
+    padding:10px;
+    border-radius:16px;
+    background:#ffffff0a;
+    border:1px solid #ffffff16;
+  }
+  .quick-strip span{min-width:0;flex:1;color:var(--muted);font-size:12px;line-height:1.3}
+  .switch{
+    width:52px;height:32px;border-radius:999px;padding:3px;
+    background:#ffffff13;border:1px solid #ffffff24;flex:none;
+  }
+  .switch i{display:block;width:24px;height:24px;border-radius:999px;background:var(--soft);transition:transform .18s ease,background .18s ease}
+  .switch.on{background:#62e4b020;border-color:#62e4b066}
+  .switch.on i{transform:translateX(20px);background:var(--mint);box-shadow:0 0 16px #62e4b077}
+
+  .format-row{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .size-btn,.seg-btn{
+    min-height:42px;
+    border-radius:14px;
+    border:1px solid #ffffff1c;
+    background:#ffffff0b;
+    color:var(--muted);
+    font-weight:800;
+    font-size:13px;
+  }
+  .size-btn.active,.seg-btn.active{
+    background:#f4c86a22;
+    color:var(--gold);
+    border-color:#f4c86a66;
+    box-shadow:0 0 22px #f4c86a14;
+  }
+  .autofill-card{padding:13px;border-radius:18px;background:#72d8ff0e;border:1px dashed #72d8ff55}
+  .unknown-lane{display:flex;align-items:center;gap:9px;margin-top:10px;color:var(--muted);font-size:12px}
+  .unknown-stack{display:flex}
+  .unknown-chip{
+    width:27px;height:27px;
+    margin-left:-6px;
+    border-radius:999px;
+    background:linear-gradient(145deg,#ffffff22,#ffffff0a);
+    border:1px dashed #ffffff33;
+    display:grid;place-items:center;
+    color:var(--soft);
+    font-size:11px;
+    font-weight:850;
+  }
+  .unknown-chip:first-child{margin-left:0}
+
+  .tracked-list{display:grid;gap:11px}
+  .tracked-card{
+    padding:12px;
+    border-radius:21px;
+    background:linear-gradient(145deg,#ffffff12,#ffffff08);
+    border:1px solid #ffffff1d;
+  }
+  .tracked-head{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+  .tracked-head .name{min-width:0;flex:1}
+  .tracked-head b{display:block;font-size:15px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .tracked-head span{display:block;margin-top:3px;color:var(--soft);font-size:12px}
+  .perf{
+    min-width:48px;
+    text-align:right;
+    font-weight:900;
+    color:var(--mint);
+    font-size:20px;
+  }
+  .perf.bad{color:var(--coral)}
+  .stat-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:7px}
+  .stat-btn{
+    min-height:52px;
+    border-radius:15px;
+    background:#ffffff0e;
+    border:1px solid #ffffff19;
+    font-size:12px;
+    color:var(--muted);
+    font-weight:800;
+    position:relative;
+  }
+  .stat-btn.good{color:var(--mint);border-color:#62e4b02e}
+  .stat-btn.bad{color:var(--coral);border-color:#ff81782e}
+  .stat-btn .count{
+    position:absolute;
+    top:5px;right:7px;
+    color:var(--text);
+    font-size:10px;
+    opacity:.72;
+  }
+
+  .pool-grid{display:flex;flex-wrap:wrap;gap:8px}
+  .pool-chip{
+    display:inline-flex;align-items:center;gap:7px;
+    min-height:38px;
+    padding:8px 10px;
+    border-radius:999px;
+    background:#ffffff0b;
+    border:1px solid #ffffff18;
+    color:var(--muted);
+    font-weight:760;
+    font-size:12px;
+  }
+  .pool-chip.active{background:#62e4b019;border-color:#62e4b064;color:var(--mint)}
+  .pool-chip.tracked{background:#72d8ff16;border-color:#72d8ff66;color:var(--cyan)}
+  .pool-chip.side-a{background:#67b7ff19;border-color:#67b7ff66;color:var(--team-a)}
+  .pool-chip.side-b{background:#ffb36a19;border-color:#ffb36a66;color:var(--team-b)}
+
+  .team-size-seg{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px}
+  .team-card{padding:13px;border-radius:21px;background:#ffffff0e;border:1px solid #ffffff1b}
+  .team-head{display:flex;align-items:start;justify-content:space-between;gap:10px;margin-bottom:10px}
+  .team-title b{display:block;font-size:16px}
+  .team-title span{display:block;margin-top:3px;color:var(--soft);font-size:12px}
+  .team-avg{text-align:right;color:var(--gold);font-weight:900;font-size:24px;line-height:1}
+  .team-members{display:grid;gap:7px}
+  .member{
+    display:flex;align-items:center;gap:8px;
+    padding:9px 10px;
+    border-radius:14px;
+    background:#00000018;
+    border:1px solid #ffffff10;
+  }
+  .member span:first-child{min-width:0;flex:1;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .member .rating{color:var(--muted);font-weight:850;font-size:12px}
+  .warning-row{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px}
+  .match-action{margin-top:12px;width:100%;min-height:47px;border-radius:15px;background:#72d8ff18;border:1px solid #72d8ff45;color:var(--cyan);font-weight:850}
+
+  .history-list{display:grid;gap:10px}
+  .history-row{
+    display:flex;gap:11px;align-items:center;
+    padding:12px;
+    border-radius:19px;
+    background:#ffffff0d;
+    border:1px solid #ffffff19;
+    text-align:left;
+    width:100%;
+  }
+  .history-line{min-width:0;flex:1}
+  .history-line b{display:block;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .history-line span{display:block;margin-top:4px;color:var(--soft);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .result-block{text-align:right;min-width:74px}
+  .result-block b{font-size:17px}
+  .result-block span{display:block;margin-top:4px;color:var(--soft);font-size:11px}
+
+  .settings-list{display:grid;gap:10px}
+  .toggle-row{
+    width:100%;
+    display:flex;align-items:center;gap:12px;
+    text-align:left;
+    padding:13px;
+    border-radius:19px;
+    background:#ffffff0c;
+    border:1px solid #ffffff18;
+  }
+  .toggle-row .copy{min-width:0;flex:1}
+  .toggle-row b{display:block;font-size:14px}
+  .toggle-row span{display:block;margin-top:4px;color:var(--soft);font-size:12px;line-height:1.3}
+  .sensitivity{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .explain-grid{display:grid;gap:10px}
+  .explain-card{padding:12px;border-radius:17px;background:#ffffff0a;border:1px solid #ffffff16}
+  .explain-card b{display:block;font-size:14px;margin-bottom:5px}
+  .explain-card p{margin:0;color:var(--muted);font-size:12px;line-height:1.45}
+
+  .dock-wrap{
+    position:fixed;
+    z-index:40;
+    left:0;right:0;bottom:0;
+    padding:10px 10px calc(10px + env(safe-area-inset-bottom));
+    pointer-events:none;
+  }
+  .dock{
+    pointer-events:auto;
+    max-width:620px;
+    margin:0 auto;
+    display:grid;
+    grid-template-columns:repeat(6,1fr);
+    gap:4px;
+    padding:6px;
+    border-radius:24px;
+    background:#0b101ad9;
+    border:1px solid #ffffff22;
+    box-shadow:0 18px 70px #000000a6,inset 0 1px 0 #ffffff1a;
+    backdrop-filter:blur(24px);
+  }
+  .dock button{
+    min-width:0;
+    min-height:56px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    gap:4px;
+    border-radius:18px;
+    color:var(--soft);
+    font-size:10px;
+    font-weight:760;
+  }
+  .dock button svg{width:20px;height:20px;stroke-width:2}
+  .dock button.active{
+    color:var(--gold);
+    background:#f4c86a16;
+    box-shadow:inset 0 0 0 1px #f4c86a2d,0 0 24px #f4c86a17;
+  }
+
+  .sheet-scrim{
+    position:fixed;
+    inset:0;
+    z-index:80;
+    display:flex;
+    align-items:flex-end;
+    justify-content:center;
+    background:#00000099;
+    backdrop-filter:blur(8px);
+    padding-top:60px;
+  }
+  .sheet{
+    width:100%;
+    max-width:640px;
+    max-height:88vh;
+    overflow:auto;
+    border-radius:28px 28px 0 0;
+    background:linear-gradient(145deg,#172134,#0e1422);
+    border:1px solid #ffffff25;
+    border-bottom:0;
+    box-shadow:0 -20px 70px #000000a6,inset 0 1px 0 #ffffff20;
+    padding:10px 16px calc(18px + env(safe-area-inset-bottom));
+    animation:sheetUp .2s ease-out;
+  }
+  @keyframes sheetUp{from{transform:translateY(20px);opacity:.4}to{transform:none;opacity:1}}
+  .grab{width:44px;height:5px;border-radius:999px;background:#ffffff2a;margin:2px auto 16px}
+  .sheet h3{margin:0 0 11px;font-size:21px}
+  .sheet p{color:var(--muted);font-size:13px;line-height:1.45}
+  .sheet-grid{display:grid;gap:10px}
+  .modal-actions{
+    position:sticky;
+    bottom:0;
+    z-index:2;
+    display:grid;
+    gap:8px;
+    margin-top:14px;
+    padding-top:12px;
+    padding-bottom:2px;
+    background:linear-gradient(180deg,transparent,#0e1422 24%,#0e1422 100%);
+  }
+
+  .toast{
+    position:fixed;
+    z-index:100;
+    left:50%;
+    bottom:calc(96px + env(safe-area-inset-bottom));
+    transform:translateX(-50%) translateY(10px);
+    background:#111827ee;
+    border:1px solid #ffffff25;
+    box-shadow:0 12px 44px #00000088;
+    color:var(--text);
+    padding:11px 15px;
+    border-radius:999px;
+    font-size:13px;
+    font-weight:760;
+    opacity:0;
+    pointer-events:none;
+    transition:opacity .18s ease,transform .18s ease;
+  }
+  .toast.show{opacity:1;transform:translateX(-50%)}
+
+  .desktop-side{display:none}
+
+  @media (min-width:720px){
+    body{padding-bottom:0}
+    .topbar{padding-left:24px;padding-right:24px}
+    main{padding:16px 24px 44px}
+    .grid.two{grid-template-columns:1.05fr .95fr}
+    .confidence-strip{grid-template-columns:1fr 1fr}
+    .mode-row{grid-template-columns:repeat(3,1fr)}
+    .track-layout{grid-template-columns:360px 1fr;align-items:start}
+    .player-list{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .team-results{grid-template-columns:repeat(2,minmax(0,1fr))}
+    .hero-panel{padding:24px;min-height:220px}
+    h2{font-size:42px;max-width:720px}
+    .subcopy{font-size:15px;max-width:620px}
+    .sheet-scrim{align-items:center;padding:24px}
+    .sheet{border-radius:28px;border-bottom:1px solid #ffffff25;padding:18px 20px 20px}
+    .grab{display:none}
+  }
+
+  @media (min-width:1020px){
+    body{padding-left:232px}
+    .topbar{padding-left:28px}
+    .dock-wrap{display:none}
+    .desktop-side{
+      position:fixed;
+      z-index:50;
+      left:0;top:0;bottom:0;
+      width:232px;
+      display:flex;
+      flex-direction:column;
+      padding:22px 14px;
+      background:#080b12df;
+      border-right:1px solid #ffffff19;
+      backdrop-filter:blur(22px);
+    }
+    .desktop-side .side-logo{display:flex;align-items:center;gap:11px;padding:0 8px 22px}
+    .desktop-side .side-logo b{letter-spacing:.14em;text-transform:uppercase}
+    .side-nav{display:grid;gap:6px}
+    .side-nav button{
+      min-height:48px;
+      display:flex;align-items:center;gap:11px;
+      border-radius:16px;
+      padding:0 12px;
+      color:var(--soft);
+      font-weight:760;
+      text-align:left;
+    }
+    .side-nav button svg{width:20px;height:20px}
+    .side-nav button.active{color:var(--gold);background:#f4c86a14;border:1px solid #f4c86a2d}
+    .side-note{margin-top:auto;padding:12px;border-radius:18px;background:#ffffff0b;border:1px solid #ffffff16;color:var(--soft);font-size:12px;line-height:1.4}
+  }
+</style>
+</head>
+<body>
+<div class="app-shell">
+  <aside class="desktop-side">
+    <div class="side-logo">
+      <div class="brand-mark"></div>
+      <b>Court</b>
+    </div>
+    <div class="side-nav" id="sideNav"></div>
+    <div class="side-note">Prototype only. Demo screens use mock data and do not touch the real Court save format.</div>
+  </aside>
+
+  <header class="topbar">
+    <div class="topbar-inner">
+      <div class="brand-mark"></div>
+      <div class="brand-copy">
+        <h1>Court</h1>
+        <span id="topSubtitle">Tonight at North Gym</span>
+      </div>
+      <div class="night-pill"><i class="pulse"></i><span id="sessionPill">Session live</span></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="screen active" id="screen-home"></section>
+    <section class="screen" id="screen-players"></section>
+    <section class="screen" id="screen-track"></section>
+    <section class="screen" id="screen-teams"></section>
+    <section class="screen" id="screen-games"></section>
+    <section class="screen" id="screen-more"></section>
+  </main>
+</div>
+
+<div class="dock-wrap">
+  <nav class="dock" id="dock"></nav>
+</div>
+<div class="toast" id="toast"></div>
+<div id="sheetMount"></div>
+
+<script>
+const icons = {
+  home:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M4 11.5 12 5l8 6.5v7a1 1 0 0 1-1 1h-5v-5H10v5H5a1 1 0 0 1-1-1v-7Z"/></svg>',
+  players:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="9" cy="8" r="3"/><path d="M3.5 19c.7-3.2 2.6-5 5.5-5s4.8 1.8 5.5 5"/><circle cx="17" cy="9" r="2.4"/><path d="M15.8 14.5c2.5.3 4 1.8 4.7 4.5"/></svg>',
+  track:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="12" cy="12" r="8.5"/><path d="M12 3.5c2.3 2.3 3.3 5.1 3.3 8.5S14.3 18.2 12 20.5M12 3.5C9.7 5.8 8.7 8.6 8.7 12s1 6.2 3.3 8.5M4.5 9c4 1.5 11 1.5 15 0M4.5 15c4-1.5 11-1.5 15 0"/></svg>',
+  teams:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3v18M5 7h4M5 12h4M5 17h4M15 7h4M15 12h4M15 17h4"/></svg>',
+  games:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M5 5h14M5 12h14M5 19h9"/><path d="M18 17l2 2-2 2"/></svg>',
+  more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/></svg>',
+  plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 5v14M5 12h14"/></svg>',
+  scout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 20s7-4.4 7-10a7 7 0 1 0-14 0c0 5.6 7 10 7 10Z"/><circle cx="12" cy="10" r="2.2"/></svg>',
+  bolt:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="m13 2-8 12h6l-1 8 9-13h-6l0-7Z"/></svg>',
+  shield:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor"><path d="M12 3 5 6v5c0 4.4 2.8 8.2 7 10 4.2-1.8 7-5.6 7-10V6l-7-3Z"/></svg>'
+};
+
+const navItems = [
+  ['home','Home',icons.home],
+  ['players','Players',icons.players],
+  ['track','Track',icons.track],
+  ['teams','Teams',icons.teams],
+  ['games','Games',icons.games],
+  ['more','More',icons.more]
+];
+
+const players = [
+  {id:'maya',name:'Maya Chen',level:'AA/Open',rating:92,confidence:'established',roles:['Setter','Passer'],status:'active',record:'18-7',trend:[84,86,87,90,91,92],move:+5,events:66,note:'Calm first touch and fast offense.'},
+  {id:'jules',name:'Jules Parker',level:'A',rating:84,confidence:'established',roles:['Hitter','Blocker'],status:'active',record:'16-9',trend:[81,82,83,81,84,84],move:+3,events:52,note:'High point scorer when passes are clean.'},
+  {id:'nico',name:'Nico Alvarez',level:'A',rating:79,confidence:'settling',roles:['Defense','Passer'],status:'active',record:'11-8',trend:[72,74,76,77,79],move:+7,events:38,note:'Recent jump from digs and serve receive.'},
+  {id:'sam',name:'Sam Rivera',level:'BB',rating:70,confidence:'established',roles:['Setter'],status:'active',record:'14-13',trend:[68,69,70,71,70],move:+1,events:44,note:'Reliable set location, lower block impact.'},
+  {id:'tori',name:'Tori Singh',level:'BB',rating:66,confidence:'settling',roles:['Hitter','Defense'],status:'active',record:'9-8',trend:[62,62,65,66],move:+4,events:31,note:'Good upside, still noisy sample.'},
+  {id:'eli',name:'Eli Brooks',level:'B',rating:58,confidence:'settling',roles:['Passer'],status:'active',record:'8-10',trend:[55,57,56,58],move:+2,events:28,note:'Score-only games keep confidence from racing ahead.'},
+  {id:'rhea',name:'Rhea Patel',level:'B',rating:54,confidence:'new',roles:['Defense'],status:'active',record:'4-3',trend:[50,52,54],move:+4,events:15,note:'Needs more observed games before trusting rating.'},
+  {id:'dom',name:'Dom Ellis',level:'B',rating:49,confidence:'settling',roles:['Hitter'],status:'active',record:'7-12',trend:[53,51,49,49],move:-4,events:35,note:'Kills are up, errors are also up.'},
+  {id:'hana',name:'Hana Lee',level:'C',rating:37,confidence:'new',roles:['Beginner','Passer'],status:'active',record:'3-6',trend:[32,34,37],move:+5,events:12,note:'Improving serve consistency.'},
+  {id:'omar',name:'Omar Watts',level:'C',rating:32,confidence:'new',roles:['Beginner'],status:'active',record:'2-5',trend:[31,33,32],move:+1,events:9,note:'Use gentle confidence labels for new sample.'},
+  {id:'liv',name:'Liv Morgan',level:'BB',rating:63,confidence:'settling',roles:['Blocker','Hitter'],status:'inactive',record:'6-5',trend:[64,65,63],move:-2,events:19,note:'Away tonight, still kept in history.'},
+  {id:'kai',name:'Kai Nelson',level:'Rec',rating:24,confidence:'new',roles:['Beginner'],status:'inactive',record:'1-4',trend:[22,24],move:+2,events:5,note:'Not shown in active team pools by default.'}
+];
+
+const games = [
+  {id:'g1',type:'Full Match',title:'Maya, Tori, Eli def. Jules, Nico, Hana',score:'25-21',date:'Tonight',impact:'High confidence',movement:'+3 Maya, +2 Tori, -2 Dom',tags:['full','events']},
+  {id:'g2',type:'Multi-Track',title:'Nico tracked in mixed 4s',score:'21-18',date:'Tonight',impact:'Medium impact',movement:'+2 Nico from digs, result scaled',tags:['partial','unknowns']},
+  {id:'g3',type:'Scout / Solo',title:'Rhea solo scouting entry',score:'No result',date:'Jun 29',impact:'Low sample',movement:'+1 from events only',tags:['solo']},
+  {id:'g4',type:'Score Only',title:'Court 2 pickup final',score:'25-23',date:'Jun 27',impact:'Result only',movement:'Ratings moved gently; no stat profile change',tags:['score only']},
+  {id:'g5',type:'Full Match',title:'Jules, Sam def. Maya, Dom',score:'21-19',date:'Jun 24',impact:'Upset bonus',movement:'+4 Jules, +2 Sam',tags:['full','upset']}
+];
+
+const state = {
+  tab:'home',
+  trackMode:'multi',
+  teamSize:4,
+  quickMode:false,
+  scoreA:12,
+  scoreB:10,
+  teamBuildSize:3,
+  sensitivity:'Normal',
+  hideRatings:false,
+  detailed:false,
+  tracked:['maya','nico','tori','eli'],
+  statCounts:{},
+  teamPool:['maya','jules','nico','sam','tori','eli','rhea','dom','hana'],
+  teamSides:{maya:'A',nico:'A',tori:'B',eli:'B'},
+  search:''
+};
+
+const stats = [
+  ['Ace','ace',1,'good'],
+  ['Kill','kill',2,'good'],
+  ['Dig','dig',1,'good'],
+  ['Block','block',2,'good'],
+  ['Assist','assist',1,'good'],
+  ['Error','error',-1,'bad'],
+  ['Pass','pass',1,'good'],
+  ['Serve Err','serr',-2,'bad']
+];
+
+function player(id){ return players.find(p=>p.id===id); }
+function initials(name){ return name.split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
+function safeRating(value){ return state.hideRatings ? '--' : Math.round(value); }
+function h(html){ return html; }
+
+function renderNav(){
+  const html = navItems.map(([id,label,svg])=>`<button class="${state.tab===id?'active':''}" data-tab="${id}">${svg}<span>${label}</span></button>`).join('');
+  document.getElementById('dock').innerHTML = html;
+  document.getElementById('sideNav').innerHTML = navItems.map(([id,label,svg])=>`<button class="${state.tab===id?'active':''}" data-tab="${id}">${svg}<span>${label}</span></button>`).join('');
+  document.querySelectorAll('[data-tab]').forEach(btn=>{
+    btn.onclick=()=>setTab(btn.dataset.tab);
+  });
+}
+
+function setTab(tab){
+  state.tab = tab;
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById('screen-'+tab).classList.add('active');
+  const subtitle = {
+    home:'Tonight at North Gym',
+    players:'Roster and confidence',
+    track:'Live gym tracking',
+    teams:'Balanced matchups',
+    games:'Recent history',
+    more:'Settings and data'
+  }[tab];
+  document.getElementById('topSubtitle').textContent = subtitle;
+  render();
+  window.scrollTo({top:0,behavior:'smooth'});
+}
+
+function spark(points, color){
+  const w=92,hgt=27,pad=2;
+  const min=Math.min(...points), max=Math.max(...points), range=max-min || 1;
+  const pts=points.map((v,i)=>{
+    const x=pad+(i/(points.length-1))*(w-pad*2);
+    const y=hgt-pad-((v-min)/range)*(hgt-pad*2);
+    return x.toFixed(1)+','+y.toFixed(1);
+  }).join(' ');
+  return `<svg class="sparkline" viewBox="0 0 ${w} ${hgt}" preserveAspectRatio="none">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </svg>`;
+}
+
+function confidenceColor(label){
+  if(label==='established') return 'good';
+  if(label==='settling') return 'warn';
+  return 'dim';
+}
+
+function renderHome(){
+  const movers = [...players].filter(p=>p.status==='active').sort((a,b)=>b.move-a.move).slice(0,3);
+  document.getElementById('screen-home').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">Launch pad</div>
+        <h2>Tonight is active. Track just enough to keep ratings honest.</h2>
+        <p class="subcopy">9 players marked here. Court recommends Multi-Track because two guests are joining and you can still log useful events without naming everyone.</p>
+        <div class="hero-stats">
+          <div class="mini-stat"><b>9</b><span>active players</span></div>
+          <div class="mini-stat"><b>4s</b><span>best format</span></div>
+          <div class="mini-stat"><b>82%</b><span>rating confidence</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="action-grid">
+      ${actionTile('Track Game','Multi-player or score only','track',icons.bolt,'tile-blue')}
+      ${actionTile('Scout Player','Watch one player anywhere','track',''+icons.scout,'tile-mint','solo')}
+      ${actionTile('Build Teams','Create balanced sides','teams',icons.teams,'tile-coral')}
+      ${actionTile('Add Player','Seed by level or skill','players',icons.plus,'')}
+    </div>
+
+    <div class="grid two">
+      <div>
+        <div class="section-head"><h3>Rating Confidence</h3><span>tracked games, not bare appearances</span></div>
+        <div class="card pad strong">
+          <div class="row spread"><span class="muted">Group confidence</span><b>82%</b></div>
+          <div class="meter" style="margin:12px 0 10px"><i style="width:82%"></i></div>
+          <div class="confidence-strip">
+            <div><span class="pill good">6 established</span> <span class="pill warn">4 settling</span></div>
+            <div><span class="pill dim">2 new</span> <span class="pill blue">events sharpen ratings</span></div>
+          </div>
+        </div>
+
+        <div class="section-head"><h3>Suggested Next Action</h3><span>plain explanation</span></div>
+        <div class="card pad">
+          <div class="row spread" style="align-items:flex-start">
+            <div>
+              <b>Start Multi-Track for 4s</b>
+              <p class="subcopy" style="margin-top:6px">Track Maya, Nico, Tori, and Eli. Autofill the rest as random players so the game still counts without messy roster entries.</p>
+            </div>
+            <span class="pill gold">Best fit</span>
+          </div>
+          <button class="button primary block" style="margin-top:13px" onclick="state.trackMode='multi';setTab('track')">Open Track</button>
+        </div>
+      </div>
+
+      <div>
+        <div class="section-head"><h3>Recent Movers</h3><span>last 5 observed games</span></div>
+        <div class="mover-list">
+          ${movers.map(p=>moverRow(p)).join('')}
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+function actionTile(title,sub,tab,svg,cls,mode){
+  const modeSet = mode ? `state.trackMode='${mode}';` : '';
+  return `<button class="action-tile ${cls}" onclick="${modeSet}setTab('${tab}')">
+    <span class="tile-icon">${svg}</span>
+    <span><b>${title}</b><span>${sub}</span></span>
+  </button>`;
+}
+
+function moverRow(p){
+  return `<div class="mover">
+    <div class="avatar">${initials(p.name)}</div>
+    <div class="who"><b>${p.name}</b><span>${p.level} · ${p.confidence}</span></div>
+    <div class="${p.move>=0?'delta-up':'delta-down'} num">${p.move>=0?'+':''}${p.move}</div>
+  </div>`;
+}
+
+function renderPlayers(){
+  const q = state.search.toLowerCase();
+  const filtered = players.filter(p=>!q || p.name.toLowerCase().includes(q) || p.roles.join(' ').toLowerCase().includes(q) || p.level.toLowerCase().includes(q));
+  document.getElementById('screen-players').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">Roster</div>
+        <h2>Ratings should feel understandable before they feel precise.</h2>
+        <p class="subcopy">Cards show level, confidence, role tags, activity, and movement. Open a player for a cleaner detail sheet.</p>
+        <div class="hero-stats">
+          <div class="mini-stat"><b>${players.length}</b><span>total players</span></div>
+          <div class="mini-stat"><b>${players.filter(p=>p.status==='active').length}</b><span>active tonight</span></div>
+          <div class="mini-stat"><b>AA</b><span>top level</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="player-tools">
+      <input class="search-box" id="playerSearch" placeholder="Search roster" value="${state.search}">
+      <button class="button primary" onclick="openAddPlayer()">${icons.plus}<span>Add</span></button>
+    </div>
+    <div class="player-list">
+      ${filtered.map(p=>playerCard(p)).join('')}
+    </div>
+  `);
+  document.getElementById('playerSearch').oninput = e => { state.search = e.target.value; renderPlayers(); };
+}
+
+function playerCard(p){
+  const color = p.move >= 0 ? 'var(--mint)' : 'var(--coral)';
+  return `<button class="player-card" onclick="openPlayerSheet('${p.id}')">
+    <div class="player-top">
+      <div class="avatar">${initials(p.name)}</div>
+      <div class="player-meta">
+        <b>${p.name}</b>
+        <div class="player-sub">${p.level} · ${p.record} · <span class="${confidenceColor(p.confidence)}">${p.confidence}</span></div>
+      </div>
+      <span class="status-dot ${p.status==='inactive'?'inactive':''}" title="${p.status}"></span>
+      <div class="rating-badge"><b class="num">${safeRating(p.rating)}</b><span>${p.status}</span></div>
+    </div>
+    <div class="tags">${p.roles.map(r=>`<span class="pill">${r}</span>`).join('')}<span class="pill ${confidenceColor(p.confidence)}">${p.confidence}</span></div>
+    <div class="row spread">
+      <span class="${p.move>=0?'delta-up':'delta-down'} num small">${p.move>=0?'+':''}${p.move} recent</span>
+      ${spark(p.trend,color)}
+    </div>
+  </button>`;
+}
+
+function renderTrack(){
+  document.getElementById('screen-track').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">Live Track</div>
+        <h2>Fast enough for a phone in one hand at the gym.</h2>
+        <p class="subcopy">${trackModeCopy()}</p>
+      </div>
+    </div>
+
+    <div class="mode-row">
+      ${modeButton('full','Full Match','Both sides known. Score plus optional events.',icons.track)}
+      ${modeButton('solo','Scout / Solo','Watch one player in a random game.',icons.scout)}
+      ${modeButton('multi','Multi-Track','Up to 6 tracked players, any team.',icons.bolt)}
+    </div>
+
+    <div class="track-layout">
+      <div>
+        ${scoreControls()}
+        ${trackSetupCard()}
+      </div>
+      <div>
+        <div class="section-head"><h3>${state.quickMode?'Score Only':'Tracked Players'}</h3><span>${state.trackMode==='multi'?'up to 6 selected':'prototype layout'}</span></div>
+        ${state.quickMode ? scoreOnlyPanel() : trackedCards()}
+      </div>
+    </div>
+  `);
+}
+
+function trackModeCopy(){
+  if(state.trackMode==='full') return 'Use when both teams are known. Result can move ratings from team strength; events explain who carried it.';
+  if(state.trackMode==='solo') return 'Use when you are only watching one player. The result can be saved, but rating movement comes from their own observed events.';
+  return 'Use when the court is messy: tracked players can be on either side, and the rest can stay unknown without polluting the roster.';
+}
+
+function modeButton(id,title,copy,svg){
+  return `<button class="mode-btn ${state.trackMode===id?'active':''}" onclick="state.trackMode='${id}';renderTrack()">
+    <span class="mode-icon">${svg}</span>
+    <span class="mode-copy"><b>${title}</b><span>${copy}</span></span>
+  </button>`;
+}
+
+function scoreControls(){
+  return `<div class="score-card">
+    <div class="score-grid">
+      <div class="score-box team-a">
+        <div class="score-label">Side A</div>
+        <div class="score-number num">${state.scoreA}</div>
+        <div class="score-steps"><button class="score-step" onclick="score('A',-1)">-</button><button class="score-step" onclick="score('A',1)">+</button></div>
+      </div>
+      <div class="score-box team-b">
+        <div class="score-label">Side B</div>
+        <div class="score-number num">${state.scoreB}</div>
+        <div class="score-steps"><button class="score-step" onclick="score('B',-1)">-</button><button class="score-step" onclick="score('B',1)">+</button></div>
+      </div>
+    </div>
+    <div class="quick-strip">
+      <span><b>Quick mode</b><br>Score only is valid. No stat buttons, lower detail.</span>
+      <button class="switch ${state.quickMode?'on':''}" aria-label="Toggle quick mode" onclick="state.quickMode=!state.quickMode;renderTrack()"><i></i></button>
+    </div>
+  </div>`;
+}
+
+function trackSetupCard(){
+  if(state.trackMode==='solo'){
+    const selected = state.tracked[0] || 'rhea';
+    return `<div class="card pad" style="margin-top:12px">
+      <div class="row spread"><b>Scout target</b><span class="pill blue">opponent unknown</span></div>
+      <div class="pool-grid" style="margin-top:11px">
+        ${players.filter(p=>p.status==='active').slice(0,8).map(p=>`<button class="pool-chip ${selected===p.id?'tracked':''}" onclick="state.tracked=['${p.id}'];renderTrack()">${p.name}<span class="num">${safeRating(p.rating)}</span></button>`).join('')}
+      </div>
+      <div class="unknown-lane"><span class="unknown-stack"><i class="unknown-chip">?</i><i class="unknown-chip">?</i><i class="unknown-chip">?</i></span><span>Everyone else stays unknown. That is okay for scouting.</span></div>
+    </div>`;
+  }
+  return `<div class="card pad" style="margin-top:12px">
+    <div class="row spread"><b>Autofill rest of teams</b><span class="pill ${state.trackMode==='full'?'good':'blue'}">${state.teamSize}s</span></div>
+    <div class="format-row" style="margin-top:11px">
+      ${[2,3,4,6].map(n=>`<button class="size-btn ${state.teamSize===n?'active':''}" onclick="state.teamSize=${n};renderTrack()">${n}s</button>`).join('')}
+    </div>
+    <div class="autofill-card" style="margin-top:11px">
+      ${autofillText()}
+      <div class="unknown-lane"><span class="unknown-stack">${unknownChips()}</span><span>Unknown players are counted as court slots, not roster players.</span></div>
+    </div>
+    <div class="section-head" style="margin-top:14px"><h3>Tap To Assign</h3><span>${state.trackMode==='multi'?'select any 6':'cycle A/B/off'}</span></div>
+    <div class="pool-grid">
+      ${players.filter(p=>p.status==='active').map(p=>sidePoolChip(p)).join('')}
+    </div>
+  </div>`;
+}
+
+function autofillText(){
+  const sideA = Object.values(state.teamSides).filter(v=>v==='A').length;
+  const sideB = Object.values(state.teamSides).filter(v=>v==='B').length;
+  const missingA = Math.max(0,state.teamSize-sideA);
+  const missingB = Math.max(0,state.teamSize-sideB);
+  if(state.trackMode==='full') return `<div class="small muted">Full Match expects named sides, but open slots can still be randoms while prototyping. A needs ${missingA}, B needs ${missingB}.</div>`;
+  return `<div class="small muted">Multi-Track supports tracked players regardless of team. Current autofill: Side A +${missingA} random, Side B +${missingB} random.</div>`;
+}
+
+function unknownChips(){
+  const sideA = Object.values(state.teamSides).filter(v=>v==='A').length;
+  const sideB = Object.values(state.teamSides).filter(v=>v==='B').length;
+  const count = Math.min(6, Math.max(0,state.teamSize-sideA) + Math.max(0,state.teamSize-sideB));
+  return Array.from({length:Math.max(1,count)},(_,i)=>`<i class="unknown-chip">${i+1}</i>`).join('');
+}
+
+function sidePoolChip(p){
+  const side = state.teamSides[p.id];
+  const cls = side==='A'?'side-a':side==='B'?'side-b':'';
+  return `<button class="pool-chip ${cls}" onclick="cycleSide('${p.id}')">${p.name}<span class="num">${safeRating(p.rating)}</span>${side?' · '+side:''}</button>`;
+}
+
+function trackedCards(){
+  let tracked = [];
+  if(state.trackMode==='solo') tracked = [player(state.tracked[0] || 'rhea')].filter(Boolean);
+  else tracked = state.tracked.map(player).filter(Boolean).slice(0,6);
+  return `<div class="tracked-list">
+    ${tracked.map(p=>trackedCard(p)).join('')}
+    <div class="row" style="gap:8px">
+      <button class="button ghost" onclick="resetStats()">Reset counters</button>
+      <button class="button primary" style="flex:1" onclick="openRecapSheet()">Save mock game</button>
+    </div>
+  </div>`;
+}
+
+function trackedCard(p){
+  const total = stats.reduce((sum,[,key,weight])=>sum+(getCount(p.id,key)*weight),0);
+  return `<div class="tracked-card">
+    <div class="tracked-head">
+      <div class="avatar">${initials(p.name)}</div>
+      <div class="name"><b>${p.name}</b><span>${p.level} · ${p.roles.slice(0,2).join(', ')}</span></div>
+      <div class="perf ${total<0?'bad':''} num">${total>0?'+':''}${total}</div>
+    </div>
+    <div class="stat-grid">
+      ${stats.map(([label,key,,tone])=>`<button class="stat-btn ${tone}" onclick="incStat('${p.id}','${key}')">${label}${getCount(p.id,key)?`<span class="count">${getCount(p.id,key)}</span>`:''}</button>`).join('')}
+    </div>
+  </div>`;
+}
+
+function scoreOnlyPanel(){
+  return `<div class="card pad strong">
+    <div class="row spread"><b>Score-only game</b><span class="pill good">valid tracking</span></div>
+    <p class="subcopy" style="margin-top:8px">This saves the result without pretending we saw every touch. It is useful for history and gentle rating movement when both sides are known.</p>
+    <div class="grid tight" style="margin-top:12px">
+      <button class="button block" onclick="state.scoreA=25;state.scoreB=21;renderTrack()">Set 25-21</button>
+      <button class="button block" onclick="state.scoreA=21;state.scoreB=19;renderTrack()">Set 21-19</button>
+      <button class="button primary block" onclick="openRecapSheet()">Save score-only mock</button>
+    </div>
+  </div>`;
+}
+
+function renderTeams(){
+  const teams = buildTeams();
+  document.getElementById('screen-teams').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">Team Builder</div>
+        <h2>Balance by rating, then sanity-check roles.</h2>
+        <p class="subcopy">The prototype shows average rating, role coverage, and warnings in the same place where you decide whether the matchup feels fair.</p>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div>
+        <div class="section-head"><h3>Player Pool</h3><span>${state.teamPool.length} selected</span></div>
+        <div class="card pad">
+          <div class="pool-grid">
+            ${players.filter(p=>p.status==='active').map(p=>`<button class="pool-chip ${state.teamPool.includes(p.id)?'active':''}" onclick="togglePool('${p.id}')">${p.name}<span class="num">${safeRating(p.rating)}</span></button>`).join('')}
+          </div>
+        </div>
+        <div class="section-head"><h3>Team Size</h3><span>2s, 3s, 4s, or 6s</span></div>
+        <div class="team-size-seg">
+          ${[2,3,4,6].map(n=>`<button class="size-btn ${state.teamBuildSize===n?'active':''}" onclick="state.teamBuildSize=${n};renderTeams()">${n}s</button>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="section-head"><h3>Balanced Teams</h3><span>mock shuffle</span></div>
+        <div class="grid team-results">
+          ${teams.map((team,i)=>teamCard(team,i)).join('')}
+        </div>
+      </div>
+    </div>
+  `);
+}
+
+function buildTeams(){
+  const selected = state.teamPool.map(player).filter(Boolean).sort((a,b)=>b.rating-a.rating);
+  const teamCount = Math.max(2, Math.ceil(selected.length / state.teamBuildSize));
+  const teams = Array.from({length:teamCount},()=>[]);
+  selected.forEach((p,i)=>{
+    const round = Math.floor(i/teamCount);
+    const idx = round % 2 === 0 ? i % teamCount : teamCount - 1 - (i % teamCount);
+    teams[idx].push(p);
+  });
+  return teams;
+}
+
+function teamCard(team,i){
+  const avg = team.length ? team.reduce((s,p)=>s+p.rating,0)/team.length : 0;
+  const roles = new Set(team.flatMap(p=>p.roles));
+  const warnings = [];
+  if(!roles.has('Setter')) warnings.push('No setter');
+  if(team.filter(p=>p.roles.includes('Beginner')).length>1) warnings.push('Beginner-heavy');
+  if(!roles.has('Passer')) warnings.push('Limited passing');
+  return `<div class="team-card">
+    <div class="team-head">
+      <div class="team-title"><b>Team ${String.fromCharCode(65+i)}</b><span>${team.length} players · ${roleText(roles)}</span></div>
+      <div class="team-avg num">${safeRating(avg)}</div>
+    </div>
+    <div class="team-members">${team.map(p=>`<div class="member"><span>${p.name}</span><span class="pill">${p.level}</span><span class="rating num">${safeRating(p.rating)}</span></div>`).join('')}</div>
+    <div class="warning-row">${warnings.length ? warnings.map(w=>`<span class="pill ${w==='No setter'?'bad':'warn'}">${w}</span>`).join('') : '<span class="pill good">Roles covered</span>'}</div>
+    ${i<2?'<button class="match-action" onclick="state.teamSides={maya:\'A\',nico:\'A\',tori:\'B\',eli:\'B\'};state.trackMode=\'full\';setTab(\'track\')">Track this matchup</button>':''}
+  </div>`;
+}
+
+function roleText(roles){
+  const keep = ['Setter','Passer','Hitter','Defense','Blocker'].filter(r=>roles.has(r));
+  return keep.length ? keep.slice(0,3).join(', ') : 'roles unknown';
+}
+
+function renderGames(){
+  document.getElementById('screen-games').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">History</div>
+        <h2>A timeline that says what the game actually taught Court.</h2>
+        <p class="subcopy">Full matches, solo scouting, and score-only games are all represented without pretending they have the same confidence.</p>
+      </div>
+    </div>
+    <div class="section-head"><h3>Recent Games</h3><span>${games.length} demo rows</span></div>
+    <div class="history-list">
+      ${games.map(g=>historyRow(g)).join('')}
+    </div>
+  `);
+}
+
+function historyRow(g){
+  return `<button class="history-row" onclick="openGameSheet('${g.id}')">
+    <div class="history-line">
+      <b>${g.title}</b>
+      <span>${g.type} · ${g.movement}</span>
+      <div class="tags" style="margin-top:8px">${g.tags.map(t=>`<span class="pill ${t==='full'?'good':t==='partial'?'gold':t==='solo'?'blue':''}">${t}</span>`).join('')}</div>
+    </div>
+    <div class="result-block"><b class="num">${g.score}</b><span>${g.date}<br>${g.impact}</span></div>
+  </button>`;
+}
+
+function renderMore(){
+  document.getElementById('screen-more').innerHTML = h(`
+    <div class="hero-panel">
+      <div class="hero-content">
+        <div class="eyebrow">More</div>
+        <h2>Settings should make the rating system feel fair, not mysterious.</h2>
+        <p class="subcopy">These controls are mock-only, but they model the real areas: backup, sensitivity, hidden ratings, detailed grading, and approachable rating education.</p>
+      </div>
+    </div>
+
+    <div class="grid two">
+      <div>
+        <div class="section-head"><h3>Preferences</h3><span>prototype toggles</span></div>
+        <div class="settings-list">
+          ${toggleRow('Data backup','Export and restore the private local save file.','Backup ready',false)}
+          ${toggleRow('Hide ratings','Show levels and confidence without numeric ratings.',state.hideRatings?'On':'Off','hideRatings')}
+          ${toggleRow('Detailed grading','Adds pass quality and serve-in tiers for deeper tracking.',state.detailed?'On':'Off','detailed')}
+        </div>
+        <div class="section-head"><h3>Rating Sensitivity</h3><span>${state.sensitivity}</span></div>
+        <div class="sensitivity">
+          ${['Steady','Normal','Reactive'].map(x=>`<button class="seg-btn ${state.sensitivity===x?'active':''}" onclick="state.sensitivity='${x}';toast('${x} sensitivity selected');renderMore()">${x}</button>`).join('')}
+        </div>
+      </div>
+      <div>
+        <div class="section-head"><h3>How Ratings Work</h3><span>plain language</span></div>
+        <div class="explain-grid">
+          <div class="explain-card"><b>Results set the direction</b><p>Beating a stronger known team helps more than beating a weaker one. Partial games scale this down when Court cannot see the full court.</p></div>
+          <div class="explain-card"><b>Events explain who helped</b><p>Aces, kills, digs, assists, and errors nudge individual players. Detailed tracking is optional, but it makes confidence stronger.</p></div>
+          <div class="explain-card"><b>Unknown players stay unknown</b><p>Random teammates or opponents fill court slots without becoming fake roster entries. Historical rating integrity stays cleaner.</p></div>
+          <div class="explain-card"><b>Confidence is earned</b><p>A player becomes established only through informative games: both sides tracked or their own logged events.</p></div>
+        </div>
+        <button class="button primary block" style="margin-top:12px" onclick="toast('Demo reset');resetDemo()">Reset demo</button>
+      </div>
+    </div>
+  `);
+}
+
+function toggleRow(title,copy,value,key){
+  const clickable = key ? `onclick="state.${key}=!state.${key};render()"` : `onclick="toast('Backup mock opened')"`;
+  const on = key && state[key];
+  return `<button class="toggle-row" ${clickable}>
+    <span class="mode-icon">${key==='hideRatings'?icons.shield:key==='detailed'?icons.track:icons.games}</span>
+    <span class="copy"><b>${title}</b><span>${copy}</span></span>
+    <span class="pill ${on?'good':'dim'}">${value}</span>
+  </button>`;
+}
+
+function openPlayerSheet(id){
+  const p = player(id);
+  if(!p) return;
+  openSheet(`
+    <h3>${p.name}</h3>
+    <div class="row spread">
+      <div><span class="pill ${p.status==='active'?'good':'dim'}">${p.status}</span> <span class="pill gold">${p.level}</span> <span class="pill ${confidenceColor(p.confidence)}">${p.confidence}</span></div>
+      <div class="rating-badge"><b class="num">${safeRating(p.rating)}</b><span>rating</span></div>
+    </div>
+    <p>${p.note}</p>
+    <div class="sheet-grid">
+      <div class="explain-card"><b>Why confidence is ${p.confidence}</b><p>${p.events} logged events and ${p.record} record. Confidence rises only when games actually inform this player.</p></div>
+      <div class="explain-card"><b>Recent trend</b><p>${p.move>=0?'Up':'Down'} ${Math.abs(p.move)} over the recent sample. Score-only appearances do not inflate confidence.</p></div>
+      <div class="explain-card"><b>Role profile</b><p>${p.roles.join(', ')}. Team builder uses these tags to avoid unfair role gaps.</p></div>
+    </div>
+    <div class="modal-actions">
+      <button class="button primary block" onclick="closeSheet()">Done</button>
+      <button class="button ghost block" onclick="state.trackMode='solo';state.tracked=['${p.id}'];closeSheet();setTab('track')">Scout this player</button>
+    </div>
+  `);
+}
+
+function openAddPlayer(){
+  openSheet(`
+    <h3>Add player</h3>
+    <p>This is a visual mock of the add flow. It shows the intended direction without writing to the real app.</p>
+    <div class="sheet-grid">
+      <div class="explain-card"><b>Starting level</b><p>Rec, C, B, BB, A, AA/Open. The numeric rating stays the source of truth.</p></div>
+      <div class="explain-card"><b>Role tags</b><p>Setter, Passer, Hitter, Defense, Blocker, Beginner.</p></div>
+      <div class="explain-card"><b>First confidence</b><p>New until tracked games or logged events teach Court something.</p></div>
+    </div>
+    <div class="modal-actions"><button class="button primary block" onclick="toast('Mock player staged');closeSheet()">Add mock player</button><button class="button ghost block" onclick="closeSheet()">Cancel</button></div>
+  `);
+}
+
+function openGameSheet(id){
+  const g = games.find(x=>x.id===id);
+  if(!g) return;
+  openSheet(`
+    <h3>${g.type} recap</h3>
+    <div class="row spread"><b class="num">${g.score}</b><span class="pill ${g.tags.includes('score only')?'dim':g.tags.includes('partial')?'gold':'good'}">${g.impact}</span></div>
+    <p>${g.title}</p>
+    <div class="sheet-grid">
+      <div class="explain-card"><b>Rating movement</b><p>${g.movement}</p></div>
+      <div class="explain-card"><b>What Court knows</b><p>${g.tags.includes('unknowns')?'Some players were random/unknown, so the result impact is scaled and events matter more.':g.tags.includes('solo')?'Only the scouted player has observations. Opponent strength is unknown.':g.tags.includes('score only')?'The score is saved and valid, but no individual stat profile changed.':'Both sides were known, so result and logged events can both inform ratings.'}</p></div>
+      <div class="explain-card"><b>History note</b><p>Mock recap only. A migrated version would rebuild derived fields from raw game data.</p></div>
+    </div>
+    <div class="modal-actions"><button class="button primary block" onclick="closeSheet()">Done</button></div>
+  `);
+}
+
+function openRecapSheet(){
+  openSheet(`
+    <h3>Game saved mock</h3>
+    <div class="row spread"><b class="num">Side A ${state.scoreA} - ${state.scoreB} Side B</b><span class="pill ${state.quickMode?'dim':'good'}">${state.quickMode?'score only':'events logged'}</span></div>
+    <p>This prototype does not update the rating engine. It previews the recap language users would see after saving.</p>
+    <div class="sheet-grid">
+      <div class="explain-card"><b>Unknown players</b><p>Autofilled slots stayed as anonymous court context and did not join the roster.</p></div>
+      <div class="explain-card"><b>Rating impact</b><p>${state.quickMode?'Score-only result is valid but lower detail.':'Logged events explain individual movement in addition to the score.'}</p></div>
+    </div>
+    <div class="modal-actions"><button class="button primary block" onclick="closeSheet();setTab('games')">View history</button><button class="button ghost block" onclick="closeSheet()">Keep tracking</button></div>
+  `);
+}
+
+function openSheet(html){
+  document.getElementById('sheetMount').innerHTML = `<div class="sheet-scrim" onclick="if(event.target===this)closeSheet()"><div class="sheet"><div class="grab"></div>${html}</div></div>`;
+}
+function closeSheet(){ document.getElementById('sheetMount').innerHTML = ''; }
+
+function score(side,delta){
+  if(side==='A') state.scoreA = Math.max(0,state.scoreA+delta);
+  else state.scoreB = Math.max(0,state.scoreB+delta);
+  renderTrack();
+}
+
+function statKey(pid,key){ return pid+':'+key; }
+function getCount(pid,key){ return state.statCounts[statKey(pid,key)] || 0; }
+function incStat(pid,key){
+  const k = statKey(pid,key);
+  state.statCounts[k] = (state.statCounts[k] || 0) + 1;
+  if(navigator.vibrate) navigator.vibrate(8);
+  renderTrack();
+}
+function resetStats(){ state.statCounts = {}; renderTrack(); toast('Counters reset'); }
+
+function cycleSide(id){
+  const current = state.teamSides[id];
+  if(current==='A') state.teamSides[id] = 'B';
+  else if(current==='B') delete state.teamSides[id];
+  else state.teamSides[id] = 'A';
+  const selected = Object.keys(state.teamSides);
+  state.tracked = selected.slice(0,6);
+  renderTrack();
+}
+
+function togglePool(id){
+  if(state.teamPool.includes(id)) state.teamPool = state.teamPool.filter(x=>x!==id);
+  else state.teamPool.push(id);
+  renderTeams();
+}
+
+function toast(msg){
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(toast._timer);
+  toast._timer = setTimeout(()=>t.classList.remove('show'),1500);
+}
+
+function resetDemo(){
+  state.trackMode='multi';
+  state.teamSize=4;
+  state.quickMode=false;
+  state.scoreA=12;
+  state.scoreB=10;
+  state.teamBuildSize=3;
+  state.sensitivity='Normal';
+  state.hideRatings=false;
+  state.detailed=false;
+  state.tracked=['maya','nico','tori','eli'];
+  state.statCounts={};
+  state.teamPool=['maya','jules','nico','sam','tori','eli','rhea','dom','hana'];
+  state.teamSides={maya:'A',nico:'A',tori:'B',eli:'B'};
+  render();
+}
+
+function render(){
+  renderNav();
+  document.getElementById('sessionPill').textContent = state.quickMode ? 'Quick mode' : 'Session live';
+  renderHome();
+  renderPlayers();
+  renderTrack();
+  renderTeams();
+  renderGames();
+  renderMore();
+  renderNav();
+}
+
+render();
+</script>
+</body>
+</html>
