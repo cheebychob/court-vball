@@ -182,6 +182,7 @@
   .btn.primary{background:linear-gradient(135deg,#f5d47b,var(--gold-deep));color:#191106;
     border-color:#f6d98c5f;box-shadow:0 10px 30px #d99e3740;}
   .btn.ghost{background:#ffffff08;color:var(--muted);border-color:#ffffff17}
+  .btn.ghost.on{color:var(--gold);border-color:#f2c66d55;background:#f2c66d14}
   .btn.danger{color:var(--coral);border-color:#ff7d7238;background:#ff7d7210}
   .btn.block{width:100%}
   .btn.sm{min-height:35px;padding:7px 11px;font-size:12.5px;border-radius:11px}
@@ -461,6 +462,8 @@
   .stand-row{display:grid;grid-template-columns:18px minmax(0,1fr) 56px 50px;gap:8px;align-items:center;
     padding:9px 0;border-bottom:1px solid var(--border)}
   .stand-row:last-child{border-bottom:none}
+  button.stand-row{width:100%;text-align:left}
+  button.stand-row:active{background:#ffffff06}
   .stand-head{padding:2px 0 5px;font-size:10.5px;color:var(--faint);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--border)}
   .pool-title{font-size:11px;font-weight:800;color:var(--gold);text-transform:uppercase;letter-spacing:.6px;margin:12px 0 2px}
   .pool-title:first-of-type{margin-top:6px}
@@ -929,6 +932,218 @@ function insightCard(p){
     <div style="margin-top:8px">${ins.notes.map(n=>`<div class="small">${esc(n)}</div>`).join('')}</div>
   </div>`;
 }
+/* ============================================================
+   PLAYER PROFILE CARD
+   Pure, derived-on-render. Nothing here is stored; fixing or
+   deleting a game self-corrects the card, same as everything else.
+   Radar values blend a prior (current rating, shaped by the seed
+   skill ratings) with observed per-axis evidence (event rates
+   z-scored against peers). The blend weight grows with the number
+   of logged events on that axis, so the card is honest: axes with
+   little data lean on the prior and render faded.
+   ============================================================ */
+const CARD_AXES=[
+  {k:'serving', label:'Serve',   pos:[['ace',3],['sin',0.5]],       neg:[['serr',2]]},
+  {k:'passing', label:'Pass',    pos:[['goodPass',1],['pget',0.4]], neg:[['perr',1.5]]},
+  {k:'setting', label:'Set',     pos:[['assist',1]],                neg:[]},
+  {k:'hitting', label:'Attack',  pos:[['kill',2],['block',2]],      neg:[['kerr',1.5]]},
+  {k:'defense', label:'Defense', pos:[['dig',1.5]],                 neg:[]},
+  {k:'iq',      label:'IQ',      pos:[],                            neg:[]},
+];
+function passerRating(p){
+  // Standard volleyball 3-point passer rating: perfect=3, playable=1, error=0.
+  const g=evCount(p,'goodPass'), t=evCount(p,'pget'), e=evCount(p,'perr');
+  const den=g+t+e;
+  return den>0 ? {value:(3*g+t)/den, n:den} : {value:null, n:0};
+}
+function axisSample(p,ax){ return ax.pos.concat(ax.neg).reduce((s,[k])=>s+evCount(p,k),0); }
+function axisNetRate(p,ax){
+  const gp=Math.max(1,p.gamesPlayed||0);
+  let s=0;
+  ax.pos.forEach(([k,w])=>s+=w*evCount(p,k));
+  ax.neg.forEach(([k,w])=>s-=w*evCount(p,k));
+  return s/gp;
+}
+function radarAxes(p, peerPool){
+  const peers=(peerPool||players).filter(x=>x.gamesPlayed>=3 && eventTotal(x)>0);
+  const usePeers=peers.length>=3;
+  const skills=p.skills||null;
+  const skillMean=skills? SKILL_DEFS.reduce((s,[k])=>s+(Number(skills[k])||3),0)/SKILL_DEFS.length : 3;
+  return CARD_AXES.map(ax=>{
+    const n=axisSample(p,ax);
+    const prior=clamp(p.rating + (skills? ((Number(skills[ax.k])||3)-skillMean)*7 : 0), 0, 100);
+    let observed=prior, w=0;
+    if(usePeers && ax.pos.length && n>0){
+      const vals=peers.map(x=>axisNetRate(x,ax));
+      const m=vals.reduce((s,x)=>s+x,0)/vals.length;
+      const sd=Math.sqrt(vals.reduce((s,x)=>s+(x-m)*(x-m),0)/vals.length)||1e-6;
+      const z=clamp((axisNetRate(p,ax)-m)/sd, -2.2, 2.2);
+      observed=clamp(p.rating + z*14, 0, 100);
+      w=n/(n+10);
+    }
+    return {key:ax.k, label:ax.label, value:clamp(w*observed+(1-w)*prior,0,100), n, w, measured:w>0.33};
+  });
+}
+function capFirst(s){ return s? s.charAt(0).toUpperCase()+s.slice(1) : s; }
+function profileCardData(p){
+  const ins=playerInsights(p);
+  const a=analyze(p);
+  const pr=passerRating(p);
+  const dig=evCount(p,'dig'), block=evCount(p,'block');
+  const gp=p.gamesPlayed||0;
+  const level=volleyballLevelOf(p.rating);
+  const roleNames=ROLE_DEFS.filter(([k])=>p.roles&&p.roles[k]).map(([,l])=>l);
+  const trend=recentRatingTrend(p);
+  return {
+    name:p.name,
+    initials:initials(p.name),
+    subtitle:roleNames.length?roleNames.slice(0,2).join(' \u00b7 '):(settings.hideRatings?'Player':level.short+' player'),
+    level:settings.hideRatings?null:level.label,
+    sample:ins.statConfidence.label,
+    axes:radarAxes(p),
+    strengths:a&&a.strength?capFirst(a.strength):null,
+    workOn:a&&a.weakness?capFirst(a.weakness):null,
+    stats:[
+      ['Passer rating', pr.value==null?DASH:pr.value.toFixed(2)],
+      ['Hit efficiency', ins.rates.hitEff],
+      ['Serve in', ins.rates.serveIn],
+      ['Ace rate', ins.rates.aceRate],
+      ['Digs / game', gp&&dig?(dig/gp).toFixed(1):DASH],
+      ['Blocks / game', gp&&block?(block/gp).toFixed(1):DASH],
+    ],
+    footer:`${gp} game${gp===1?'':'s'}${trend.label==='Rising'?' \u00b7 trending up':trend.label==='Cooling off'?' \u00b7 cooling off':''}`,
+  };
+}
+function drawPlayerCard(canvas, d){
+  const W=1080, H=1500;
+  canvas.width=W; canvas.height=H;
+  const ctx=canvas.getContext('2d');
+  if(!ctx) return;
+  const F=(w,s)=>`${w} ${s}px system-ui, sans-serif`;
+  function rrect(x,y,w,h,r){
+    ctx.beginPath();
+    if(ctx.roundRect){ ctx.roundRect(x,y,w,h,r); return; }
+    ctx.moveTo(x+r,y); ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r);
+    ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath();
+  }
+  // background: night court
+  const bg=ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#0b1322'); bg.addColorStop(1,'#070a12');
+  ctx.fillStyle=bg; ctx.fillRect(0,0,W,H);
+  const glow=ctx.createRadialGradient(W/2,90,60,W/2,90,760);
+  glow.addColorStop(0,'rgba(116,150,255,0.20)'); glow.addColorStop(1,'rgba(116,150,255,0)');
+  ctx.fillStyle=glow; ctx.fillRect(0,0,W,900);
+  const pad=64;
+  // header
+  ctx.beginPath(); ctx.arc(pad+56,152,56,0,Math.PI*2);
+  ctx.fillStyle='#16233d'; ctx.fill();
+  ctx.lineWidth=2; ctx.strokeStyle='rgba(116,215,255,0.35)'; ctx.stroke();
+  ctx.fillStyle='#9cc6ff'; ctx.font=F(800,40); ctx.textAlign='center'; ctx.textBaseline='middle';
+  ctx.fillText(d.initials, pad+56, 154);
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  ctx.fillStyle='#f4f7fc'; ctx.font=F(800,52); ctx.fillText(d.name, pad+140, 142);
+  ctx.fillStyle='#a9b4c8'; ctx.font=F(500,30); ctx.fillText(d.subtitle, pad+140, 190);
+  if(d.level){
+    ctx.font=F(800,30);
+    const tw=ctx.measureText(d.level).width;
+    rrect(W-pad-tw-44, 96, tw+44, 56, 28);
+    ctx.fillStyle='rgba(109,180,255,0.16)'; ctx.fill();
+    ctx.fillStyle='#9cc6ff'; ctx.textAlign='center';
+    ctx.fillText(d.level, W-pad-(tw+44)/2, 136);
+  }
+  ctx.textAlign='right'; ctx.fillStyle='#74819a'; ctx.font=F(500,27);
+  ctx.fillText(d.sample, W-pad, 192);
+  // radar
+  const cx=W/2, cy=560, R=225, N=d.axes.length;
+  const pt=(i,r)=>{ const a=-Math.PI/2 + i*2*Math.PI/N; return [cx+Math.cos(a)*r, cy+Math.sin(a)*r]; };
+  ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,0.10)';
+  [1/3,2/3,1].forEach(f=>{
+    ctx.beginPath();
+    for(let i=0;i<N;i++){ const [x,y]=pt(i,R*f); i?ctx.lineTo(x,y):ctx.moveTo(x,y); }
+    ctx.closePath(); ctx.stroke();
+  });
+  for(let i=0;i<N;i++){ const [x,y]=pt(i,R); ctx.beginPath(); ctx.moveTo(cx,cy); ctx.lineTo(x,y); ctx.stroke(); }
+  ctx.beginPath();
+  d.axes.forEach((ax,i)=>{ const [x,y]=pt(i,R*ax.value/100); i?ctx.lineTo(x,y):ctx.moveTo(x,y); });
+  ctx.closePath();
+  ctx.fillStyle='rgba(109,180,255,0.17)'; ctx.fill();
+  ctx.lineWidth=3.5; ctx.strokeStyle='#6db4ff'; ctx.stroke();
+  d.axes.forEach((ax,i)=>{
+    const [x,y]=pt(i,R*ax.value/100);
+    ctx.globalAlpha=0.35+0.65*ax.w;
+    ctx.beginPath(); ctx.arc(x,y,7,0,Math.PI*2); ctx.fillStyle='#6db4ff'; ctx.fill();
+    ctx.globalAlpha=1;
+    const [lx,ly]=pt(i,R+46);
+    const c=Math.cos(-Math.PI/2 + i*2*Math.PI/N);
+    ctx.textAlign = Math.abs(c)<0.3 ? 'center' : (c>0?'left':'right');
+    ctx.textBaseline='middle';
+    ctx.fillStyle = ax.measured ? '#c7d3e8' : '#74819a';
+    ctx.font=F(600,30);
+    ctx.fillText(ax.label, lx, ly);
+  });
+  ctx.textAlign='left'; ctx.textBaseline='alphabetic';
+  // divider + strengths
+  ctx.strokeStyle='rgba(255,255,255,0.10)'; ctx.lineWidth=1.5;
+  ctx.beginPath(); ctx.moveTo(pad,862); ctx.lineTo(W-pad,862); ctx.stroke();
+  ctx.font=F(600,30);
+  ctx.fillStyle='#5fe3ae'; ctx.fillText('\u2197', pad, 930);
+  ctx.fillStyle='#a9b4c8'; ctx.fillText('Strengths', pad+44, 930);
+  ctx.fillStyle='#f2c66d'; ctx.fillText('\u25ce', pad, 990);
+  ctx.fillStyle='#a9b4c8'; ctx.fillText('Work on', pad+44, 990);
+  ctx.textAlign='right'; ctx.font=F(800,32);
+  ctx.fillStyle=d.strengths?'#f4f7fc':'#4d5a70';
+  ctx.fillText(d.strengths||'Log more events', W-pad, 930);
+  ctx.fillStyle=d.workOn?'#f4f7fc':'#4d5a70';
+  ctx.fillText(d.workOn||'Log more events', W-pad, 990);
+  ctx.textAlign='left';
+  // stat tiles
+  const tw2=(W-pad*2-24)/2, th=118;
+  d.stats.forEach(([label,value],i)=>{
+    const col=i%2, row=Math.floor(i/2);
+    const x=pad+col*(tw2+24), y=1030+row*(th+24);
+    rrect(x,y,tw2,th,18);
+    ctx.fillStyle='#131b2b'; ctx.fill();
+    ctx.lineWidth=1.5; ctx.strokeStyle='rgba(255,255,255,0.09)'; ctx.stroke();
+    ctx.fillStyle='#a9b4c8'; ctx.font=F(500,27); ctx.fillText(label, x+28, y+44);
+    ctx.fillStyle=value===DASH?'#4d5a70':'#f4f7fc'; ctx.font=F(800,44);
+    ctx.fillText(value, x+28, y+96);
+  });
+  // footer
+  ctx.fillStyle='#74819a'; ctx.font=F(500,27);
+  ctx.fillText(d.footer, pad, H-38);
+  ctx.textAlign='right'; ctx.fillStyle='#f2c66d'; ctx.font=F(800,30);
+  ctx.fillText('Court', W-pad, H-38);
+  ctx.textAlign='left';
+}
+window.openPlayerCard=(id)=>{
+  const p=pById(id); if(!p) return;
+  if(editId) captureInputs();
+  const back = editId ? 'renderPlayerSheet()' : 'closeSheet()';
+  openSheet(`<h3>Player card</h3>
+    <canvas id="cardCanvas" style="width:100%;border-radius:16px;display:block;background:#070a12"></canvas>
+    <div class="tiny faint" style="margin-top:8px;text-align:center">Bright radar points are backed by logged events; faded ones lean on the starting skill ratings until more games are tracked.</div>
+    <button class="btn primary block" style="margin-top:12px" onclick="sharePlayerCard('${p.id}')">Save / share image</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="${back}">Back</button>`);
+  const c=document.getElementById('cardCanvas');
+  if(c && c.getContext) drawPlayerCard(c, profileCardData(p));
+};
+window.sharePlayerCard=(id)=>{
+  const c=document.getElementById('cardCanvas'); if(!c||!c.toBlob) return;
+  c.toBlob(async blob=>{
+    if(!blob){ toast('Could not render the card'); return; }
+    const nm=((pById(id)||{}).name||'player').replace(/[^\w-]+/g,'_');
+    const file=new File([blob], `${nm}_court_card.png`, {type:'image/png'});
+    if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
+      try{ await navigator.share({files:[file], title:`${nm} \u00b7 Court`}); return; }
+      catch(e){ if(e && e.name==='AbortError') return; }
+    }
+    const a=document.createElement('a');
+    a.href=URL.createObjectURL(blob); a.download=file.name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+    toast('Card image saved');
+  }, 'image/png');
+};
 function accuracyStats(){
   const g=games.filter(x=>x.winner && x.predCorrect!=null);
   if(!g.length) return null;
@@ -1622,6 +1837,7 @@ function renderTrackSetup(){
         <div class="row spread"><span class="small" style="min-width:0"><b style="color:var(--gold)">${esc(pev.name)}</b> · ${esc(tA?.name||'?')} vs ${esc(tB?.name||'?')}${window._evtPending.label?` · ${esc(window._evtPending.label)}`:''}</span>
           <button class="btn sm ghost" onclick="window._evtPending=null;render()">detach</button></div>
         <div class="tiny faint" style="margin-top:4px">This game will count toward the event standings.</div>
+        <button class="btn sm ghost block" style="margin-top:9px" onclick="backToEvent()">‹ Back to event · nothing saved</button>
       </div>`;
     }
   }
@@ -1719,7 +1935,8 @@ window.openQuickResult=()=>{
       <div style="flex:1"><label class="small" style="color:var(--teamB);font-weight:700;display:block;margin-bottom:6px">Team B${unkB?` <span class="faint" style="font-weight:500">+${unkB}</span>`:''}</label>
         <input id="qsB" type="number" inputmode="numeric" min="0" placeholder="0"></div>
     </div>
-    <button class="btn primary block" onclick="saveQuickResult()">Save result</button>`);
+    <button class="btn primary block" onclick="saveQuickResult()">Save result</button>
+    ${sheetCloseBtn()}`);
 };
 window.saveQuickResult=async()=>{
   const {s,fmt,unkA,unkB,ok}=setupSlots(); if(!ok) return;
@@ -1753,7 +1970,7 @@ window.undoEv=()=>{
 };
 window.toggleExpand=(pid)=>{ live.expanded[pid]=!live.expanded[pid]; renderTrack(); };
 window.toggleQuick=()=>{ live.quick=!live.quick; renderTrack(); };
-window.cancelGame=async()=>{ if(await askConfirm('Discard this game without saving?','Discard')){ live=null; render(); } };
+window.cancelGame=async()=>{ if(await askConfirm('Discard this game without saving?','Discard')){ if(live&&live.evt) window._evtPending=live.evt; live=null; render(); } };
 window.finishGame=async()=>{
   if(live.scoreA===live.scoreB){
     if(!(await askConfirm('Scores are tied, so no winner is recorded and the result won\'t change ratings. Save anyway?','Save anyway',false))){return;}
@@ -1840,7 +2057,7 @@ function renderTeams(){
     <div class="card">
       <div class="row spread" style="margin-bottom:9px">
         <span class="small muted" style="font-weight:700">Who\u2019s here today? (${pool.size} selected)</span>
-        <button class="btn sm ghost" onclick="poolAll()">All</button>
+        <button class="btn sm ghost" onclick="poolAll()">${act.length&&act.every(p=>pool.has(p.id))?'None':'All'}</button>
       </div>
       <div class="chips">${act.map(chip).join('')}</div>
     </div>
@@ -1900,7 +2117,13 @@ function renderTeams(){
   main.innerHTML = html;
 }
 window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._pool.add(id); window._teams=null; renderTeams(); };
-window.poolAll=()=>{ window._pool=new Set(players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id)); window._teams=null; renderTeams(); };
+window.poolAll=()=>{
+  /* toggles: select every active player, or clear them all if already selected */
+  const ids=players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id);
+  const allOn = ids.length>0 && ids.every(id=>window._pool.has(id));
+  window._pool = allOn ? new Set() : new Set(ids);
+  window._teams=null; renderTeams();
+};
 window.setTeams=(n)=>{ settings.numTeams=positiveInt(n, settings.numTeams||DEFAULT_SETTINGS.numTeams); saveSettings(); window._teams=null; renderTeams(); };
 window.setTeamsCustom=()=>{
   const n=positiveInt($('#teamCustom')?.value, null);
@@ -1981,7 +2204,8 @@ window.viewGame=(id)=>{
         <span class="small" style="min-width:0">${esc(p?p.name:'player')}<div class="tiny faint">${formatLog(g.log[g.teamA[0]])||'no events'}</div></span>
         <span style="text-align:right;white-space:nowrap">${d?`<div class="num small"><span class="faint">${d.before}→${d.after}</span></div><div class="tiny" style="color:var(--muted)">${whyMoved(d)}</div>`:'—'}</span>
       </div>
-      <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>`);
+      <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>
+      ${sheetCloseBtn('Done')}`);
     return;
   }
   const uA=unkCount(g,'A'), uB=unkCount(g,'B');
@@ -2008,6 +2232,7 @@ window.viewGame=(id)=>{
     <div class="teamhdr A" style="margin-top:0">Team A${uA?` <span class="unktag">· +${uA} untracked</span>`:''} ${g.winner==='A'?'· won':''}</div>${list(g.teamA)}
     <div class="teamhdr B">Team B${uB?` <span class="unktag">· +${uB} untracked</span>`:''} ${g.winner==='B'?'· won':''}</div>${list(g.teamB)}
     <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>
+    ${sheetCloseBtn('Done')}
   `);
 };
 function whyMoved(d){
@@ -2263,7 +2488,7 @@ function renderEventDetail(ev){
   html += screenHead(ev.done?'Event · final':'Event · live', esc(ev.name));
   html += `<div class="card">
     <div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">Standings</div>
-      <span class="tiny faint">matches · set diff · point diff</span></div>`;
+      <span class="tiny faint">tap a team for its schedule</span></div>`;
   if(!st.length) html+=`<div class="stat-empty">Add at least two teams to start.</div>`;
   else {
     const poolVals=[...new Set((ev.teams||[]).map(t=>t.pool||''))];
@@ -2272,10 +2497,10 @@ function renderEventDetail(ev){
       ? poolVals.slice().sort((a,b)=> (a===''?1:b===''?-1:a.localeCompare(b))).map(p=>({label:p?`Pool ${p}`:'No pool', rows:st.filter(r=>(r.t.pool||'')===p)}))
       : [{label:null, rows:st}];
     const table = rows => `<div class="stand-row stand-head"><span>#</span><span>Team</span><span style="text-align:right">Match</span><span style="text-align:right">Diff</span></div>`
-      + rows.map((r,i)=>`<div class="stand-row"><span class="num faint small">${i+1}</span>
+      + rows.map((r,i)=>`<button class="stand-row pressable" onclick="openTeamSchedule('${ev.id}','${r.t.id}')"><span class="num faint small">${i+1}</span>
         <span class="small" style="font-weight:700;min-width:0">${esc(r.t.name)}<div class="tiny faint" style="font-weight:500">sets ${r.sw}-${r.sl}${r.ties?` · ${r.ties} tie${r.ties===1?'':'s'}`:''} · ${r.gp} played</div></span>
         <span class="num small" style="text-align:right;font-weight:700">${r.mw}-${r.ml}</span>
-        <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></div>`).join('');
+        <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></button>`).join('');
     html += groups.filter(g=>g.rows.length).map(g=>`${g.label?`<div class="pool-title">${esc(g.label)}</div>`:''}${table(g.rows)}`).join('');
   }
   html += `</div>`;
@@ -2345,6 +2570,7 @@ function renderEventDetail(ev){
         <button class="btn ghost" style="flex:1" onclick="openEventTeam('${ev.id}')">${icons.plus} Add team</button>
         <button class="btn ghost" style="flex:1" onclick="openBulkTeams('${ev.id}')">${icons.plus} Add many</button>
       </div>
+      ${((ev.teams||[]).length>=2)?`<button class="btn ghost block" style="margin-top:8px" onclick="openManagePools('${ev.id}')">Manage pools</button>`:''}
       ${((ev.teams||[]).length>=2)?`<button class="btn ghost block" style="margin-top:8px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add bracket</button>`:''}
       <button class="btn ghost block" style="margin-top:8px" onclick="openEvSettings('${ev.id}')">Courts & schedule</button>`;
   }
@@ -2377,7 +2603,8 @@ window.openNewEvent=()=>{
   openSheet(`<h3>New event</h3>
     <p class="small muted" style="margin:-8px 0 14px">Any format works — pool play, bracket, round robin, or just a night of fixed teams. You pick each matchup; Court keeps the standings.</p>
     <div class="field"><label>Event name</label><input id="evName" placeholder="e.g. Spring Smash · July 18"></div>
-    <button class="btn primary block" onclick="createNewEvent()">Create event</button>`);
+    <button class="btn primary block" onclick="createNewEvent()">Create event</button>
+    ${sheetCloseBtn()}`);
 };
 window.createNewEvent=async()=>{
   const name=($('#evName').value||'').trim(); if(!name){ toast('Give the event a name'); return; }
@@ -2388,7 +2615,8 @@ window.createNewEvent=async()=>{
 window.renameEvent=(id)=>{ const ev=evById(id); if(!ev) return;
   openSheet(`<h3>Rename event</h3>
     <div class="field"><label>Name</label><input id="evName" value="${esc(ev.name)}"></div>
-    <button class="btn primary block" onclick="saveEventName('${id}')">Save</button>`);
+    <button class="btn primary block" onclick="saveEventName('${id}')">Save</button>
+    ${sheetCloseBtn()}`);
 };
 window.saveEventName=async(id)=>{ const ev=evById(id); if(!ev) return;
   const n=($('#evName').value||'').trim(); if(!n){ toast('Name required'); return; }
@@ -2408,6 +2636,32 @@ window.deleteEvent=async(id)=>{
 };
 /* --- event team editor (add / rename / sub players) --- */
 function cleanPoolLabel(v){ return (v||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }
+/* --- manage pools: pools are just labels on event teams. Pool count is
+   DERIVED from current labels; "changing the count" means relabeling teams.
+   Nothing here touches games, rosters, or ratings — only t.pool. --- */
+function eventPoolLabels(ev){
+  return [...new Set((ev.teams||[]).map(t=>cleanPoolLabel(t.pool||'')).filter(Boolean))]
+    .sort((a,b)=> a.length-b.length || a.localeCompare(b));
+}
+function poolAssignments(teamIds, count){
+  /* even round-robin split A, B, C… preserving team order (same rule as bulk add);
+     count 0 clears all pool labels */
+  const n=positiveInt(count,0), map={};
+  teamIds.forEach((id,i)=>{ map[id]= n ? poolLabel(i%n) : ''; });
+  return map;
+}
+function teamsWithEventGames(ev){
+  const s=new Set();
+  games.forEach(g=>{ if(g.evId===ev.id){ s.add(g.evA); s.add(g.evB); } });
+  return s;
+}
+function poolEditChanges(ev, assign){
+  /* teams whose pool label would actually change under `assign` */
+  return (ev.teams||[]).filter(t=> assign[t.id]!=null && cleanPoolLabel(assign[t.id])!==cleanPoolLabel(t.pool||''));
+}
+function applyPoolAssignments(ev, assign){
+  (ev.teams||[]).forEach(t=>{ if(assign[t.id]!=null) t.pool=cleanPoolLabel(assign[t.id]); });
+}
 function eventPoolChoices(ev, current=''){
   const visibleCount=Math.max(12, Math.min(16, (ev.teams||[]).length || 12));
   const generated=Array.from({length:visibleCount},(_,i)=>poolLabel(i));
@@ -2451,6 +2705,7 @@ function renderEventTeamSheet(){
       <div class="tiny faint" style="margin-top:7px">One team per player per event. Leave the roster empty for a <b>guest team</b> (people not in your player list) — their results count for standings and the bracket, but nobody\u2019s rating moves. Roster changes only affect future games.</div>
     </div>
     <button class="btn primary block" onclick="saveEventTeam()">${d.tid?'Save team':'Add team'}</button>
+    ${sheetCloseBtn()}
     ${d.tid?`<button class="btn danger block" style="margin-top:8px" ${hasGames?'disabled':''} onclick="deleteEventTeam()">${hasGames?'Team has games — can’t delete':'Delete team'}</button>`:''}`);
 }
 window.evTeamToggle=(pid)=>{
@@ -2519,6 +2774,7 @@ function renderEvSettingsSheet(){
       <div class="field" style="flex:1"><label>Break (min)</label><input id="evsBreakMin" type="number" inputmode="numeric" min="0" value="${esc(String(d.breakMin))}"></div>
     </div>
     <button class="btn primary block" onclick="saveEvSettings()">Save schedule</button>
+    ${sheetCloseBtn()}
     ${ev.sched?`<button class="btn ghost block" style="margin-top:8px" onclick="clearEvSettings()">Remove schedule</button>`:''}`);
 }
 window.evsSet=(k,v)=>{ const d=evsCapture(); d[k]=v; renderEvSettingsSheet(); };
@@ -2547,9 +2803,17 @@ window.openBracketSetup=(evId)=>{
   window._brDraft={evId, name:'', seeds:[]};
   renderBracketSetupSheet();
 };
+const BR_NAME_PRESETS=['Gold','Silver','Bronze','Championship'];
+/* Capture the typed name BEFORE re-rendering — never inside the render
+   itself, or programmatic name changes (presets) get overwritten by the
+   stale input value. */
+function brCapture(){
+  const d=window._brDraft;
+  const nameEl=$('#brName'); if(nameEl) d.name=nameEl.value;
+  return d;
+}
 function renderBracketSetupSheet(){
   const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
-  const nameEl=$('#brName'); if(nameEl) d.name=nameEl.value;
   const st=eventStandings(ev);
   const seedOf=id=>d.seeds.indexOf(id);
   const usedElsewhere=new Set(); (ev.brackets||[]).forEach(b=>b.seeds.forEach(id=>usedElsewhere.add(id)));
@@ -2571,8 +2835,9 @@ function renderBracketSetupSheet(){
   openSheet(`<h3>Add bracket · ${esc(ev.name)}</h3>
     <p class="small muted" style="margin:-8px 0 14px">Single elimination, best-of-3 by default. Seeds pair 1 vs lowest so top seeds meet late. Run several brackets side by side — Gold for pool winners, Silver for runners-up, and so on.</p>
     <div class="field"><label>Bracket name</label>
-      <input id="brName" value="${esc(d.name)}" placeholder="e.g. Gold">
-      <div class="row" style="gap:6px;margin-top:7px">${['Gold','Silver','Bronze','Playoffs'].map(n=>`<button class="btn sm ghost" style="padding:4px 10px" onclick="brName('${n}')">${n}</button>`).join('')}</div>
+      <input id="brName" value="${esc(d.name)}" placeholder="e.g. Gold" oninput="brNameTyped(this.value)">
+      <div class="tiny faint" style="margin-top:7px">Quick names · just fills the field, no seeding attached</div>
+      <div class="row" style="gap:6px;margin-top:6px;flex-wrap:wrap">${BR_NAME_PRESETS.map(n=>`<button class="btn sm ghost ${(d.name||'').trim()===n?'on':''}" data-brpreset="${n}" style="padding:4px 10px" onclick="brName('${n}')">${n}</button>`).join('')}</div>
     </div>
     <div class="field">
       <div class="row spread" style="margin-bottom:7px">
@@ -2586,11 +2851,20 @@ function renderBracketSetupSheet(){
       ${byeNote}
       ${bigNote}
     </div>
-    <button class="btn primary block" ${N>=2?'':'disabled'} onclick="createBracketNow()">Create bracket</button>`);
+    <button id="brCreate" class="btn primary block" ${(N>=2&&(d.name||'').trim())?'':'disabled'} onclick="createBracketNow()">Create bracket</button>
+    ${sheetCloseBtn()}`);
 }
 window.brName=(n)=>{ const d=window._brDraft; d.name=n; renderBracketSetupSheet(); };
+window.brNameTyped=(v)=>{
+  /* live typing: keep the draft in sync and update preset/create state
+     without re-rendering (which would steal focus mid-keystroke) */
+  const d=window._brDraft; d.name=v;
+  const nm=(v||'').trim();
+  document.querySelectorAll('[data-brpreset]').forEach(b=>b.classList.toggle('on', b.dataset.brpreset===nm));
+  const c=$('#brCreate'); if(c) c.disabled=!(nm && d.seeds.length>=2);
+};
 window.brSeedToggle=(tid)=>{
-  const d=window._brDraft;
+  const d=brCapture();
   const i=d.seeds.indexOf(tid);
   if(i>=0) d.seeds.splice(i,1);
   else d.seeds.push(tid);
@@ -2598,7 +2872,7 @@ window.brSeedToggle=(tid)=>{
 };
 window.brSeedRank=(k)=>{
   /* the k-th place team of every pool, ordered by overall standing */
-  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
   const st=eventStandings(ev);
   const pools=[...new Set((ev.teams||[]).map(t=>t.pool||''))].filter(Boolean).sort();
   const picks=[];
@@ -2611,20 +2885,21 @@ window.brSeedRank=(k)=>{
   renderBracketSetupSheet();
 };
 window.brSeedTop=(n)=>{
-  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
   d.seeds=eventStandings(ev).slice(0,n).map(r=>r.t.id);
   renderBracketSetupSheet();
 };
 window.brSeedAll=()=>{
-  const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
+  const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
   d.seeds=eventStandings(ev).map(r=>r.t.id);
   renderBracketSetupSheet();
 };
 window.createBracketNow=async()=>{
-  const d=window._brDraft; const ev=evById(d.evId); if(!ev||d.seeds.length<2) return;
-  const nameEl=$('#brName'); if(nameEl) d.name=nameEl.value;
+  const d=brCapture(); const ev=evById(d.evId); if(!ev||d.seeds.length<2) return;
+  const nm=(d.name||'').trim();
+  if(!nm){ toast('Name the bracket first'); return; }
   ev.brackets=ev.brackets||[];
-  ev.brackets.push({id:uid(), name:(d.name||'').trim()||'Playoffs', created:Date.now(), seeds:d.seeds.slice()});
+  ev.brackets.push({id:uid(), name:nm, created:Date.now(), seeds:d.seeds.slice()});
   await saveEvents(); closeSheet();
   toast('Bracket ready · tap a matchup to log it');
   render();
@@ -2672,7 +2947,8 @@ function renderBulkTeamsSheet(){
       </div>
       ${poolCount?`<div class="tiny faint" style="margin-top:5px">Assigned in order: ${Array.from({length:Math.min(poolCount,6)},(_,i)=>poolLabel(i)).join(', ')}${poolCount>6?', …':''} then repeating, so pools stay even.</div>`:''}
     </div>
-    <button class="btn primary block" onclick="saveBulkTeams()">Add teams</button>`);
+    <button class="btn primary block" onclick="saveBulkTeams()">Add teams</button>
+    ${sheetCloseBtn()}`);
 }
 window.bulkPools=(n)=>{ const d=bulkCapture(); d.pools=n; renderBulkTeamsSheet(); };
 window.bulkPoolsCustom=()=>{
@@ -2694,6 +2970,148 @@ window.saveBulkTeams=async()=>{
   render();
 };
 
+/* --- manage pools sheet: relabel team pools, auto-split, per-team moves.
+   Draft-only until Save; after event games exist, Save asks for confirmation
+   instead of silently reshuffling. --- */
+window.openManagePools=(evId)=>{
+  const ev=evById(evId); if(!ev||!(ev.teams||[]).length) return;
+  const assign={}; (ev.teams||[]).forEach(t=>{ assign[t.id]=cleanPoolLabel(t.pool||''); });
+  window._mpDraft={evId, assign, count:eventPoolLabels(ev).length};
+  renderManagePoolsSheet();
+};
+function mpSortLabels(a,b){ return a.length-b.length || a.localeCompare(b); }
+function renderManagePoolsSheet(){
+  const d=window._mpDraft; const ev=evById(d.evId); if(!ev) return;
+  const labels=[...new Set(Object.values(d.assign).filter(Boolean))].sort(mpSortLabels);
+  const withGames=teamsWithEventGames(ev);
+  const hasGames=evGameCount(ev)>0;
+  const presets=[0,2,3,4,5,6,7,8];
+  const count=positiveInt(d.count,0)||0;
+  const custom=count && !presets.includes(count) ? count : '';
+  const noPool=(ev.teams||[]).filter(t=>!(d.assign[t.id]||'')).length;
+  const summary = labels.length
+    ? labels.map(L=>`<span class="pill">${esc(L)} · ${Object.values(d.assign).filter(v=>v===L).length}</span>`).join(' ') + (noPool?` <span class="pill" style="opacity:.6">no pool · ${noPool}</span>`:'')
+    : `<span class="tiny faint">No pools yet — every team is in one open group.</span>`;
+  const optionLabels=[...new Set([
+    ...Array.from({length:Math.max(count,labels.length)},(_,i)=>poolLabel(i)),
+    ...labels])].sort(mpSortLabels);
+  const rows=(ev.teams||[]).map(t=>{
+    const cur=d.assign[t.id]||'';
+    return `<div class="row spread" style="padding:6px 0;border-bottom:1px solid var(--border);gap:10px">
+      <span class="small" style="font-weight:700;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}${withGames.has(t.id)?` <span class="tiny" style="color:var(--gold);font-weight:600">· has games</span>`:''}</span>
+      <select onchange="mpMove('${t.id}',this.value)" style="flex:none;width:auto;min-width:96px;padding:7px 9px">
+        <option value=""${cur===''?' selected':''}>No pool</option>
+        ${optionLabels.map(L=>`<option value="${L}"${cur===L?' selected':''}>Pool ${L}</option>`).join('')}
+      </select></div>`;
+  }).join('');
+  openSheet(`<h3>Manage pools · ${esc(ev.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Pools are just labels on teams — they group the standings and drive the pool schedule. Changing them never touches ratings, rosters, or saved games.</p>
+    <div class="field"><label>Current pools · ${labels.length||'none'}</label>
+      <div class="row" style="gap:6px;flex-wrap:wrap">${summary}</div></div>
+    <div class="field"><label>Pool count</label>
+      <div class="seg">${presets.map(n=>`<button class="${count===n?'on':''}" onclick="mpCount(${n})">${n||'None'}</button>`).join('')}</div>
+      <div class="custom-num">
+        <div><label for="mpCustom">Custom</label><input id="mpCustom" type="number" inputmode="numeric" min="1" placeholder="10" value="${esc(custom?String(custom):'')}" onkeydown="if(event.key==='Enter')mpCountCustom()"></div>
+        <button class="btn sm ghost" onclick="mpCountCustom()">Use</button>
+      </div>
+      <button class="btn ghost block" style="margin-top:8px;color:var(--gold)" ${count||labels.length?'':'disabled'} onclick="mpAutoSplit()">${count?`Auto-split teams into ${count} pool${count===1?'':'s'} (A–${poolLabel(count-1)})`:'Clear all pool labels'}</button>
+      <div class="tiny faint" style="margin-top:6px">Auto-split relabels teams evenly in their current order — A, B, C… then repeating. Or move any team by hand below.</div></div>
+    <div class="field"><label>Teams</label>${rows}</div>
+    ${hasGames?`<div class="unkline">This event already has saved games. Changing pools regroups standings display and future schedule only — results and ratings stay exactly as they are.</div>`:''}
+    <button class="btn primary block" style="margin-top:4px" onclick="saveManagePools()">Save pools</button>
+    ${sheetCloseBtn()}`);
+}
+window.mpCount=(n)=>{ const d=window._mpDraft; d.count=positiveInt(n,0)||0; renderManagePoolsSheet(); };
+window.mpCountCustom=()=>{
+  const n=positiveInt($('#mpCustom')?.value, null);
+  if(!n){ toast('Enter a pool count above 0'); return; }
+  window._mpDraft.count=n; renderManagePoolsSheet();
+};
+window.mpAutoSplit=()=>{
+  const d=window._mpDraft; const ev=evById(d.evId); if(!ev) return;
+  d.assign=poolAssignments((ev.teams||[]).map(t=>t.id), d.count);
+  renderManagePoolsSheet();
+};
+window.mpMove=(tid,label)=>{
+  const d=window._mpDraft;
+  d.assign[tid]=cleanPoolLabel(label);
+  renderManagePoolsSheet();
+};
+window.saveManagePools=async()=>{
+  const d=window._mpDraft; const ev=evById(d.evId); if(!ev) return;
+  const changed=poolEditChanges(ev, d.assign);
+  if(!changed.length){ closeSheet(); return; }
+  if(evGameCount(ev)>0){
+    const played=changed.filter(t=>teamsWithEventGames(ev).has(t.id)).length;
+    const ok=await askConfirm(
+      `Changing pools after results exist can change schedule grouping and how standings are displayed. Saved games and player ratings will not be deleted or recalculated differently.`+
+      ` This updates ${changed.length} team${changed.length===1?'':'s'}${played?` (${played} with games already played)`:''}. Continue?`,
+      'Update pools', false);
+    if(!ok) return;
+  }
+  applyPoolAssignments(ev, d.assign);
+  await saveEvents(); closeSheet(); toast('Pools updated'); render();
+};
+
+/* --- team schedule: everything one team plays — done and upcoming.
+   Derived on open, same as standings: played matches grouped by matchId,
+   upcoming pulled from the live schedule (court + time) when one is set,
+   otherwise the remaining same-pool opponents. --- */
+function teamScheduleInfo(ev, tid){
+  const groups={};
+  games.forEach(g=>{
+    if(g.evId!==ev.id || !(g.evA===tid||g.evB===tid)) return;
+    const k=g.matchId||g.id; (groups[k]=groups[k]||[]).push(g);
+  });
+  const played=Object.values(groups).map(sets=>{
+    sets=sets.slice().sort((x,y)=>x.date-y.date);
+    const opp = sets[0].evA===tid ? sets[0].evB : sets[0].evA;
+    let w=0,l=0; const sc=[];
+    sets.forEach(g=>{
+      const mine=g.evA===tid?g.scoreA:g.scoreB, theirs=g.evA===tid?g.scoreB:g.scoreA;
+      if(mine>theirs)w++; else if(theirs>mine)l++;
+      sc.push(mine+'\u2013'+theirs);
+    });
+    return {opp, date:sets[sets.length-1].date, label:(sets[0].label||'').replace(/ · Set 1$/,''),
+      won: w>l?true:l>w?false:null,
+      disp: sets.length>1 ? `${w}-${l} · ${sc.join(', ')}` : sc[0]};
+  }).sort((a,b)=>a.date-b.date);
+  const sc=ev.done?null:buildSchedule(ev);
+  const upcoming = sc ? sc.slots.flat().filter(m=>m.a===tid||m.b===tid)
+    .map(m=>({opp:m.a===tid?m.b:m.a, est:m.est, court:courtLabel(sc.s,m.court), pool:m.pool})) : null;
+  const team=evTeamById(ev,tid);
+  const playedOpps=new Set(played.map(p=>p.opp));
+  const remaining=(ev.teams||[]).filter(t=>t.id!==tid && (t.pool||'')===((team&&team.pool)||'') && !playedOpps.has(t.id)).map(t=>t.id);
+  return {played, upcoming, remaining};
+}
+window.openTeamSchedule=(evId, tid)=>{
+  const ev=evById(evId); const team=ev&&evTeamById(ev,tid); if(!team) return;
+  const info=teamScheduleInfo(ev, tid);
+  const name=id=>{ const t=evTeamById(ev,id); return t?t.name:'?'; };
+  const playedRows=info.played.map(p=>`<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border);gap:10px">
+      <span class="small" style="min-width:0"><b style="color:${p.won===true?'var(--good)':p.won===false?'var(--bad)':'var(--faint)'}">${p.won===true?'W':p.won===false?'L':'D'}</b> &nbsp;vs ${esc(name(p.opp))}${p.label?`<div class="tiny faint">${esc(p.label)}</div>`:''}</span>
+      <span class="num small" style="white-space:nowrap">${esc(p.disp)}</span>
+    </div>`).join('');
+  const upcomingRows=(info.upcoming||[]).map(u=>`<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border);gap:10px">
+      <span class="small" style="min-width:0">vs ${esc(name(u.opp))}${u.pool?`<div class="tiny faint">Pool ${esc(u.pool)}</div>`:''}</span>
+      <span class="tiny num faint" style="white-space:nowrap;text-align:right">${esc(u.court)}<br>≈ ${fmtClock(u.est)}</span>
+    </div>`).join('');
+  const remainingLine=info.remaining.length
+    ? `<div class="small" style="padding:4px 0">${info.remaining.map(id=>esc(name(id))).join(' · ')}</div>
+       <div class="tiny faint" style="margin-top:4px">Set up Courts & schedule for courts and times.</div>`
+    : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`;
+  openSheet(`<h3>${esc(team.name)}${team.pool?` <span style="color:var(--gold)">· Pool ${esc(team.pool)}</span>`:''}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">${esc(ev.name)} · everything this team plays.</p>
+    <div class="field"><label>Played · ${info.played.length}</label>
+      ${playedRows||`<div class="tiny faint" style="padding:4px 0">Nothing yet.</div>`}</div>
+    ${info.upcoming
+      ? `<div class="field"><label>Up next · ${info.upcoming.length}</label>
+          ${upcomingRows||`<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}</div>`
+      : ev.done ? '' : `<div class="field"><label>Still to play · ${info.remaining.length}</label>${remainingLine}</div>`}
+    ${ev.done?'':`<button class="btn ghost block" style="margin-top:4px" onclick="openEventTeam('${ev.id}','${team.id}')">Edit team</button>`}
+    ${sheetCloseBtn('Done')}`);
+};
+
 /* --- log an event game: single set or best-of-3 match; or hand off to live tracking --- */
 window.openEventGame=(evId, preA, preB, preLabel, preMode)=>{
   const ev=evById(evId); if(!ev||(ev.teams||[]).length<2) return;
@@ -2710,7 +3128,8 @@ function evGameCapture(){
 window.evGameMode=(m)=>{ const d=evGameCapture(); d.mode=m; renderEventGameSheet(); };
 function renderEventGameSheet(){
   const d=window._evGameDraft; const ev=evById(d.evId); if(!ev) return;
-  const pick=(side)=> ev.teams.map(t=>{
+  const teamsAZ=(ev.teams||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const pick=(side)=> teamsAZ.map(t=>{
     const on = d[side]===t.id;
     const taken = d[side==='a'?'b':'a']===t.id;
     return `<button class="chip ${on?'on':''}" ${taken?'disabled style="opacity:.35"':''} onclick="evPickTeam('${side}','${t.id}')">${esc(t.name)}</button>`;
@@ -2744,7 +3163,8 @@ function renderEventGameSheet(){
       <input id="evLabel" value="${esc(d.label||'')}" placeholder="e.g. Pool A · Semifinal · Final"></div>
     <button class="btn primary block" ${ready?'':'disabled'} onclick="saveEventGame()">Save result</button>
     <button class="btn ghost block" style="margin-top:8px" ${ready?'':'disabled'} onclick="trackEventGame()">Track live with events ▸</button>
-    <p class="tiny faint" style="margin-top:8px">Score-only is the fast path — ratings still move on the result. Track live only when you have a free thumb.</p>`);
+    <p class="tiny faint" style="margin-top:8px">Score-only is the fast path — ratings still move on the result. Track live only when you have a free thumb.</p>
+    ${sheetCloseBtn()}`);
 }
 window.evPickTeam=(side,tid)=>{
   const d=evGameCapture();
@@ -2789,6 +3209,14 @@ window.saveEventGame=async()=>{
     toast(a===b?'Tie saved · points counted':`${esc(a>b?tA.name:tB.name)} wins · standings updated`);
   }
   render();
+};
+window.backToEvent=()=>{
+  /* bail out of a live-tracking handoff: nothing was saved, so just clear
+     the pending link and the auto-filled selection and reopen the event */
+  const p=window._evtPending; window._evtPending=null;
+  window._sel={A:new Set(),B:new Set()}; window._fmt=null; window._trackMode='match';
+  if(p){ window._evOpen=p.evId; }
+  tab='events'; render();
 };
 window.trackEventGame=()=>{
   const d=evGameCapture(); const ev=evById(d.evId); if(!ev) return;
@@ -2873,14 +3301,15 @@ window.exportData=async()=>{
     setTimeout(()=>URL.revokeObjectURL(url),1500);
   }catch(e){}
   if(copied) toast('Backup copied + saved to file');
-  else openSheet(`<h3>Backup</h3><p class="small muted">Copy this and save it somewhere safe.</p><textarea rows="8" onclick="this.select()">${esc(data)}</textarea>`);
+  else openSheet(`<h3>Backup</h3><p class="small muted">Copy this and save it somewhere safe.</p><textarea rows="8" onclick="this.select()">${esc(data)}</textarea>${sheetCloseBtn('Done')}`);
 };
 window.openImport=()=>{
   openSheet(`<h3>Restore from backup</h3>
     <p class="small muted">Load a backup file, or paste one. This replaces your current data.</p>
     <input type="file" accept="application/json,.json" id="impFile" onchange="importFile(event)" style="margin-bottom:12px">
     <textarea id="impTxt" rows="6" placeholder="…or paste backup here"></textarea>
-    <button class="btn primary block" style="margin-top:12px" onclick="doImport()">Restore from paste</button>`);
+    <button class="btn primary block" style="margin-top:12px" onclick="doImport()">Restore from paste</button>
+    ${sheetCloseBtn()}`);
 };
 window.importFile=(e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -2974,6 +3403,7 @@ window.loadDemo=async()=>{
 
 function runSelfTest(){
   const snapP=JSON.stringify(players), snapG=JSON.stringify(games), snapS=JSON.stringify(settings);
+  const snapE=JSON.stringify(evts), snapEvOpen=window._evOpen;
   const realDateNow=Date.now;
   const todayAt=(h,m)=>{ const d=new Date(realDateNow()); d.setHours(h,m,0,0); return d.getTime(); };
   const mockNow=(h,m)=>{ Date.now=()=>todayAt(h,m); };
@@ -3002,6 +3432,32 @@ function runSelfTest(){
     const trusted=makePlayer('Trusted',50);
     trusted.lifetime={...zeroEvents(), ace:10, sin:20, goodPass:10};
     ck('Players with enough logged events show higher stat confidence', statConfidence(trusted).label==='trusted sample', statConfidence(trusted).label);
+    const cardP=makePlayer('Card',60);
+    cardP.gamesPlayed=6;
+    cardP.lifetime={...zeroEvents(), goodPass:6, pget:2, perr:2, ace:2, sin:6, serr:2, kill:8, kerr:2, dig:6, block:2, assist:4};
+    const prTest=passerRating(cardP);
+    ck('Passer rating uses the standard 3-point scale', Math.abs(prTest.value-2.0)<1e-9 && prTest.n===10, String(prTest.value));
+    ck('Passer rating dashes with no graded passes', passerRating(makePlayer('NoPass',50)).value===null);
+    const cardAxes=radarAxes(cardP, players.concat([cardP]));
+    ck('Radar has six axes matching the card layout', cardAxes.length===6 && cardAxes[0].label==='Serve' && cardAxes[3].label==='Attack' && cardAxes[5].label==='IQ');
+    ck('Radar values stay within 0\u2013100', cardAxes.every(a=>a.value>=0&&a.value<=100));
+    ck('IQ axis never claims event evidence', cardAxes.find(a=>a.key==='iq').w===0 && !cardAxes.find(a=>a.key==='iq').measured);
+    const freshAxes=radarAxes(makePlayer('Fresh',72), players);
+    ck('New player radar falls back to a rating-shaped prior', freshAxes.every(a=>a.w===0 && Math.abs(a.value-72)<1e-9));
+    const skillP=makePlayer('Shaped',60);
+    skillP.skills={passing:5,serving:1,setting:3,hitting:3,defense:3,iq:3};
+    const shaped=radarAxes(skillP, []);
+    const shapedPass=shaped.find(a=>a.key==='passing').value, shapedServe=shaped.find(a=>a.key==='serving').value;
+    ck('Seed skills shape the prior radar (pass high, serve low)', shapedPass>60 && shapedServe<60 && shapedPass>shapedServe);
+    const cardData=profileCardData(cardP);
+    ck('Card stats include passer rating, digs and blocks per game',
+      cardData.stats.some(s=>s[0]==='Passer rating'&&s[1]==='2.00') &&
+      cardData.stats.some(s=>s[0]==='Digs / game'&&s[1]==='1.0') &&
+      cardData.stats.some(s=>s[0]==='Blocks / game'&&s[1]==='0.3'));
+    ck('Card never leaks raw rating numbers', !JSON.stringify([cardData.subtitle,cardData.level,cardData.stats,cardData.footer]).includes('"60"'));
+    settings.hideRatings=true;
+    ck('Hidden-ratings mode drops the level badge from the card', profileCardData(cardP).level===null);
+    settings.hideRatings=false;
     const trendP=makePlayer('Trend',50);
     trendP.gamesPlayed=5; trendP.history=[{i:0,r:50},{i:1,r:51},{i:2,r:52},{i:3,r:53},{i:4,r:54},{i:5,r:55}];
     settings.hideRatings=true;
@@ -3365,12 +3821,164 @@ function runSelfTest(){
     const x1row=stG.find(r=>r.t.id==='x1');
     ck('Guest games fully drive standings', stG[0].t.id==='h1'&&stG[0].mw===1&&stG[0].ml===0 && x1row.mw===1&&x1row.ml===1);
     games=games.filter(g=>!/^gg/.test(g.id)); recomputeAll();
+
+    /* ---- manage pools: relabeling before games ---- */
+    const evMP={id:'evMP',name:'Pool Edit',created:1,done:false,
+      teams:Array.from({length:12},(_,i)=>({id:'mp'+i,name:'MP'+i,pool:poolLabel(Math.floor(i/4)),players:[]})),
+      sched:{start:'10:00',courts:4,courtStyle:'num',setMin:20,matchMin:45,breakMin:10}, brackets:[]};
+    ck('Pool count is derived from current team labels', eventPoolLabels(evMP).join(',')==='A,B,C');
+    applyPoolAssignments(evMP, poolAssignments(evMP.teams.map(t=>t.id),4));
+    const mpCounts={}; evMP.teams.forEach(t=>mpCounts[t.pool]=(mpCounts[t.pool]||0)+1);
+    ck('Changing pool count 3→4 redistributes teams evenly across A–D',
+      eventPoolLabels(evMP).join(',')==='A,B,C,D' && Object.values(mpCounts).every(n=>n===3),
+      JSON.stringify(mpCounts));
+    ck('Pool count changes never delete teams', evMP.teams.length===12 && evMP.teams.every(t=>t.id.startsWith('mp')));
+    const scMP=buildSchedule(evMP);
+    ck('Schedule regroups from edited pool labels',
+      !!scMP && scheduledMatches(scMP).every(m=>['A','B','C','D'].includes(m.pool)) &&
+      [...new Set(scheduledMatches(scMP).map(m=>m.pool))].sort().join(',')==='A,B,C,D' && noSlotDoubles(scMP));
+    const big=poolAssignments(Array.from({length:10},(_,i)=>'x'+i),10);
+    ck('Pool relabeling supports labels beyond H', big['x8']==='I' && big['x9']==='J');
+    ck('Pool count 0 clears labels without deleting teams', (()=>{
+      const t3=[{id:'z1',pool:'A'},{id:'z2',pool:'B'}];
+      const evZ={teams:t3};
+      applyPoolAssignments(evZ, poolAssignments(['z1','z2'],0));
+      return t3.length===2 && t3.every(t=>t.pool==='');
+    })());
+
+    /* ---- manage pools: relabeling after games exist ---- */
+    const preMPG=players.map(p=>p.rating);
+    const evMPG={id:'evMPG',name:'Pool Edit Live',created:300,done:false,teams:[
+      {id:'q0',name:'Q0',pool:'A',players:[P[0].id]},
+      {id:'q1',name:'Q1',pool:'A',players:[P[1].id]},
+      {id:'q2',name:'Q2',pool:'B',players:[P[2].id]}],
+      sched:{start:'10:00',courts:2,courtStyle:'num',setMin:20,matchMin:45,breakMin:10}, brackets:[]};
+    games.push({id:'gmp1',date:301,teamA:[P[0].id],teamB:[P[1].id],scoreA:25,scoreB:18,winner:'A',log:{},evId:'evMPG',evA:'q0',evB:'q1'});
+    recomputeAll();
+    const withMPG=players.map(p=>p.rating);
+    const wg=teamsWithEventGames(evMPG);
+    ck('Teams with saved event games are identified for the pool warning', wg.has('q0')&&wg.has('q1')&&!wg.has('q2'));
+    const mpAssign={q0:'A',q1:'A',q2:'A'};
+    ck('Pool edits after games are flagged as needing confirmation',
+      evGameCount(evMPG)===1 && poolEditChanges(evMPG,mpAssign).length===1 && poolEditChanges(evMPG,mpAssign)[0].id==='q2');
+    ck('Unchanged assignments are not flagged', poolEditChanges(evMPG,{q0:'A',q1:'A',q2:'B'}).length===0);
+    applyPoolAssignments(evMPG, mpAssign);
+    recomputeAll();
+    ck('Pool edits never move ratings', players.every((p,i)=>Math.abs(p.rating-withMPG[i])<1e-9));
+    const gmp=games.find(g=>g.id==='gmp1');
+    ck('Saved event games survive pool edits intact', !!gmp && gmp.evId==='evMPG' && gmp.evA==='q0' && gmp.evB==='q1' && gmp.winner==='A');
+    const stMPG=eventStandings(evMPG);
+    ck('Standings stay readable and complete after pool edits',
+      stMPG.length===3 && stMPG.find(r=>r.t.id==='q0').mw===1 && stMPG.every(r=>(r.t.pool||'')==='A'));
+    const scMPG=buildSchedule(evMPG);
+    ck('Played pair stays excluded after a team moves pools',
+      !!scMPG && !scheduledMatches(scMPG).some(m=>(m.a==='q0'&&m.b==='q1')||(m.a==='q1'&&m.b==='q0')));
+    ck('Pending matches use the current pool labels',
+      scheduledMatches(scMPG).length===2 && scheduledMatches(scMPG).every(m=>m.pool==='A') && noSlotDoubles(scMPG));
+    games=games.filter(g=>g.id!=='gmp1'); recomputeAll();
+    ck('Pool-edit cleanup restores prior ratings', players.every((p,i)=>Math.abs(p.rating-preMPG[i])<1e-9));
+
+    /* ---- sheet UX: visible close actions + bracket name presets ---- */
+    const evUI={id:'evUI', name:'UI Cup', created:1, done:false, teams:[
+      {id:'w1',name:'W1',players:[]},{id:'w2',name:'W2',players:[]},{id:'w3',name:'W3',players:[]}]};
+    evts.push(evUI);
+    const sheetHasClose=()=>!!document.querySelector('#scrim .sheet .sheet-close');
+    openNewEvent();       ck('New event sheet has a visible Cancel', sheetHasClose());
+    openBulkTeams('evUI');ck('Quick add teams sheet has a visible Cancel', sheetHasClose());
+    openEventTeam('evUI');ck('Team editor sheet has a visible Cancel', sheetHasClose());
+    openEvSettings('evUI');ck('Courts & schedule sheet has a visible Cancel', sheetHasClose());
+    openImport();         ck('Restore sheet has a visible Cancel', sheetHasClose());
+    openManagePools('evUI');ck('Manage pools sheet has a visible Cancel', sheetHasClose());
+    openBracketSetup('evUI');
+    ck('Add bracket sheet has a visible Cancel', sheetHasClose());
+    ck('Championship preset replaces the vague Playoffs preset',
+      !!document.querySelector('[data-brpreset="Championship"]') && !document.querySelector('[data-brpreset="Playoffs"]'));
+    ck('Create bracket starts disabled until named and seeded', $('#brCreate').disabled===true);
+    brName('Gold');
+    ck('Gold preset fills the bracket name and shows as selected',
+      $('#brName').value==='Gold' && document.querySelector('[data-brpreset="Gold"]').classList.contains('on'));
+    brSeedToggle('w1'); brSeedToggle('w2');
+    ck('Preset name survives seeding re-renders', $('#brName').value==='Gold');
+    ck('Create enables with a name and two seeds', $('#brCreate').disabled===false);
+    brNameTyped('My bracket');
+    ck('Manual name edit clears the preset selection', !document.querySelector('[data-brpreset].on'));
+    brNameTyped('');
+    ck('Clearing the name disables Create again', $('#brCreate').disabled===true);
+    document.querySelector('#scrim .sheet-close').click();
+    ck('Add bracket Cancel closes without creating a bracket',
+      !(evUI.brackets||[]).length && !document.querySelector('#scrim'));
+    askConfirm('Self-test confirm dialog','Yes');
+    ck('Confirmation dialogs keep explicit confirm and Cancel buttons',
+      !!document.querySelector('.scrim [data-action="confirm"]') && !!document.querySelector('.scrim [data-action="cancel"]'));
+    document.querySelector('.scrim [data-action="cancel"]').click();
+    ck('Confirm Cancel dismisses the dialog', !document.querySelector('.scrim [data-action="cancel"]'));
+
+    /* ---- Teams tab: "All" toggles select / deselect ---- */
+    const snapPool=window._pool, snapGen=window._teams;
+    const actIds=players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id);
+    window._pool=new Set([actIds[0]]);
+    poolAll();
+    ck('All selects every active player', window._pool.size===actIds.length && actIds.every(id=>window._pool.has(id)));
+    poolAll();
+    ck('All toggles to deselect everyone when all are selected', window._pool.size===0);
+    ck('All button label reflects the toggle state', $('#main').textContent.includes('All'));
+    window._pool=snapPool; window._teams=snapGen;
+
+    /* ---- team schedule view ---- */
+    const evTS={id:'evTS',name:'Sched Cup',created:1,done:false,teams:[
+      {id:'s1',name:'Aces',pool:'A',players:[]},{id:'s2',name:'Bumps',pool:'A',players:[]},
+      {id:'s3',name:'Digs',pool:'A',players:[]},{id:'s4',name:'Kills',pool:'B',players:[]}],
+      sched:{start:'10:00',courts:2,courtStyle:'num',setMin:20,matchMin:45,breakMin:10}, brackets:[]};
+    games.push({id:'gts1',date:601,teamA:[],teamB:[],unkA:1,unkB:1,scoreA:25,scoreB:18,winner:'A',log:{},evId:'evTS',evA:'s1',evB:'s2'});
+    games.push({id:'gts2',date:602,teamA:[],teamB:[],unkA:1,unkB:1,scoreA:21,scoreB:25,winner:'B',log:{},evId:'evTS',evA:'s3',evB:'s1',matchId:'tsm1',label:'Semi · Set 1'});
+    games.push({id:'gts3',date:603,teamA:[],teamB:[],unkA:1,unkB:1,scoreA:9,scoreB:15,winner:'B',log:{},evId:'evTS',evA:'s3',evB:'s1',matchId:'tsm1',label:'Semi · Set 2'});
+    const ts1=teamScheduleInfo(evTS,'s1');
+    ck('Team schedule lists played matches with results from the team\u2019s side',
+      ts1.played.length===2 && ts1.played[0].opp==='s2' && ts1.played[0].won===true && ts1.played[0].disp==='25\u201318');
+    ck('Team schedule groups best-of-3 sets into one match',
+      ts1.played[1].opp==='s3' && ts1.played[1].won===true && ts1.played[1].disp.startsWith('2-0'));
+    ck('Team with all pool matches played shows an empty upcoming list',
+      Array.isArray(ts1.upcoming) && ts1.upcoming.length===0 && ts1.remaining.length===0);
+    const ts2=teamScheduleInfo(evTS,'s2');
+    ck('Upcoming shows only unplayed same-pool opponents with court + time',
+      Array.isArray(ts2.upcoming) && ts2.upcoming.length===1 && ts2.upcoming[0].opp==='s3' &&
+      !!ts2.upcoming[0].court && Number.isFinite(ts2.upcoming[0].est) && ts2.upcoming[0].pool==='A');
+    const evTS2={id:'evTS2',name:'No Sched',created:1,done:false,teams:evTS.teams,brackets:[]};
+    games.forEach(g=>{ if(/^gts/.test(g.id)) g.evId='evTS2'; });
+    const tsNoSched=teamScheduleInfo(evTS2,'s2');
+    ck('Without a schedule, remaining unplayed pool opponents are still listed',
+      tsNoSched.upcoming===null && tsNoSched.remaining.join(',')==='s3');
+    games=games.filter(g=>!/^gts/.test(g.id));
+
+    /* ---- log-a-game teams are alphabetical; track handoff can back out ---- */
+    const evAZ={id:'evAZ',name:'AZ Cup',created:1,done:false,teams:[
+      {id:'a3',name:'Zulu',players:[]},{id:'a1',name:'Alpha',players:[]},{id:'a2',name:'Mike',players:[]}]};
+    evts.push(evAZ);
+    openEventGame('evAZ');
+    const chipNames=[...document.querySelectorAll('#scrim .chips')[0].querySelectorAll('.chip')].map(b=>b.textContent.trim());
+    ck('Log a game lists teams alphabetically', chipNames.join(',')==='Alpha,Mike,Zulu', chipNames.join(','));
+    closeSheet();
+    const snapTab=tab, snapSel=window._sel, snapFmt=window._fmt, snapMode=window._trackMode, snapPend=window._evtPending;
+    window._evtPending={evId:'evAZ', evA:'a1', evB:'a2'};
+    window._trackMode='match'; window._sel={A:new Set(),B:new Set()};
+    renderTrackSetup();
+    ck('Track setup offers a way back to the event', document.body.textContent.includes('Back to event'));
+    backToEvent();
+    ck('Back to event returns to the event with nothing saved',
+      tab==='events' && window._evOpen==='evAZ' && !window._evtPending && !games.some(g=>g.evId==='evAZ'));
+    tab=snapTab; window._sel=snapSel; window._fmt=snapFmt; window._trackMode=snapMode; window._evtPending=snapPend;
+    evts=evts.filter(e=>e.id!=='evAZ');
+    evts=evts.filter(e=>e.id!=='evUI');
   } catch(e){
     Rs.push({name:'Engine ran without crashing', pass:false, detail:String(e)});
   } finally {
     Date.now=realDateNow;
     players=JSON.parse(snapP); games=JSON.parse(snapG); settings=JSON.parse(snapS);
+    evts=JSON.parse(snapE); window._evOpen=snapEvOpen;
+    window._brDraft=null; window._mpDraft=null;
+    try{ closeSheet(); }catch(e){}
     try{ recomputeAll(); }catch(e){}
+    try{ render(); }catch(e){}
   }
   return Rs;
 }
@@ -3460,6 +4068,7 @@ function renderPlayerSheet(){
       ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="${settings.hideRatings?'':'num '}small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
     </div>
     ${insightCard(p)}
+    <button class="btn block ghost" style="margin-top:2px" onclick="openPlayerCard('${p.id}')">Player card · view &amp; share ▸</button>
     ${lifetimeStatsSection(p)}
     ${settings.hideRatings?'':`<div class="card" style="background:var(--surface2)">
       <div class="small muted" style="margin-bottom:4px">Rating over time</div>
@@ -3751,6 +4360,12 @@ window.roleGuideAns=(v)=>{ draft.roles[ROLE_GUIDE[roleGuideI].k]=v; roleGuideI++
 window.roleGuideBack=()=>{ if(roleGuideI>0) roleGuideI--; renderRoleGuide(); };
 window.roleGuideCancel=()=>{ roleGuideI=null; renderPlayerSheet(); };
 
+/* Every sheet gets a visible close action via this helper — tapping the
+   scrim still works, but is never the only way out. "Cancel" for forms,
+   "Done" for read-only detail sheets. */
+function sheetCloseBtn(label='Cancel'){
+  return `<button class="btn ghost block sheet-close" style="margin-top:8px" onclick="closeSheet()">${label}</button>`;
+}
 function openSheet(html){
   closeSheet();
   const s=document.createElement('div'); s.className='scrim'; s.id='scrim';
