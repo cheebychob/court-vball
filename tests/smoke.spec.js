@@ -56,6 +56,11 @@ async function seedTrackingRoster(page) {
 }
 
 async function clickNav(page, name) {
+  if (name === 'Games' || name === 'More') {
+    await page.getByRole('button', { name: 'Open more menu', exact: true }).click();
+    await page.locator('.sheet').getByRole('button', { name: name === 'Games' ? 'History' : 'Settings', exact: true }).click();
+    return;
+  }
   await page
     .getByRole('navigation', { name: 'Main navigation' })
     .getByRole('button', { name, exact: true })
@@ -88,7 +93,7 @@ async function goToGames(page) {
 
 async function goToMore(page) {
   await clickNav(page, 'More');
-  await expectScreenLabel(page, 'More');
+  await expectScreenLabel(page, 'Settings');
 }
 
 async function openAddPlayer(page) {
