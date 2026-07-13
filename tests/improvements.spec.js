@@ -115,6 +115,51 @@ test('rotating schedules support individuals, pairs, trios, custom sides, and fa
   }
 });
 
+test('persisted schedule revisions vary material assignments while preserving legality and locked results', async ({ page }) => {
+  await seed(page, { playerCount: 32 }); await page.goto('/');
+  const result = await page.evaluate(() => {
+    const entries=Array.from({length:12},(_,i)=>({id:`e${i}`,name:`Entry ${i}`,players:[`p${i*2}`,`p${i*2+1}`],manualSeed:i+1}));
+    const base={id:'rot-revision',format:'rotatingGroups',entries,teams:[],brackets:[],rotation:{entrySize:2,teamSize:4,rounds:5,courts:3,seedMode:'manual',seed:'persisted-rotation',revision:1}};
+    const one=generateRotationScheduleData(base),again=generateRotationScheduleData(base),two=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:2}});
+    const cosmetic=one.matches.map(m=>({...m,court:100-m.court,sideAEntryIds:m.sideBEntryIds.slice().reverse(),sideBEntryIds:m.sideAEntryIds.slice().reverse()}));
+    const locked=one.matches.filter(m=>m.round<=2),remaining=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:3}},{lockedMatches:locked});
+    const fixed={id:'fixed-revision',teams:Array.from({length:12},(_,i)=>({id:`t${i}`,name:`Team ${i}`,pool:i<6?'A':'B',players:[]})),brackets:[],sched:{start:'10:00',courts:4,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:'persisted-fixed',revision:1}};
+    const f1=buildSchedule(fixed),fAgain=buildSchedule(fixed),f2=buildSchedule({...fixed,sched:{...fixed.sched,revision:2}}),fTiming=buildSchedule({...fixed,sched:{...fixed.sched,start:'14:00',setMin:60}});
+    const noDoubles=sc=>sc.slots.every(slot=>{const ids=slot.flatMap(m=>[m.a,m.b]);return ids.length===new Set(ids).size;});
+    return {
+      rotatingStable:JSON.stringify(one)===JSON.stringify(again),rotatingChanged:rotationMaterialSignature(one.matches)!==rotationMaterialSignature(two.matches),cosmeticIgnored:rotationMaterialSignature(one.matches)===rotationMaterialSignature(cosmetic),lockedPreserved:JSON.stringify(remaining.matches.filter(m=>m.round<=2))===JSON.stringify(locked),fair:[two.quality.gamesMax-two.quality.gamesMin,two.quality.byesMax-two.quality.byesMin],unique:two.matches.every(m=>new Set([...m.sideAEntryIds,...m.sideBEntryIds]).size===4),
+      fixedStable:fixedScheduleOrderSignature(f1)===fixedScheduleOrderSignature(fAgain),fixedChanged:fixedScheduleOrderSignature(f1)!==fixedScheduleOrderSignature(f2),fixedSet:fixedMatchupSetSignature(f1)===fixedMatchupSetSignature(f2),fixedTiming:fixedScheduleOrderSignature(f1)===fixedScheduleOrderSignature(fTiming),fixedLegal:noDoubles(f1)&&noDoubles(f2),pools:f2.slots.flat().every(m=>fixed.teams.find(t=>t.id===m.a).pool===fixed.teams.find(t=>t.id===m.b).pool)
+    };
+  });
+  expect(result).toMatchObject({rotatingStable:true,rotatingChanged:true,cosmeticIgnored:true,lockedPreserved:true,unique:true,fixedStable:true,fixedChanged:true,fixedSet:true,fixedTiming:true,fixedLegal:true,pools:true});
+  expect(result.fair[0]).toBeLessThanOrEqual(1); expect(result.fair[1]).toBeLessThanOrEqual(1);
+});
+
+test('legacy events migrate schedule state in memory without rewriting stored backups', async ({ page }) => {
+  const fixed={id:'old-fixed',name:'Old Fixed',teams:[{id:'a',name:'A',players:[]},{id:'b',name:'B',players:[]}],sched:{start:'10:00',courts:1,courtStyle:'num',setMin:20,matchMin:40,breakMin:10},brackets:[]};
+  const rotating={id:'old-rot',name:'Old Rotating',format:'rotatingGroups',teams:[],entries:[],rotation:{entrySize:2,teamSize:4,rounds:3,courts:1,seedMode:'rating'},rotationSchedule:[],brackets:[]};
+  await seed(page,{events:[fixed,rotating]}); await page.goto('/');
+  const state=await page.evaluate(()=>({fixed:evts[0].sched,rot:evts[1].rotation,stored:JSON.parse(localStorage.getItem('vb:events'))}));
+  expect(state.fixed).toMatchObject({seed:'fixed:old-fixed',revision:1}); expect(state.rot).toMatchObject({seed:'rotation:old-rot',revision:1});
+  expect(state.stored[0].sched.seed).toBeUndefined(); expect(state.stored[1].rotation.seed).toBeUndefined();
+});
+
+test('regeneration actions preserve saved games and completed rotating match IDs', async ({ page }) => {
+  await seed(page,{playerCount:24}); await page.goto('/');
+  const result=await page.evaluate(async()=>{
+    const entries=Array.from({length:12},(_,i)=>({id:`re${i}`,name:`Entry ${i}`,players:[`p${i*2}`,`p${i*2+1}`],manualSeed:i+1}));
+    const rot={id:'action-rot',name:'Action Rot',format:'rotatingGroups',entries,teams:[],brackets:[],rotation:{entrySize:2,teamSize:4,rounds:5,courts:3,seedMode:'manual',seed:'action-seed',revision:1},rotationSchedule:[]};
+    const made=generateRotationScheduleData(rot);rot.rotationSchedule=made.matches;rot.rotationScheduleQuality=made.quality;
+    const locked=rot.rotationSchedule.find(m=>m.round===1),fixed={id:'action-fixed',name:'Action Fixed',teams:Array.from({length:6},(_,i)=>({id:`ft${i}`,name:`Fixed ${i}`,pool:'A',players:[]})),brackets:[],sched:{start:'10:00',courts:3,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:'fixed-action',revision:1}};
+    evts=[rot,fixed];games=[{id:'saved-rotation',date:1,teamA:locked.sideAEntryIds.flatMap(id=>entryById(rot,id).players),teamB:locked.sideBEntryIds.flatMap(id=>entryById(rot,id).players),scoreA:25,scoreB:20,winner:'A',log:{},evId:rot.id,evMatchId:locked.id,evEntryIdsA:locked.sideAEntryIds.slice(),evEntryIdsB:locked.sideBEntryIds.slice(),eventFormat:'rotatingGroups'},{id:'saved-fixed',date:2,teamA:[],teamB:[],scoreA:21,scoreB:18,winner:'A',log:{},evId:fixed.id,evA:'ft0',evB:'ft1'}];
+    const beforeGames=JSON.stringify(games),lockedBefore=JSON.stringify(rot.rotationSchedule.filter(m=>m.round<=1)),rotBefore=rotationMaterialSignature(rot.rotationSchedule.filter(m=>m.round>1)),fixedBefore=fixedScheduleOrderSignature(buildSchedule(fixed));
+    window.askConfirm=async()=>true;await window.generateRotationSchedule(rot.id);await window.regenerateFixedSchedule(fixed.id);
+    return {gamesSame:JSON.stringify(games)===beforeGames,lockedSame:JSON.stringify(rot.rotationSchedule.filter(m=>m.round<=1))===lockedBefore,rotChanged:rotationMaterialSignature(rot.rotationSchedule.filter(m=>m.round>1))!==rotBefore,fixedChanged:fixedScheduleOrderSignature(buildSchedule(fixed))!==fixedBefore,versions:[rot.rotation.revision,fixed.sched.revision],ids:games.map(g=>g.evMatchId||g.id)};
+  });
+  expect(result).toMatchObject({gamesSame:true,lockedSame:true,rotChanged:true,fixedChanged:true,ids:[expect.any(String),'saved-fixed']});
+  expect(result.versions[0]).toBeGreaterThan(1); expect(result.versions[1]).toBeGreaterThan(1);
+});
+
 test('legacy Rotating Pairs 4s remains linked without view-time storage mutation', async ({ page }) => {
   const pairs = Array.from({ length: 4 }, (_, i) => ({ id: `q${i}`, name: `Pair ${i + 1}`, players: [`p${i * 2}`, `p${i * 2 + 1}`], created: i }));
   const event = { id: 'pairs', name: 'Pairs Night', created: 1, done: false, format: 'rotatingPairs4s', teams: [], pairs,
