@@ -125,13 +125,18 @@ test('fixed participant export is compact, scored, works without assignments, an
     const noSchedule = { ...ev, id: 'fixed-no-times', sched: undefined };
     const fallback = deriveParticipantScheduleExportModel(noSchedule, 'team', 'pt0', { gameList: [], playerList: players, now: new Date(2026, 6, 18, 9).getTime() });
     const complete = deriveParticipantScheduleExportModel({ ...ev, done: true }, 'team', 'pt0', { gameList: [game], playerList: players, now: new Date(2026, 6, 18, 9).getTime() });
-    return { model, html, filename: file.name, fallback, completeRows: complete.rows.length, same: before === JSON.stringify({ ev, game }) };
+    const byeEvent = { ...ev, id: 'fixed-bye', sched: { ...ev.sched, courts: 1 } };
+    const fixedBye = deriveParticipantScheduleExportModel(byeEvent, 'team', 'pt0', { gameList: [], playerList: players, now: new Date(2026, 6, 18, 9).getTime() });
+    return { model, html, filename: file.name, fallback, completeRows: complete.rows.length, fixedBye, fixedByeHtml: renderScheduleDocument(fixedBye), same: before === JSON.stringify({ ev, game }) };
   });
-  expect(result.model).toMatchObject({ scope: 'participant', formatKind: 'fixed', exportTitle: 'Team Schedule', subjectName: 'Participant Team 1', eventDate: 'July 18, 2026' });
+  expect(result.model).toMatchObject({ scope: 'participant', formatKind: 'fixed', exportTitle: 'Team Schedule', subjectLabel: 'Your Team', subjectName: 'Participant Team 1', eventDate: 'July 18, 2026' });
   expect(result.model.rows).toHaveLength(3);
-  expect(result.model.rows.every(r => r.opponent && r.round && r.time && r.court && r.pool === 'A')).toBe(true);
+  expect(result.model.rows.every(r => !r.isBye && r.opponent.name && r.opponent.players.length === 1 && r.round && r.time && r.court && r.pool === 'A')).toBe(true);
   expect(result.model.rows.filter(r => r.result)).toHaveLength(1);
-  expect(result.html).toContain('Opponent'); expect(result.html).toContain('Round 1'); expect(result.html).toContain('Court');
+  expect(result.html).toContain('Your Team'); expect(result.html).toContain('Opponent'); expect(result.html).toContain('Player 02');
+  expect(result.html).toContain('participant-opponent-box'); expect(result.html).toContain('Round 1'); expect(result.html).toContain('Court');
+  expect(result.fixedBye.rows.some(r => r.isBye)).toBe(true);
+  expect(result.fixedByeHtml).toContain('participant-bye-box'); expect(result.fixedByeHtml).toContain('Bye / Sit-out'); expect(result.fixedByeHtml).toContain('No match this round');
   expect(result.html).not.toMatch(/standings|rank|record|points|diff|edit/i);
   expect(result.filename).toBe('Participant_Cup_Participant_Team_1_schedule.html');
   expect(result.fallback.rows).toHaveLength(3);
@@ -165,19 +170,21 @@ test('rotating participant export handles different entry/team sizes, names, res
     const soloHtml = renderScheduleDocument(soloModel);
     return { model, html, soloModel, soloHtml, same: before === JSON.stringify({ ev, game }) };
   });
-  expect(result.model).toMatchObject({ scope: 'participant', formatKind: 'rotating', exportTitle: 'Participant Schedule' });
+  expect(result.model).toMatchObject({ scope: 'participant', formatKind: 'rotating', exportTitle: 'Participant Schedule', subjectLabel: 'Your Entry' });
   const played = result.model.rows.find(r => r.result);
-  expect(played.with).toHaveLength(2); expect(played.against).toHaveLength(3);
+  expect(played.teammateEntries).toHaveLength(2); expect(played.opponentEntries).toHaveLength(3);
   expect(played.result).toEqual({ outcome: 'W', score: '21–15' });
-  expect(result.model.rows.some(r => r.type === 'bye')).toBe(true);
-  expect(result.html).toContain('Playing with'); expect(result.html).toContain('Against'); expect(result.html).toContain('Player');
-  expect(result.soloModel.rows[0].with).toEqual([]);
-  expect(result.soloHtml).not.toContain('Playing with'); expect(result.soloHtml).toContain('Against');
+  expect(result.model.rows.some(r => r.isBye)).toBe(true);
+  expect(result.html).toContain('Playing With'); expect(result.html).toContain('Against'); expect(result.html).toContain('Player');
+  expect(result.html).toContain('participant-with-box'); expect(result.html).toContain('participant-vs-divider'); expect(result.html).toContain('participant-against-box'); expect(result.html).toContain('participant-entry-badge');
+  expect(result.soloModel.rows[0].teammateEntries).toEqual([]);
+  expect(result.soloHtml).toContain('Playing With'); expect(result.soloHtml).toContain('Your group only'); expect(result.soloHtml).toContain('VS'); expect(result.soloHtml).toContain('Against');
   expect(result.same).toBe(true);
 });
 
 test('team and entry modals expose participant sharing and unavailable exports show a clear toast', async ({ page }) => {
   const fixed = fixedEvent({ name: 'Modal Fixed' }), rotating = rotatingEvent({ entries: 8, rounds: 3, courts: 2, name: 'Modal Rotating' });
+  rotating.entries.forEach((entry, i) => { entry.name = `Long Entry Badge ${i + 1} With Extra Words`; });
   await seed(page, { events: [fixed, rotating], playerCount: 24 }); await page.goto('/');
   await page.evaluate(async () => { const ev = evts[1], made = generateRotationScheduleData(ev); ev.rotationSchedule = made.matches; await saveEvents(); });
 
@@ -191,8 +198,14 @@ test('team and entry modals expose participant sharing and unavailable exports s
   await page.evaluate(() => openEntrySchedule('rot-share', 'e0'));
   await expect(page.locator('.sheet').getByRole('button', { name: 'Save / Share Schedule', exact: true })).toBeVisible();
   await page.locator('.sheet').getByRole('button', { name: 'Save / Share Schedule', exact: true }).click();
-  await expect(page.locator('[data-participant-schedule-preview]')).toContainText('Group Schedule');
-  await expect(page.locator('[data-participant-schedule-preview]')).toContainText('Against');
+  const participantPreview = page.locator('[data-participant-schedule-preview]');
+  await expect(participantPreview).toContainText('Group Schedule');
+  await expect(participantPreview).toContainText('Playing With');
+  await expect(participantPreview).toContainText('VS');
+  await expect(participantPreview).toContainText('Against');
+  await expect(participantPreview.locator('.participant-entry-badge').first()).toBeVisible();
+  await page.setViewportSize({ width: 320, height: 720 });
+  expect(await participantPreview.evaluate(el => el.scrollWidth <= el.clientWidth + 1)).toBe(true);
   await page.locator('.sheet').getByRole('button', { name: 'Close', exact: true }).click();
 
   await page.evaluate(() => { evts[1].rotationSchedule = []; openParticipantScheduleShare('rot-share', 'entry', 'e0'); });

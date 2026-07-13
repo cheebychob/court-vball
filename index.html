@@ -538,16 +538,23 @@
   .schedule-preview-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #dce3ef;color:#9a6c16;font-size:10px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}
   .schedule-file-note{text-align:center;color:var(--faint);font-size:11px;line-height:1.45;margin:9px 0 0}
   .participant-subject{margin-top:12px;padding:11px;border-radius:11px;background:#17243b;color:#fff}
-  .participant-subject strong{display:block;font-size:16px}.participant-subject span{display:block;margin-top:3px;color:#d4deed;font-size:11px;line-height:1.4}
+  .participant-subject-label{display:block;color:#d4deed;font-size:9px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}
+  .participant-subject>strong{display:block;margin-top:5px;font-size:16px}.participant-subject-members{display:block;margin-top:3px;color:#d4deed;font-size:11px;line-height:1.4}
+  .participant-subject-main{display:flex;align-items:center;gap:8px;margin-top:6px;min-width:0}.participant-subject-main strong{min-width:0;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
   .participant-games{display:grid;gap:9px;margin-top:14px}
-  .participant-game{padding:11px;border:1px solid #dce3ef;border-radius:12px;background:#fff;break-inside:avoid}
-  .participant-game-top{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-bottom:7px;border-bottom:1px solid #e1e6ef}
-  .participant-game-top b{color:#172033;font-size:12px}.participant-game-top span{color:#526079;font-size:10px;font-weight:750;text-align:right}
-  .participant-line{display:grid;grid-template-columns:78px minmax(0,1fr);gap:8px;margin-top:9px;align-items:start}
-  .participant-line>span{color:#68758c;font-size:10px;font-weight:850;text-transform:uppercase;letter-spacing:.06em}.participant-line>strong{font-size:13px;color:#172033}
-  .participant-name{display:block;margin-bottom:6px}.participant-name:last-child{margin-bottom:0}.participant-name b{display:block;color:#172033;font-size:12px}.participant-name small{display:block;margin-top:2px;color:#68758c;font-size:9.5px}
-  .participant-detail{margin-top:7px;color:#68758c;font-size:10px}.participant-result{display:inline-flex;margin-top:9px;padding:5px 8px;border-radius:999px;background:#edf2f7;color:#526079;font-size:10px;font-weight:850}.participant-result.win{background:#e2f7ed;color:#126a49}.participant-result.loss{background:#fff0ee;color:#a34238}
-  .participant-bye{background:#fff8e7;border-color:#ead79f}.participant-game-main{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:9px}.participant-game-main strong{color:#674a13}.participant-game-main span{color:#80652b;font-size:10px}
+  .participant-round-card{padding:11px;border:1px solid #dce3ef;border-radius:12px;background:#fff;break-inside:avoid;overflow-wrap:anywhere}
+  .participant-round-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid #e1e6ef}
+  .participant-round-head b{color:#172033;font-size:12px}.participant-round-head span{color:#526079;font-size:10px;font-weight:750;text-align:right;line-height:1.35}
+  .participant-match-block{display:grid;gap:7px;margin-top:9px}.participant-with-box,.participant-against-box,.participant-opponent-box,.participant-bye-box{padding:10px;border:1px solid #dfe5ee;border-radius:10px;background:#f5f7fb}
+  .participant-against-box{background:#f8f4eb;border-color:#e5d9bd}.participant-opponent-box{margin-top:9px;background:#f8f4eb;border-color:#e5d9bd}
+  .participant-block-label{display:block;margin-bottom:7px;color:#526079;font-size:9px;font-weight:900;letter-spacing:.09em;text-transform:uppercase}.participant-against-box .participant-block-label,.participant-opponent-box .participant-block-label{color:#795814}
+  .participant-entry-row{display:flex;align-items:flex-start;gap:7px;margin-top:6px;min-width:0}.participant-entry-row:first-of-type{margin-top:0}.participant-entry-row strong{min-width:0;color:#172033;font-size:12px;line-height:1.35;overflow-wrap:anywhere}
+  .participant-entry-badge{display:inline-flex;flex:none;max-width:44%;align-items:center;justify-content:center;padding:3px 6px;border-radius:999px;background:#dfe7f2;border:1px solid #cbd6e5;color:#263b59;font-size:9px;font-weight:900;line-height:1.1;overflow-wrap:anywhere;text-align:center}
+  .participant-against-box .participant-entry-badge{background:#eee2c8;border-color:#dfcfad;color:#664a16}.participant-group-only{display:block;color:#66738a;font-size:11px;font-weight:700}
+  .participant-vs-divider{display:flex;align-items:center;justify-content:center;gap:7px;color:#8a6419;font-size:9px;font-weight:950;letter-spacing:.12em}.participant-vs-divider::before,.participant-vs-divider::after{content:"";height:1px;flex:1;background:#dce3ec}
+  .participant-opponent-name{display:block;color:#172033;font-size:13px}.participant-opponent-players{display:block;margin-top:4px;color:#5f6d82;font-size:10.5px;line-height:1.4}
+  .participant-round-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;color:#68758c;font-size:10px}.participant-result{display:inline-flex;flex:none;padding:5px 8px;border-radius:999px;background:#edf2f7;color:#526079;font-size:10px;font-weight:850}.participant-result.win{background:#e2f7ed;color:#126a49}.participant-result.loss{background:#fff0ee;color:#a34238}
+  .participant-bye{background:#fff}.participant-bye-box{display:flex;align-items:baseline;justify-content:space-between;gap:8px;margin-top:9px;background:#fff8e7;border-color:#ead79f}.participant-bye-box strong{color:#674a13;font-size:12px;text-transform:uppercase;letter-spacing:.05em}.participant-bye-box span{color:#80652b;font-size:10px;text-align:right}
   .participant-note{margin:12px 0 0;color:#66738a;font-size:10.5px;line-height:1.45}
 
   @media (min-width:560px){
@@ -3069,6 +3076,10 @@ function participantEntryData(ev,id,playerList){
   const entry=entryById(ev,id);
   return {name:entry?.name||'Missing entry',players:(entry?.players||[]).map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player')};
 }
+function participantTeamData(ev,id,playerList){
+  const team=evTeamById(ev,id);
+  return {name:team?.name||'Missing team',players:(team?.players||[]).map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player')};
+}
 function participantResultFromSets(sets,onA){
   if(!sets.length)return null;
   let wins=0,losses=0;const scores=[];
@@ -3079,7 +3090,7 @@ function participantResultFromSets(sets,onA){
   });
   return {outcome:wins>losses?'W':losses>wins?'L':'T',score:sets.length===1?scores[0]:`${wins}-${losses} · ${scores.join(', ')}`};
 }
-function deriveFixedParticipantSchedule(ev,team,{gameList,now}){
+function deriveFixedParticipantSchedule(ev,team,{gameList,playerList,now}){
   const grouped={};
   gameList.filter(g=>g.evId===ev.id&&(g.evA===team.id||g.evB===team.id)).forEach(g=>(grouped[g.matchId||g.id]=grouped[g.matchId||g.id]||[]).push(g));
   const played=Object.values(grouped).map(sets=>{
@@ -3090,18 +3101,20 @@ function deriveFixedParticipantSchedule(ev,team,{gameList,now}){
   const sc=ev.sched?buildSchedule(ev,gameList,now):null;
   if(sc?.plannedSlots?.length){
     const rows=[];
-    sc.plannedSlots.forEach((slot,index)=>slot.filter(m=>m.a===team.id||m.b===team.id).forEach(m=>{
+    sc.plannedSlots.forEach((slot,index)=>{
+      const m=slot.find(match=>match.a===team.id||match.b===team.id),time=ev.sched.start&&slot[0]?fmtClock(slot[0].est):null;
+      if(!m){rows.push({type:'bye',isBye:true,round:index+1,time,court:null,result:null});return;}
       const opp=m.a===team.id?m.b:m.a,related=played.find(p=>p.opp===opp),result=related?participantResultFromSets(related.sets,related.onA):null;
-      rows.push({type:'match',round:index+1,time:ev.sched.start?fmtClock(m.est):null,court:courtLabel(sc.s,m.court),pool:m.pool||null,opponent:evTeamById(ev,opp)?.name||'Missing team',result,label:related?.label||null});
-    }));
+      rows.push({type:'match',isBye:false,round:index+1,time,court:courtLabel(sc.s,m.court),pool:m.pool||null,opponent:participantTeamData(ev,opp,playerList),result,label:related?.label||null});
+    });
     return {rows,note:ev.sched.start?'Times are estimates and may shift as the event progresses.':'Court assignments are set; game times have not been assigned.'};
   }
   const rows=played.map(p=>{
     const round=Number((p.label.match(/Round\s+(\d+)/i)||[])[1])||null,court=(p.label.match(/Court\s+([^·]+)/i)||[])[0]?.trim()||null;
-    return {type:'match',round,time:null,court,pool:team.pool||null,opponent:evTeamById(ev,p.opp)?.name||'Missing team',result:participantResultFromSets(p.sets,p.onA),label:p.label||null};
+    return {type:'match',isBye:false,round,time:null,court,pool:team.pool||null,opponent:participantTeamData(ev,p.opp,playerList),result:participantResultFromSets(p.sets,p.onA),label:p.label||null};
   });
   const playedOpps=new Set(played.map(p=>p.opp));
-  (ev.teams||[]).filter(t=>t.id!==team.id&&(t.pool||'')===(team.pool||'')&&!playedOpps.has(t.id)).forEach(t=>rows.push({type:'match',round:null,time:null,court:null,pool:team.pool||null,opponent:t.name,result:null,label:null}));
+  (ev.teams||[]).filter(t=>t.id!==team.id&&(t.pool||'')===(team.pool||'')&&!playedOpps.has(t.id)).forEach(t=>rows.push({type:'match',isBye:false,round:null,time:null,court:null,pool:team.pool||null,opponent:participantTeamData(ev,t.id,playerList),result:null,label:null}));
   return {rows,note:'Times and courts have not been assigned yet.'};
 }
 function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList=games,playerList=players,now=Date.now()}={}){
@@ -3109,8 +3122,8 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
   if(subjectType==='team'){
     if(eventFormat(ev)!=='fixedTeams')return null;
     const team=evTeamById(ev,subjectId);if(!team)return null;
-    const data=deriveFixedParticipantSchedule(ev,team,{gameList,now});if(!data.rows.length)return null;
-    return {scope:'participant',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched?.start,now),exportTitle:'Team Schedule',subjectName:team.name,subjectMembers:(team.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player'),rows:data.rows,note:data.note,hasResults:data.rows.some(r=>r.result)};
+    const data=deriveFixedParticipantSchedule(ev,team,{gameList,playerList,now});if(!data.rows.length)return null;
+    return {scope:'participant',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched?.start,now),exportTitle:'Team Schedule',subjectLabel:'Your Team',subjectName:team.name,subjectMembers:(team.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player'),rows:data.rows,note:data.note,hasResults:data.rows.some(r=>r.result)};
   }
   if(subjectType!=='entry'||eventFormat(ev)!=='rotatingGroups')return null;
   const entry=entryById(ev,subjectId),schedule=rotationSchedule(ev);if(!entry||!schedule.length)return null;
@@ -3118,13 +3131,13 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
   roundNumbers.forEach(round=>{
     const match=schedule.find(m=>m.round===round&&(m.sideAEntryIds.includes(subjectId)||m.sideBEntryIds.includes(subjectId)));
     const time=tl?.roundEst[round]?fmtClock(tl.roundEst[round]):s.start?scheduleTimeInputLabel(s.start,now):null;
-    if(!match){rows.push({type:'bye',round,time,court:null,result:null});return;}
+    if(!match){rows.push({type:'bye',isBye:true,round,time,court:null,result:null});return;}
     const onA=match.sideAEntryIds.includes(subjectId),mine=onA?match.sideAEntryIds:match.sideBEntryIds,other=onA?match.sideBEntryIds:match.sideAEntryIds;
     const sets=gameList.filter(g=>g.evId===ev.id&&g.evMatchId===match.id);
-    rows.push({type:'match',round,time,court:`Court ${match.court}`,with:mine.filter(id=>id!==subjectId).map(id=>participantEntryData(ev,id,playerList)),against:other.map(id=>participantEntryData(ev,id,playerList)),result:participantResultFromSets(sets,onA),label:(sets[0]?.label||'').replace(/ · Set \d+$/,'')||null});
+    rows.push({type:'match',isBye:false,round,time,court:`Court ${match.court}`,teammateEntries:mine.filter(id=>id!==subjectId).map(id=>participantEntryData(ev,id,playerList)),opponentEntries:other.map(id=>participantEntryData(ev,id,playerList)),result:participantResultFromSets(sets,onA),label:(sets[0]?.label||'').replace(/ · Set \d+$/,'')||null});
   });
   const subjectMembers=(entry.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player');
-  return {scope:'participant',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),exportTitle:s.entrySize===1?'Participant Schedule':'Group Schedule',subjectName:entry.name,subjectMembers,rows,note:s.start?'Times are estimates and may shift as the event progresses.':'Game times have not been assigned yet.',hasResults:rows.some(r=>r.result)};
+  return {scope:'participant',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),exportTitle:s.entrySize===1?'Participant Schedule':'Group Schedule',subjectLabel:s.teamSize===s.entrySize?'Your Team':s.entrySize===1?'Your Entry':'Your Group',subjectName:entry.name,subjectMembers,rows,note:s.start?'Times are estimates and may shift as the event progresses.':'Game times have not been assigned yet.',hasResults:rows.some(r=>r.result)};
 }
 function scheduleHtmlEscape(value){
   return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -3139,17 +3152,20 @@ function scheduleExportBodyHtml(model,{preview=false}={}){
 }
 function participantScheduleBodyHtml(model,{preview=false}={}){
   const e=scheduleHtmlEscape;
-  const itemHtml=item=>`<span class="participant-name"><b>${e(item.players?.length?item.players.join(' + '):item.name)}</b>${item.players?.length&&item.name?`<small>${e(item.name)}</small>`:''}</span>`;
+  const entryHtml=item=>`<div class="participant-entry-row">${item.players?.length&&item.name?`<span class="participant-entry-badge" aria-label="Entry ${e(item.name)}">${e(item.name)}</span>`:''}<strong>${e(item.players?.length?item.players.join(' + '):item.name)}</strong></div>`;
   const rows=model.rows.map(row=>{
-    const where=[row.time||'Time TBD',row.court||'Court TBD'].join(' · '),result=row.result?`<span class="participant-result ${row.result.outcome==='W'?'win':row.result.outcome==='L'?'loss':'tie'}">${e(row.result.outcome)} · ${e(row.result.score)}</span>`:'';
-    if(row.type==='bye')return `<article class="participant-game participant-bye"><div class="participant-game-top"><b>Round ${e(row.round)}</b><span>${e(row.time||'Time TBD')}</span></div><div class="participant-game-main"><strong>Sit-out</strong><span>No match this round</span></div></article>`;
+    const where=[row.time||'Time TBD',row.court].filter(Boolean).join(' · '),result=row.result?`<span class="participant-result ${row.result.outcome==='W'?'win':row.result.outcome==='L'?'loss':'tie'}">${e(row.result.outcome)} · ${e(row.result.score)}</span>`:'';
+    const head=`<div class="participant-round-head"><b>${row.round?`Round ${e(row.round)}`:'Scheduled match'}</b><span>${e(where)}</span></div>`;
+    if(row.isBye||row.type==='bye')return `<article class="participant-round-card participant-game participant-bye"><div class="participant-round-head"><b>Round ${e(row.round)}</b><span>${e(row.time||'Time TBD')}</span></div><div class="participant-bye-box"><strong>Bye / Sit-out</strong><span>No match this round</span></div></article>`;
     const body=model.formatKind==='fixed'
-      ? `<div class="participant-line"><span>Opponent</span><strong>${e(row.opponent)}</strong></div>${row.pool?`<div class="participant-detail">Pool ${e(row.pool)}</div>`:''}`
-      : `${row.with?.length?`<div class="participant-line"><span>Playing with</span><div>${row.with.map(itemHtml).join('')}</div></div>`:''}<div class="participant-line"><span>Against</span><div>${(row.against||[]).map(itemHtml).join('')}</div></div>`;
-    return `<article class="participant-game"><div class="participant-game-top"><b>${row.round?`Round ${e(row.round)}`:'Scheduled match'}</b><span>${e(where)}</span></div>${body}${row.label?`<div class="participant-detail">${e(row.label)}</div>`:''}${result}</article>`;
+      ? `<div class="participant-opponent-box"><span class="participant-block-label">Opponent</span><strong class="participant-opponent-name">${e(row.opponent.name)}</strong>${row.opponent.players.length?`<span class="participant-opponent-players">${row.opponent.players.map(e).join(' + ')}</span>`:''}</div>`
+      : `<div class="participant-match-block"><section class="participant-with-box" aria-label="Playing with"><span class="participant-block-label">Playing With</span>${row.teammateEntries.length?row.teammateEntries.map(entryHtml).join(''):'<span class="participant-group-only">Your group only</span>'}</section><div class="participant-vs-divider" aria-label="versus">VS</div><section class="participant-against-box" aria-label="Against"><span class="participant-block-label">Against</span>${row.opponentEntries.length?row.opponentEntries.map(entryHtml).join(''):'<span class="participant-group-only">Opponent not listed</span>'}</section></div>`;
+    const details=[row.pool?`Pool ${e(row.pool)}`:null,row.label?e(row.label):null].filter(Boolean);
+    return `<article class="participant-round-card participant-game">${head}${body}${details.length||result?`<div class="participant-round-meta">${details.length?`<span>${details.join(' · ')}</span>`:'<span></span>'}${result}</div>`:''}</article>`;
   }).join('');
   const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null].filter(Boolean);
-  return `<article class="${preview?'schedule-preview ':''}schedule-document participant-document"${preview?' data-participant-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · ${e(model.exportTitle)}</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div><div class="participant-subject"><strong>${e(model.subjectName)}</strong>${model.subjectMembers.length?`<span>${model.subjectMembers.map(e).join(' · ')}</span>`:''}</div>${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header><div class="participant-games">${rows}</div>${model.note?`<p class="participant-note">${e(model.note)}</p>`:''}<footer class="schedule-preview-foot">Court</footer></article>`;
+  const subject=model.formatKind==='fixed'?`<strong>${e(model.subjectName)}</strong>${model.subjectMembers.length?`<span class="participant-subject-members">${model.subjectMembers.map(e).join(' · ')}</span>`:''}`:`<div class="participant-subject-main"><span class="participant-entry-badge">${e(model.subjectName)}</span><strong>${e(model.subjectMembers.length?model.subjectMembers.join(' + '):model.subjectName)}</strong></div>`;
+  return `<article class="${preview?'schedule-preview ':''}schedule-document participant-document"${preview?' data-participant-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · ${e(model.exportTitle)}</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div><div class="participant-subject"><span class="participant-subject-label">${e(model.subjectLabel)}</span>${subject}</div>${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header><div class="participant-games">${rows}</div>${model.note?`<p class="participant-note">${e(model.note)}</p>`:''}<footer class="schedule-preview-foot">Court</footer></article>`;
 }
 function scheduleExportPreviewHtml(model){return model.scope==='participant'?participantScheduleBodyHtml(model,{preview:true}):scheduleExportBodyHtml(model,{preview:true});}
 function scheduleDocumentStyles(){return `
@@ -3185,16 +3201,24 @@ function scheduleDocumentStyles(){return `
   .schedule-match-label{margin-top:8px;color:#66738a;font-size:11px;line-height:1.4}
   .participant-document{max-width:720px}
   .participant-subject{margin-top:15px;padding:14px;border-radius:12px;background:#17243b;color:#fff}
-  .participant-subject strong{display:block;font-size:20px}.participant-subject span{display:block;margin-top:4px;color:#d4deed;font-size:13px;line-height:1.4}
+  .participant-subject-label{display:block;color:#d4deed;font-size:10px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}
+  .participant-subject>strong{display:block;margin-top:5px;font-size:20px}.participant-subject-members{display:block;margin-top:4px;color:#d4deed;font-size:13px;line-height:1.4}
+  .participant-subject-main{display:flex;align-items:center;gap:9px;margin-top:7px;min-width:0}.participant-subject-main strong{min-width:0;font-size:17px;line-height:1.35;overflow-wrap:anywhere}
   .participant-games{display:grid;gap:11px;margin-top:18px}
-  .participant-game{padding:15px;border:1px solid var(--line);border-radius:13px;background:#fff;break-inside:avoid-page;page-break-inside:avoid}
-  .participant-game-top{display:flex;align-items:center;justify-content:space-between;gap:10px;padding-bottom:9px;border-bottom:1px solid #e1e6ef}
-  .participant-game-top b{font-size:14px}.participant-game-top span{color:#526079;font-size:12px;font-weight:750;text-align:right}
-  .participant-line{display:grid;grid-template-columns:105px minmax(0,1fr);gap:12px;margin-top:12px;align-items:start}
-  .participant-line>span{color:#68758c;font-size:11px;font-weight:850;text-transform:uppercase;letter-spacing:.065em}.participant-line>strong{font-size:16px}
-  .participant-name{display:block;margin-bottom:8px}.participant-name:last-child{margin-bottom:0}.participant-name b{display:block;font-size:14px}.participant-name small{display:block;margin-top:2px;color:#68758c;font-size:11px}
-  .participant-detail{margin-top:9px;color:#68758c;font-size:11px}.participant-result{display:inline-flex;margin-top:11px;padding:6px 9px;border-radius:999px;background:#edf2f7;color:#526079;font-size:11px;font-weight:850}.participant-result.win{background:#e2f7ed;color:#126a49}.participant-result.loss{background:#fff0ee;color:#a34238}
-  .participant-bye{background:#fff8e7;border-color:#ead79f}.participant-game-main{display:flex;align-items:baseline;justify-content:space-between;gap:10px;margin-top:11px}.participant-game-main strong{color:#674a13}.participant-game-main span{color:#80652b;font-size:12px}
+  .participant-round-card{padding:15px;border:1px solid var(--line);border-radius:13px;background:#fff;break-inside:avoid-page;page-break-inside:avoid;overflow-wrap:anywhere}
+  .participant-round-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding-bottom:10px;border-bottom:1px solid #e1e6ef}
+  .participant-round-head b{font-size:14px}.participant-round-head span{color:#526079;font-size:12px;font-weight:750;text-align:right;line-height:1.35}
+  .participant-match-block{display:grid;gap:8px;margin-top:11px}
+  .participant-with-box,.participant-against-box,.participant-opponent-box,.participant-bye-box{padding:12px;border:1px solid #dfe5ee;border-radius:11px;background:#f5f7fb}
+  .participant-against-box{background:#f8f4eb;border-color:#e5d9bd}.participant-opponent-box{margin-top:11px;background:#f8f4eb;border-color:#e5d9bd}
+  .participant-block-label{display:block;margin-bottom:8px;color:#526079;font-size:10px;font-weight:900;letter-spacing:.09em;text-transform:uppercase}.participant-against-box .participant-block-label,.participant-opponent-box .participant-block-label{color:#795814}
+  .participant-entry-row{display:flex;align-items:flex-start;gap:8px;margin-top:7px;min-width:0}.participant-entry-row:first-of-type{margin-top:0}.participant-entry-row strong{min-width:0;color:#172033;font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+  .participant-entry-badge{display:inline-flex;flex:none;max-width:44%;align-items:center;justify-content:center;padding:4px 7px;border:1px solid #cbd6e5;border-radius:999px;background:#dfe7f2;color:#263b59;font-size:10px;font-weight:900;line-height:1.1;overflow-wrap:anywhere;text-align:center}
+  .participant-against-box .participant-entry-badge{background:#eee2c8;border-color:#dfcfad;color:#664a16}.participant-group-only{display:block;color:#66738a;font-size:13px;font-weight:700}
+  .participant-vs-divider{display:flex;align-items:center;justify-content:center;gap:8px;color:#8a6419;font-size:10px;font-weight:950;letter-spacing:.12em}.participant-vs-divider::before,.participant-vs-divider::after{content:"";height:1px;flex:1;background:#dce3ec}
+  .participant-opponent-name{display:block;color:#172033;font-size:16px}.participant-opponent-players{display:block;margin-top:5px;color:#5f6d82;font-size:13px;line-height:1.4}
+  .participant-round-meta{display:flex;align-items:center;justify-content:space-between;gap:9px;margin-top:10px;color:#68758c;font-size:11px}.participant-result{display:inline-flex;flex:none;padding:6px 9px;border-radius:999px;background:#edf2f7;color:#526079;font-size:11px;font-weight:850}.participant-result.win{background:#e2f7ed;color:#126a49}.participant-result.loss{background:#fff0ee;color:#a34238}
+  .participant-bye{background:#fff}.participant-bye-box{display:flex;align-items:baseline;justify-content:space-between;gap:9px;margin-top:11px;background:#fff8e7;border-color:#ead79f}.participant-bye-box strong{color:#674a13;font-size:14px;text-transform:uppercase;letter-spacing:.05em}.participant-bye-box span{color:#80652b;font-size:12px;text-align:right}
   .participant-note{margin:15px 0 0;color:#66738a;font-size:12px;line-height:1.5}
   .schedule-preview-foot{margin-top:28px;padding-top:15px;border-top:1px solid var(--line);color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.2em;text-align:center;text-transform:uppercase}
   @media screen and (min-width:800px){.schedule-match-list{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -3203,7 +3227,7 @@ function scheduleDocumentStyles(){return `
     .schedule-round-head{align-items:center}.schedule-fixed-sides{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);gap:7px;font-size:14px}
     .schedule-rotation-sides{grid-template-columns:1fr;gap:7px}.schedule-rotation-sides>.schedule-vs{text-align:center}
     .schedule-match-top{align-items:flex-start}.schedule-match-top span:last-child{text-align:right}
-    .participant-line{grid-template-columns:86px minmax(0,1fr)}
+    .participant-round-head{align-items:flex-start}.participant-entry-badge{max-width:42%}
   }
   @page{size:portrait;margin:12mm}
   @media print{
@@ -3211,7 +3235,7 @@ function scheduleDocumentStyles(){return `
     .schedule-screen-note{display:none}.schedule-preview-head{break-after:avoid-page;page-break-after:avoid}.schedule-match-list{display:block}
     .schedule-match{margin-top:8px;box-shadow:none}.schedule-match:first-child{break-before:avoid-page;page-break-before:avoid}
     .schedule-round{break-inside:auto;page-break-inside:auto}.schedule-round-lead{break-after:avoid-page;page-break-after:avoid}
-    .participant-games{display:block}.participant-game{margin-top:9px}
+    .participant-games{display:block}.participant-round-card{margin-top:9px}
     .schedule-preview-foot{break-before:avoid-page;page-break-before:avoid}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }`}
 function renderScheduleDocument(model){
@@ -5181,10 +5205,11 @@ function runSelfTest(){
       Array.isArray(ts2.upcoming) && ts2.upcoming.length===1 && ts2.upcoming[0].opp==='s3' &&
       !!ts2.upcoming[0].court && Number.isFinite(ts2.upcoming[0].est) && ts2.upcoming[0].pool==='A');
     const exportBefore=JSON.stringify({evTS,games:games.filter(g=>/^gts/.test(g.id))});
-    const fixedFullExport=deriveFullScheduleExportModel(evTS),fixedParticipantExport=deriveParticipantScheduleExportModel(evTS,'team','s2'),fixedExportHtml=scheduleExportBodyHtml(fixedFullExport);
+    const fixedFullExport=deriveFullScheduleExportModel(evTS),fixedParticipantExport=deriveParticipantScheduleExportModel(evTS,'team','s2'),fixedExportHtml=scheduleExportBodyHtml(fixedFullExport),fixedParticipantHtml=participantScheduleBodyHtml(fixedParticipantExport);
     ck('Full fixed export includes participant timing and event details',fixedFullExport.eventName==='Sched Cup'&&fixedFullExport.startTime&&fixedFullExport.intervalMinutes===20&&fixedFullExport.courts===2&&fixedFullExport.roundCount>0);
     ck('Full fixed export omits format, version, and noisy pre-event status labels',!fixedExportHtml.includes('Fixed Teams')&&!fixedExportHtml.includes('Version ')&&!fixedExportHtml.includes('Pending'));
-    ck('Fixed participant export includes opponent, round, time, court, pool, and result',fixedParticipantExport.rows.some(r=>r.opponent==='Digs'&&r.round&&r.time&&r.court&&r.pool==='A')&&fixedParticipantExport.rows.some(r=>r.result));
+    ck('Fixed participant export includes opponent players, round, time, court, pool, and result',fixedParticipantExport.rows.some(r=>r.opponent?.name==='Digs'&&r.round&&r.time&&r.court&&r.pool==='A'&&Array.isArray(r.opponent.players))&&fixedParticipantExport.rows.some(r=>r.result));
+    ck('Fixed participant export clearly renders team identity, opponents, and byes',fixedParticipantExport.subjectLabel==='Your Team'&&fixedParticipantHtml.includes('participant-opponent-box')&&fixedParticipantExport.rows.some(r=>r.isBye)&&fixedParticipantHtml.includes('participant-bye-box'));
     ck('Fixed participant export stays read-only',exportBefore===JSON.stringify({evTS,games:games.filter(g=>/^gts/.test(g.id))}));
     evts.push(evTS);openTeamSchedule('evTS','s2');
     ck('Fixed team schedule modal exposes participant sharing',!!document.querySelector('#scrim [onclick*="openParticipantScheduleShare"]'));closeSheet();evts=evts.filter(e=>e!==evTS);
@@ -5195,10 +5220,12 @@ function runSelfTest(){
     const rotFullExport=deriveFullScheduleExportModel(rotExport,{gameList:rotGames,playerList:players}),rotParticipantExport=deriveParticipantScheduleExportModel(rotExport,'entry',rotSubject,{gameList:rotGames,playerList:players}),rotExportHtml=scheduleExportBodyHtml(rotFullExport);
     const rotPlayed=rotParticipantExport.rows.find(r=>r.result);
     ck('Full rotating export omits organizer format and revision labels',!rotExportHtml.includes('Rotating Groups')&&!rotExportHtml.includes('Version '));
-    ck('Rotating participant export handles different entry and team sizes',rotPlayed.with.length===2&&rotPlayed.against.length===3&&rotPlayed.result.outcome==='W');
+    ck('Rotating participant export handles different entry and team sizes',rotPlayed.teammateEntries.length===2&&rotPlayed.opponentEntries.length===3&&rotPlayed.result.outcome==='W');
+    ck('Rotating participant export separates groups with entry badges and VS',rotParticipantExport.subjectLabel==='Your Entry'&&['participant-with-box','participant-vs-divider','participant-against-box','participant-entry-badge'].every(name=>participantScheduleBodyHtml(rotParticipantExport).includes(name)));
     ck('Rotating participant export includes sit-outs and remains read-only',rotParticipantExport.rows.some(r=>r.type==='bye')&&rotBefore===JSON.stringify({rotExport,rotGames}));
     const soloExport={id:'soloExport',name:'Solo Export',format:'rotatingGroups',teams:[],entries:[{id:'sea',name:'Alex',players:[P[0].id]},{id:'seb',name:'Blair',players:[P[1].id]}],rotation:{entrySize:1,teamSize:2,rounds:1,courts:1,start:'',setMin:20},rotationSchedule:[{id:'sem',round:1,court:1,sideAEntryIds:['sea'],sideBEntryIds:['seb']}],brackets:[]},soloParticipant=deriveParticipantScheduleExportModel(soloExport,'entry','sea');
-    ck('Solo rotating participant wording omits playing-with cleanly',soloParticipant.rows[0].with.length===0&&!participantScheduleBodyHtml(soloParticipant).includes('Playing with'));
+    const soloParticipantHtml=participantScheduleBodyHtml(soloParticipant);
+    ck('Solo rotating participant wording keeps the group-versus-opponent structure clear',soloParticipant.rows[0].teammateEntries.length===0&&soloParticipantHtml.includes('Playing With')&&soloParticipantHtml.includes('Your group only')&&soloParticipantHtml.includes('participant-vs-divider'));
     evts.push(rotExport);openEntrySchedule('rotExport',rotSubject);
     ck('Rotating entry schedule modal exposes participant sharing',!!document.querySelector('#scrim [onclick*="openParticipantScheduleShare"]'));closeSheet();evts=evts.filter(e=>e!==rotExport);
     const evTS2={id:'evTS2',name:'No Sched',created:1,done:false,teams:evTS.teams,brackets:[]};
