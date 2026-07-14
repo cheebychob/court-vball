@@ -720,6 +720,16 @@
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
 
 <script>
+const APP_INFO = Object.freeze({
+  name: 'Court',
+  version: '0.1.0',
+  build: '20260713.1'
+});
+
+function appVersionLabel(){
+  return `${APP_INFO.name} v${APP_INFO.version} · Build ${APP_INFO.build}`;
+}
+
 /* ============================================================
    STORAGE  — persists across sessions via window.storage,
    with an in-memory fallback so it never hard-fails.
@@ -2981,6 +2991,38 @@ function assignFixedScheduleSlots(matches,courts,anchorBase,setMin){
   }
   return slots;
 }
+/* Packing one seeded ordering greedily can waste slots, so packFixedScheduleSlots
+   tries FIXED_PACK_CANDIDATES deterministic orderings derived from the schedule
+   seed and keeps the tightest result: fewest slots, then most-even per-court
+   totals, then lowest candidate index. Candidate 0 is the untouched input order
+   (the old single-ordering engine), so packing can never come out worse than it.
+   balanceFixedScheduleCourts then reassigns courts within each slot to the
+   least-loaded courts so per-court totals stay within one match of each other
+   and thin tail slots rotate across courts instead of piling onto Court 1. */
+const FIXED_PACK_CANDIDATES=32;
+function balanceFixedScheduleCourts(slots,courts){
+  const totals=Array.from({length:Math.max(1,courts)},()=>0);
+  slots.forEach(slot=>{
+    const picks=totals.map((total,court)=>({total,court})).sort((x,y)=>x.total-y.total||x.court-y.court)
+      .slice(0,slot.length).map(p=>p.court).sort((a,b)=>a-b);
+    picks.forEach(c=>totals[c]++);
+    slot.forEach((m,i)=>{m.court=picks[i];});
+  });
+  return totals;
+}
+function packFixedScheduleSlots(matches,courts,anchorBase,setMin,packSeed){
+  let best=null,greedySlotCount=0;
+  for(let k=0;k<FIXED_PACK_CANDIDATES;k++){
+    const ordering=k?seededShuffle(matches,`${packSeed}:pack:${k}`):matches;
+    const slots=assignFixedScheduleSlots(ordering,courts,anchorBase,setMin);
+    if(!k)greedySlotCount=slots.length;
+    const totals=balanceFixedScheduleCourts(slots,courts);
+    const spread=slots.length?Math.max(...totals)-Math.min(...totals):0;
+    if(!best||slots.length<best.slots.length||(slots.length===best.slots.length&&spread<best.spread))best={slots,spread,candidate:k};
+    if(!matches.length)break;
+  }
+  return {slots:best.slots,candidate:best.candidate,greedySlotCount};
+}
 function buildSchedule(ev,gameList=games,now=Date.now()){
   const s=ev.sched; if(!s) return null;
   const schedState=scheduleState(s,'fixed:'+ev.id),scheduleSeed=`${schedState.seed}:${schedState.revision}`;
@@ -3009,10 +3051,18 @@ function buildSchedule(ev,gameList=games,now=Date.now()){
   const scheduleOrder=(a,b)=>hash32(`${scheduleSeed}:pending:${a.pool}:${entryCombinationKey(a.a,a.b)}`)-hash32(`${scheduleSeed}:pending:${b.pool}:${entryCombinationKey(b.a,b.b)}`);
   const orderedSchedule=q.slice().sort(scheduleOrder),allTeams=new Set(q.flatMap(m=>[m.a,m.b]));
   const plannedCourtCount=Math.max(1,Math.min(requestedCourts,MAX_COURTS,q.length,Math.floor(allTeams.size/2)));
-  const plannedSlots=assignFixedScheduleSlots(orderedSchedule,plannedCourtCount,startMs,s.setMin);
+  const plannedPack=packFixedScheduleSlots(orderedSchedule,plannedCourtCount,startMs,s.setMin,scheduleSeed);
+  const plannedSlots=plannedPack.slots;
+  /* STABLE PLAN INVARIANT: plannedSlots — a pure function of (matchup set,
+     seed, revision, court count) — is the single source of slot/court truth.
+     The pending view below is a filtered copy of it: played matches drop off
+     and times re-anchor, but surviving matches keep their planned court and
+     slot (m.slot) even when a slot goes partially idle. Never re-pack the
+     pending subset here; only an explicit regenerate (new revision) or a
+     change to the plan inputs may move a match. */
   const done=q.filter(m=>playedPair(m.a,m.b)).length;
-  const pending=q.filter(m=>!playedPair(m.a,m.b));
-  pending.sort(scheduleOrder);
+  const pendingSlots=plannedSlots.map(slot=>slot.filter(m=>!playedPair(m.a,m.b))).filter(slot=>slot.length);
+  const pending=pendingSlots.flat();
   const pendingTeams=new Set();
   pending.forEach(m=>{ pendingTeams.add(m.a); pendingTeams.add(m.b); });
   const maxLegalSimultaneousMatches=Math.floor(pendingTeams.size/2);
@@ -3021,8 +3071,8 @@ function buildSchedule(ev,gameList=games,now=Date.now()){
     : 0;
   const timing=scheduleTimeStatus(startMs, now, done);
   const anchorBase = timing.mode==='planned' ? startMs : now;
-  const slots=assignFixedScheduleSlots(pending,effectiveCourts,anchorBase,s.setMin);
-  const courtBuckets=slots.length ? Math.max(...slots.map(slot=>slot.length)) : 0;
+  const slots=pendingSlots.map((slot,si)=>slot.map(m=>({...m,est:anchorBase+si*s.setMin*MIN})));
+  const courtBuckets=slots.length ? Math.max(...slots.flat().map(m=>m.court))+1 : 0;
   const courts=Array.from({length:courtBuckets},(_,ci)=>{
     const items=slots.map(slot=>slot.find(m=>m.court===ci)).filter(Boolean);
     return {label:courtLabel(s,ci), pools:[...new Set(items.map(m=>m.pool).filter(Boolean))], items, done, total:items.length};
@@ -3036,9 +3086,13 @@ function buildSchedule(ev,gameList=games,now=Date.now()){
   if(requestedCourts>effectiveCourts && effectiveCourts>0) warnings.push(`Using ${effectiveCourts} of ${requestedCourts} requested courts; unused courts are normal when there are not enough legal simultaneous matches.`);
   return {courts, slots, plannedSlots, done, total:q.length, requestedCourts, effectiveCourts, plannedCourtCount, maxLegalSimultaneousMatches,
     poolsEnd, playoffStart, playoff, warnings, s:{...s, courts:requestedCourts}, rawCourts, timeNote:timing.note, timeMode:timing.mode,
+    packInfo:{greedySlots:plannedPack.greedySlotCount, candidate:plannedPack.candidate},
     awards: playoff ? playoff[playoff.length-1].est + s.matchMin*MIN : null};
 }
-function fixedScheduleOrderSignature(sc){return (sc?.slots||[]).flatMap((slot,si)=>slot.map(m=>`${si}:${m.court}:${entryCombinationKey(m.a,m.b)}`)).join('|');}
+/* Uses the PLANNED slot index (m.slot), not the array position, so the pending
+   view's signature stays stable as played matches drop off and emptied slots
+   compress out of the array. Identical to array position for a full plan. */
+function fixedScheduleOrderSignature(sc){return (sc?.slots||[]).flatMap(slot=>slot.map(m=>`${m.slot}:${m.court}:${entryCombinationKey(m.a,m.b)}`)).join('|');}
 function fixedMatchupSetSignature(sc){return (sc?.slots||[]).flat().map(m=>`${m.pool}:${entryCombinationKey(m.a,m.b)}`).sort().join('|');}
 /* --- schedule export: data derivation is deliberately separate from preview
    and document rendering. It reads the persisted rotating schedule or the
@@ -4606,6 +4660,12 @@ function renderMore(){
       <button class="btn block" onclick="loadDemo()">Load demo season</button>
       <button class="btn block ghost" style="margin-top:8px" onclick="runTests()">Run self-test</button>
     </div></section>
+    <section id="settings-about" class="settings-section"><div class="section-head"><h3>About Court</h3></div>
+    <div class="card">
+      <div class="small" style="font-weight:750;overflow-wrap:anywhere">${esc(appVersionLabel())}</div>
+      <div class="tiny soft" style="margin-top:6px">Use this number to confirm that each device is running the same copy of Court.</div>
+      <button class="btn sm ghost" style="margin-top:11px" onclick="copyAppVersion()">Copy version</button>
+    </div></section>
     <section id="settings-help" class="settings-section"><div class="section-head"><h3>About Court · How ratings work</h3><span>plain language</span></div>
     <div class="explain-grid">
       <div class="explain-card"><b>Results set the direction</b><p>Each player has a 0\u2013100 rating, seeded by the level you pick. Beating a stronger team raises you more than beating a weaker one (Elo-style), and blowouts are capped so one lopsided game can\u2019t over-swing anyone.</p></div>
@@ -4625,6 +4685,25 @@ function renderMore(){
 window.toggleHide=async()=>{ settings.hideRatings=!settings.hideRatings; await saveSettings(); render(); };
 window.toggleDetailed=async()=>{ settings.detailed=!settings.detailed; await saveSettings(); render(); };
 window.setK=async(v)=>{ settings.eloK=v; settings.eventK = v<=3?0.4:v>=8?0.9:0.6; await saveSettings(); await commit(); toast('Recalculated'); render(); };
+function copyTextFallback(text){
+  const area=document.createElement('textarea');
+  area.value=text; area.setAttribute('readonly','');
+  area.style.cssText='position:fixed;left:-9999px;top:0;opacity:0;pointer-events:none';
+  document.body.appendChild(area); area.select(); area.setSelectionRange(0,area.value.length);
+  let copied=false;
+  try{ copied=typeof document.execCommand==='function' && document.execCommand('copy'); }catch(e){}
+  area.remove(); return copied;
+}
+window.copyAppVersion=async()=>{
+  const label=appVersionLabel(); let copied=false;
+  try{
+    if(navigator.clipboard && typeof navigator.clipboard.writeText==='function'){
+      await navigator.clipboard.writeText(label); copied=true;
+    }
+  }catch(e){}
+  if(!copied) copied=copyTextFallback(label);
+  toast(copied?'Version copied':'Could not copy version');
+};
 window.exportData=async()=>{
   const data=JSON.stringify({players,games,settings,events:evts,v:1});
   let copied=false;
@@ -5155,8 +5234,12 @@ function runSelfTest(){
     const scPlayed=buildSchedule(evPlayed);
     ck('Already-played pool pair is excluded from the remaining schedule',
       !scheduledMatches(scPlayed).some(m=>(m.a===playedPair[0]&&m.b===playedPair[1])||(m.a===playedPair[1]&&m.b===playedPair[0])));
-    ck('Already-played pair still leaves legal courts filled',
-      !!scPlayed && slotLoads(scPlayed)[0]===4 && noSlotDoubles(scPlayed));
+    ck('Already-played pair keeps surviving matches on their planned slots and courts',
+      !!scPlayed && noSlotDoubles(scPlayed) && scheduledMatches(scPlayed).length===27 &&
+      scheduledMatches(scPlayed).every(m=>{
+        const p=scPlayed.plannedSlots.flat().find(x=>entryCombinationKey(x.a,x.b)===entryCombinationKey(m.a,m.b));
+        return p&&p.slot===m.slot&&p.court===m.court;
+      }));
     games=games.filter(g=>g.id!=='gplayedSched');
     ck('Letter court labels continue beyond Z',
       courtLabel({courtStyle:'letter'},25)==='Court Z' && courtLabel({courtStyle:'letter'},26)==='Court AA');
@@ -5166,6 +5249,75 @@ function runSelfTest(){
     const sc12=buildSchedule(ev12);
     ck('12 courts are saved into and used by the schedule',
       !!sc12 && sc12.s.courts===12 && sc12.courts.length===12 && sc12.courts.some(c=>c.label==='Court 12'));
+    /* ---- fixed-schedule packing: tighter slots + balanced courts ---- */
+    const courtSpread=sc=>{const totals=Array.from({length:sc.effectiveCourts},()=>0);sc.slots.flat().forEach(m=>totals[m.court]++);return Math.max(...totals)-Math.min(...totals);};
+    const evPack8=poolEvent('evPack8',3,2,4);evPack8.sched.seed='pack-self-test';
+    const scPack8=buildSchedule(evPack8);
+    ck('Packing: 2 pools of 4 on 3 courts fits exactly 4 slots',
+      !!scPack8&&scPack8.slots.length===4&&slotLoads(scPack8).every(n=>n===3)&&noSlotDoubles(scPack8),
+      scPack8&&JSON.stringify(slotLoads(scPack8)));
+    const scPack6=buildSchedule(poolEvent('evPack6',2,1,6));
+    ck('Packing: single pool of 6 on 2 courts fits ceil(15/2)=8 slots',
+      !!scPack6&&scPack6.slots.length===8&&noSlotDoubles(scPack6),
+      scPack6&&JSON.stringify(slotLoads(scPack6)));
+    const scPack12=buildSchedule(poolEvent('evPack12',3,2,6));
+    ck('Court balance: per-court totals stay within 1 across shapes',
+      !!scPack12&&courtSpread(scPack6)<=1&&courtSpread(scPack8)<=1&&courtSpread(scPack12)<=1,
+      JSON.stringify([scPack6&&courtSpread(scPack6),scPack8&&courtSpread(scPack8),scPack12&&courtSpread(scPack12)]));
+    ck('Court balance: totals are exactly even when matches divide by courts',
+      courtSpread(scPack8)===0&&courtSpread(scPack12)===0);
+    const scPack8b=buildSchedule(evPack8),scPack8v2=buildSchedule({...evPack8,sched:{...evPack8.sched,revision:2}});
+    ck('Packing determinism: same seed and revision rebuild the identical schedule',
+      fixedScheduleOrderSignature(scPack8)===fixedScheduleOrderSignature(scPack8b));
+    ck('Packing: a new revision reorders without changing the matchup set',
+      fixedScheduleOrderSignature(scPack8)!==fixedScheduleOrderSignature(scPack8v2)&&fixedMatchupSetSignature(scPack8)===fixedMatchupSetSignature(scPack8v2));
+    ck('Packing never uses more slots than the old single-ordering greedy',
+      Array.from({length:8},(_,i)=>i).every(i=>{
+        const rng=seededRng('pack-vs-greedy:'+i);
+        const ev=poolEvent('evPackRz'+i,1+Math.floor(rng()*5),1+Math.floor(rng()*3),3+Math.floor(rng()*5));
+        ev.sched.seed='pack-vs-greedy-'+i;
+        const sc=buildSchedule(ev);
+        return !!sc&&sc.plannedSlots.length<=sc.packInfo.greedySlots&&sc.slots.length<=sc.packInfo.greedySlots&&noSlotDoubles(sc);
+      }));
+    /* ---- stable plan: logging results never moves pending matches ---- */
+    const planIndexOf=sc=>{const idx=new Map();sc.plannedSlots.flat().forEach(m=>idx.set(entryCombinationKey(m.a,m.b),`${m.slot}:${m.court}`));return idx;};
+    const pendingMatchesPlan=(sc,idx)=>sc.slots.flat().every(m=>idx.get(entryCombinationKey(m.a,m.b))===`${m.slot}:${m.court}`);
+    const sigWithout=(sc,key)=>fixedScheduleOrderSignature({slots:sc.slots.map(slot=>slot.filter(m=>entryCombinationKey(m.a,m.b)!==key))});
+    const evStable=poolEvent('evStable',3,2,4);evStable.sched.seed='stable-plan';
+    mockNow(9,0);
+    const scStablePlan=buildSchedule(evStable);
+    const stablePlanIdx=planIndexOf(scStablePlan);
+    const stableMatches=scStablePlan.plannedSlots.flat().map(m=>({a:m.a,b:m.b,key:entryCombinationKey(m.a,m.b)}));
+    const runStableDrill=order=>{
+      let ok=true,prev=buildSchedule(evStable);
+      order.forEach((m,i)=>{
+        games.push({id:'gstable'+i,date:900+i,teamA:[],teamB:[],scoreA:21,scoreB:10,winner:'A',log:{},evId:'evStable',evA:m.a,evB:m.b});
+        const sc=buildSchedule(evStable);
+        ok=ok&&pendingMatchesPlan(sc,stablePlanIdx)&&fixedScheduleOrderSignature(sc)===sigWithout(prev,m.key);
+        prev=sc;
+      });
+      games=games.filter(g=>!/^gstable\d/.test(g.id));
+      return ok;
+    };
+    ck('Stable plan: logging in schedule order never moves or reorders pending matches',runStableDrill(stableMatches));
+    ck('Stable plan: logging in scrambled order never moves or reorders pending matches',runStableDrill(seededShuffle(stableMatches,'stable-plan-scramble')));
+    const stableSlot0=scStablePlan.plannedSlots[0];
+    games.push({id:'gstablePartial',date:950,teamA:[],teamB:[],scoreA:21,scoreB:12,winner:'A',log:{},evId:'evStable',evA:stableSlot0[0].a,evB:stableSlot0[0].b});
+    const scPartialSlot=buildSchedule(evStable);
+    const slot0Survivors=scPartialSlot.slots.flat().filter(m=>m.slot===0);
+    ck('Stable plan: a partially played slot keeps survivors on their planned courts (no compaction)',
+      slot0Survivors.length===stableSlot0.length-1&&
+      slot0Survivors.every(m=>stableSlot0.some(p=>entryCombinationKey(p.a,p.b)===entryCombinationKey(m.a,m.b)&&p.court===m.court))&&
+      !slot0Survivors.some(m=>m.court===stableSlot0[0].court));
+    games=games.filter(g=>g.id!=='gstablePartial');
+    mockNow(11,30);
+    stableSlot0.forEach((m,i)=>games.push({id:'gstableR'+i,date:960+i,teamA:[],teamB:[],scoreA:21,scoreB:14,winner:'A',log:{},evId:'evStable',evA:m.a,evB:m.b}));
+    const scCleared=buildSchedule(evStable);
+    ck('Stable plan: a fully cleared leading round compresses remaining times without moving courts',
+      !!scCleared&&scCleared.slots.length===scStablePlan.plannedSlots.length-1&&scCleared.slots[0][0].est===todayAt(11,30)&&
+      scCleared.slots[0].every(m=>m.slot===1)&&scCleared.slots[1][0].est===todayAt(11,30)+20*60000&&
+      pendingMatchesPlan(scCleared,stablePlanIdx));
+    games=games.filter(g=>!/^gstableR/.test(g.id));
     const bulk10=Array.from({length:10},(_,i)=>bulkPoolForIndex(i,10));
     ck('Bulk pool split supports 10 generated pools',
       bulk10.length===10 && bulk10[0]==='A' && bulk10[8]==='I' && bulk10[9]==='J');

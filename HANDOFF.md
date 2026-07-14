@@ -41,6 +41,41 @@ App behavior verified against current index.html:
 - Added explicit tied-game save behavior: saved for reference, not rated.
 - Added player insight/stat cards and hide-ratings mode.
 - Added event/tournament support: fixed teams, pools, standings, brackets, guest teams, schedule/court projections, and event backup/export.
+- Tightened fixed-teams schedule packing and balanced court assignment. buildSchedule now tries 32 deterministic candidate orderings derived from the schedule seed (candidate 0 is the old single-ordering greedy, so packing can never be worse), keeps the fewest-slot result, and reassigns courts within each slot so per-court totals stay within one match. Example: 8 teams in 2 pools of 4 on 3 courts now packs 4 slots of 3 with courts loaded 4/4/4 (was 5 slots loaded 5/4/3).
+- Made the fixed-teams schedule plan stable while games are logged. The candidate packer runs only on the full matchup set; the pending view is a filtered copy of the frozen plan, so logging, editing, or deleting a result never moves a remaining match to a different court or reorders it — only time estimates re-anchor and emptied rounds compress in time. A slot left partially empty by a played match keeps its surviving matches on their planned courts (an idle court in a round is correct, not something to optimize away).
+
+## Fixed-teams scheduler baseline
+
+buildSchedule is no longer byte-frozen as of the packing/court-balance change
+(July 13, 2026). The round-robin matchup set for a given event is unchanged
+(fixedMatchupSetSignature is stable across the engine change and across
+revisions), but slot and court assignment intentionally differ from the old
+single-ordering greedy engine. New baseline, from the self-test fixture
+(12 teams, 2 pools of 6, 4 courts, seed `fixed-self-test`, revision 1):
+
+- hash32(fixedScheduleOrderSignature) = 1100611134 (slots pack 4/4/4/4/4/4/4/2; old greedy used 9 slots)
+- hash32(fixedMatchupSetSignature) = 1245902534 (identical to the old engine)
+
+Reason: the old engine packed one seeded ordering greedily and assigned courts
+by fill position, which wasted slots and skewed matches onto Court 1. The
+rotating-groups generator and all rating math are untouched.
+
+### Stable-plan invariant (do not regress)
+
+plannedSlots is the single source of court/round truth; pending is a filtered
+view of it. The plan (slot + court for every match) is a pure function of
+(matchup set, seed, revision, court count) and is always computed from the
+FULL matchup set — never from the pending subset. Logging, editing, or
+deleting a game must not change any pending match's court, opponents,
+relative order, or round grouping; only time estimates may re-anchor and
+fully-cleared rounds compress remaining rounds earlier in time. Never re-run
+assignFixedScheduleSlots or the candidate scorer on a filtered pending list.
+Explicit regenerate (new revision) — or changed plan inputs such as court
+count or the team list — are the only paths that may re-pack; timing-only
+setting changes (start/setMin/matchMin/breakMin) must not replan.
+fixedScheduleOrderSignature uses each match's planned slot index (m.slot),
+not its array position, so pending-view signatures stay stable as played
+matches drop off. The "Stable plan" self-tests cover all of this.
 
 ## Next focus
 
