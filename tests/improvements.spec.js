@@ -102,17 +102,43 @@ test('rotating schedules support individuals, pairs, trios, custom sides, and fa
     const valid = one.matches.every(m => m.sideAEntryIds.length === per && m.sideBEntryIds.length === per && new Set([...m.sideAEntryIds, ...m.sideBEntryIds]).size === per * 2 && rotationMatchPlayers(ev,m.sideAEntryIds).length === teamSize && rotationMatchPlayers(ev,m.sideBEntryIds).length === teamSize);
     const rounds = Object.values(Object.groupBy(one.matches, m => m.round));
     const noRoundOverlap = rounds.every(ms => { const ids=ms.flatMap(m => [...m.sideAEntryIds, ...m.sideBEntryIds]); return ids.length === new Set(ids).size; });
-    return { entrySize, teamSize, n, deterministic: JSON.stringify(one) === JSON.stringify(two), valid, noRoundOverlap, quality: one.quality };
+    return { entrySize, teamSize, n, deterministic: JSON.stringify(one) === JSON.stringify(two), valid, noRoundOverlap, quality: one.quality, placementFields:['courtSpread','sideSpread','positionSpread','sameCourtStreaks','sameSideStreaks'].every(k=>Number.isFinite(one.quality[k])) };
   }), cases);
   for (const result of results) {
     expect(result.deterministic, JSON.stringify(result)).toBe(true);
     expect(result.valid, JSON.stringify(result)).toBe(true);
     expect(result.noRoundOverlap, JSON.stringify(result)).toBe(true);
+    expect(result.placementFields, JSON.stringify(result)).toBe(true);
     expect(result.quality.gamesMax - result.quality.gamesMin).toBeLessThanOrEqual(1);
     expect(result.quality.byesMax - result.quality.byesMin).toBeLessThanOrEqual(1);
     expect(result.quality.repeatedTeammates).toBeGreaterThanOrEqual(0);
     expect(result.quality.repeatedOpponents).toBeGreaterThanOrEqual(0);
   }
+});
+
+test('rotating placement avoids pinned courts and exactly balances a balanceable schedule without changing matchups', async ({ page }) => {
+  await seed(page, { playerCount: 24 }); await page.goto('/');
+  const result=await page.evaluate(()=>{
+    const entries=Array.from({length:12},(_,i)=>({id:`e${i}`,name:`Entry ${i}`,players:[`p${i*2}`,`p${i*2+1}`],manualSeed:i+1}));
+    const ev={id:'placement',format:'rotatingGroups',entries,rotation:{entrySize:2,teamSize:4,rounds:5,courts:3,seedMode:'manual',seed:'placement-seed',revision:1}};
+    const generated=generateRotationScheduleData(ev),again=generateRotationScheduleData(ev),generatedAudit=rotationPlacementAudit(generated.matches,entries.map(e=>e.id),3,2);
+    const balanceable=[];
+    for(let round=1;round<=4;round++)balanceable.push(
+      {id:`a${round}`,round,court:1,sideAEntryIds:['e0','e1'],sideBEntryIds:['e2','e3'],status:'pending'},
+      {id:`b${round}`,round,court:2,sideAEntryIds:['e4','e5'],sideBEntryIds:['e6','e7'],status:'pending'}
+    );
+    const materialBefore=rotationMaterialSignature(balanceable),placementBefore=rotationPlacementSignature(balanceable);
+    rebalanceRotationPlacements(balanceable,entries.slice(0,8).map(e=>e.id),2,2,0,'balanceable-seed','balanceable-v1');
+    const balanced=rotationPlacementAudit(balanceable,entries.slice(0,8).map(e=>e.id),2,2);
+    return {
+      deterministic:JSON.stringify(generated)===JSON.stringify(again),
+      noPinned:Object.values(generatedAudit.entries).every(e=>e.appearances<2||e.courts.filter(Boolean).length>1),
+      balanced:[balanced.courtSpread,balanced.sideSpread,balanced.positionSpread],
+      materialSame:rotationMaterialSignature(balanceable)===materialBefore,
+      placementChanged:rotationPlacementSignature(balanceable)!==placementBefore
+    };
+  });
+  expect(result).toMatchObject({deterministic:true,noPinned:true,balanced:[0,0,0],materialSame:true,placementChanged:true});
 });
 
 test('persisted schedule revisions vary material assignments while preserving legality and locked results', async ({ page }) => {
@@ -122,17 +148,40 @@ test('persisted schedule revisions vary material assignments while preserving le
     const base={id:'rot-revision',format:'rotatingGroups',entries,teams:[],brackets:[],rotation:{entrySize:2,teamSize:4,rounds:5,courts:3,seedMode:'manual',seed:'persisted-rotation',revision:1}};
     const one=generateRotationScheduleData(base),again=generateRotationScheduleData(base),two=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:2}});
     const cosmetic=one.matches.map(m=>({...m,court:100-m.court,sideAEntryIds:m.sideBEntryIds.slice().reverse(),sideBEntryIds:m.sideAEntryIds.slice().reverse()}));
-    const locked=one.matches.filter(m=>m.round<=2),remaining=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:3}},{lockedMatches:locked});
+    const locked=one.matches.filter(m=>m.round<=2),remaining=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:3}},{lockedMatches:locked}),biasedLocked=JSON.parse(JSON.stringify(locked)),target='e0';
+    for(const round of [1,2]){const ms=biasedLocked.filter(m=>m.round===round),targetMatch=ms.find(m=>[...m.sideAEntryIds,...m.sideBEntryIds].includes(target)),courtOne=ms.find(m=>m.court===1);if(targetMatch!==courtOne){const c=targetMatch.court;targetMatch.court=1;courtOne.court=c;}if(targetMatch.sideBEntryIds.includes(target)){const A=targetMatch.sideAEntryIds;targetMatch.sideAEntryIds=targetMatch.sideBEntryIds;targetMatch.sideBEntryIds=A;}targetMatch.sideAEntryIds=[target,...targetMatch.sideAEntryIds.filter(id=>id!==target)];}
+    const historyResult=generateRotationScheduleData({...base,rotation:{...base.rotation,revision:4}},{lockedMatches:biasedLocked}),historyAudit=rotationPlacementAudit(historyResult.matches,entries.map(e=>e.id),3,2).entries[target];
     const fixed={id:'fixed-revision',teams:Array.from({length:12},(_,i)=>({id:`t${i}`,name:`Team ${i}`,pool:i<6?'A':'B',players:[]})),brackets:[],sched:{start:'10:00',courts:4,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:'persisted-fixed',revision:1}};
     const f1=buildSchedule(fixed),fAgain=buildSchedule(fixed),f2=buildSchedule({...fixed,sched:{...fixed.sched,revision:2}}),fTiming=buildSchedule({...fixed,sched:{...fixed.sched,start:'14:00',setMin:60}});
     const noDoubles=sc=>sc.slots.every(slot=>{const ids=slot.flatMap(m=>[m.a,m.b]);return ids.length===new Set(ids).size;});
     return {
-      rotatingStable:JSON.stringify(one)===JSON.stringify(again),rotatingChanged:rotationMaterialSignature(one.matches)!==rotationMaterialSignature(two.matches),cosmeticIgnored:rotationMaterialSignature(one.matches)===rotationMaterialSignature(cosmetic),lockedPreserved:JSON.stringify(remaining.matches.filter(m=>m.round<=2))===JSON.stringify(locked),fair:[two.quality.gamesMax-two.quality.gamesMin,two.quality.byesMax-two.quality.byesMin],unique:two.matches.every(m=>new Set([...m.sideAEntryIds,...m.sideBEntryIds]).size===4),
+      rotatingStable:JSON.stringify(one)===JSON.stringify(again),rotatingChanged:rotationMaterialSignature(one.matches)!==rotationMaterialSignature(two.matches),cosmeticIgnored:rotationMaterialSignature(one.matches)===rotationMaterialSignature(cosmetic),placementDetected:rotationPlacementSignature(one.matches)!==rotationPlacementSignature(cosmetic),lockedPreserved:JSON.stringify(remaining.matches.filter(m=>m.round<=2))===JSON.stringify(locked),biasedLockedPreserved:JSON.stringify(historyResult.matches.filter(m=>m.round<=2))===JSON.stringify(biasedLocked),lockedHistoryUsed:historyAudit.courts.filter(Boolean).length>1&&historyAudit.sideB>0&&historyAudit.otherPositions>0,fair:[two.quality.gamesMax-two.quality.gamesMin,two.quality.byesMax-two.quality.byesMin],unique:two.matches.every(m=>new Set([...m.sideAEntryIds,...m.sideBEntryIds]).size===4),
       fixedStable:fixedScheduleOrderSignature(f1)===fixedScheduleOrderSignature(fAgain),fixedChanged:fixedScheduleOrderSignature(f1)!==fixedScheduleOrderSignature(f2),fixedSet:fixedMatchupSetSignature(f1)===fixedMatchupSetSignature(f2),fixedTiming:fixedScheduleOrderSignature(f1)===fixedScheduleOrderSignature(fTiming),fixedLegal:noDoubles(f1)&&noDoubles(f2),pools:f2.slots.flat().every(m=>fixed.teams.find(t=>t.id===m.a).pool===fixed.teams.find(t=>t.id===m.b).pool)
     };
   });
-  expect(result).toMatchObject({rotatingStable:true,rotatingChanged:true,cosmeticIgnored:true,lockedPreserved:true,unique:true,fixedStable:true,fixedChanged:true,fixedSet:true,fixedTiming:true,fixedLegal:true,pools:true});
+  expect(result).toMatchObject({rotatingStable:true,rotatingChanged:true,cosmeticIgnored:true,placementDetected:true,lockedPreserved:true,biasedLockedPreserved:true,lockedHistoryUsed:true,unique:true,fixedStable:true,fixedChanged:true,fixedSet:true,fixedTiming:true,fixedLegal:true,pools:true});
   expect(result.fair[0]).toBeLessThanOrEqual(1); expect(result.fair[1]).toBeLessThanOrEqual(1);
+});
+
+test('fixed schedules balance team placement for odd and even fields and preserve a started slot exactly', async ({ page }) => {
+  await seed(page); await page.goto('/');
+  const result=await page.evaluate(()=>{
+    const make=n=>({id:`fixed-${n}`,teams:Array.from({length:n},(_,i)=>({id:`t${n}-${i}`,name:`Team ${i}`,pool:'A',players:[]})),brackets:[],sched:{start:'10:00',courts:2,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:`fixed-placement-${n}`,revision:1}});
+    const legal=sc=>sc.plannedSlots.every(slot=>{const ids=slot.flatMap(m=>[m.a,m.b]),courts=slot.map(m=>m.court);return ids.length===new Set(ids).size&&courts.length===new Set(courts).size;});
+    const odd=make(5),even=make(6),oddSchedule=buildSchedule(odd,[]),evenSchedule=buildSchedule(even,[]),started=evenSchedule.plannedSlots[0][0],gameList=[{id:'started',date:1,evId:even.id,evA:started.a,evB:started.b}],locks=fixedLockedMatchesThroughStartedRound(even,evenSchedule,gameList),lockedBefore=JSON.stringify(evenSchedule.plannedSlots[0]);
+    let regenerated=null;
+    for(let revision=2;revision<20&&!regenerated;revision++){const candidate={...even,sched:{...even.sched,revision,lockedMatches:locks}},sc=buildSchedule(candidate,gameList);if(fixedScheduleOrderSignature(sc)!==fixedScheduleOrderSignature(buildSchedule({...even,sched:{...even.sched,lockedMatches:locks}},gameList)))regenerated=sc;}
+    return {
+      oddQuality:oddSchedule.placementQuality,evenQuality:evenSchedule.placementQuality,
+      legal:legal(oddSchedule)&&legal(evenSchedule)&&!!regenerated&&legal(regenerated),
+      locked:!!regenerated&&JSON.stringify(regenerated.plannedSlots[0])===lockedBefore,
+      lockedPlacement:!!regenerated&&fixedSchedulePlacementSignature({plannedSlots:[regenerated.plannedSlots[0]]})===fixedSchedulePlacementSignature({plannedSlots:[evenSchedule.plannedSlots[0]]}),
+      futureChanged:!!regenerated&&fixedScheduleOrderSignature(regenerated)!==fixedScheduleOrderSignature(buildSchedule({...even,sched:{...even.sched,lockedMatches:locks}},gameList))
+    };
+  });
+  expect(result.legal).toBe(true);expect(result.locked).toBe(true);expect(result.lockedPlacement).toBe(true);expect(result.futureChanged).toBe(true);
+  expect(result.oddQuality.courtSpread).toBeLessThanOrEqual(1);expect(result.oddQuality.sideSpread).toBeLessThanOrEqual(1);
+  expect(result.evenQuality.courtSpread).toBeLessThanOrEqual(1);expect(result.evenQuality.sideSpread).toBeLessThanOrEqual(1);
 });
 
 test('legacy events migrate schedule state in memory without rewriting stored backups', async ({ page }) => {
@@ -150,8 +199,8 @@ test('regeneration actions preserve saved games and completed rotating match IDs
     const entries=Array.from({length:12},(_,i)=>({id:`re${i}`,name:`Entry ${i}`,players:[`p${i*2}`,`p${i*2+1}`],manualSeed:i+1}));
     const rot={id:'action-rot',name:'Action Rot',format:'rotatingGroups',entries,teams:[],brackets:[],rotation:{entrySize:2,teamSize:4,rounds:5,courts:3,seedMode:'manual',seed:'action-seed',revision:1},rotationSchedule:[]};
     const made=generateRotationScheduleData(rot);rot.rotationSchedule=made.matches;rot.rotationScheduleQuality=made.quality;
-    const locked=rot.rotationSchedule.find(m=>m.round===1),fixed={id:'action-fixed',name:'Action Fixed',teams:Array.from({length:6},(_,i)=>({id:`ft${i}`,name:`Fixed ${i}`,pool:'A',players:[]})),brackets:[],sched:{start:'10:00',courts:3,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:'fixed-action',revision:1}};
-    evts=[rot,fixed];games=[{id:'saved-rotation',date:1,teamA:locked.sideAEntryIds.flatMap(id=>entryById(rot,id).players),teamB:locked.sideBEntryIds.flatMap(id=>entryById(rot,id).players),scoreA:25,scoreB:20,winner:'A',log:{},evId:rot.id,evMatchId:locked.id,evEntryIdsA:locked.sideAEntryIds.slice(),evEntryIdsB:locked.sideBEntryIds.slice(),eventFormat:'rotatingGroups'},{id:'saved-fixed',date:2,teamA:[],teamB:[],scoreA:21,scoreB:18,winner:'A',log:{},evId:fixed.id,evA:'ft0',evB:'ft1'}];
+    const locked=rot.rotationSchedule.find(m=>m.round===1),fixed={id:'action-fixed',name:'Action Fixed',teams:Array.from({length:6},(_,i)=>({id:`ft${i}`,name:`Fixed ${i}`,pool:'A',players:[]})),brackets:[],sched:{start:'10:00',courts:3,courtStyle:'num',setMin:20,matchMin:45,breakMin:10,seed:'fixed-action',revision:1}},fixedFirst=buildSchedule(fixed,[]).plannedSlots[0][0];
+    evts=[rot,fixed];games=[{id:'saved-rotation',date:1,teamA:locked.sideAEntryIds.flatMap(id=>entryById(rot,id).players),teamB:locked.sideBEntryIds.flatMap(id=>entryById(rot,id).players),scoreA:25,scoreB:20,winner:'A',log:{},evId:rot.id,evMatchId:locked.id,evEntryIdsA:locked.sideAEntryIds.slice(),evEntryIdsB:locked.sideBEntryIds.slice(),eventFormat:'rotatingGroups'},{id:'saved-fixed',date:2,teamA:[],teamB:[],scoreA:21,scoreB:18,winner:'A',log:{},evId:fixed.id,evA:fixedFirst.a,evB:fixedFirst.b}];
     const beforeGames=JSON.stringify(games),lockedBefore=JSON.stringify(rot.rotationSchedule.filter(m=>m.round<=1)),rotBefore=rotationMaterialSignature(rot.rotationSchedule.filter(m=>m.round>1)),fixedBefore=fixedScheduleOrderSignature(buildSchedule(fixed));
     window.askConfirm=async()=>true;await window.generateRotationSchedule(rot.id);await window.regenerateFixedSchedule(fixed.id);
     return {gamesSame:JSON.stringify(games)===beforeGames,lockedSame:JSON.stringify(rot.rotationSchedule.filter(m=>m.round<=1))===lockedBefore,rotChanged:rotationMaterialSignature(rot.rotationSchedule.filter(m=>m.round>1))!==rotBefore,fixedChanged:fixedScheduleOrderSignature(buildSchedule(fixed))!==fixedBefore,versions:[rot.rotation.revision,fixed.sched.revision],ids:games.map(g=>g.evMatchId||g.id)};
