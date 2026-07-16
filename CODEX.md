@@ -14,6 +14,18 @@ Current architecture:
 - Browser tests: Playwright.
 - Test command: npm test.
 
+Current behavior:
+- Data is local-first and backed up/restored as JSON.
+- Ratings recompute deterministically from saved games.
+- Players with historical games are archived instead of destructively deleted.
+- Inactive and archived players are excluded from active tracking/team-generation pools.
+- Tracking supports full games, partial games with `unkA`/`unkB` untracked slot counts, and solo/scout entries.
+- Tied games can be saved but do not affect ratings, records, or games played.
+- Court Level labels use Rec, C, B, BB, A, and AA/Open.
+- Hide ratings / stealth mode and player insight/stat cards exist.
+- Event/tournament support exists with fixed teams, pools, standings, brackets, guest teams, and court/schedule projections.
+- Event games carry metadata such as `evId`, `evA`, `evB`, `label`, and `matchId`; rating replay ignores those fields.
+
 Priorities:
 1. Preserve historical rating integrity.
 2. Keep the app easy to use on mobile.
@@ -23,13 +35,20 @@ Priorities:
 6. Keep the UI clean and fast.
 7. Do not rewrite the whole app unless explicitly requested.
 
-Known issues:
-- Hard-deleting players can distort historical rating recomputation.
-- Older backups may not set active=true for players.
-- Inactive players can remain in the team pool.
-- Tied games are saved but ignored by rating/event replay.
-- Editing seed ratings rewrites historical rating history.
-- teamSize exists in settings but is not currently used.
+Next focus:
+- Remove hard UI caps for team generation, players-per-side formats, event courts, pools, bracket seeds, and match formats.
+- Keep mobile-friendly presets while adding custom values for unusual formats.
+- Preserve validation for impossible states.
+- Keep rating math unchanged unless explicitly requested.
+- Add self-test and Playwright coverage with behavior changes.
+
+Do not regress:
+- Historical rating replay must remain deterministic.
+- Archived players must remain available to historical games and replay.
+- Inactive and archived players must not enter active generation pools or tracking setup.
+- Untracked slots must remain counts, not roster players.
+- Tied games must not move ratings.
+- Event/tournament metadata must not change ratings by itself.
 
 When changing code:
 - Explain the behavior change first.
