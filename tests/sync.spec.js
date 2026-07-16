@@ -13,7 +13,7 @@ function game(id, date, extra = {}) {
 }
 
 function deletionRegistry(overrides = {}) {
-  return { games: {}, players: {}, events: {}, eventTeams: {}, eventEntries: {}, eventBrackets: {}, ...overrides };
+  return { games: {}, players: {}, events: {}, eventTeams: {}, eventEntries: {}, eventBrackets: {}, eventScheduleMatches: {}, ...overrides };
 }
 
 function fixedEvent(id, extra = {}) {
@@ -291,7 +291,7 @@ test('remote event deletion removes the local event but preserves and detaches i
   });
 });
 
-test('nested delete actions create markers, clear schedules, and retain linked protections', async ({ page }) => {
+test('nested delete actions create markers, flag retained schedules, and retain linked protections', async ({ page }) => {
   const fixed = fixedEvent('fixed-nested', {
     teams: [{ id: 'team-free', name: 'Free', players: [] }, { id: 'team-linked', name: 'Linked', players: [] }],
     brackets: [{ id: 'bracket-free', name: 'Playoffs', created: 2, seeds: ['team-free', 'team-linked'] }]
@@ -318,13 +318,15 @@ test('nested delete actions create markers, clear schedules, and retain linked p
     const fixed = evById('fixed-nested'), rotating = evById('rotating-nested');
     return {
       teams: fixed.teams.map(t => t.id), entries: rotating.entries.map(e => e.id), brackets: fixed.brackets.map(b => b.id),
-      schedule: rotating.rotationSchedule, deletions: Sync.deletionState()
+      schedule: rotating.rotationSchedule, scheduleNeedsReview: rotating.rotation.scheduleNeedsReview, deletions: Sync.deletionState()
     };
   });
   expect(result.teams).toEqual(['team-linked']);
   expect(result.entries).toEqual(['entry-linked', 'entry-other']);
   expect(result.brackets).toEqual([]);
-  expect(result.schedule).toEqual([]);
+  expect(result.schedule).toHaveLength(1);
+  expect(result.schedule[0]).toMatchObject({ id: 'round-1', scheduleBlock: 'standard' });
+  expect(result.scheduleNeedsReview).toBe(true);
   expect(result.deletions.eventTeams['team-free']).toBeGreaterThan(0);
   expect(result.deletions.eventTeams).not.toHaveProperty('team-linked');
   expect(result.deletions.eventEntries['entry-free']).toBeGreaterThan(0);
