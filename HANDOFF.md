@@ -43,6 +43,13 @@ App behavior verified against current index.html:
 - Added event/tournament support: fixed teams, pools, standings, brackets, guest teams, schedule/court projections, and event backup/export.
 - Tightened fixed-teams schedule packing and balanced court assignment. buildSchedule now tries 32 deterministic candidate orderings derived from the schedule seed (candidate 0 is the old single-ordering greedy, so packing can never be worse), keeps the fewest-slot result, and reassigns courts within each slot so per-court totals stay within one match. Example: 8 teams in 2 pools of 4 on 3 courts now packs 4 slots of 3 with courts loaded 4/4/4 (was 5 slots loaded 5/4/3).
 - Made the fixed-teams schedule plan stable while games are logged. The candidate packer runs only on the full matchup set; the pending view is a filtered copy of the frozen plan, so logging, editing, or deleting a result never moves a remaining match to a different court or reorders it — only time estimates re-anchor and emptied rounds compress in time. A slot left partially empty by a played match keeps its surviving matches on their planned courts (an idle court in a round is correct, not something to optimize away).
+- Added preview-first fixed-team pool seeding with deterministic shuffle, rating-based snake, manual-rank snake, and fresh random modes. The optional event-root `poolSeedMode` field records the last applied mode; missing or undefined means `shuffle`, so existing events need no migration and retain their prior behavior.
+
+## Fixed-team pool seeding boundary
+
+Pool seeding only computes and applies `team.pool` labels through the existing pool-assignment path. Rating-based snake uses current non-archived roster ratings, gives unrated/guest teams the median known team strength, and falls back to deterministic shuffle when every team is unrated. Manual mode snakes organizer-entered strength ranks; Random creates a fresh preview each invocation.
+
+`buildSchedule`, `assignFixedScheduleSlots`, `eventStandings`, the rating engine, and all bracket seeding/state helpers are unchanged. Schedules continue to consume `team.pool`, standings continue to use saved results, and brackets continue to seed from pool results or explicit organizer order—not team ratings or `poolSeedMode`.
 
 ## Fixed-teams scheduler baseline
 
