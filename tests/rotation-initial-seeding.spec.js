@@ -206,7 +206,7 @@ test('future-round regeneration preserves the snapshot and full regeneration rep
   expect(Object.values(result.firstFullSeeds).slice().sort((a, b) => a - b)).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
 });
 
-test('entry and seed-mode changes clear an unplayed schedule and stale snapshot', async ({ page }) => {
+test('entry changes retain and flag schedules while seed-mode changes clear the unplayed plan', async ({ page }) => {
   const events = ['add', 'edit', 'delete', 'mode'].map(id => rotatingEvent(id));
   await seed(page, { events });
   await page.goto('/');
@@ -232,21 +232,26 @@ test('entry and seed-mode changes clear an unplayed schedule and stale snapshot'
 
     openRotationSettings('mode');
     document.querySelector('#rotationSeedMode').value = 'manual';
+    scheduleFairnessChanged('allowDifference');
     await saveRotationSettings('mode');
 
     return Object.fromEntries(evts.map(ev => [ev.id, {
       schedule: rotationSchedule(ev).length,
       initialSeeds: ev.rotation.initialSeeds,
+      scheduleNeedsReview: ev.rotation.scheduleNeedsReview,
       entries: ev.entries.length,
       seedMode: ev.rotation.seedMode
     }]));
   });
 
-  expect(result.add).toMatchObject({ schedule: 0, entries: 9 });
-  expect(result.edit).toMatchObject({ schedule: 0, entries: 8 });
-  expect(result.delete).toMatchObject({ schedule: 0, entries: 7 });
+  expect(result.add).toMatchObject({ schedule: 6, entries: 9, scheduleNeedsReview: true });
+  expect(result.edit).toMatchObject({ schedule: 6, entries: 8, scheduleNeedsReview: true });
+  expect(result.delete).toMatchObject({ schedule: 6, entries: 7, scheduleNeedsReview: true });
   expect(result.mode).toMatchObject({ schedule: 0, entries: 8, seedMode: 'manual' });
-  for (const state of Object.values(result)) expect(state.initialSeeds).toBeUndefined();
+  expect(result.add.initialSeeds).toBeDefined();
+  expect(result.edit.initialSeeds).toBeDefined();
+  expect(result.delete.initialSeeds).toBeDefined();
+  expect(result.mode.initialSeeds).toBeUndefined();
 });
 
 test('legacy snapshots are optional and hidden ratings never leak through seed labels', async ({ page }) => {

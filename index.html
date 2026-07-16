@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.3">
+<meta name="court-build" content="20260716.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -511,6 +511,16 @@
   /* Participant-facing schedule preview. The exported HTML document uses the
      same hierarchy, so the in-app review matches the one-file artifact. */
   .schedule-actions{display:grid;gap:8px;margin-top:10px}
+  .fairness-panel{margin-top:10px;padding:12px;border:1px solid #f2c66d45;border-radius:14px;background:#f2c66d0b}
+  .fairness-panel.good{border-color:#5fe3ae42;background:#5fe3ae0a}
+  .fairness-options{display:grid;gap:8px;margin-top:10px}
+  .fairness-option{display:flex;align-items:flex-start;gap:9px;width:100%;padding:11px;border:1px solid #ffffff18;border-radius:13px;background:#00000020;text-align:left;color:var(--text)}
+  .fairness-option:has(input:checked){border-color:#f2c66d88;background:#f2c66d12;box-shadow:inset 0 0 0 1px #f2c66d33}
+  .fairness-option input{flex:none;margin-top:3px;accent-color:var(--gold)}
+  .fairness-option-copy{display:block;min-width:0}.fairness-option-copy>b{display:block;font-size:13px}.fairness-option-copy>span{display:block;margin-top:3px;color:var(--muted);font-size:11px;line-height:1.42}
+  .fairness-math{margin-top:8px;color:var(--faint);font-size:11px;line-height:1.45}
+  .makeup-label{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;background:#f2c66d18;border:1px solid #f2c66d45;color:var(--gold);font-size:9px;font-weight:850;letter-spacing:.05em;text-transform:uppercase}
+  .schedule-warning{margin-top:8px;padding:9px 10px;border-radius:11px;border:1px solid #ff8d7a55;background:#ff8d7a0d;color:#ffc1b7;font-size:11px;line-height:1.45}
   .schedule-preview{clear:both;color:#172033;background:#f7f9fd;border-radius:18px;padding:18px 14px;margin-top:4px}
   .schedule-preview-head{padding-bottom:14px;border-bottom:2px solid #dce3ef}
   .schedule-preview-kicker{font-size:10px;font-weight:850;letter-spacing:.14em;text-transform:uppercase;color:#9a6c16}
@@ -741,9 +751,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.5.1',
-  build: '20260716.3',
-  releaseNotes: 'Synced deletions now cover events and all persisted deletable records.'
+  version: '0.6.0',
+  build: '20260716.4',
+  releaseNotes: 'Added equal-game schedule planning, makeup matches, custom event matches, and fairness warnings for fixed and rotating events.'
 });
 
 function appVersionLabel(){
@@ -2713,6 +2723,82 @@ function evById(id){ return evts.find(e=>e.id===id); }
 function evTeamById(ev,tid){ return (ev.teams||[]).find(t=>t.id===tid); }
 function evGameCount(ev){ return games.filter(g=>g.evId===ev.id).length; }
 function eventFormat(ev){ return ev&&(ev.format==='rotatingGroups'||ev.format==='rotatingPairs4s')?'rotatingGroups':'fixedTeams'; }
+const FAIRNESS_POLICIES=Object.freeze(['equalGames','allowDifference']);
+function scheduleFairnessPolicy(value){return value==='equalGames'?'equalGames':'allowDifference';}
+function hasExplicitFairnessPolicy(value){return !!(value&&FAIRNESS_POLICIES.includes(value.fairnessPolicy));}
+function scheduleBlockOf(match){return match?.scheduleBlock==='makeup'?'makeup':match?.scheduleBlock==='custom'?'custom':'standard';}
+function isStandardScheduleMatch(match){return scheduleBlockOf(match)==='standard';}
+function isMakeupScheduleMatch(match){return scheduleBlockOf(match)==='makeup';}
+function isCustomScheduleMatch(match){return scheduleBlockOf(match)==='custom'||match?.custom===true;}
+function integerGcd(a,b){a=Math.abs(Math.trunc(a));b=Math.abs(Math.trunc(b));while(b){const t=a%b;a=b;b=t;}return a;}
+function appearanceDistribution(counts){
+  const grouped={};Object.values(counts||{}).forEach(value=>{const n=Math.max(0,Math.trunc(Number(value)||0));grouped[n]=(grouped[n]||0)+1;});
+  return Object.keys(grouped).map(Number).sort((a,b)=>b-a).map(games=>({participantCount:grouped[games],games}));
+}
+/* Pure integer participation planner shared by fixed and rotating formats.
+   It predicts the fairest possible standard distribution; generators still
+   validate the actual composition before appending any makeup matches. */
+function analyzeScheduleParticipation({participantIds=[],standardRounds=0,courts=0,participantsPerMatch=0,matchesPerRound=null,fairnessPolicy='allowDifference'}={}){
+  const ids=[...new Set((participantIds||[]).filter(id=>id!=null))],participantCount=ids.length,perMatch=Math.trunc(Number(participantsPerMatch)||0),rounds=Math.max(0,Math.trunc(Number(standardRounds)||0)),requestedCourts=Math.max(0,Math.trunc(Number(courts)||0));
+  if(!participantCount)return {valid:false,error:'Add participants before planning schedule fairness.',participantCount,participantsPerMatch:perMatch,standardRounds:rounds,courts:requestedCourts,usableMatchesPerRound:0};
+  if(perMatch<2)return {valid:false,error:'A scheduled match needs at least two participants.',participantCount,participantsPerMatch:perMatch,standardRounds:rounds,courts:requestedCourts,usableMatchesPerRound:0};
+  if(participantCount<perMatch)return {valid:false,error:`At least ${perMatch} participants are required for one match.`,participantCount,participantsPerMatch:perMatch,standardRounds:rounds,courts:requestedCourts,usableMatchesPerRound:0};
+  if(!rounds||!requestedCourts)return {valid:false,error:'Choose at least one round and one court.',participantCount,participantsPerMatch:perMatch,standardRounds:rounds,courts:requestedCourts,usableMatchesPerRound:0};
+  const capacity=Math.floor(participantCount/perMatch),requestedMatches=matchesPerRound==null?requestedCourts:Math.max(0,Math.trunc(Number(matchesPerRound)||0)),usableMatchesPerRound=Math.min(requestedCourts,requestedMatches,capacity),standardMatchCount=rounds*usableMatchesPerRound,standardAppearanceCount=standardMatchCount*perMatch,minimumGames=Math.floor(standardAppearanceCount/participantCount),appearanceRemainder=standardAppearanceCount%participantCount,maximumGames=minimumGames+(appearanceRemainder?1:0),equalParticipationPossible=appearanceRemainder===0;
+  let makeupMatchCount=0;
+  if(!equalParticipationPossible){
+    const cycle=Math.max(1,participantCount/integerGcd(participantCount,perMatch));
+    for(let extra=1;extra<=cycle;extra++){if((standardAppearanceCount+extra*perMatch)%participantCount===0){makeupMatchCount=extra;break;}}
+  }
+  const equalAppearanceCount=standardAppearanceCount+makeupMatchCount*perMatch,targetGamesForEqualMode=equalAppearanceCount/participantCount,distribution=appearanceRemainder?[{participantCount:appearanceRemainder,games:maximumGames},{participantCount:participantCount-appearanceRemainder,games:minimumGames}]:[{participantCount,games:minimumGames}];
+  return {valid:true,participantIds:ids,participantCount,participantsPerMatch:perMatch,standardRounds:rounds,courts:requestedCourts,usableMatchesPerRound,standardMatchCount,standardAppearanceCount,minimumGames,maximumGames,appearanceRemainder,equalParticipationPossible,targetGamesForEqualMode,makeupMatchCount,makeupAppearanceCount:makeupMatchCount*perMatch,equalAppearanceCount,distribution,fairnessPolicy:scheduleFairnessPolicy(fairnessPolicy),gameDifference:maximumGames-minimumGames};
+}
+function composeDeficitMatches(deficits,participantsPerMatch,matchCount){
+  const left={...deficits},ids=Object.keys(left),out=[];
+  for(let index=0;index<matchCount;index++){
+    const remaining=matchCount-index,candidates=ids.filter(id=>left[id]>0).sort((a,b)=>left[b]-left[a]||String(a).localeCompare(String(b)));
+    if(candidates.length<participantsPerMatch||candidates.some(id=>left[id]>remaining))return null;
+    const selected=candidates.slice(0,participantsPerMatch);selected.forEach(id=>left[id]--);out.push(selected);
+  }
+  return Object.values(left).every(v=>v===0)?out:null;
+}
+function findBalancedMakeupPlan(participantIds,appearanceCounts,participantsPerMatch,theoreticalMinimum=0){
+  const ids=[...new Set(participantIds||[])],counts=Object.fromEntries(ids.map(id=>[id,Math.max(0,Math.trunc(Number(appearanceCounts?.[id])||0))])),standardAppearanceCount=Object.values(counts).reduce((sum,n)=>sum+n,0),start=Math.max(0,Math.trunc(Number(theoreticalMinimum)||0));
+  if(ids.length<participantsPerMatch)return {valid:false,error:`At least ${participantsPerMatch} participants are required for a valid match.`};
+  const cycle=Math.max(1,ids.length/integerGcd(ids.length,participantsPerMatch));
+  for(let matchCount=start;matchCount<=start+cycle*2;matchCount++){
+    const total=standardAppearanceCount+matchCount*participantsPerMatch;if(total%ids.length)continue;
+    const targetGames=total/ids.length;if(Object.values(counts).some(n=>n>targetGames))continue;
+    const deficits=Object.fromEntries(ids.map(id=>[id,targetGames-counts[id]]));
+    if(Math.max(...Object.values(deficits))>matchCount)continue;
+    const matches=composeDeficitMatches(deficits,participantsPerMatch,matchCount);if(matches)return {valid:true,matchCount,targetGames,deficits,matches};
+  }
+  return {valid:false,error:'Court could not compose valid makeup matches without scheduling a participant twice in one match.'};
+}
+function participationAudit(participantIds,matches,getIds,fairnessPolicy){
+  const ids=[...new Set(participantIds||[])],counts=Object.fromEntries(ids.map(id=>[id,0])),standardMatches=[],makeupMatches=[];
+  (matches||[]).forEach(match=>{const block=scheduleBlockOf(match);if(block==='makeup')makeupMatches.push(match);else if(block==='standard')standardMatches.push(match);const seen=new Set(getIds(match));seen.forEach(id=>{if(Object.prototype.hasOwnProperty.call(counts,id))counts[id]++;});});
+  const values=Object.values(counts),gamesMin=values.length?Math.min(...values):0,gamesMax=values.length?Math.max(...values):0;
+  return {counts,distribution:appearanceDistribution(counts),gamesMin,gamesMax,gameDifference:gamesMax-gamesMin,standardMatchCount:standardMatches.length,makeupMatchCount:makeupMatches.length,equalGamesAchieved:!!values.length&&gamesMin===gamesMax,targetGames:gamesMin===gamesMax?gamesMin:null,fairnessPolicy:scheduleFairnessPolicy(fairnessPolicy)};
+}
+function fairnessDistributionLabel(distribution,noun){return (distribution||[]).map(row=>`${row.participantCount} ${noun}${row.participantCount===1?'':'s'} × ${row.games} game${row.games===1?'':'s'}`).join(' · ');}
+function scheduleFairnessAuditHtml(audit,noun){
+  if(!audit)return '';const range=audit.gamesMin===audit.gamesMax?String(audit.gamesMin):`${audit.gamesMin}–${audit.gamesMax}`,status=audit.equalGamesAchieved?'Equal games':'Unequal by organizer choice',short=(audit.distribution||[]).filter(row=>row.games<audit.gamesMax).reduce((n,row)=>n+row.participantCount,0);
+  return `<div class="fairness-panel ${audit.equalGamesAchieved?'good':''}" data-schedule-fairness-audit><b>${audit.equalGamesAchieved?'Participation':'Participation warning'}</b>${audit.scheduleNeedsReview?`<div class="schedule-warning" role="status">Schedule needs review. The saved match list no longer matches the selected fairness policy.</div>`:''}<div class="tiny soft" style="margin-top:6px">Games per ${noun}: ${range} · Makeup matches: ${audit.makeupMatchCount||0} · Standard byes: ${audit.byesMin??0}${audit.byesMax!==audit.byesMin?`–${audit.byesMax}`:''} · Game-count difference: ${audit.gameDifference}</div>${short?`<div class="tiny" style="margin-top:5px;color:var(--gold)">${short} ${noun}${short===1?'':'s'} play one fewer match. Standings use win percentage first.</div>`:''}<div class="tiny faint" style="margin-top:5px">Repeated opponents: ${audit.repeatedOpponents||0}${audit.repeatedTeammates!=null?` · Repeated teammates: ${audit.repeatedTeammates}`:''} · Consecutive-play warnings: ${audit.consecutivePlayCount??audit.backToBack??0} · Status: ${status}</div></div>`;
+}
+function practicalScheduleAlternatives(plan){
+  if(!plan?.valid||plan.equalParticipationPossible)return [];const out=[],seen=new Set(),add=(key,label)=>{if(!seen.has(key)&&out.length<3){seen.add(key);out.push(label);}};
+  for(let delta=1;delta<=3;delta++)for(const rounds of [plan.standardRounds-delta,plan.standardRounds+delta]){if(rounds>0&&(rounds*plan.usableMatchesPerRound*plan.participantsPerMatch)%plan.participantCount===0)add(`r${rounds}`,`${rounds} rounds · equal without makeup`);}
+  const capacity=Math.floor(plan.participantCount/plan.participantsPerMatch);for(let courts=1;courts<=Math.min(capacity,plan.courts+3);courts++){if(courts!==plan.courts&&(plan.standardRounds*courts*plan.participantsPerMatch)%plan.participantCount===0)add(`c${courts}`,`${courts} courts for ${plan.standardRounds} rounds · equal without makeup`);}
+  return out;
+}
+function scheduleFairnessPreviewHtml(plan,{noun='team',rounds=plan?.standardRounds,setMin=25,start='',eventDate=todayLocalDate(),selected=''}={}){
+  if(!plan?.valid)return `<div class="schedule-warning" role="status">${esc(plan?.error||'Schedule fairness cannot be calculated yet.')}</div>`;
+  const plural=noun+(noun.endsWith('s')?'':'s'),distribution=fairnessDistributionLabel(plan.distribution,noun),why=`${plan.usableMatchesPerRound} match${plan.usableMatchesPerRound===1?'':'es'} × ${plan.standardRounds} rounds × ${plan.participantsPerMatch} ${plural} per match = ${plan.standardAppearanceCount} scheduled appearances.`;
+  if(plan.equalParticipationPossible){const byes=Math.max(0,rounds-plan.minimumGames);return `<div class="fairness-panel good" data-fairness-state="equal"><b>Equal participation is possible.</b><div class="small soft" style="margin-top:4px">Each ${noun} will play ${plan.minimumGames} match${plan.minimumGames===1?'':'es'}${byes?` with ${byes} standard bye${byes===1?'':'s'}`:''}.</div><div class="fairness-math">${esc(why)}</div></div>`;}
+  const blocks=Math.ceil(plan.makeupMatchCount/Math.max(1,plan.usableMatchesPerRound)),minutes=blocks*Math.max(5,positiveInt(setMin,25)),anchor=start?combineLocalDateTime(eventDate,start):null,makeupStart=anchor==null?null:fmtClock(addLocalMinutes(anchor,rounds*Math.max(5,positiveInt(setMin,25)))),finish=anchor==null?null:fmtClock(addLocalMinutes(anchor,rounds*Math.max(5,positiveInt(setMin,25))+minutes)),courtUse=Array.from({length:blocks},(_,i)=>Math.min(plan.usableMatchesPerRound,plan.makeupMatchCount-i*plan.usableMatchesPerRound)).filter(n=>n>0).join(', ');
+  const alternatives=practicalScheduleAlternatives(plan);return `<div class="fairness-panel" data-fairness-state="unequal"><b>Equal games require ${plan.makeupMatchCount} makeup match${plan.makeupMatchCount===1?'':'es'}.</b><div class="small soft" style="margin-top:5px">With ${rounds} standard rounds: ${esc(distribution)}.</div><div class="fairness-options" role="radiogroup" aria-label="Schedule fairness"><label class="fairness-option"><input type="radio" name="fairnessPolicy" value="equalGames" ${selected==='equalGames'?'checked':''} onchange="scheduleFairnessChanged(this.value)"><span class="fairness-option-copy"><b>Equal games · Recommended</b><span>Add ${plan.makeupMatchCount} makeup match${plan.makeupMatchCount===1?'':'es'} so every ${noun} plays ${plan.targetGamesForEqualMode}. ${blocks} makeup time block${blocks===1?'':'s'} using ${courtUse} court${courtUse==='1'?'':'s'}${makeupStart?` · ${makeupStart}–${finish}`:''}.</span></span></label><label class="fairness-option"><input type="radio" name="fairnessPolicy" value="allowDifference" ${selected==='allowDifference'?'checked':''} onchange="scheduleFairnessChanged(this.value)"><span class="fairness-option-copy"><b>Keep exactly ${rounds} rounds</b><span>Do not add makeup matches. ${esc(distribution)}. Standings rank by win percentage first.</span></span></label></div><div class="fairness-math">${esc(why)} The next equal total is ${plan.equalAppearanceCount}, so ${plan.makeupMatchCount} additional match${plan.makeupMatchCount===1?' is':'es are'} needed.</div>${alternatives.length?`<div class="tiny faint" style="margin-top:8px"><b>Nearby alternatives:</b> ${alternatives.map(esc).join(' · ')}</div>`:''}</div>`;
+}
 const DEFAULT_ROTATION={entrySize:2,teamSize:4,rounds:3,courts:1,seedMode:'rating',standingsMode:'standard',winPoints:1,tiePoints:.5,lossPoints:0,start:'',setMin:25,matchMin:45,breakMin:15,tiebreakers:['winPct','standingsPoints','pointDiff','pointsFor']};
 function rotationSettings(ev){
   const legacy=ev?.pairSettings||{};
@@ -2720,7 +2806,7 @@ function rotationSettings(ev){
 }
 function rotatingEntries(ev){ return (ev?.entries||ev?.pairs||[]); }
 function entryById(ev,id){ return rotatingEntries(ev).find(entry=>entry.id===id); }
-function normalizedRotationMatch(match){ return {...match,sideAEntryIds:(match.sideAEntryIds||match.pairIdsA||[]).slice(),sideBEntryIds:(match.sideBEntryIds||match.pairIdsB||[]).slice()}; }
+function normalizedRotationMatch(match){ return {...match,sideAEntryIds:(match?.sideAEntryIds||match?.pairIdsA||[]).slice(),sideBEntryIds:(match?.sideBEntryIds||match?.pairIdsB||[]).slice(),scheduleBlock:scheduleBlockOf(match)}; }
 function rotationSchedule(ev){ return (ev?.rotationSchedule||ev?.pairSchedule||[]).map(normalizedRotationMatch); }
 function entriesPerSide(ev){ const r=rotationSettings(ev); return r.teamSize/r.entrySize; }
 function rotatingEntryLabel(size,plural=false){ const one=size===1?'Individual':size===2?'Pair':size===3?'Trio':'Group'; return plural?one+(one==='Individual'?'s':one==='Pair'?'s':one==='Trio'?'s':'s'):one; }
@@ -2919,7 +3005,7 @@ function generateRotationScheduleCandidate(ev,opts={}){
     const courtChoices=Array.from({length:roundMatches.length},(_,i)=>i+1),assignedCourts=choosePlacementCourts(roundMatches,courtChoices,placement,`${seed}:r${round}:courts`);
     const placed=roundMatches.map((raw,i)=>{
       const court=assignedCourts[i],oriented=choosePlacementSides(raw,placement,`${seed}:r${round}:c${court}:sides`),sideAEntryIds=choosePlacementOrder(oriented.A,placement,`${seed}:r${round}:c${court}:A`,'A'),sideBEntryIds=choosePlacementOrder(oriented.B,placement,`${seed}:r${round}:c${court}:B`,'B');
-      const match={id:`${ev.id}-v${state.revision}-r${round}-c${court}`,round,court,sideAEntryIds,sideBEntryIds,status:'pending'};
+      const match={id:`${ev.id}-v${state.revision}-r${round}-c${court}`,round,court,sideAEntryIds,sideBEntryIds,status:'pending',scheduleBlock:'standard'};
       recordSchedulePlacement(placement,match,{courtAlternatives:roundMatches.length>1,sideAlternatives:true});return match;
     }).sort((a,b)=>a.court-b.court);
     placed.forEach(match=>{recordMatch(match);matches.push(match);});
@@ -2937,12 +3023,45 @@ function rotationMaterialSignature(matches){
 function rotationPlacementSignature(matches){return (matches||[]).map(normalizedRotationMatch).slice().sort((a,b)=>a.round-b.round||a.court-b.court||String(a.id||'').localeCompare(String(b.id||''))).map(m=>`${m.round}:${m.court}:${m.sideAEntryIds.join(',')}~${m.sideBEntryIds.join(',')}`).join('|');}
 function rotationQualityKey(q={}){return [q.invalidRounds||0,(q.gamesMax||0)-(q.gamesMin||0),(q.byesMax||0)-(q.byesMin||0),q.repeatedTeammates||0,q.repeatedOpponents||0,q.backToBack||0,Math.round((q.seedSpread||0)*10),q.courtSpread||0,q.sameCourtStreaks||0,q.sideSpread||0,q.sameSideStreaks||0,q.positionSpread||q.firstPositionSpread||0];}
 function compareQuality(a,b){const A=rotationQualityKey(a),B=rotationQualityKey(b);for(let i=0;i<A.length;i++){if(A[i]!==B[i])return A[i]-B[i];}return 0;}
+function rotationMatchEntryIds(match){const m=normalizedRotationMatch(match);return [...m.sideAEntryIds,...m.sideBEntryIds];}
+function rotationScheduleAudit(ev,matches=rotationSchedule(ev)){
+  const s=rotationSettings(ev),entries=rotatingEntries(ev),ids=entries.map(e=>e.id),standard=matches.filter(isStandardScheduleMatch),base=participationAudit(ids,matches,rotationMatchEntryIds,s.fairnessPolicy),teammates={},opponents={},exact={},invalidMatches=[];
+  matches.map(normalizedRotationMatch).forEach(match=>{
+    const all=rotationMatchEntryIds(match);if(new Set(all).size!==all.length||all.some(id=>!ids.includes(id)))invalidMatches.push(match.id);
+    combinations(match.sideAEntryIds,2).concat(combinations(match.sideBEntryIds,2)).forEach(([a,b])=>{const k=entryCombinationKey(a,b);teammates[k]=(teammates[k]||0)+1;});
+    match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{const k=entryCombinationKey(a,b);opponents[k]=(opponents[k]||0)+1;}));
+    const sides=[match.sideAEntryIds.slice().sort().join(','),match.sideBEntryIds.slice().sort().join(',')].sort().join('~');exact[sides]=(exact[sides]||0)+1;
+  });
+  const standardCounts=participationAudit(ids,standard,rotationMatchEntryIds,s.fairnessPolicy).counts,byeValues=ids.map(id=>Math.max(0,positiveInt(s.rounds,1)-standardCounts[id])),placement=ids.length&&matches.length?rotationPlacementAudit(matches,ids,Math.max(1,positiveInt(s.courts,1)),Math.max(1,entriesPerSide(ev))):{};if(placement.entries)delete placement.entries;
+  const blocks={};matches.forEach(m=>{const key=isStandardScheduleMatch(m)?Number(m.round):positiveInt(m.makeupBlock,positiveInt(s.rounds,1)+1);(blocks[key]=blocks[key]||new Set()).add(rotationMatchEntryIds(m));});
+  let consecutivePlayCount=0,last=new Set();Object.keys(blocks).map(Number).sort((a,b)=>a-b).forEach(key=>{const playing=new Set([...blocks[key]].flat());playing.forEach(id=>{if(last.has(id))consecutivePlayCount++;});last=playing;});
+  return {...base,byesMin:byeValues.length?Math.min(...byeValues):0,byesMax:byeValues.length?Math.max(...byeValues):0,repeatedTeammates:Object.values(teammates).reduce((n,v)=>n+Math.max(0,v-1),0),repeatedOpponents:Object.values(opponents).reduce((n,v)=>n+Math.max(0,v-1),0),exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),backToBack:consecutivePlayCount,consecutivePlayCount,invalidMatches:invalidMatches.length,invalidRounds:0,scheduleNeedsReview:!!ev.rotation?.scheduleNeedsReview||!!invalidMatches.length||(scheduleFairnessPolicy(s.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
+}
+function chooseRotationMakeupSides(ev,entryIds,existing,seed){
+  const per=entriesPerSide(ev),strength=entrySeedMetadata(ev,{projectedOnly:true,seed}).strengths,teammates={},opponents={},exact=new Set();
+  existing.map(normalizedRotationMatch).forEach(match=>{combinations(match.sideAEntryIds,2).concat(combinations(match.sideBEntryIds,2)).forEach(([a,b])=>{const k=entryCombinationKey(a,b);teammates[k]=(teammates[k]||0)+1;});match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{const k=entryCombinationKey(a,b);opponents[k]=(opponents[k]||0)+1;}));exact.add([match.sideAEntryIds.slice().sort().join(','),match.sideBEntryIds.slice().sort().join(',')].sort().join('~'));});
+  let best=null;combinations(entryIds,per).filter(side=>side.includes(entryIds[0])).forEach(A=>{const setA=new Set(A),B=entryIds.filter(id=>!setA.has(id)),key=[A.slice().sort().join(','),B.slice().sort().join(',')].sort().join('~');let teamRepeats=0,opponentRepeats=0;combinations(A,2).concat(combinations(B,2)).forEach(([a,b])=>teamRepeats+=teammates[entryCombinationKey(a,b)]||0);A.forEach(a=>B.forEach(b=>opponentRepeats+=opponents[entryCombinationKey(a,b)]||0));const seedGap=Math.abs(A.reduce((n,id)=>n+(strength[id]||0),0)-B.reduce((n,id)=>n+(strength[id]||0),0)),score=(exact.has(key)?100000:0)+teamRepeats*1000+opponentRepeats*30+seedGap*.05+hash32(`${seed}:${key}`)/4294967296;if(!best||score<best.score)best={A:A.slice(),B:B.slice(),score};});
+  return best;
+}
+function assignMakeupBlocks(matchEntrySets,courts){
+  const blocks=[];matchEntrySets.forEach(ids=>{let placed=false;for(let i=0;i<blocks.length&&!placed;i++){const block=blocks[i],used=new Set(block.flat());if(block.length<courts&&ids.every(id=>!used.has(id))){block.push(ids);placed=true;}}if(!placed)blocks.push([ids]);});return blocks;
+}
+function appendRotationMakeupMatches(ev,result,opts={}){
+  const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),validation=rotationValidation(ev),standard=(result.matches||[]).filter(isStandardScheduleMatch),preserved=(opts.preservedMatches||[]).map(normalizedRotationMatch).filter(match=>!isStandardScheduleMatch(match)),baseMatches=standard.concat(preserved),ids=rotatingEntries(ev).map(e=>e.id),analysis=analyzeScheduleParticipation({participantIds:ids,standardRounds:s.rounds,courts:s.courts,participantsPerMatch:validation.entriesPerMatch,fairnessPolicy:s.fairnessPolicy});
+  if(!analysis.valid)return {...result,error:analysis.error,matches:baseMatches};
+  if(scheduleFairnessPolicy(s.fairnessPolicy)!=='equalGames')return {...result,matches:baseMatches,quality:{...result.quality,...rotationScheduleAudit(ev,baseMatches)}};
+  const counts=participationAudit(ids,baseMatches,rotationMatchEntryIds,s.fairnessPolicy).counts,makeupPlan=findBalancedMakeupPlan(ids,counts,validation.entriesPerMatch,0);if(!makeupPlan.valid)return {...result,error:makeupPlan.error,matches:baseMatches};
+  const blocks=assignMakeupBlocks(makeupPlan.matches,Math.max(1,positiveInt(s.courts,1))),makeups=[];let makeupIndex=0;
+  blocks.forEach((block,blockIndex)=>block.forEach((entryIds,courtIndex)=>{makeupIndex++;const sides=chooseRotationMakeupSides(ev,entryIds,baseMatches.concat(makeups),`${state.seed}:${state.revision}:makeup:${makeupIndex}`);if(!sides)return;makeups.push({id:`${ev.id}-v${state.revision}-makeup-${makeupIndex}`,round:positiveInt(s.rounds,1)+blockIndex+1,court:courtIndex+1,sideAEntryIds:sides.A,sideBEntryIds:sides.B,status:'pending',scheduleBlock:'makeup',makeupIndex,makeupBlock:blockIndex+1,timeOffsetMinutes:(positiveInt(s.rounds,1)+blockIndex)*positiveInt(s.setMin,25),label:'Balances games played'});}));
+  if(makeups.length!==makeupPlan.matchCount)return {...result,error:'Court could not compose every required rotating makeup match.',matches:baseMatches};
+  const matches=baseMatches.concat(makeups),quality={...result.quality,...rotationScheduleAudit(ev,matches),targetGames:makeupPlan.targetGames,equalGamesAchieved:true};return {...result,matches,quality,participationPlan:analysis};
+}
 function generateRotationScheduleData(ev,opts={}){
   const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),base=opts.seed??`${state.seed}:${state.revision}`,entrySeed=opts.entrySeed??`${base}:entries`,candidates=[];
   for(let i=0;i<12;i++) candidates.push(generateRotationScheduleCandidate(ev,{...opts,seed:`${base}:candidate:${i}`,entrySeed}));
   const valid=candidates.filter(c=>!c.error);if(!valid.length)return candidates[0];
   valid.sort((a,b)=>compareQuality(a.quality,b.quality)||rotationPlacementSignature(a.matches).localeCompare(rotationPlacementSignature(b.matches)));
-  return valid[0];
+  return appendRotationMakeupMatches(ev,valid[0],opts);
 }
 function linkedRotationGame(ev,match){ return games.find(g=>g.evId===ev.id&&g.evMatchId===match.id); }
 function rotationMatchResult(ev,match){
@@ -2965,15 +3084,17 @@ function rotationTimeline(ev,gameList=games,now=Date.now()){
   const done=schedule.filter(m=>playedIds.has(m.id)).length;
   const timing=scheduleTimeStatus(startMs, now, done);
   const setMin=positiveInt(s.setMin,25), matchMin=positiveInt(s.matchMin,45), breakMin=positiveInt(s.breakMin,15);
-  const roundNumbers=[...new Set(schedule.map(m=>m.round))].sort((a,b)=>a-b);
-  const pendingRounds=[...new Set(schedule.filter(m=>!playedIds.has(m.id)).map(m=>m.round))].sort((a,b)=>a-b);
+  const standard=schedule.filter(isStandardScheduleMatch),makeup=schedule.filter(m=>!isStandardScheduleMatch(m)),roundNumbers=[...new Set(standard.map(m=>m.round))].sort((a,b)=>a-b),makeupBlocks=[...new Set(makeup.map(m=>positiveInt(m.makeupBlock,1)))].sort((a,b)=>a-b);
+  const pendingRounds=[...new Set(standard.filter(m=>!playedIds.has(m.id)).map(m=>m.round))].sort((a,b)=>a-b);
   const roundEst={}; roundNumbers.forEach((r,i)=>roundEst[r]=eventScheduleTimestamp(ev,s.start,i*setMin));
+  const makeupEst={};makeupBlocks.forEach((block,i)=>makeupEst[block]=eventScheduleTimestamp(ev,s.start,(roundNumbers.length+i)*setMin));
   const poolsEnd=eventScheduleTimestamp(ev,s.start,roundNumbers.length*setMin);
+  const eventEnd=eventScheduleTimestamp(ev,s.start,(roundNumbers.length+makeupBlocks.length)*setMin);
   const brRounds=Math.max(0, ...(ev.brackets||[]).map(br=>{ const bs=bracketState(ev,br); return bs?bs.rounds.length:0; }));
-  const playoffStart=eventScheduleTimestamp(ev,s.start,roundNumbers.length*setMin+breakMin);
-  const playoff=brRounds?Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1), est:eventScheduleTimestamp(ev,s.start,roundNumbers.length*setMin+breakMin+i*matchMin)})):null;
-  return {roundEst, poolsEnd, playoff, breakMin,
-    awards: playoff?eventScheduleTimestamp(ev,s.start,roundNumbers.length*setMin+breakMin+brRounds*matchMin):null,
+  const playoffStart=eventScheduleTimestamp(ev,s.start,(roundNumbers.length+makeupBlocks.length)*setMin+breakMin);
+  const playoff=brRounds?Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1), est:eventScheduleTimestamp(ev,s.start,(roundNumbers.length+makeupBlocks.length)*setMin+breakMin+i*matchMin)})):null;
+  return {roundEst,makeupEst,poolsEnd,eventEnd,playoffStart,playoff,breakMin,makeupBlocks,
+    awards: playoff?eventScheduleTimestamp(ev,s.start,(roundNumbers.length+makeupBlocks.length)*setMin+breakMin+brRounds*matchMin):null,
     timeNote:timing.note, timeMode:timing.mode, done, pendingRounds:pendingRounds.length};
 }
 function gameEntryIds(g,side){ return (side==='A'?(g.evEntryIdsA||g.evPairIdsA):(g.evEntryIdsB||g.evPairIdsB))||[]; }
@@ -2993,10 +3114,10 @@ function entryStandings(ev){
     B.forEach(id=>{const r=by[id];if(!r)return;r.played++;r.pf+=pfB;r.pa+=pfA;B.filter(x=>x!==id).forEach(x=>r.teammates.add(x));A.forEach(x=>r.opponents.add(x));});
     [...A,...B].forEach(id=>{const r=by[id];if(!r)return;if(wa===wb){r.ties++;r.standingsPoints+=Number(s.tiePoints);}else if((wa>wb&&A.includes(id))||(wb>wa&&B.includes(id))){r.wins++;r.standingsPoints+=Number(s.winPoints);}else{r.losses++;r.standingsPoints+=Number(s.lossPoints);}});
   });
-  rows.forEach(r=>{r.diff=r.pf-r.pa;r.winPct=r.played?r.wins/r.played:0;r.diffPerGame=r.played?r.diff/r.played:0;r.pfPerGame=r.played?r.pf/r.played:0;});const value=(r,k)=>({winPct:r.winPct,standingsPoints:r.standingsPoints,wins:r.wins,pointDiff:r.diff,pointDiffPerGame:r.diffPerGame,pointsFor:r.pf,pointsForPerGame:r.pfPerGame}[k]||0);return rows.sort((a,b)=>{for(const key of s.tiebreakers){const d=value(b,key)-value(a,key);if(Math.abs(d)>1e-9)return d;}return a.entry.name.localeCompare(b.entry.name)||a.entry.id.localeCompare(b.entry.id);});
+  rows.forEach(r=>{r.diff=r.pf-r.pa;r.winPct=r.played?r.wins/r.played:0;r.diffPerGame=r.played?r.diff/r.played:0;r.pfPerGame=r.played?r.pf/r.played:0;});const value=(r,k)=>({winPct:r.winPct,standingsPoints:r.standingsPoints,wins:r.wins,pointDiff:r.diff,pointDiffPerGame:r.diffPerGame,pointsFor:r.pf,pointsForPerGame:r.pfPerGame}[k]||0),audit=rotationSchedule(ev).length?rotationScheduleAudit(ev):null,unequal=scheduleFairnessPolicy(s.fairnessPolicy)==='allowDifference'||(audit&&audit.gameDifference>0),keys=unequal?['winPct',...s.tiebreakers.filter(k=>k!=='winPct')]:s.tiebreakers;return rows.sort((a,b)=>{for(const key of keys){const d=value(b,key)-value(a,key);if(Math.abs(d)>1e-9)return d;}return a.entry.name.localeCompare(b.entry.name)||a.entry.id.localeCompare(b.entry.id);});
 }
-function entryRulesLabel(ev){ const labels={winPct:'win %',standingsPoints:'standings points',wins:'wins',pointDiff:'point differential',pointDiffPerGame:'point differential/game',pointsFor:'points scored',pointsForPerGame:'points scored/game'}; return 'Ranked by '+rotationSettings(ev).tiebreakers.map(k=>labels[k]||k).join(', then ')+'.'; }
-function materializeRotation(ev){ if(eventFormat(ev)!=='rotatingGroups')return ev;ev.format='rotatingGroups';ev.rotation=rotationSettings(ev);ev.entries=rotatingEntries(ev).map(e=>({...e,players:(e.players||[]).slice()}));ev.rotationSchedule=rotationSchedule(ev).map(m=>({id:m.id,round:m.round,court:m.court,sideAEntryIds:m.sideAEntryIds.slice(),sideBEntryIds:m.sideBEntryIds.slice(),status:m.status||'pending',...(m.gameId?{gameId:m.gameId}:{})}));delete ev.pairs;delete ev.pairSettings;delete ev.pairSchedule;delete ev.pairScheduleQuality;return ev; }
+function entryRulesLabel(ev){ const s=rotationSettings(ev),labels={winPct:'win %',standingsPoints:'standings points',wins:'wins',pointDiff:'point differential',pointDiffPerGame:'point differential/game',pointsFor:'points scored',pointsForPerGame:'points scored/game'},audit=rotationSchedule(ev).length?rotationScheduleAudit(ev):null,unequal=scheduleFairnessPolicy(s.fairnessPolicy)==='allowDifference'||(audit&&audit.gameDifference>0),keys=unequal?['winPct',...s.tiebreakers.filter(k=>k!=='winPct')]:s.tiebreakers;return 'Ranked by '+keys.map(k=>labels[k]||k).join(', then ')+'.'; }
+function materializeRotation(ev){ if(eventFormat(ev)!=='rotatingGroups')return ev;ev.format='rotatingGroups';ev.rotation=rotationSettings(ev);ev.entries=rotatingEntries(ev).map(e=>({...e,players:(e.players||[]).slice()}));ev.rotationSchedule=rotationSchedule(ev).map(m=>{const copy={...m,sideAEntryIds:m.sideAEntryIds.slice(),sideBEntryIds:m.sideBEntryIds.slice(),scheduleBlock:scheduleBlockOf(m),status:m.status||'pending'};delete copy.pairIdsA;delete copy.pairIdsB;return copy;});delete ev.pairs;delete ev.pairSettings;delete ev.pairSchedule;delete ev.pairScheduleQuality;return ev; }
 function clearRotationSchedule(ev){ev.rotationSchedule=[];delete ev.rotationScheduleQuality;if(ev.rotation)delete ev.rotation.initialSeeds;}
 /* Legacy aliases remain callable for old backups and tests; new saves use generalized fields. */
 const pairSettings=rotationSettings,pairById=entryById,pairSeedStrength=entrySeedStrength,seededPairs=seededEntries,pairScheduleRecommendation=ev=>teammateRotationInfo(ev).recommendedRounds,pairKey=entryCombinationKey,generatePairScheduleData=generateRotationScheduleData,linkedPairGame=linkedRotationGame,pairStandings=ev=>entryStandings(ev).map(r=>({...r,pair:r.entry,partners:r.teammates})),pairRulesLabel=entryRulesLabel;
@@ -3004,7 +3125,7 @@ function eventStandings(ev, gameList=games){
   /* A "match" is a group of sets sharing a matchId (best-of-3 logging);
      a game without matchId is a one-set match. Match winner = more set
      wins in the group. Rank: match W → match L → set diff → point diff. */
-  const rows=(ev.teams||[]).map(t=>({t,mw:0,ml:0,sw:0,sl:0,ties:0,pf:0,pa:0,gp:0}));
+  const rows=(ev.teams||[]).map((t,seedOrder)=>({t,seedOrder,mw:0,ml:0,mt:0,sw:0,sl:0,ties:0,pf:0,pa:0,gp:0,matchesPlayed:0,winPct:0}));
   const by={}; rows.forEach(r=>by[r.t.id]=r);
   const groups={};
   gameList.forEach(g=>{
@@ -3026,13 +3147,15 @@ function eventStandings(ev, gameList=games){
     const ids=Object.keys(tally).filter(id=>by[id]);
     if(ids.length===2){
       const [x,y]=ids;
+      by[x].matchesPlayed++;by[y].matchesPlayed++;
       if(tally[x]>tally[y]){ by[x].mw++; by[y].ml++; }
       else if(tally[y]>tally[x]){ by[y].mw++; by[x].ml++; }
+      else {by[x].mt++;by[y].mt++;}
       /* equal set wins → drawn match: points and sets count, no match W-L */
     }
   });
-  rows.forEach(r=>{ r.diff=r.pf-r.pa; r.sdiff=r.sw-r.sl; });
-  rows.sort((x,y)=> y.mw-x.mw || x.ml-y.ml || y.sdiff-x.sdiff || y.diff-x.diff || x.t.name.localeCompare(y.t.name));
+  rows.forEach(r=>{ r.diff=r.pf-r.pa; r.sdiff=r.sw-r.sl;r.winPct=r.matchesPlayed?r.mw/r.matchesPlayed:0; });
+  rows.sort((x,y)=> y.winPct-x.winPct || y.mw-x.mw || y.sdiff-x.sdiff || y.diff-x.diff || y.pf-x.pf || x.seedOrder-y.seedOrder || x.t.name.localeCompare(y.t.name));
   return rows;
 }
 function fixedPoolGames(ev){
@@ -3221,8 +3344,65 @@ function normalizedFixedLockedMatches(schedule,matchups){
   const available=new Set((matchups||[]).map(m=>entryCombinationKey(m.a,m.b))),seen=new Set();
   return (Array.isArray(schedule?.lockedMatches)?schedule.lockedMatches:[]).filter(m=>m&&available.has(entryCombinationKey(m.a,m.b))&&Number.isInteger(m.slot)&&m.slot>=0&&Number.isInteger(m.court)&&m.court>=0).filter(m=>{const key=entryCombinationKey(m.a,m.b);if(seen.has(key))return false;seen.add(key);return true;}).map(m=>({...m})).sort((a,b)=>a.slot-b.slot||a.court-b.court);
 }
+function normalizedFixedExtraMatch(match){
+  if(!match)return null;return {...match,id:match.id||uid(),a:match.a,b:match.b,slot:Math.max(0,Math.trunc(Number(match.slot)||0)),round:positiveInt(match.round,Math.max(0,Math.trunc(Number(match.slot)||0))+1),court:Math.max(0,Math.trunc(Number(match.court)||0)),scheduleBlock:scheduleBlockOf(match),status:match.status||'pending'};
+}
+function fixedScheduleExtras(ev){return (Array.isArray(ev?.fixedScheduleExtras)?ev.fixedScheduleExtras:[]).map(normalizedFixedExtraMatch).filter(Boolean);}
+function fixedMatchParticipantIds(match){return [match.a,match.b];}
+function fixedMatchPlayed(ev,match,gameList=games){
+  if(match?.id&&gameList.some(g=>g.evId===ev.id&&g.evMatchId===match.id))return true;
+  if(match?.id&&match.scheduleBlock&&match.scheduleBlock!=='standard')return false;
+  return gameList.some(g=>g.evId===ev.id&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)));
+}
+function fixedScheduleAudit(ev,matches,{includePlacement=true}={}){
+  const ids=(ev.teams||[]).map(t=>t.id),base=participationAudit(ids,matches,fixedMatchParticipantIds,ev.sched?.fairnessPolicy),pairs={},exact={};
+  (matches||[]).forEach(m=>{const key=entryCombinationKey(m.a,m.b);pairs[key]=(pairs[key]||0)+1;exact[`${m.a}~${m.b}`]=(exact[`${m.a}~${m.b}`]||0)+1;});
+  const standard=(matches||[]).filter(isStandardScheduleMatch),rounds=positiveInt(ev.sched?.standardRounds,standard.length?[...new Set(standard.map(m=>m.slot))].length:0),standardCounts=participationAudit(ids,standard,fixedMatchParticipantIds,ev.sched?.fairnessPolicy).counts,byes=ids.map(id=>Math.max(0,rounds-standardCounts[id])),placement=includePlacement&&ids.length&&matches.length?fixedPlacementAudit(matches.map(m=>({...m,court:m.court||0,slot:m.slot||0})),ids,Math.max(1,positiveInt(ev.sched?.courts,1))):{};
+  return {...base,byesMin:byes.length?Math.min(...byes):0,byesMax:byes.length?Math.max(...byes):0,repeatedOpponents:Object.values(pairs).reduce((n,v)=>n+Math.max(0,v-1),0),repeatedTeammates:0,exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),scheduleNeedsReview:!!ev.sched?.scheduleNeedsReview||(scheduleFairnessPolicy(ev.sched?.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
+}
+function markScheduleNeedsReview(ev){if(eventFormat(ev)==='rotatingGroups'){ev.rotation=rotationSettings(ev);ev.rotation.scheduleNeedsReview=true;}else if(ev.sched)ev.sched.scheduleNeedsReview=true;}
+function fixedRoundPlan(ev,s,startMs,scheduleSeed){
+  const teams=ev.teams||[],ids=teams.map(t=>t.id),rounds=positiveInt(s.standardRounds,1),pools=eventPoolLabels(ev),samePool=(a,b)=>!pools.length||(evTeamById(ev,a)?.pool||'')===(evTeamById(ev,b)?.pool||''),maxPoolMatches=pools.length?[...new Set(teams.map(t=>t.pool||''))].reduce((sum,p)=>sum+Math.floor(teams.filter(t=>(t.pool||'')===p).length/2),0):Math.floor(ids.length/2),matchesPerRound=Math.min(sanitizeCourtCount(s.courts,1),maxPoolMatches),state=scheduleState(s,'fixed:'+ev.id),counts=Object.fromEntries(ids.map(id=>[id,0])),pairCounts={},plannedSlots=[],locked=(Array.isArray(s.lockedMatches)?s.lockedMatches:[]).map(normalizedFixedExtraMatch).filter(m=>m&&isStandardScheduleMatch(m)&&ids.includes(m.a)&&ids.includes(m.b)&&m.a!==m.b&&samePool(m.a,m.b)),lockedBySlot={};locked.forEach(m=>(lockedBySlot[m.slot]=lockedBySlot[m.slot]||[]).push(m));
+  const record=m=>{counts[m.a]++;counts[m.b]++;const key=entryCombinationKey(m.a,m.b);pairCounts[key]=(pairCounts[key]||0)+1;};
+  for(let slot=0;slot<rounds;slot++){
+    let roundMatches=(lockedBySlot[slot]||[]).slice().sort((a,b)=>a.court-b.court).map(m=>({...m,slot,round:slot+1,scheduleBlock:'standard',est:eventScheduleTimestamp(ev,s.start||'10:00',slot*s.setMin)}));
+    if(!roundMatches.length){
+      const used=new Set();roundMatches=[];
+      while(roundMatches.length<matchesPerRound){
+        const candidates=[];for(let i=0;i<ids.length;i++)for(let j=i+1;j<ids.length;j++){const a=ids[i],b=ids[j];if(used.has(a)||used.has(b)||!samePool(a,b))continue;const key=entryCombinationKey(a,b),repeat=pairCounts[key]||0,hash=hash32(`${scheduleSeed}:round:${slot}:pair:${key}`);candidates.push({a,b,key,score:[Math.max(counts[a],counts[b]),counts[a]+counts[b],repeat,hash]});}
+        candidates.sort((x,y)=>compareNumberKeys(x.score,y.score));const pick=candidates[0];if(!pick)break;used.add(pick.a);used.add(pick.b);const flip=hash32(`${scheduleSeed}:side:${slot}:${pick.key}`)%2===1,a=flip?pick.b:pick.a,b=flip?pick.a:pick.b,court=roundMatches.length;roundMatches.push({id:`${ev.id}-v${state.revision}-r${slot+1}-c${court+1}`,a,b,pool:evTeamById(ev,a)?.pool||'',slot,round:slot+1,court,est:eventScheduleTimestamp(ev,s.start||'10:00',slot*s.setMin),scheduleBlock:'standard',status:'pending'});record(roundMatches[roundMatches.length-1]);
+      }
+    }else roundMatches.forEach(record);
+    plannedSlots.push(roundMatches);
+  }
+  return {plannedSlots,matchesPerRound,counts};
+}
+function optimizeFixedMakeupSets(plan,standardMatches,seed,canPair=()=>true){
+  const left={...plan.deficits},pairCounts={};standardMatches.forEach(m=>{const key=entryCombinationKey(m.a,m.b);pairCounts[key]=(pairCounts[key]||0)+1;});const out=[];
+  for(let index=0;index<plan.matchCount;index++){
+    const remaining=plan.matchCount-index-1,ids=Object.keys(left).filter(id=>left[id]>0),choices=combinations(ids,2).filter(([a,b])=>canPair(a,b)).filter(([a,b])=>{const next={...left,[a]:left[a]-1,[b]:left[b]-1};return Math.max(0,...Object.values(next))<=remaining&&Object.values(next).reduce((n,v)=>n+v,0)===remaining*2;}).map(pair=>({pair,key:[pairCounts[entryCombinationKey(pair[0],pair[1])]||0,-left[pair[0]]-left[pair[1]],hash32(`${seed}:${index}:${entryCombinationKey(pair[0],pair[1])}`)]})).sort((a,b)=>compareNumberKeys(a.key,b.key));
+    if(!choices.length)return null;const [a,b]=choices[0].pair;left[a]--;left[b]--;pairCounts[entryCombinationKey(a,b)]=(pairCounts[entryCombinationKey(a,b)]||0)+1;out.push([a,b]);
+  }
+  return out;
+}
+function findValidFixedMakeupPlan(ids,counts,standardMatches,seed,canPair){
+  const appearances=Object.values(counts).reduce((sum,n)=>sum+n,0),cycle=Math.max(1,ids.length/integerGcd(ids.length,2));
+  for(let matchCount=0;matchCount<=cycle*2;matchCount++){const total=appearances+matchCount*2;if(total%ids.length)continue;const targetGames=total/ids.length,deficits=Object.fromEntries(ids.map(id=>[id,targetGames-counts[id]]));if(Object.values(deficits).some(n=>n<0||n>matchCount)||Object.values(deficits).reduce((sum,n)=>sum+n,0)!==matchCount*2)continue;const plan={valid:true,matchCount,targetGames,deficits},matches=optimizeFixedMakeupSets(plan,standardMatches,seed,canPair);if(matches)return {...plan,matches};}
+  return {valid:false,error:'Court could not compose valid fixed-team makeup matches within the event pools.'};
+}
+function buildFixedRoundsSchedule(ev,gameList=games,now=Date.now()){
+  const s=ev.sched,teams=ev.teams||[],ids=teams.map(t=>t.id);if(ids.length<2)return null;const state=scheduleState(s,'fixed:'+ev.id),scheduleSeed=`${state.seed}:${state.revision}`,startMs=eventScheduleTimestamp(ev,s.start||'10:00');if(startMs==null)return null;
+  const standardPlan=fixedRoundPlan(ev,s,startMs,scheduleSeed),standard=standardPlan.plannedSlots.flat(),preserved=fixedScheduleExtras(ev).filter(m=>isCustomScheduleMatch(m)||(isMakeupScheduleMatch(m)&&fixedMatchPlayed(ev,m,gameList))),baseMatches=standard.concat(preserved),analysis=analyzeScheduleParticipation({participantIds:ids,standardRounds:s.standardRounds,courts:s.courts,participantsPerMatch:2,matchesPerRound:standardPlan.matchesPerRound,fairnessPolicy:s.fairnessPolicy});let generated=[],fairnessError=null;
+  if(scheduleFairnessPolicy(s.fairnessPolicy)==='equalGames'&&analysis.valid){const counts=participationAudit(ids,baseMatches,fixedMatchParticipantIds,s.fairnessPolicy).counts,hasPools=eventPoolLabels(ev).length>0,canPair=(a,b)=>!hasPools||(evTeamById(ev,a)?.pool||'')===(evTeamById(ev,b)?.pool||''),plan=findValidFixedMakeupPlan(ids,counts,baseMatches,scheduleSeed,canPair);if(plan.valid){const blocks=assignMakeupBlocks(plan.matches,Math.max(1,positiveInt(s.courts,1)));let makeupIndex=0;blocks.forEach((block,blockIndex)=>block.forEach(([a,b],courtIndex)=>{makeupIndex++;generated.push({id:`${ev.id}-v${state.revision}-makeup-${makeupIndex}`,a,b,pool:evTeamById(ev,a)?.pool||'',slot:positiveInt(s.standardRounds,1)+blockIndex,round:positiveInt(s.standardRounds,1)+blockIndex+1,court:courtIndex,est:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+blockIndex)*s.setMin),scheduleBlock:'makeup',makeupIndex,makeupBlock:blockIndex+1,timeOffsetMinutes:(positiveInt(s.standardRounds,1)+blockIndex)*positiveInt(s.setMin,25),status:'pending',label:'Balances games played'});}));}else fairnessError=plan.error;}
+  const extraMatches=preserved.concat(generated),makeupBlockNumbers=[...new Set(extraMatches.map(m=>positiveInt(m.makeupBlock,Math.max(1,m.slot-positiveInt(s.standardRounds,1)+1))))].sort((a,b)=>a-b),makeupSlots=makeupBlockNumbers.map(block=>extraMatches.filter(m=>positiveInt(m.makeupBlock,Math.max(1,m.slot-positiveInt(s.standardRounds,1)+1))===block).sort((a,b)=>a.court-b.court)),allMatches=standard.concat(extraMatches),played=allMatches.filter(m=>fixedMatchPlayed(ev,m,gameList)),pendingStandard=standardPlan.plannedSlots.map(slot=>slot.filter(m=>!fixedMatchPlayed(ev,m,gameList))).filter(slot=>slot.length),pendingMakeup=makeupSlots.map(slot=>slot.filter(m=>!fixedMatchPlayed(ev,m,gameList))).filter(slot=>slot.length),requestedCourts=sanitizeCourtCount(s.courts,1),warnings=[];
+  if(requestedCourts>standardPlan.matchesPerRound)warnings.push(`Using ${standardPlan.matchesPerRound} of ${requestedCourts} requested courts; unused courts are normal when there are not enough legal simultaneous matches.`);
+  if(fairnessError)warnings.push(fairnessError);
+  const courts=Array.from({length:requestedCourts},(_,ci)=>{const items=pendingStandard.flat().filter(m=>m.court===ci);return {label:courtLabel(s,ci),pools:[...new Set(items.map(m=>m.pool).filter(Boolean))],items,done:played.length,total:items.length};}).filter(c=>c.items.length),standardEnd=eventScheduleTimestamp(ev,s.start||'10:00',positiveInt(s.standardRounds,1)*s.setMin),eventEnd=eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin),brRounds=Math.max(0,...(ev.brackets||[]).map(br=>bracketState(ev,br)?.rounds.length||0)),playoff=brRounds?Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1),est:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin+i*s.matchMin)})):null;
+  return {courts,slots:pendingStandard,plannedSlots:standardPlan.plannedSlots,makeupSlots,makeupPending:pendingMakeup,allMatches,done:played.length,total:allMatches.length,standardTotal:standard.length,requestedCourts,effectiveCourts:standardPlan.matchesPerRound,plannedCourtCount:standardPlan.matchesPerRound,maxLegalSimultaneousMatches:standardPlan.matchesPerRound,poolsEnd:standardEnd,eventEnd,playoffStart:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin),playoff,warnings,s:{...s,courts:requestedCourts},rawCourts:Number(s.courts),timeNote:scheduleTimeStatus(startMs,now,played.length).note,timeMode:'planned',participationPlan:analysis,fairnessAudit:fixedScheduleAudit(ev,allMatches),awards:playoff?eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin+brRounds*s.matchMin):null};
+}
 function buildSchedule(ev,gameList=games,now=Date.now()){
   const s=ev.sched; if(!s) return null;
+  if(Number.isInteger(Number(s.standardRounds))&&Number(s.standardRounds)>0)return buildFixedRoundsSchedule(ev,gameList,now);
   const schedState=scheduleState(s,'fixed:'+ev.id),scheduleSeed=`${schedState.seed}:${schedState.revision}`;
   const teams=ev.teams||[]; if(teams.length<2) return null;
   const allPoolVals=[...new Set(teams.map(t=>t.pool||''))].sort((a,b)=>a===''?1:b===''?-1:a.localeCompare(b)),poolVals=allPoolVals.filter(Boolean);
@@ -3278,7 +3458,7 @@ function buildSchedule(ev,gameList=games,now=Date.now()){
   const playoff=brRounds ? Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1), est:eventScheduleTimestamp(ev,s.start||'10:00',plannedSlots.length*s.setMin+s.breakMin+i*s.matchMin)})) : null;
   if(Number.isFinite(rawCourts) && rawCourts>MAX_COURTS) warnings.push(`Court count capped at ${MAX_COURTS} for stability.`);
   if(requestedCourts>effectiveCourts && effectiveCourts>0) warnings.push(`Using ${effectiveCourts} of ${requestedCourts} requested courts; unused courts are normal when there are not enough legal simultaneous matches.`);
-  return {courts, slots, plannedSlots, done, total:q.length, requestedCourts, effectiveCourts, plannedCourtCount, maxLegalSimultaneousMatches,
+  return {courts, slots, plannedSlots,makeupSlots:[],makeupPending:[],allMatches:plannedSlots.flat(),fairnessAudit:fixedScheduleAudit(ev,plannedSlots.flat(),{includePlacement:false}), done, total:q.length, requestedCourts, effectiveCourts, plannedCourtCount, maxLegalSimultaneousMatches,
     poolsEnd, playoffStart, playoff, warnings, s:{...s, courts:requestedCourts}, rawCourts, timeNote:timing.note, timeMode:timing.mode,
     packInfo:{greedySlots:lockedSlotCount+plannedPack.greedySlotCount, candidate:plannedPack.candidate},placementQuality:plannedPack.placementQuality,
     awards: playoff ? eventScheduleTimestamp(ev,s.start||'10:00',plannedSlots.length*s.setMin+s.breakMin+brRounds*s.matchMin) : null};
@@ -3300,7 +3480,7 @@ function fixedLockedMatchesThroughStartedRound(ev,sc,gameList=games){
    fixed schedule's deterministic seed/revision, and never regenerates or
    writes event state. --- */
 function fixedScheduleResult(ev,match,gameList=games){
-  const related=gameList.filter(g=>g.evId===ev.id&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)));
+  const linked=match?.id?gameList.filter(g=>g.evId===ev.id&&g.evMatchId===match.id):[],related=linked.length?linked:gameList.filter(g=>g.evId===ev.id&&!g.evMatchId&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)));
   if(!related.length)return null;
   const groups={};related.forEach(g=>(groups[g.matchId||g.id]=groups[g.matchId||g.id]||[]).push(g));
   const sets=Object.values(groups).sort((a,b)=>Math.min(...a.map(g=>g.date||0))-Math.min(...b.map(g=>g.date||0)))[0].slice().sort((a,b)=>(a.date||0)-(b.date||0));
@@ -3330,20 +3510,22 @@ function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now
   const rotating=eventFormat(ev)==='rotatingGroups',playerName=id=>playerList.find(p=>p.id===id)?.name||'Historical player';
   if(rotating){
     const schedule=rotationSchedule(ev);if(!schedule.length)return null;
-    const s=rotationSettings(ev),tl=rotationTimeline(ev,gameList,now),allEntries=rotatingEntries(ev);
-    const roundNumbers=[...new Set(schedule.map(m=>m.round))].sort((a,b)=>a-b);
+    const s=rotationSettings(ev),tl=rotationTimeline(ev,gameList,now),allEntries=rotatingEntries(ev),standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m));
+    const roundNumbers=[...new Set(standard.map(m=>m.round))].sort((a,b)=>a-b);
     const entryData=id=>{const entry=entryById(ev,id);return {name:entry?.name||'Missing entry',players:(entry?.players||[]).map(playerName)};};
     const rounds=roundNumbers.map(number=>{
-      const matches=schedule.filter(m=>m.round===number).slice().sort((a,b)=>a.court-b.court),playing=new Set(matches.flatMap(m=>[...m.sideAEntryIds,...m.sideBEntryIds]));
+      const matches=standard.filter(m=>m.round===number).slice().sort((a,b)=>a.court-b.court),playing=new Set(matches.flatMap(m=>[...m.sideAEntryIds,...m.sideBEntryIds]));
       const time=tl?.roundEst[number]?fmtScheduleTime(ev,tl.roundEst[number]):null;
       return {number,time,byes:allEntries.filter(entry=>!playing.has(entry.id)).map(entry=>entry.name),matches:matches.map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {court:`Court ${m.court}`,pool:null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData)};})};
     });
-    return {scope:'full',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),intervalMinutes:positiveInt(s.setMin,25),courts:positiveInt(s.courts,1),roundCount:rounds.length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:s.start?null:'Game times have not been assigned yet.',rounds};
+    [...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))].sort((a,b)=>a-b).forEach(block=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:tl?.makeupEst?.[block]?fmtScheduleTime(ev,tl.makeupEst[block]):null,byes:[],matches:extras.filter(m=>positiveInt(m.makeupBlock,1)===block).sort((a,b)=>a.court-b.court).map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {court:`Court ${m.court}`,pool:null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData),isMakeup:true};})}));
+    return {scope:'full',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),intervalMinutes:positiveInt(s.setMin,25),courts:positiveInt(s.courts,1),roundCount:roundNumbers.length,makeupMatchCount:extras.length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:s.start?null:'Game times have not been assigned yet.',rounds};
   }
   if(!ev.sched)return null;
   const sc=buildSchedule(ev,gameList,now);if(!sc||!sc.plannedSlots?.length)return null;
   const rounds=sc.plannedSlots.map((slot,index)=>{const playing=new Set(slot.flatMap(m=>[m.a,m.b]));return {number:index+1,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:(ev.teams||[]).filter(t=>!playing.has(t.id)).map(t=>t.name),matches:slot.slice().sort((a,b)=>a.court-b.court).map(m=>{const result=fixedScheduleResult(ev,m,gameList),a=evTeamById(ev,m.a),b=evTeamById(ev,m.b);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:[{name:a?.name||'Missing team',players:[]}],sideB:[{name:b?.name||'Missing team',players:[]}]};})};});
-  return {scope:'full',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched.start,now),intervalMinutes:positiveInt(ev.sched.setMin,25),courts:sc.requestedCourts,roundCount:rounds.length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.',rounds};
+  (sc.makeupSlots||[]).forEach(slot=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:[],matches:slot.map(m=>{const result=fixedScheduleResult(ev,m,gameList),a=evTeamById(ev,m.a),b=evTeamById(ev,m.b);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:[{name:a?.name||'Missing team',players:[]}],sideB:[{name:b?.name||'Missing team',players:[]}],isMakeup:true};})}));
+  return {scope:'full',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched.start,now),intervalMinutes:positiveInt(ev.sched.setMin,25),courts:sc.requestedCourts,roundCount:sc.plannedSlots.length,makeupMatchCount:(sc.makeupSlots||[]).flat().length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.',rounds};
 }
 const deriveScheduleExportModel=deriveFullScheduleExportModel;
 function participantEntryData(ev,id,playerList){
@@ -3366,11 +3548,11 @@ function participantResultFromSets(sets,onA){
 }
 function deriveFixedParticipantSchedule(ev,team,{gameList,playerList,now}){
   const grouped={};
-  gameList.filter(g=>g.evId===ev.id&&(g.evA===team.id||g.evB===team.id)).forEach(g=>(grouped[g.matchId||g.id]=grouped[g.matchId||g.id]||[]).push(g));
+  gameList.filter(g=>g.evId===ev.id&&(g.evA===team.id||g.evB===team.id)).forEach(g=>(grouped[g.evMatchId||g.matchId||g.id]=grouped[g.evMatchId||g.matchId||g.id]||[]).push(g));
   const played=Object.values(grouped).map(sets=>{
     sets=sets.slice().sort((a,b)=>(a.date||0)-(b.date||0));
     const first=sets[0],onA=first.evA===team.id,label=(first.label||'').replace(/ · Set \d+$/,'');
-    return {sets,onA,opp:onA?first.evB:first.evA,label,date:sets[sets.length-1].date};
+    return {sets,onA,opp:onA?first.evB:first.evA,label,date:sets[sets.length-1].date,evMatchId:first.evMatchId||null};
   }).sort((a,b)=>a.date-b.date);
   const sc=ev.sched?buildSchedule(ev,gameList,now):null;
   if(sc?.plannedSlots?.length){
@@ -3378,9 +3560,10 @@ function deriveFixedParticipantSchedule(ev,team,{gameList,playerList,now}){
     sc.plannedSlots.forEach((slot,index)=>{
       const m=slot.find(match=>match.a===team.id||match.b===team.id),time=ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null;
       if(!m){rows.push({type:'bye',isBye:true,round:index+1,time,court:null,result:null});return;}
-      const opp=m.a===team.id?m.b:m.a,related=played.find(p=>p.opp===opp),result=related?participantResultFromSets(related.sets,related.onA):null;
+      const opp=m.a===team.id?m.b:m.a,related=played.find(p=>p.evMatchId&&p.evMatchId===m.id)||played.find(p=>!p.evMatchId&&p.opp===opp),result=related?participantResultFromSets(related.sets,related.onA):null;
       rows.push({type:'match',isBye:false,round:index+1,time,court:courtLabel(sc.s,m.court),pool:m.pool||null,opponent:participantTeamData(ev,opp,playerList),result,label:related?.label||null});
     });
+    (sc.makeupSlots||[]).flat().filter(m=>m.a===team.id||m.b===team.id).forEach(m=>{const opp=m.a===team.id?m.b:m.a,onA=m.a===team.id,sets=gameList.filter(g=>g.evId===ev.id&&g.evMatchId===m.id);rows.push({type:'match',isBye:false,isMakeup:true,round:null,time:ev.sched.start?fmtScheduleTime(ev,m.est):null,court:courtLabel(sc.s,m.court),pool:m.pool||null,opponent:participantTeamData(ev,opp,playerList),result:participantResultFromSets(sets,onA),label:m.label||'Balances games played'});});
     return {rows,note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.'};
   }
   const rows=played.map(p=>{
@@ -3401,15 +3584,16 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
   }
   if(subjectType!=='entry'||eventFormat(ev)!=='rotatingGroups')return null;
   const entry=entryById(ev,subjectId),schedule=rotationSchedule(ev);if(!entry||!schedule.length)return null;
-  const s=rotationSettings(ev),tl=rotationTimeline(ev,gameList,now),roundNumbers=[...new Set(schedule.map(m=>m.round))].sort((a,b)=>a-b),rows=[];
+  const s=rotationSettings(ev),tl=rotationTimeline(ev,gameList,now),standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),roundNumbers=[...new Set(standard.map(m=>m.round))].sort((a,b)=>a-b),rows=[];
   roundNumbers.forEach(round=>{
-    const match=schedule.find(m=>m.round===round&&(m.sideAEntryIds.includes(subjectId)||m.sideBEntryIds.includes(subjectId)));
+    const match=standard.find(m=>m.round===round&&(m.sideAEntryIds.includes(subjectId)||m.sideBEntryIds.includes(subjectId)));
     const time=tl?.roundEst[round]?fmtScheduleTime(ev,tl.roundEst[round]):null;
     if(!match){rows.push({type:'bye',isBye:true,round,time,court:null,result:null});return;}
     const onA=match.sideAEntryIds.includes(subjectId),mine=onA?match.sideAEntryIds:match.sideBEntryIds,other=onA?match.sideBEntryIds:match.sideAEntryIds;
     const sets=gameList.filter(g=>g.evId===ev.id&&g.evMatchId===match.id);
     rows.push({type:'match',isBye:false,round,time,court:`Court ${match.court}`,teammateEntries:mine.filter(id=>id!==subjectId).map(id=>participantEntryData(ev,id,playerList)),opponentEntries:other.map(id=>participantEntryData(ev,id,playerList)),result:participantResultFromSets(sets,onA),label:(sets[0]?.label||'').replace(/ · Set \d+$/,'')||null});
   });
+  extras.filter(m=>m.sideAEntryIds.includes(subjectId)||m.sideBEntryIds.includes(subjectId)).sort((a,b)=>positiveInt(a.makeupBlock,1)-positiveInt(b.makeupBlock,1)||a.court-b.court).forEach(match=>{const onA=match.sideAEntryIds.includes(subjectId),mine=onA?match.sideAEntryIds:match.sideBEntryIds,other=onA?match.sideBEntryIds:match.sideAEntryIds,sets=gameList.filter(g=>g.evId===ev.id&&g.evMatchId===match.id),block=positiveInt(match.makeupBlock,1);rows.push({type:'match',isBye:false,isMakeup:true,round:null,time:tl?.makeupEst?.[block]?fmtScheduleTime(ev,tl.makeupEst[block]):null,court:`Court ${match.court}`,teammateEntries:mine.filter(id=>id!==subjectId).map(id=>participantEntryData(ev,id,playerList)),opponentEntries:other.map(id=>participantEntryData(ev,id,playerList)),result:participantResultFromSets(sets,onA),label:(sets[0]?.label||match.label||'Balances games played').replace(/ · Set \d+$/,'')});});
   const subjectMembers=(entry.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player');
   return {scope:'participant',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),exportTitle:s.entrySize===1?'Participant Schedule':'Group Schedule',subjectLabel:s.teamSize===s.entrySize?'Your Team':s.entrySize===1?'Your Entry':'Your Group',subjectName:entry.name,subjectMembers,rows,note:s.start?null:'Game times have not been assigned yet.',hasResults:rows.some(r=>r.result)};
 }
@@ -3420,8 +3604,8 @@ function scheduleExportBodyHtml(model,{preview=false}={}){
   const e=scheduleHtmlEscape;
   const entry=item=>`<div class="schedule-entry"><b>${e(item.name)}</b>${item.players.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}</div>`;
   const matchHtml=match=>`<article class="schedule-match"><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides"><span>${e(match.sideA[0].name)}</span><b class="schedule-vs">VS</b><span>${e(match.sideB[0].name)}</span></div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}</article>`;
-  const rounds=model.rounds.map(round=>`<section class="schedule-round"><div class="schedule-round-lead"><div class="schedule-round-head"><b>Round ${e(round.number)}</b><span>${round.time?e(round.time):''}</span></div>${round.byes.length?`<div class="schedule-byes"><b>Byes / sit-outs:</b> ${round.byes.map(e).join(' · ')}</div>`:''}</div><div class="schedule-match-list">${round.matches.map(matchHtml).join('')}</div></section>`).join('');
-  const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null,model.intervalMinutes?`${model.intervalMinutes}-minute rounds`:null,`${model.courts} court${model.courts===1?'':'s'}`,`${model.roundCount} round${model.roundCount===1?'':'s'}`].filter(Boolean);
+  const rounds=model.rounds.map(round=>`<section class="schedule-round${round.isMakeup?' schedule-makeup':''}"><div class="schedule-round-lead"><div class="schedule-round-head"><b>${round.isMakeup?'Makeup matches':`Round ${e(round.number)}`}</b><span>${round.time?e(round.time):''}</span></div>${round.isMakeup?`<div class="schedule-byes"><b>Balances games played.</b> Only the listed participants play.</div>`:round.byes.length?`<div class="schedule-byes"><b>Byes / sit-outs:</b> ${round.byes.map(e).join(' · ')}</div>`:''}</div><div class="schedule-match-list">${round.matches.map(matchHtml).join('')}</div></section>`).join('');
+  const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null,model.intervalMinutes?`${model.intervalMinutes}-minute rounds`:null,`${model.courts} court${model.courts===1?'':'s'}`,`${model.roundCount} standard round${model.roundCount===1?'':'s'}`,model.makeupMatchCount?`${model.makeupMatchCount} makeup match${model.makeupMatchCount===1?'':'es'}`:null].filter(Boolean);
   return `<article class="${preview?'schedule-preview ':''}schedule-document"${preview?' data-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · event schedule</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div>${model.note?`<p class="schedule-timing-note">${e(model.note)}</p>`:''}${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header>${rounds}<footer class="schedule-preview-foot">Court</footer></article>`;
 }
 function participantScheduleBodyHtml(model,{preview=false}={}){
@@ -3429,7 +3613,7 @@ function participantScheduleBodyHtml(model,{preview=false}={}){
   const entryHtml=item=>`<div class="participant-entry-row">${item.players?.length&&item.name?`<span class="participant-entry-badge" aria-label="Entry ${e(item.name)}">${e(item.name)}</span>`:''}<strong>${e(item.players?.length?item.players.join(' + '):item.name)}</strong></div>`;
   const rows=model.rows.map(row=>{
     const where=[row.time||'Time TBD',row.court].filter(Boolean).join(' · '),result=row.result?`<span class="participant-result ${row.result.outcome==='W'?'win':row.result.outcome==='L'?'loss':'tie'}">${e(row.result.outcome)} · ${e(row.result.score)}</span>`:'';
-    const head=`<div class="participant-round-head"><b>${row.round?`Round ${e(row.round)}`:'Scheduled match'}</b><span>${e(where)}</span></div>`;
+    const head=`<div class="participant-round-head"><b>${row.isMakeup?'Makeup match':row.round?`Round ${e(row.round)}`:'Scheduled match'}</b><span>${e(where)}</span></div>`;
     if(row.isBye||row.type==='bye')return `<article class="participant-round-card participant-game participant-bye"><div class="participant-round-head"><b>Round ${e(row.round)}</b><span>${e(row.time||'Time TBD')}</span></div><div class="participant-bye-box"><strong>Bye / Sit-out</strong><span>No match this round</span></div></article>`;
     const body=model.formatKind==='fixed'
       ? `<div class="participant-opponent-box"><span class="participant-block-label">Opponent</span><strong class="participant-opponent-name">${e(row.opponent.name)}</strong>${row.opponent.players.length?`<span class="participant-opponent-players">${row.opponent.players.map(e).join(' + ')}</span>`:''}</div>`
@@ -3752,7 +3936,7 @@ function renderEvents(){
   main.innerHTML=html;
 }
 function renderRotatingEventDetail(ev){
-  main.classList.add('event-detail');const entries=rotatingEntries(ev),schedule=rotationSchedule(ev),standings=entryStandings(ev),completed=schedule.filter(m=>linkedRotationGame(ev,m)).length,s=rotationSettings(ev),validation=rotationValidation(ev),leader=standings.find(r=>r.played),quality=ev.rotationScheduleQuality||ev.pairScheduleQuality,typePlural=rotatingEntryLabel(s.entrySize,true),typeSingular=rotatingEntryLabel(s.entrySize),rotationInfo=teammateRotationInfo(ev),placementNote=quality?.courtUnevenEntries?`Court use is uneven for ${quality.courtUnevenEntries} entr${quality.courtUnevenEntries===1?'y':'ies'}.`:quality?.sideUnevenEntries?`Side assignments are uneven for ${quality.sideUnevenEntries} entr${quality.sideUnevenEntries===1?'y':'ies'}.`:'';
+  main.classList.add('event-detail');const entries=rotatingEntries(ev),schedule=rotationSchedule(ev),standings=entryStandings(ev),completed=schedule.filter(m=>linkedRotationGame(ev,m)).length,s=rotationSettings(ev),validation=rotationValidation(ev),leader=standings.find(r=>r.played),persistedQuality=ev.rotationScheduleQuality||ev.pairScheduleQuality,quality=schedule.length?{...persistedQuality,...rotationScheduleAudit(ev,schedule)}:persistedQuality,typePlural=rotatingEntryLabel(s.entrySize,true),typeSingular=rotatingEntryLabel(s.entrySize),rotationInfo=teammateRotationInfo(ev),placementNote=quality?.courtUnevenEntries?`Court use is uneven for ${quality.courtUnevenEntries} entr${quality.courtUnevenEntries===1?'y':'ies'}.`:quality?.sideUnevenEntries?`Side assignments are uneven for ${quality.sideUnevenEntries} entr${quality.sideUnevenEntries===1?'y':'ies'}.`:'';
   const tl=rotationTimeline(ev);
   const sideHtml=ids=>`<div class="rotation-side">${ids.map(id=>{const e=entryById(ev,id);return `<button class="rotation-entry pressable" onclick="openEntrySchedule('${ev.id}','${id}')"><b>${esc(e?.name||'Missing entry')}</b><span>${(e?.players||[]).map(pid=>pById(pid)?.name||'Historical player').map(esc).join(' · ')}</span></button>`;}).join('')}</div>`;
   let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(ev.done?'Rotating Groups · final':'Rotating Groups · live',esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}<nav class="event-subnav" aria-label="Event sections">${[['overview','Overview'],['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['entries','Entries']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}</nav>
@@ -3760,7 +3944,7 @@ function renderRotatingEventDetail(ev){
     <section id="event-overview" class="card"><div class="row spread"><div class="stat-title" style="margin:0">Rotating Groups</div><span class="pill good">${ev.done?'final':'live'}</span></div><p class="small soft">${esc(rotatingFormatDescription(s.entrySize,s.teamSize))} Each side contains ${validation.valid?validation.entriesPerSide:'—'} ${typePlural.toLowerCase()}.</p><div class="event-overview"><div class="event-metric"><b class="num">${entries.length}</b><span>${typePlural.toLowerCase()}</span></div><div class="event-metric"><b class="num">${s.teamSize}s</b><span>players per side</span></div><div class="event-metric"><b class="num">${validation.valid?validation.entriesPerSide:'—'}</b><span>entries per side</span></div><div class="event-metric"><b class="num">${completed}</b><span>completed</span></div><div class="event-metric"><b class="num">${Math.max(0,schedule.length-completed)}</b><span>remaining</span></div><div class="event-metric"><b>${leader?esc(leader.entry.name):'—'}</b><span>leader</span></div></div><div class="tiny faint">${s.rounds} rounds · ${s.courts} courts · Win ${s.winPoints} · tie ${s.tiePoints} · loss ${s.lossPoints}. ${esc(entryRulesLabel(ev))}</div>${tl?`<div class="tiny" style="margin-top:7px;color:var(--gold)">Planned pool play ends ${fmtScheduleTime(ev,tl.poolsEnd)}${tl.playoff?` · playoffs ${fmtScheduleTime(ev,tl.playoff[0].est)} · awards ${fmtScheduleTime(ev,tl.awards)}`:''}</div>`:''}${quality?`<div class="unkline" style="margin-top:9px">Games per ${typeSingular.toLowerCase()}: ${quality.gamesMin}–${quality.gamesMax} · byes ${quality.byesMin}–${quality.byesMax} · repeated teammate combinations ${quality.repeatedTeammates??quality.repeatedPartnerships??0} · repeated opponent combinations ${quality.repeatedOpponents||0} · back-to-back assignments ${quality.backToBack||0} · incomplete rounds ${quality.invalidRounds||0}${settings.hideRatings?'':` · average seed spread ${(quality.seedSpread||0).toFixed(1)}`}</div>`:''}${placementNote?`<div class="tiny faint" style="margin-top:6px">${esc(placementNote)}</div>`:''}</section>`;
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
   if(!schedule.length) html+=`<div class="stat-empty">${validation.valid?(entries.length<validation.entriesPerMatch?`At least ${validation.entriesPerMatch} complete ${typePlural.toLowerCase()} are required for one match.`:'Choose rounds and courts, then generate a deterministic rotation.'):esc(validation.error)}</div><button class="btn ghost block" style="margin-top:10px" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn primary block" style="margin-top:8px" ${!validation.valid||entries.length<(validation.entriesPerMatch||Infinity)?'disabled':''} onclick="generateRotationSchedule('${ev.id}')">Generate schedule</button>`;
-  else {const rounds=[...new Set(schedule.map(m=>m.round))];html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${schedule.filter(m=>m.round===round).map(m=>{const res=rotationMatchResult(ev,m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${tl&&tl.roundEst[round]?` · ${fmtScheduleTime(ev,tl.roundEst[round])}`:''}</span><span class="pill ${res?'good':''}">${res?'final':'pending'}</span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button></div>`}</div>`;}).join('')}`).join('');html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>`;}
+  else {const standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),rounds=[...new Set(standard.map(m=>m.round))],matchCard=(m,time)=>{const res=rotationMatchResult(ev,m),extra=!isStandardScheduleMatch(m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${time?` · ${fmtScheduleTime(ev,time)}`:''}</span><span class="row" style="gap:5px">${extra?`<span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span>`:''}<span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button>${extra?`<button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button>`:''}</div>`}</div>`;};html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${standard.filter(m=>m.round===round).map(m=>matchCard(m,tl?.roundEst?.[round])).join('')}`).join('');if(extras.length){const blocks=[...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))];html+=`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed entries participate</span></div>`+blocks.map(block=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches${tl?.makeupEst?.[block]?` · ${fmtScheduleTime(ev,tl.makeupEst[block])}`:''}</div>${extras.filter(m=>positiveInt(m.makeupBlock,1)===block).map(m=>matchCard(m,tl?.makeupEst?.[block])).join('')}`).join('');}html+=scheduleFairnessAuditHtml(quality,typeSingular.toLowerCase());if(quality?.gameDifference>0)html+=`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`;html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button><button class="btn ghost" onclick="openCustomScheduleMatch('${ev.id}')">Add custom match</button><button class="btn ghost" onclick="balanceScheduleGames('${ev.id}')">Balance games played</button></div>`;}
   html+=`</section><section id="event-playoffs">`;
   html+=bracketCardsHtml(ev);
   const playoffTeams=ev.teams||[];
@@ -3771,9 +3955,9 @@ function renderRotatingEventDetail(ev){
   } else if(!(ev.brackets||[]).length){
     html+=`<div class="card" style="margin-top:12px"><div class="stat-title">Playoffs</div><div class="stat-empty">Finish pool play, then combine ${typePlural.toLowerCase()} into fixed playoff teams and run a bracket. Winners advance automatically; entry pool standings never mix with bracket results.</div>${!ev.done?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" ${entries.length>=2*(validation.entriesPerSide||2)?'':'disabled'} onclick="openRotationPlayoffs('${ev.id}')">${icons.trophy} Build playoff teams</button>`:''}</div>`;
   }
-  html+=`</section><section id="event-entries"></section><section id="event-standings" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>`;
+  html+=`</section><section id="event-entries"></section><section id="event-standings" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}`;
   if(!standings.length)html+=`<div class="stat-empty">No ${typePlural.toLowerCase()} yet. Each ${typeSingular.toLowerCase()} must contain exactly ${s.entrySize} player${s.entrySize===1?'':'s'}.</div>`;
-  else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id];return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span></span><span>${r.played}</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
+  else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id];return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span></span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
   html+=`</section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;
 }
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
@@ -3781,13 +3965,14 @@ function entryDraftCapture(){const d=window._entryDraft,n=$('#entryName'),seed=$
 function defaultEntryName(ids){const names=ids.map(pById).filter(Boolean).map(p=>p.name);return names.length<=3?names.join(' + '):names.slice(0,3).join(' + ')+' + '+(names.length-3)+' more';}
 function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(players.filter(p=>p.active&&!isArchived(p))),shown=filterPlayersForQuery(roster,window._entryQuery),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),selected=[...d.players].map(pById).filter(Boolean),type=rotatingEntryLabel(s.entrySize),strength=selected.length===s.entrySize?Math.round(entrySeedStrength({players:[...d.players]})):`choose ${s.entrySize} players`,strengthCopy=settings.hideRatings?'Rating seed strength is hidden. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.':`Rating seed strength: ${strength}. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.`;openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div class="small muted" style="margin:9px 0">${selected.length} of ${s.entrySize} selected${selected.length?` · ${selected.map(p=>esc(p.name)).join(' + ')}`:''}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._entryQuery));return `<span data-search-text="${esc(p.name)}" ${hidden&&!on?'hidden':''}><button data-focus-key="entry-${p.id}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(p.name)}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p class="tiny faint">${strengthCopy}</p><button class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
 window.entryToggle=id=>{const d=entryDraftCapture(),s=rotationSettings(evById(d.evId));if(d.players.has(id))d.players.delete(id);else if(d.players.size<s.entrySize)d.players.add(id);else{toast(`An entry has exactly ${s.entrySize} player${s.entrySize===1?'':'s'}`);return;}if(!d.name&&d.players.size===s.entrySize)d.name=defaultEntryName([...d.players]);renderEntryEditor();};
-window.saveEntry=async()=>{const d=entryDraftCapture(),ev=evById(d.evId),s=rotationSettings(ev);if(!ev||d.players.size!==s.entrySize)return;const duplicate=rotatingEntries(ev).some(e=>e.id!==d.entryId&&(e.players||[]).some(id=>d.players.has(id)));if(duplicate){toast('A player is already assigned to another entry');return;}const hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId),hasSchedule=rotationSchedule(ev).length>0;if(!hasResults&&hasSchedule&&!(await askConfirm('Saving this entry will clear the current unplayed schedule. Continue?','Save and clear schedule')))return;if(d.entryId&&hasResults&&!(await askConfirm('Saved results exist. This change affects future matches only; saved games keep their original players. Continue?','Change entry')))return;materializeRotation(ev);const name=(d.name||defaultEntryName([...d.players])).trim();if(d.entryId){const e=entryById(ev,d.entryId);e.name=name;e.players=[...d.players];e.manualSeed=d.manualSeed;}else ev.entries.push({id:uid(),name,players:[...d.players],manualSeed:d.manualSeed,created:Date.now()});if(!hasResults)clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
-window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev||!d.entryId)return;if(games.some(g=>g.evId===ev.id&&gameEntryIds(g,'A').concat(gameEntryIds(g,'B')).includes(d.entryId))){toast('Remove linked results before deleting this entry');return;}if(rotationSchedule(ev).some(m=>m.sideAEntryIds.includes(d.entryId)||m.sideBEntryIds.includes(d.entryId))&&!(await askConfirm('Deleting this entry will clear the current unplayed schedule. Continue?','Delete entry')))return;await Sync.markDeleted('eventEntries',d.entryId);materializeRotation(ev);ev.entries=ev.entries.filter(e=>e.id!==d.entryId);clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
-window.openRotationSettings=evId=>{const ev=evById(evId);if(!ev)return;window._rotationSettingsEvId=evId;const s=rotationSettings(ev);openSheet(`<h3>Rotating Groups settings</h3><div class="field"><label>Players who stay together</label><input id="rotationEntrySize" aria-label="Players who stay together" type="number" min="1" value="${s.entrySize}" oninput="updateRotationSummary()"><div class="tiny faint">This many players remain together for the whole tournament and earn standings results as one entry.</div></div><div class="field"><label>Players per side</label><input id="rotationTeamSize" aria-label="Players per side" type="number" min="2" value="${s.teamSize}" oninput="updateRotationSummary()"><div class="tiny faint">Each temporary team contains this many total players.</div></div><div id="rotationSummary" class="unkline"></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Rounds</label><input id="rotationRounds" aria-label="Rounds" type="number" min="1" value="${s.rounds}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Courts</label><input id="rotationCourts" aria-label="Courts" type="number" min="1" value="${s.courts}" oninput="updateRotationSummary()"></div></div><div class="field"><label>Schedule seeding</label><select id="rotationSeedMode" aria-label="Schedule seeding"><option value="rating" ${s.seedMode==='rating'?'selected':''}>Rating</option><option value="manual" ${s.seedMode==='manual'?'selected':''}>Manual</option><option value="random" ${s.seedMode==='random'?'selected':''}>Random</option></select><div class="tiny faint">Rating = strongest entries are initially seeded first. Manual = organizer controls initial order. Random = initial order is randomized.</div></div><div class="field"><label>Start time <span class="faint" style="font-weight:500">· optional</span></label><input id="rotationStart" aria-label="Start time" type="time" value="${s.start||''}"><div class="tiny faint">Leave empty for no times. Planned round times stay anchored to the event date and this start time.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Game min</label><input id="rotationSetMin" aria-label="Minutes per game" type="number" min="5" value="${s.setMin}"></div><div class="field" style="flex:1"><label>Playoff match min</label><input id="rotationMatchMin" aria-label="Minutes per playoff match" type="number" min="5" value="${s.matchMin}"></div><div class="field" style="flex:1"><label>Break min</label><input id="rotationBreakMin" aria-label="Break before playoffs" type="number" min="0" value="${s.breakMin}"></div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Win points</label><input id="rotationWinPoints" aria-label="Win points" type="number" step=".5" value="${s.winPoints}"></div><div class="field" style="flex:1"><label>Tie points</label><input id="rotationTiePoints" aria-label="Tie points" type="number" step=".5" value="${s.tiePoints}"></div><div class="field" style="flex:1"><label>Loss points</label><input id="rotationLossPoints" aria-label="Loss points" type="number" step=".5" value="${s.lossPoints}"></div></div><p class="tiny faint">Initial seeding helps construct the schedule and never directly changes standings.</p><button class="btn primary block" onclick="saveRotationSettings('${evId}')">Save settings</button>${sheetCloseBtn()}`);updateRotationSummary();};
-window.updateRotationSummary=()=>{const e=Number($('#rotationEntrySize')?.value),t=Number($('#rotationTeamSize')?.value),v=validateRotationConfig(e,t),box=$('#rotationSummary');if(!box)return;box.style.color=v.valid?'var(--mint)':'var(--gold)';if(!v.valid){box.textContent=v.error;return;}const ev=evById(window._rotationSettingsEvId),n=rotatingEntries(ev).length,courts=positiveInt($('#rotationCourts')?.value,1),rounds=positiveInt($('#rotationRounds')?.value,1),matches=Math.min(courts,Math.floor(n/v.entriesPerMatch)),byes=Math.max(0,n-matches*v.entriesPerMatch),exact=n?((rounds*matches*v.entriesPerMatch)%n===0):false;box.textContent=`Each side will contain ${v.entriesPerSide} ${rotatingEntryLabel(e,v.entriesPerSide!==1).toLowerCase()}. ${v.entriesPerMatch} entries and ${v.playersPerMatch} players are needed per match. With ${n} entries: ${matches} match${matches===1?'':'es'} per round, ${byes} expected bye${byes===1?'':'s'} per round; ${exact?'equal participation is possible':'perfectly equal participation is not possible'} across ${rounds} rounds.`;};
-window.saveRotationSettings=async evId=>{const ev=evById(evId);if(!ev)return;const old=rotationSettings(ev),next={...old,entrySize:Number($('#rotationEntrySize').value),teamSize:Number($('#rotationTeamSize').value),rounds:positiveInt($('#rotationRounds').value,1),courts:positiveInt($('#rotationCourts').value,1),seedMode:$('#rotationSeedMode').value,winPoints:Number($('#rotationWinPoints').value),tiePoints:Number($('#rotationTiePoints').value),lossPoints:Number($('#rotationLossPoints').value),start:($('#rotationStart')?.value||''),setMin:positiveInt($('#rotationSetMin')?.value,25),matchMin:positiveInt($('#rotationMatchMin')?.value,45),breakMin:Math.max(0,Math.round(Number($('#rotationBreakMin')?.value)||0))},v=validateRotationConfig(next.entrySize,next.teamSize);if(!v.valid){toast(v.error);return;}const structural=next.entrySize!==old.entrySize||next.teamSize!==old.teamSize,hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId);if(structural&&hasResults){toast('Remove linked results before changing entry or team size');return;}if(structural&&rotatingEntries(ev).some(e=>(e.players||[]).length!==next.entrySize)){toast(`Existing entries do not contain exactly ${next.entrySize} players. Edit or remove them before changing entry size.`);return;}const regen=structural||next.rounds!==old.rounds||next.courts!==old.courts||next.seedMode!==old.seedMode;if(regen&&rotationSchedule(ev).length&&!(await askConfirm('These changes affect the matchups, so the current unplayed rotating schedule will be cleared. Points and timing changes never clear it. Continue?','Save and clear schedule')))return;materializeRotation(ev);ev.rotation=next;if(regen)clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
-window.generateRotationSchedule=async evId=>{const ev=evById(evId);if(!ev)return;const schedule=rotationSchedule(ev),playedRounds=schedule.filter(m=>linkedRotationGame(ev,m)).map(m=>m.round),lastLocked=playedRounds.length?Math.max(...playedRounds):0,locked=schedule.filter(m=>m.round<=lastLocked),savedInitialSeeds=normalizeInitialSeeds(rotationSettings(ev).initialSeeds,rotatingEntries(ev));if(schedule.length){const msg=lastLocked?'Regenerate only rounds after the last started round? Every matchup in started rounds, all saved games, standings, and ratings will be preserved.':'Regenerate the full rotating schedule? No saved games or event data will be changed.';if(!(await askConfirm(msg,lastLocked?'Regenerate remaining':'Regenerate full schedule')))return;}materializeRotation(ev);const currentState=scheduleState(ev.rotation,'rotation:'+ev.id),regenerationSeed=schedule.length&&ev.rotation.seedMode==='random'?newScheduleSeed():currentState.seed,oldSig=rotationMaterialSignature(schedule.filter(m=>m.round>lastLocked)),firstAttempt=schedule.length?1:0;let chosen=null,nextState=null;for(let attempt=firstAttempt;attempt<firstAttempt+32;attempt++){const revision=currentState.revision+attempt,candidateEv={...ev,rotation:{...ev.rotation,seed:regenerationSeed,revision}},result=generateRotationScheduleData(candidateEv,{lockedMatches:locked});if(result.error){toast(result.error);return;}const future=result.matches.filter(m=>m.round>lastLocked);if(!schedule.length||rotationMaterialSignature(future)!==oldSig){chosen=result;nextState=scheduleState(candidateEv.rotation,'rotation:'+ev.id);break;}}if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}const initialSeeds=lastLocked?savedInitialSeeds:chosen.initialSeeds;ev.rotation={...ev.rotation,...nextState};if(initialSeeds)ev.rotation.initialSeeds=initialSeeds;else delete ev.rotation.initialSeeds;ev.rotationSchedule=chosen.matches;ev.rotationScheduleQuality=chosen.quality;await saveEvents();toast(`${schedule.length?'Schedule regenerated':'Schedule generated'} · version ${ev.rotation.revision}`);render({scroll:'anchor',anchorId:'schedule'});};
+window.saveEntry=async()=>{const d=entryDraftCapture(),ev=evById(d.evId),s=rotationSettings(ev);if(!ev||d.players.size!==s.entrySize)return;const duplicate=rotatingEntries(ev).some(e=>e.id!==d.entryId&&(e.players||[]).some(id=>d.players.has(id)));if(duplicate){toast('A player is already assigned to another entry');return;}const hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId),hasSchedule=rotationSchedule(ev).length>0;if(d.entryId&&hasResults&&!(await askConfirm('Saved results exist. This change affects future matches only; saved games keep their original players. Continue?','Change entry')))return;materializeRotation(ev);const name=(d.name||defaultEntryName([...d.players])).trim();if(d.entryId){const e=entryById(ev,d.entryId);e.name=name;e.players=[...d.players];e.manualSeed=d.manualSeed;}else ev.entries.push({id:uid(),name,players:[...d.players],manualSeed:d.manualSeed,created:Date.now()});if(hasSchedule)markScheduleNeedsReview(ev);await saveEvents();closeSheet();toast(hasSchedule?'Entry saved · schedule needs review':'Entry saved');render();};
+window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev||!d.entryId)return;if(games.some(g=>g.evId===ev.id&&gameEntryIds(g,'A').concat(gameEntryIds(g,'B')).includes(d.entryId))){toast('Remove linked results before deleting this entry');return;}const hasSchedule=rotationSchedule(ev).some(m=>m.sideAEntryIds.includes(d.entryId)||m.sideBEntryIds.includes(d.entryId));if(hasSchedule&&!(await askConfirm('The saved schedule will be kept for review and may show this as a missing entry. Continue?','Delete entry')))return;await Sync.markDeleted('eventEntries',d.entryId);materializeRotation(ev);ev.entries=ev.entries.filter(e=>e.id!==d.entryId);if(hasSchedule)markScheduleNeedsReview(ev);await saveEvents();closeSheet();toast(hasSchedule?'Entry deleted · schedule needs review':'Entry deleted');render();};
+window.openRotationSettings=evId=>{const ev=evById(evId);if(!ev)return;window._evsDraft=null;window._rotationSettingsEvId=evId;const s=rotationSettings(ev);window._rotationFairnessPolicy=hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)?s.fairnessPolicy:'';openSheet(`<h3>Rotating Groups settings</h3><div class="field"><label>Players who stay together</label><input id="rotationEntrySize" aria-label="Players who stay together" type="number" min="1" value="${s.entrySize}" oninput="updateRotationSummary()"><div class="tiny faint">This many players remain together for the whole tournament and earn standings results as one entry.</div></div><div class="field"><label>Players per side</label><input id="rotationTeamSize" aria-label="Players per side" type="number" min="2" value="${s.teamSize}" oninput="updateRotationSummary()"><div class="tiny faint">Each temporary team contains this many total players.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Standard rounds</label><input id="rotationRounds" aria-label="Rounds" type="number" min="1" value="${s.rounds}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Courts</label><input id="rotationCourts" aria-label="Courts" type="number" min="1" value="${s.courts}" oninput="updateRotationSummary()"></div></div><div class="field"><label>Schedule fairness</label><div id="rotationSummary"></div></div><div class="field"><label>Schedule seeding</label><select id="rotationSeedMode" aria-label="Schedule seeding"><option value="rating" ${s.seedMode==='rating'?'selected':''}>Rating</option><option value="manual" ${s.seedMode==='manual'?'selected':''}>Manual</option><option value="random" ${s.seedMode==='random'?'selected':''}>Random</option></select><div class="tiny faint">Rating = strongest entries are initially seeded first. Manual = organizer controls initial order. Random = initial order is randomized.</div></div><div class="field"><label>Start time <span class="faint" style="font-weight:500">· optional</span></label><input id="rotationStart" aria-label="Start time" type="time" value="${s.start||''}" oninput="updateRotationSummary()"><div class="tiny faint">Leave empty for no times. Planned times stay anchored to the event date and this start time.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Game min</label><input id="rotationSetMin" aria-label="Minutes per game" type="number" min="5" value="${s.setMin}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Playoff match min</label><input id="rotationMatchMin" aria-label="Minutes per playoff match" type="number" min="5" value="${s.matchMin}"></div><div class="field" style="flex:1"><label>Break min</label><input id="rotationBreakMin" aria-label="Break before playoffs" type="number" min="0" value="${s.breakMin}"></div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Win points</label><input id="rotationWinPoints" aria-label="Win points" type="number" step=".5" value="${s.winPoints}"></div><div class="field" style="flex:1"><label>Tie points</label><input id="rotationTiePoints" aria-label="Tie points" type="number" step=".5" value="${s.tiePoints}"></div><div class="field" style="flex:1"><label>Loss points</label><input id="rotationLossPoints" aria-label="Loss points" type="number" step=".5" value="${s.lossPoints}"></div></div><p class="tiny faint">Initial seeding helps construct the schedule and never directly changes standings.</p><button class="btn primary block" onclick="saveRotationSettings('${evId}')">Save settings</button>${sheetCloseBtn()}`);updateRotationSummary();};
+window.updateRotationSummary=()=>{const e=Number($('#rotationEntrySize')?.value),t=Number($('#rotationTeamSize')?.value),v=validateRotationConfig(e,t),box=$('#rotationSummary');if(!box)return;if(!v.valid){box.innerHTML=`<div class="schedule-warning" role="status">${esc(v.error)}</div>`;return;}const ev=evById(window._rotationSettingsEvId),ids=rotatingEntries(ev).map(entry=>entry.id),courts=positiveInt($('#rotationCourts')?.value,1),rounds=positiveInt($('#rotationRounds')?.value,1),plan=analyzeScheduleParticipation({participantIds:ids,standardRounds:rounds,courts,participantsPerMatch:v.entriesPerMatch,fairnessPolicy:window._rotationFairnessPolicy}),noun=rotatingEntryLabel(e).toLowerCase(),start=$('#rotationStart')?.value||'',setMin=positiveInt($('#rotationSetMin')?.value,25);box.innerHTML=`<div class="tiny faint">Each side contains ${v.entriesPerSide} ${rotatingEntryLabel(e,v.entriesPerSide!==1).toLowerCase()}. ${v.entriesPerMatch} entries are needed per match.</div>${scheduleFairnessPreviewHtml(plan,{noun,rounds,setMin,start,eventDate:eventLocalDate(ev),selected:window._rotationFairnessPolicy})}`;};
+window.saveRotationSettings=async evId=>{const ev=evById(evId);if(!ev)return;const old=rotationSettings(ev),next={...old,entrySize:Number($('#rotationEntrySize').value),teamSize:Number($('#rotationTeamSize').value),rounds:positiveInt($('#rotationRounds').value,1),courts:positiveInt($('#rotationCourts').value,1),seedMode:$('#rotationSeedMode').value,winPoints:Number($('#rotationWinPoints').value),tiePoints:Number($('#rotationTiePoints').value),lossPoints:Number($('#rotationLossPoints').value),start:($('#rotationStart')?.value||''),setMin:positiveInt($('#rotationSetMin')?.value,25),matchMin:positiveInt($('#rotationMatchMin')?.value,45),breakMin:Math.max(0,Math.round(Number($('#rotationBreakMin')?.value)||0))},v=validateRotationConfig(next.entrySize,next.teamSize);if(!v.valid){toast(v.error);return;}const plan=analyzeScheduleParticipation({participantIds:rotatingEntries(ev).map(entry=>entry.id),standardRounds:next.rounds,courts:next.courts,participantsPerMatch:v.entriesPerMatch,fairnessPolicy:window._rotationFairnessPolicy});if(!plan.valid){toast(plan.error);return;}if(!plan.equalParticipationPossible&&!FAIRNESS_POLICIES.includes(window._rotationFairnessPolicy)){toast('Choose Equal games or Keep requested rounds');return;}next.fairnessPolicy=plan.equalParticipationPossible?(window._rotationFairnessPolicy||'equalGames'):window._rotationFairnessPolicy;const structural=next.entrySize!==old.entrySize||next.teamSize!==old.teamSize,hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId);if(structural&&hasResults){toast('Remove linked results before changing entry or team size');return;}if(structural&&rotatingEntries(ev).some(e=>(e.players||[]).length!==next.entrySize)){toast(`Existing entries do not contain exactly ${next.entrySize} players. Edit or remove them before changing entry size.`);return;}const regen=structural||next.rounds!==old.rounds||next.courts!==old.courts||next.seedMode!==old.seedMode||next.fairnessPolicy!==old.fairnessPolicy;if(regen&&rotationSchedule(ev).length&&!(await askConfirm('These changes affect future matchups and makeup needs. Played matches and custom matches stay protected. Continue?','Save and review schedule')))return;materializeRotation(ev);const protectedMatches=rotationSchedule(ev).filter(m=>linkedRotationGame(ev,m)||isCustomScheduleMatch(m));ev.rotation=next;if(regen){ev.rotationSchedule=protectedMatches;delete ev.rotationScheduleQuality;if(!protectedMatches.length)delete ev.rotation.initialSeeds;}await saveEvents();closeSheet();render();};
+window.generateRotationSchedule=async evId=>{const ev=evById(evId);if(!ev)return;const schedule=rotationSchedule(ev),s=rotationSettings(ev),validation=rotationValidation(ev),preview=validation.valid?analyzeScheduleParticipation({participantIds:rotatingEntries(ev).map(entry=>entry.id),standardRounds:s.rounds,courts:s.courts,participantsPerMatch:validation.entriesPerMatch,fairnessPolicy:s.fairnessPolicy}):null;if(preview?.valid&&!preview.equalParticipationPossible&&!hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)&&!schedule.length){toast('Review Schedule fairness and choose a policy first');openRotationSettings(evId);return;}const standard=schedule.filter(isStandardScheduleMatch),playedRounds=standard.filter(m=>linkedRotationGame(ev,m)).map(m=>m.round),lastLocked=playedRounds.length?Math.max(...playedRounds):0,locked=standard.filter(m=>m.round<=lastLocked),protectedMatches=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),savedInitialSeeds=normalizeInitialSeeds(s.initialSeeds,rotatingEntries(ev));if(schedule.length){const msg=lastLocked?'Regenerate only future standard rounds and recalculate unplayed makeup matches? Every started match, saved result, custom match, standing, and rating stays preserved.':'Regenerate the schedule and recalculate unplayed makeup matches? Saved results and custom matches stay protected.';if(!(await askConfirm(msg,lastLocked?'Regenerate remaining':'Regenerate schedule')))return;}materializeRotation(ev);const currentState=scheduleState(ev.rotation,'rotation:'+ev.id),regenerationSeed=schedule.length&&ev.rotation.seedMode==='random'?newScheduleSeed():currentState.seed,oldSig=rotationMaterialSignature(standard.filter(m=>m.round>lastLocked)),firstAttempt=schedule.length?1:0;let chosen=null,nextState=null;for(let attempt=firstAttempt;attempt<firstAttempt+32;attempt++){const revision=currentState.revision+attempt,candidateEv={...ev,rotation:{...ev.rotation,seed:regenerationSeed,revision}},result=generateRotationScheduleData(candidateEv,{lockedMatches:locked,preservedMatches:protectedMatches});if(result.error){toast(result.error);return;}const future=result.matches.filter(m=>isStandardScheduleMatch(m)&&m.round>lastLocked);if(!standard.length||rotationMaterialSignature(future)!==oldSig){chosen=result;nextState=scheduleState(candidateEv.rotation,'rotation:'+ev.id);break;}}if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}const initialSeeds=lastLocked?savedInitialSeeds:chosen.initialSeeds;ev.rotation={...ev.rotation,...nextState};delete ev.rotation.scheduleNeedsReview;if(initialSeeds)ev.rotation.initialSeeds=initialSeeds;else delete ev.rotation.initialSeeds;ev.rotationSchedule=chosen.matches;ev.rotationScheduleQuality=chosen.quality;await saveEvents();toast(`${schedule.length?'Schedule regenerated':'Schedule generated'} · version ${ev.rotation.revision}`);render({scroll:'anchor',anchorId:'schedule'});};
 function rotationMatch(ev,matchId){return rotationSchedule(ev).find(m=>m.id===matchId);}
+function rotationMatchLabel(match){return `${isStandardScheduleMatch(match)?`Round ${match.round}`:'Makeup match'} · Court ${match.court}`;}
 function rotationMatchPlayers(ev,ids){return ids.flatMap(id=>entryById(ev,id)?.players||[]).filter(id=>pById(id));}
 function validateRotationMatch(ev,m){const s=rotationSettings(ev),v=rotationValidation(ev),all=m?[...m.sideAEntryIds,...m.sideBEntryIds]:[];if(!m||!v.valid)return {valid:false,error:'Invalid rotating match configuration.'};if(m.sideAEntryIds.length!==v.entriesPerSide||m.sideBEntryIds.length!==v.entriesPerSide||new Set(all).size!==all.length)return {valid:false,error:'Scheduled entry composition is invalid.'};const entries=all.map(id=>entryById(ev,id));if(entries.some(e=>!e||(e.players||[]).length!==s.entrySize))return {valid:false,error:'Every scheduled entry must be complete.'};const A=rotationMatchPlayers(ev,m.sideAEntryIds),B=rotationMatchPlayers(ev,m.sideBEntryIds);if(A.length!==s.teamSize||B.length!==s.teamSize||new Set([...A,...B]).size!==A.length+B.length)return {valid:false,error:`Each side needs ${s.teamSize} distinct valid players.`};return {valid:true,A,B};}
 window.openRotationScore=(evId,matchId)=>{
@@ -3826,16 +4011,16 @@ window.saveRotationScore=async(evId,matchId)=>{
     let wa=0,wb=0; sets.forEach(([a,b])=>{ if(a>b)wa++; else if(b>a)wb++; });
     if(wa===wb&&!(await askConfirm('Set wins are even, so the match counts as a tie in entry standings. Save anyway?','Save anyway',false)))return;
     const matchId=uid();
-    sets.forEach(([a,b,n])=>games.push(base({matchId,scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:`Round ${m.round} \u00b7 Court ${m.court} \u00b7 Set ${n}`})));
+    sets.forEach(([a,b,n])=>games.push(base({matchId,scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:`${rotationMatchLabel(m)} \u00b7 Set ${n}`})));
     await commit(); closeSheet(); render();
   } else {
     const a=num($('#rotationScoreA').value),b=num($('#rotationScoreB').value);
     if(a===b&&!(await askConfirm('Save this tied result? Ratings will stay unchanged, and entry tie points will apply.','Save tie',false)))return;
-    games.push(base({scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:`Round ${m.round} \u00b7 Court ${m.court}`}));
+    games.push(base({scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:rotationMatchLabel(m)}));
     await commit(); closeSheet(); render();
   }
 };
-window.trackRotationMatch=(evId,matchId)=>{const ev=evById(evId),m=ev&&rotationMatch(ev,matchId),valid=validateRotationMatch(ev,m);if(!valid.valid){toast(valid.error);return;}window._sel={A:new Set(valid.A),B:new Set(valid.B)};window._fmt=rotationSettings(ev).teamSize;window._trackMode='match';window._evtPending={evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',label:`Round ${m.round} · Court ${m.court}`};tab='track';render({scroll:'top'});};
+window.trackRotationMatch=(evId,matchId)=>{const ev=evById(evId),m=ev&&rotationMatch(ev,matchId),valid=validateRotationMatch(ev,m);if(!valid.valid){toast(valid.error);return;}window._sel={A:new Set(valid.A),B:new Set(valid.B)};window._fmt=rotationSettings(ev).teamSize;window._trackMode='match';window._evtPending={evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',label:rotationMatchLabel(m)};tab='track';render({scroll:'top'});};
 /* --- per-entry schedule sheet: everything one pair/group plays --- */
 function entryScheduleInfo(ev, entryId){
   const nameOf=id=>entryById(ev,id)?.name||'?';
@@ -3848,7 +4033,7 @@ function entryScheduleInfo(ev, entryId){
     let w=0,l=0; const sc=[];
     sets.forEach(g=>{ const a=onA?g.scoreA:g.scoreB, b=onA?g.scoreB:g.scoreA; if(a>b)w++; else if(b>a)l++; sc.push(a+'\u2013'+b); });
     const match=schedule.find(m=>m.id===sets[0].evMatchId);
-    return {date:sets[sets.length-1].date,round:match?.round||null,court:match?.court||null,est:match&&tl?tl.roundEst[match.round]:null,
+    return {date:sets[sets.length-1].date,round:match?.round||null,isMakeup:match?!isStandardScheduleMatch(match):false,court:match?.court||null,est:match&&tl?(isStandardScheduleMatch(match)?tl.roundEst[match.round]:tl.makeupEst?.[positiveInt(match.makeupBlock,1)]):null,
       won:w>l?true:l>w?false:null,
       disp:sets.length>1?`${w}-${l} \u00b7 ${sc.join(', ')}`:sc[0],
       mates:gameEntryIds(sets[0],onA?'A':'B').filter(id=>id!==entryId).map(nameOf),
@@ -3861,7 +4046,7 @@ function entryScheduleInfo(ev, entryId){
     .sort((a,b)=>a.round-b.round||a.court-b.court)
     .map(m=>{
       const onA=m.sideAEntryIds.includes(entryId);
-      return {round:m.round, court:m.court, est:tl?tl.roundEst[m.round]:null,
+      return {round:m.round,isMakeup:!isStandardScheduleMatch(m), court:m.court, est:tl?(isStandardScheduleMatch(m)?tl.roundEst[m.round]:tl.makeupEst?.[positiveInt(m.makeupBlock,1)]):null,
         mates:(onA?m.sideAEntryIds:m.sideBEntryIds).filter(id=>id!==entryId).map(nameOf),
         opps:(onA?m.sideBEntryIds:m.sideAEntryIds).map(nameOf)};
     });
@@ -3878,7 +4063,7 @@ window.openEntrySchedule=(evId, entryId)=>{
       <span class="num small" style="white-space:nowrap">${esc(p.disp)}</span>
     </div>`).join('');
   const upcomingRows=info.upcoming.map(u=>`<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border);gap:10px">
-      <span class="small" style="min-width:0">${withLine(u.mates,u.opps)}<div class="tiny faint">Round ${u.round}</div></span>
+      <span class="small" style="min-width:0">${withLine(u.mates,u.opps)}<div class="tiny faint">${u.isMakeup?'Makeup match · balances games played':`Round ${u.round}`}</div></span>
       <span class="tiny num faint" style="white-space:nowrap;text-align:right">Court ${u.court}${u.est?`<br>${fmtScheduleTime(ev,u.est)}`:''}</span>
     </div>`).join('');
   openSheet(`<h3>${esc(entry.name)}${info.rank?` <span style="color:var(--gold)">· #${info.rank}</span>`:''}</h3>
@@ -3994,6 +4179,11 @@ window.saveRotationPlayoffTeams=async()=>{
 };
 /* UI aliases keep old inline calls/backups harmless while all new UI uses entry terms. */
 window.openPairEditor=window.openEntryEditor;window.openPairSettings=window.openRotationSettings;window.generatePairSchedule=window.generateRotationSchedule;window.openPairScore=window.openRotationScore;window.trackPairMatch=window.trackRotationMatch;const renderPairEventDetail=renderRotatingEventDetail;
+function fixedLinkedScheduleGame(ev,match){return games.find(g=>g.evId===ev.id&&(g.evMatchId===match.id||(!g.evMatchId&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)))));}
+function fixedPendingRoundScheduleHtml(ev,sc){
+  if(!sc.plannedSlots.length)return `<div class="tiny" style="color:var(--mint);padding:4px 0">No standard matches scheduled.</div>`;
+  return sc.plannedSlots.map(slot=>{const number=(slot[0]?.slot??0)+1,time=slot[0]?.est;return `<div class="pool-title">Round ${number}${time?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,time)}</span>`:''}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m),game=fixedLinkedScheduleGame(ev,m);return `<div class="ev-team" style="padding:7px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="tiny faint" style="display:block">${esc(courtLabel(sc.s,m.court))}${m.pool?` · Pool ${esc(m.pool)}`:''} · <span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span><span class="small" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${game?.id||''}')">Final · ${esc(res.display)}</button>`:`<button class="btn sm ghost" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)} · `:''}Round ${number}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button>`}</div>`;}).join('')}`;}).join('');
+}
 function renderEventDetail(ev){
   if(eventFormat(ev)==='rotatingGroups'){ renderRotatingEventDetail(ev); return; }
   main.classList.add('event-detail');
@@ -4026,7 +4216,7 @@ function renderEventDetail(ev){
         <span class="tiny faint">${sc.done?`${sc.done}/${sc.total} played`:`${sc.requestedCourts} court${sc.requestedCourts===1?'':'s'}`}</span></div>
       <div class="tiny faint" style="margin:5px 0 6px">${esc(sc.timeNote)} Tap a team name for its schedule.</div>
       ${(sc.warnings||[]).map(w=>`<div class="unkline">${esc(w)}</div>`).join('')}
-      ${sc.courts.length ? sc.courts.map(c=>`
+      ${ev.sched.standardRounds?fixedPendingRoundScheduleHtml(ev,sc):sc.courts.length ? sc.courts.map(c=>`
         <div class="pool-title">${esc(c.label)} <span class="tiny faint" style="text-transform:none;letter-spacing:0">· ${c.items.length} match${c.items.length===1?'':'es'}</span></div>
         ${c.items.length ? c.items.map(m=>{
           const ta=evTeamById(ev,m.a), tb=evTeamById(ev,m.b);
@@ -4035,15 +4225,18 @@ function renderEventDetail(ev){
               ${m.pool?`<span class="tiny faint" style="display:block">Pool ${esc(m.pool)}</span>`:''}
               <span class="small" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?ta.name:'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?tb.name:'?')}</button></span>
             </span>
-            <button class="btn sm ghost" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)}`:'Scheduled match'}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button></div>`;
+            <button class="btn sm ghost" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)}`:'Scheduled match'}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button></div>`;
         }).join('') : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}
       `).join('') : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}
+      ${sc.makeupSlots?.length?`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed teams participate</span></div>${sc.makeupSlots.map((slot,blockIndex)=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches · ${slot[0]?.est?fmtScheduleTime(ev,slot[0].est):'Time TBD'}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m);return `<div class="ev-team" style="padding:8px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span><span class="small" style="display:block;margin-top:4px"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${games.find(g=>g.evId===ev.id&&g.evMatchId===m.id)?.id||''}')">Final · ${esc(res.display)}</button>`:`<span class="row" style="gap:5px"><button class="btn sm primary" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${esc(m.label||'Makeup match')}','set','${m.id}')">Log</button><button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button></span>`}</div>`;}).join('')}`).join('')}`:''}
+      ${scheduleFairnessAuditHtml(sc.fairnessAudit,'team')}
+      ${sc.fairnessAudit?.gameDifference>0?`<div class="schedule-warning">Teams have different scheduled opportunities. Rankings use match win percentage first.</div>`:''}
       ${sc.playoff
         ? `<div class="pool-title">Playoffs <span class="tiny faint" style="text-transform:none;letter-spacing:0">· best of 3 · after ${sc.s.breakMin}-min break</span></div>`
           + sc.playoff.map(r=>`<div class="row spread" style="padding:4px 0"><span class="small">${esc(r.name)}</span><span class="tiny num faint">${fmtScheduleTime(ev,r.est)}</span></div>`).join('')
           + `<div class="row spread" style="padding:4px 0"><span class="small" style="color:var(--gold);font-weight:700">Awards</span><span class="tiny num" style="color:var(--gold)">${fmtScheduleTime(ev,sc.awards)}</span></div>`
         : `<div class="tiny faint" style="margin-top:8px">Planned pool play ends ${fmtScheduleTime(ev,sc.poolsEnd)} · add a bracket to project the playoff timeline.</div>`}
-      <div class="schedule-actions"><button class="btn ghost" onclick="openEvSettings('${ev.id}')">Courts &amp; schedule</button><button class="btn ghost" onclick="regenerateFixedSchedule('${ev.id}')">${sc.done?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>
+      <div class="schedule-actions"><button class="btn ghost" onclick="openEvSettings('${ev.id}')">Courts &amp; schedule</button><button class="btn ghost" onclick="regenerateFixedSchedule('${ev.id}')">${sc.done?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button><button class="btn ghost" onclick="openCustomScheduleMatch('${ev.id}')">Add custom match</button><button class="btn ghost" onclick="balanceScheduleGames('${ev.id}')">Balance games played</button></div>
     </section>`;
   } else {
     html += `<section id="event-schedule" class="card" style="margin-top:12px"><div class="stat-title">Schedule</div><div class="stat-empty">${ev.done?'This event is complete. The saved schedule remains available to participants.':'Set courts and schedule details to project rounds, court assignments, and timing.'}</div>${ev.done&&scheduleSc?.plannedSlots?.length?`<button class="btn primary block" style="margin-top:10px" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button>`:!ev.done?`<button class="btn ghost block" style="margin-top:10px" onclick="openEvSettings('${ev.id}')">Courts &amp; schedule</button>`:''}</section>`;
@@ -4064,10 +4257,10 @@ function renderEventDetail(ev){
     const groups = usePools
       ? poolVals.slice().sort((a,b)=> (a===''?1:b===''?-1:a.localeCompare(b))).map(p=>({label:p?`Pool ${p}`:'No pool', rows:st.filter(r=>(r.t.pool||'')===p)}))
       : [{label:null, rows:st}];
-    const table = rows => `<div class="stand-row stand-head"><span>#</span><span>Team</span><span style="text-align:right">Match</span><span style="text-align:right">Diff</span></div>`
+    const table = rows => `<div class="stand-row stand-head"><span>#</span><span>Team</span><span style="text-align:right">MW-ML · Win%</span><span style="text-align:right">Diff</span></div>`
       + rows.map((r,i)=>`<button class="stand-row pressable" onclick="openTeamSchedule('${ev.id}','${r.t.id}')"><span class="num faint small">${i+1}</span>
         <span class="small" style="font-weight:700;min-width:0">${esc(r.t.name)}<div class="tiny faint" style="font-weight:500">${r.t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')||'guest team'}</div><div class="tiny faint" style="font-weight:500">sets ${r.sw}-${r.sl}${r.ties?` · ${r.ties} tie${r.ties===1?'':'s'}`:''} · ${r.gp} played</div></span>
-        <span class="num small" style="text-align:right;font-weight:700">${r.mw}-${r.ml}</span>
+        <span class="num small" style="text-align:right;font-weight:700">${r.mw}-${r.ml}<span class="tiny faint" style="display:block">${Math.round(r.winPct*100)}%</span></span>
         <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></button>`).join('');
     html += groups.filter(g=>g.rows.length).map(g=>`${g.label?`<div class="pool-title">${esc(g.label)}</div>`:''}${table(g.rows)}`).join('');
   }
@@ -4301,28 +4494,34 @@ window.saveEventTeam=async()=>{
   if(!name){ toast('Team needs a name'); return; }
   if(d.tid){ const t=evTeamById(ev,d.tid); if(t){ t.name=name; t.players=[...d.players]; t.pool=d.pool||''; } }
   else ev.teams.push({id:uid(), name, pool:d.pool||'', players:[...d.players]});
-  await saveEvents(); closeSheet(); render();
+  if(ev.sched)markScheduleNeedsReview(ev);await saveEvents(); closeSheet();toast(ev.sched?'Team saved · schedule needs review':'Team saved'); render();
 };
 window.deleteEventTeam=async()=>{
   const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev||!d.tid) return;
   if(games.some(g=>g.evId===ev.id&&(g.evA===d.tid||g.evB===d.tid))){toast('Team has games — can’t delete');return;}
   await Sync.markDeleted('eventTeams',d.tid);
   ev.teams=ev.teams.filter(t=>t.id!==d.tid);
-  await saveEvents(); closeSheet(); render();
+  if(ev.sched)markScheduleNeedsReview(ev);await saveEvents(); closeSheet();toast(ev.sched?'Team deleted · schedule needs review':'Team deleted'); render();
 };
 /* --- courts & schedule settings sheet --- */
 window.openEvSettings=(evId)=>{
   const ev=evById(evId); if(!ev) return;
-  window._evsDraft={...evSchedDefaults(), ...(ev.sched||{}), evId};
+  window._rotationSettingsEvId=null;
+  const current=ev.sched?buildSchedule(ev):null;
+  window._evsDraft={...evSchedDefaults(), ...(ev.sched||{}),standardRounds:positiveInt(ev.sched?.standardRounds,current?.plannedSlots?.length||3),fairnessPolicy:hasExplicitFairnessPolicy(ev.sched)?ev.sched.fairnessPolicy:'',evId};
   renderEvSettingsSheet();
 };
 function evsCapture(){
   const d=window._evsDraft;
   const g=(id,key,num)=>{ const el=$(id); if(el) d[key]=num?el.value:el.value; };
-  g('#evsStart','start'); g('#evsSetMin','setMin'); g('#evsMatchMin','matchMin'); g('#evsBreakMin','breakMin');
+  g('#evsStart','start'); g('#evsRounds','standardRounds');g('#evsSetMin','setMin'); g('#evsMatchMin','matchMin'); g('#evsBreakMin','breakMin');
   const courts=$('#evsCourts'); if(courts && courts.value.trim()) d.courts=courts.value;
+  const policy=document.querySelector('input[name="fairnessPolicy"]:checked');if(policy)d.fairnessPolicy=policy.value;
   return d;
 }
+function fixedSettingsParticipationPlan(d,ev){return analyzeScheduleParticipation({participantIds:(ev.teams||[]).map(t=>t.id),standardRounds:positiveInt(d.standardRounds,1),courts:sanitizeCourtCount(d.courts,1),participantsPerMatch:2,fairnessPolicy:d.fairnessPolicy});}
+window.updateEvFairnessPreview=()=>{const d=evsCapture(),ev=d&&evById(d.evId),box=$('#fixedFairnessPreview');if(!ev||!box)return;box.innerHTML=scheduleFairnessPreviewHtml(fixedSettingsParticipationPlan(d,ev),{noun:'team',rounds:positiveInt(d.standardRounds,1),setMin:d.setMin,start:d.start,eventDate:eventLocalDate(ev),selected:d.fairnessPolicy});};
+window.scheduleFairnessChanged=value=>{if(!FAIRNESS_POLICIES.includes(value))return;if(window._evsDraft){window._evsDraft.fairnessPolicy=value;updateEvFairnessPreview();}if(window._rotationSettingsEvId){window._rotationFairnessPolicy=value;updateRotationSummary();}};
 function renderEvSettingsSheet(){
   const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
   const courtPresets=[1,2,3,4,5,6,7,8];
@@ -4331,7 +4530,7 @@ function renderEvSettingsSheet(){
   const customCourts=!courtPresets.includes(courtCount) ? courtCount : '';
   openSheet(`<h3>Courts & schedule · ${esc(ev.name)}</h3>
     <p class="small muted" style="margin:-8px 0 14px">Set available courts and the official planned timeline. Times stay anchored to the event date and start time, even after play begins.</p>
-    <div class="field"><label>Start time</label><input id="evsStart" type="time" value="${esc(d.start)}"></div>
+    <div class="field"><label>Start time</label><input id="evsStart" type="time" value="${esc(d.start)}" oninput="updateEvFairnessPreview()"></div>
     <div class="field"><label>Courts</label>
       <div class="seg">${courtPresets.map(n=>`<button class="${courtCount===n?'on':''}" onclick="evsSet('courts',${n})">${n}</button>`).join('')}</div>
       <div class="custom-num">
@@ -4341,13 +4540,15 @@ function renderEvSettingsSheet(){
       <div class="tiny faint" style="margin-top:5px">Each time slot fills every court it can without scheduling a team twice.</div>
       ${courtCount>8?`<div class="tiny" style="color:var(--gold);margin-top:5px">Large court counts are saved and scheduled; unused courts are normal when there are not enough legal simultaneous matches.</div>`:''}
       ${Number.isFinite(rawCourtCount)&&rawCourtCount>MAX_COURTS?`<div class="tiny" style="color:var(--gold);margin-top:5px">Court counts are capped at ${MAX_COURTS} for stability.</div>`:''}</div>
+    <div class="field"><label for="evsRounds">Standard rounds</label><input id="evsRounds" type="number" inputmode="numeric" min="1" value="${esc(String(d.standardRounds))}" oninput="updateEvFairnessPreview()"><div class="tiny faint">Each round uses every legal court it can. Makeup matches, when selected, stay outside the numbered rounds.</div></div>
     <div class="field"><label>Court names</label>
       <div class="seg"><button class="${d.courtStyle!=='letter'?'on':''}" onclick="evsSet('courtStyle','num')">Court 1, 2…</button><button class="${d.courtStyle==='letter'?'on':''}" onclick="evsSet('courtStyle','letter')">Court A, B…</button></div></div>
     <div class="row" style="gap:10px">
-      <div class="field" style="flex:1"><label>Min / pool set</label><input id="evsSetMin" type="number" inputmode="numeric" min="5" value="${esc(String(d.setMin))}"></div>
+      <div class="field" style="flex:1"><label>Min / pool set</label><input id="evsSetMin" type="number" inputmode="numeric" min="5" value="${esc(String(d.setMin))}" oninput="updateEvFairnessPreview()"></div>
       <div class="field" style="flex:1"><label>Min / playoff match</label><input id="evsMatchMin" type="number" inputmode="numeric" min="10" value="${esc(String(d.matchMin))}"></div>
       <div class="field" style="flex:1"><label>Break (min)</label><input id="evsBreakMin" type="number" inputmode="numeric" min="0" value="${esc(String(d.breakMin))}"></div>
     </div>
+    <div class="field"><label>Schedule fairness</label><div id="fixedFairnessPreview">${scheduleFairnessPreviewHtml(fixedSettingsParticipationPlan(d,ev),{noun:'team',rounds:positiveInt(d.standardRounds,1),setMin:d.setMin,start:d.start,eventDate:eventLocalDate(ev),selected:d.fairnessPolicy})}</div></div>
     <button class="btn primary block" onclick="saveEvSettings()">Save schedule</button>
     ${sheetCloseBtn()}
     ${ev.sched?`<button class="btn ghost block" style="margin-top:8px" onclick="clearEvSettings()">Remove schedule</button>`:''}`);
@@ -4363,9 +4564,11 @@ window.evsSetCustom=(k,id)=>{
 };
 window.saveEvSettings=async()=>{
   const d=evsCapture(); const ev=evById(d.evId); if(!ev) return;
+  const plan=fixedSettingsParticipationPlan(d,ev);if(!plan.valid){toast(plan.error);return;}if(!plan.equalParticipationPossible&&!FAIRNESS_POLICIES.includes(d.fairnessPolicy)){toast('Choose Equal games or Keep requested rounds');return;}
   const current=ev.sched?buildSchedule(ev):null,lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),state=ev.sched?scheduleState(ev.sched,'fixed:'+ev.id):{seed:newScheduleSeed(),revision:1};
   ev.sched={...state, start:d.start||'10:00', courts:sanitizeCourtCount(d.courts,1), courtStyle:d.courtStyle==='letter'?'letter':'num',
-    setMin:Math.max(5,Math.round(Number(d.setMin)||25)), matchMin:Math.max(10,Math.round(Number(d.matchMin)||45)), breakMin:Math.max(0,Math.round(Number(d.breakMin)||0)),...(lockedMatches.length?{lockedMatches}:{}) };
+    standardRounds:positiveInt(d.standardRounds,1),fairnessPolicy:plan.equalParticipationPossible?(FAIRNESS_POLICIES.includes(d.fairnessPolicy)?d.fairnessPolicy:'equalGames'):d.fairnessPolicy,setMin:Math.max(5,Math.round(Number(d.setMin)||25)), matchMin:Math.max(10,Math.round(Number(d.matchMin)||45)), breakMin:Math.max(0,Math.round(Number(d.breakMin)||0)),...(lockedMatches.length?{lockedMatches}:{}) };
+  const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);
   await saveEvents(); closeSheet(); render();
 };
 window.regenerateFixedSchedule=async evId=>{
@@ -4376,12 +4579,31 @@ window.regenerateFixedSchedule=async evId=>{
   const state=scheduleState(ev.sched,'fixed:'+ev.id),lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),oldOrder=fixedScheduleOrderSignature(current),oldSet=fixedMatchupSetSignature(current);let chosen=null;
   for(let attempt=1;attempt<=32;attempt++){const candidate={...ev,sched:{...ev.sched,seed:ev.sched.seed||newScheduleSeed(),revision:state.revision+attempt,...(lockedMatches.length?{lockedMatches}:{})}},sc=buildSchedule(candidate);if(sc&&fixedMatchupSetSignature(sc)===oldSet&&fixedScheduleOrderSignature(sc)!==oldOrder){chosen=candidate.sched;break;}}
   if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}
-  ev.sched=chosen;await saveEvents();toast(`Schedule regenerated · version ${ev.sched.revision}`);render({scroll:'anchor',anchorId:'schedule'});
+  ev.sched=chosen;delete ev.sched.scheduleNeedsReview;const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);await saveEvents();toast(`Schedule regenerated · version ${ev.sched.revision}`);render({scroll:'anchor',anchorId:'schedule'});
 };
 window.clearEvSettings=async()=>{
   const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
   delete ev.sched; await saveEvents(); closeSheet(); render();
 };
+
+/* --- custom and makeup match management: schedule-only edits never touch
+   saved games or rating history. Linked matches are deliberately read-only. */
+window.openCustomScheduleMatch=(evId,matchId)=>{
+  const ev=evById(evId);if(!ev)return;const rotating=eventFormat(ev)==='rotatingGroups',match=rotating?rotationSchedule(ev).find(m=>m.id===matchId):fixedScheduleExtras(ev).find(m=>m.id===matchId);
+  if(match&&games.some(g=>g.evId===ev.id&&g.evMatchId===match.id)){toast('This match has a linked result and cannot be edited');return;}
+  const block=positiveInt(match?.makeupBlock,1),court=rotating?positiveInt(match?.court,1):positiveInt(Number(match?.court)+1,1),label=match?.label||'';
+  window._customMatchDraft={evId,matchId:match?.id||null,format:rotating?'rotating':'fixed',scheduleBlock:isMakeupScheduleMatch(match)?'makeup':'custom',block,court,label,custom:true};
+  if(rotating){const v=rotationValidation(ev),all=rotatingEntries(ev),A=match?.sideAEntryIds||[],B=match?.sideBEntryIds||[],options=(selected)=>`<option value="">Choose entry</option>${all.map(entry=>`<option value="${entry.id}" ${selected===entry.id?'selected':''}>${esc(entry.name)}</option>`).join('')}`,side=(name,values)=>`<div class="field"><label>${name}</label>${Array.from({length:v.valid?v.entriesPerSide:0},(_,i)=>`<select data-custom-entry="${name==='Side A'?'A':'B'}:${i}" aria-label="${name} entry ${i+1}">${options(values[i])}</select>`).join('')}</div>`;openSheet(`<h3>${match?'Edit':'Add'} ${isMakeupScheduleMatch(match)?'makeup':'custom'} match</h3><p class="small muted">Choose every required ${rotatingEntryLabel(rotationSettings(ev).entrySize).toLowerCase()} once. This match stays inside ${esc(ev.name)}.</p>${side('Side A',A)}${side('Side B',B)}<div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Makeup time block</label><input id="customMatchBlock" type="number" min="1" value="${block}"></div><div class="field" style="flex:1"><label>Court</label><input id="customMatchCourt" type="number" min="1" max="${positiveInt(rotationSettings(ev).courts,1)}" value="${court}"></div></div><div class="field"><label>Optional label</label><input id="customMatchLabel" value="${esc(label)}" placeholder="e.g. Organizer-added match"></div><button class="btn primary block" onclick="saveCustomScheduleMatch()">Save match</button>${match?`<button class="btn danger block" style="margin-top:8px" onclick="deleteCustomScheduleMatch('${ev.id}','${match.id}')">Delete match</button>`:''}${sheetCloseBtn()}`);return;}
+  const options=(selected)=>`<option value="">Choose team</option>${(ev.teams||[]).map(team=>`<option value="${team.id}" ${selected===team.id?'selected':''}>${esc(team.name)}</option>`).join('')}`;openSheet(`<h3>${match?'Edit':'Add'} ${isMakeupScheduleMatch(match)?'makeup':'custom'} match</h3><p class="small muted">Custom matches remain in this event and count normally in standings.</p><div class="field"><label>Team A</label><select id="customTeamA">${options(match?.a)}</select></div><div class="field"><label>Team B</label><select id="customTeamB">${options(match?.b)}</select></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Makeup time block</label><input id="customMatchBlock" type="number" min="1" value="${block}"></div><div class="field" style="flex:1"><label>Court</label><input id="customMatchCourt" type="number" min="1" max="${positiveInt(ev.sched?.courts,1)}" value="${court}"></div></div><div class="field"><label>Optional label</label><input id="customMatchLabel" value="${esc(label)}" placeholder="e.g. Organizer-added match"></div><button class="btn primary block" onclick="saveCustomScheduleMatch()">Save match</button>${match?`<button class="btn danger block" style="margin-top:8px" onclick="deleteCustomScheduleMatch('${ev.id}','${match.id}')">Delete match</button>`:''}${sheetCloseBtn()}`);
+};
+window.saveCustomScheduleMatch=async()=>{
+  const d=window._customMatchDraft,ev=d&&evById(d.evId);if(!ev)return;const block=positiveInt($('#customMatchBlock')?.value,1),court=positiveInt($('#customMatchCourt')?.value,1),label=($('#customMatchLabel')?.value||'').trim(),id=d.matchId||`${ev.id}-custom-${uid()}`;
+  if(d.format==='rotating'){const picked={A:[],B:[]};document.querySelectorAll('[data-custom-entry]').forEach(select=>picked[select.dataset.customEntry.split(':')[0]].push(select.value));const candidate={id,round:positiveInt(rotationSettings(ev).rounds,1)+block,court,sideAEntryIds:picked.A,sideBEntryIds:picked.B,scheduleBlock:d.scheduleBlock,makeupBlock:block,timeOffsetMinutes:(positiveInt(rotationSettings(ev).rounds,1)+block-1)*positiveInt(rotationSettings(ev).setMin,25),status:'pending',custom:true,label};const valid=validateRotationMatch(ev,candidate);if(!valid.valid){toast(valid.error);return;}materializeRotation(ev);const index=ev.rotationSchedule.findIndex(m=>m.id===id);if(index>=0)ev.rotationSchedule[index]=candidate;else ev.rotationSchedule.push(candidate);ev.rotationSchedule.sort((a,b)=>a.round-b.round||a.court-b.court);ev.rotationScheduleQuality=rotationScheduleAudit(ev,ev.rotationSchedule);}
+  else {const a=$('#customTeamA')?.value,b=$('#customTeamB')?.value;if(!a||!b||a===b){toast('Choose two different teams');return;}const s=ev.sched;if(!s){toast('Set up the schedule first');return;}const candidate={id,a,b,slot:positiveInt(s.standardRounds,1)+block-1,round:positiveInt(s.standardRounds,1)+block,court:court-1,est:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+block-1)*positiveInt(s.setMin,25)),scheduleBlock:d.scheduleBlock,makeupBlock:block,timeOffsetMinutes:(positiveInt(s.standardRounds,1)+block-1)*positiveInt(s.setMin,25),status:'pending',custom:true,label};const extras=fixedScheduleExtras(ev),index=extras.findIndex(m=>m.id===id);if(index>=0)extras[index]=candidate;else extras.push(candidate);ev.fixedScheduleExtras=extras;}
+  await saveEvents();closeSheet();toast('Custom match saved');render({scroll:'anchor',anchorId:'schedule'});
+};
+window.deleteCustomScheduleMatch=async(evId,matchId)=>{const ev=evById(evId);if(!ev)return;if(games.some(g=>g.evId===ev.id&&g.evMatchId===matchId)){toast('Delete or unlink the saved result first');return;}if(!(await askConfirm('Delete this unplayed schedule match? Saved results and ratings are not affected.','Delete match')))return;await Sync.markDeleted('eventScheduleMatches',matchId);if(eventFormat(ev)==='rotatingGroups'){materializeRotation(ev);ev.rotationSchedule=ev.rotationSchedule.filter(m=>m.id!==matchId);ev.rotationScheduleQuality=rotationScheduleAudit(ev,ev.rotationSchedule);}else ev.fixedScheduleExtras=fixedScheduleExtras(ev).filter(m=>m.id!==matchId);await saveEvents();closeSheet();toast('Match deleted');render({scroll:'anchor',anchorId:'schedule'});};
+window.balanceScheduleGames=async evId=>{const ev=evById(evId);if(!ev)return;if(!(await askConfirm('Rebuild only unplayed generated makeup matches so every participant has the same number of scheduled games? Played and custom matches stay unchanged.','Balance games')))return;if(eventFormat(ev)==='rotatingGroups'){materializeRotation(ev);ev.rotation.fairnessPolicy='equalGames';delete ev.rotation.scheduleNeedsReview;const schedule=rotationSchedule(ev),standard=schedule.filter(isStandardScheduleMatch),preserved=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),result=generateRotationScheduleData(ev,{lockedMatches:standard,preservedMatches:preserved});if(result.error){toast(result.error);return;}ev.rotationSchedule=result.matches;ev.rotationScheduleQuality=result.quality;}else{if(!ev.sched?.standardRounds){toast('Choose standard rounds in schedule settings before balancing games');return;}ev.sched.fairnessPolicy='equalGames';delete ev.sched.scheduleNeedsReview;const result=buildSchedule(ev);if(!result){toast('Schedule could not be balanced');return;}ev.fixedScheduleExtras=result.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);}await saveEvents();toast('Games balanced');render({scroll:'anchor',anchorId:'schedule'});};
 
 /* --- bracket setup: name it, seed by pool rank / top-N / by hand; any 2+ teams --- */
 function bracketAutomaticSeedInfo(ev){
@@ -4601,8 +4823,9 @@ window.saveBulkTeams=async()=>{
   names.forEach((name,i)=>{
     ev.teams.push({id:uid(), name, pool:bulkPoolForIndex(i,split), players:[]});
   });
+  if(ev.sched)markScheduleNeedsReview(ev);
   await saveEvents(); closeSheet();
-  toast(names.length+' team'+(names.length===1?'':'s')+' added');
+  toast(names.length+' team'+(names.length===1?'':'s')+' added'+(ev.sched?' · schedule needs review':''));
   render();
 };
 
@@ -4686,7 +4909,7 @@ window.saveManagePools=async()=>{
     if(!ok) return;
   }
   applyPoolAssignments(ev, d.assign);
-  await saveEvents(); closeSheet(); toast('Pools updated'); render();
+  if(ev.sched)markScheduleNeedsReview(ev);await saveEvents(); closeSheet(); toast('Pools updated'+(ev.sched?' · schedule needs review':'')); render();
 };
 
 /* --- pool seeding preview: draft-only until Confirm. This computes pool
@@ -4740,8 +4963,8 @@ window.savePoolSeeding=async()=>{
     plan=fixedPoolSeedPlan(ev,d.mode,d.count,{manualRanks:d.manualRanks,randomSeed:d.randomSeed});
     if(!plan.valid){toast(plan.error);renderPoolSeedingSheet();return;}
   }
-  applyPoolAssignments(ev,plan.assign);ev.poolSeedMode=plan.mode;
-  await saveEvents();closeSheet();toast(`Pools seeded · ${capFirst(plan.mode)}`);render();
+  applyPoolAssignments(ev,plan.assign);ev.poolSeedMode=plan.mode;if(ev.sched)markScheduleNeedsReview(ev);
+  await saveEvents();closeSheet();toast(`Pools seeded · ${capFirst(plan.mode)}${ev.sched?' · schedule needs review':''}`);render();
 };
 
 /* --- team schedule: everything one team plays — done and upcoming.
@@ -4764,14 +4987,14 @@ function teamScheduleInfo(ev, tid){
       if(mine>theirs)w++; else if(theirs>mine)l++;
       sc.push(mine+'\u2013'+theirs);
     });
-    const plannedSlot=planned?.plannedSlots.find(slot=>slot.some(m=>(m.a===tid&&m.b===opp)||(m.a===opp&&m.b===tid))),plannedMatch=plannedSlot?.find(m=>(m.a===tid&&m.b===opp)||(m.a===opp&&m.b===tid));
-    return {opp, date:sets[sets.length-1].date, label:(sets[0].label||'').replace(/ · Set 1$/,''),round:plannedMatch?plannedMatch.slot+1:null,est:plannedMatch?.est||null,court:plannedMatch?courtLabel(planned.s,plannedMatch.court):null,
+    const plannedMatch=(sets[0].evMatchId&&planned?.allMatches?.find(m=>m.id===sets[0].evMatchId))||planned?.allMatches?.find(m=>(m.a===tid&&m.b===opp)||(m.a===opp&&m.b===tid))||planned?.plannedSlots.flat().find(m=>(m.a===tid&&m.b===opp)||(m.a===opp&&m.b===tid));
+    return {opp, date:sets[sets.length-1].date, label:(sets[0].label||'').replace(/ · Set 1$/,''),round:plannedMatch?plannedMatch.slot+1:null,isMakeup:plannedMatch?!isStandardScheduleMatch(plannedMatch):false,est:plannedMatch?.est||null,court:plannedMatch?courtLabel(planned.s,plannedMatch.court):null,
       won: w>l?true:l>w?false:null,
       disp: sets.length>1 ? `${w}-${l} · ${sc.join(', ')}` : sc[0]};
   }).sort((a,b)=>a.date-b.date);
   const sc=ev.done?null:buildSchedule(ev);
-  const upcoming = sc ? sc.slots.flat().filter(m=>m.a===tid||m.b===tid)
-    .map(m=>({opp:m.a===tid?m.b:m.a, est:m.est, court:courtLabel(sc.s,m.court), pool:m.pool})) : null;
+  const upcoming = sc ? sc.slots.flat().concat((sc.makeupPending||[]).flat()).filter(m=>m.a===tid||m.b===tid)
+    .map(m=>({opp:m.a===tid?m.b:m.a, est:m.est, court:courtLabel(sc.s,m.court), pool:m.pool,isMakeup:!isStandardScheduleMatch(m)})) : null;
   const team=evTeamById(ev,tid);
   const playedOpps=new Set(played.map(p=>p.opp));
   const remaining=(ev.teams||[]).filter(t=>t.id!==tid && (t.pool||'')===((team&&team.pool)||'') && !playedOpps.has(t.id)).map(t=>t.id);
@@ -4786,7 +5009,7 @@ window.openTeamSchedule=(evId, tid)=>{
       <span class="num small" style="white-space:nowrap">${esc(p.disp)}</span>
     </div>`).join('');
   const upcomingRows=(info.upcoming||[]).map(u=>`<div class="row spread" style="padding:7px 0;border-bottom:1px solid var(--border);gap:10px">
-      <span class="small" style="min-width:0">vs ${esc(name(u.opp))}${u.pool?`<div class="tiny faint">Pool ${esc(u.pool)}</div>`:''}</span>
+      <span class="small" style="min-width:0">vs ${esc(name(u.opp))}${u.isMakeup?`<div class="tiny" style="color:var(--gold)">Makeup match · balances games played</div>`:u.pool?`<div class="tiny faint">Pool ${esc(u.pool)}</div>`:''}</span>
       <span class="tiny num faint" style="white-space:nowrap;text-align:right">${esc(u.court)}<br>${fmtScheduleTime(ev,u.est)}</span>
     </div>`).join('');
   const remainingLine=info.remaining.length
@@ -4807,9 +5030,9 @@ window.openTeamSchedule=(evId, tid)=>{
 };
 
 /* --- log an event game: single set or best-of-3 match; or hand off to live tracking --- */
-window.openEventGame=(evId, preA, preB, preLabel, preMode)=>{
+window.openEventGame=(evId, preA, preB, preLabel, preMode, preMatchId)=>{
   const ev=evById(evId); if(!ev||(ev.teams||[]).length<2) return;
-  window._evGameDraft={evId, a:preA||null, b:preB||null, mode:preMode||'set', sA:'', sB:'', s1A:'',s1B:'',s2A:'',s2B:'',s3A:'',s3B:'', label:preLabel||''};
+  window._evGameDraft={evId,evMatchId:preMatchId||null, a:preA||null, b:preB||null, mode:preMode||'set', sA:'', sB:'', s1A:'',s1B:'',s2A:'',s2B:'',s3A:'',s3B:'', label:preLabel||''};
   renderEventGameSheet();
 };
 function evGameCapture(){
@@ -4877,7 +5100,7 @@ window.saveEventGame=async()=>{
   const mk=(a,b,extra)=>({ id:uid(), date:Date.now(),
     teamA:pA, teamB:pB, unkA:pA.length?0:1, unkB:pB.length?0:1,
     scoreA:a, scoreB:b, winner:a>b?'A':(b>a?'B':null), log:{},
-    evId:ev.id, evA:tA.id, evB:tB.id, ...extra });
+    evId:ev.id, evA:tA.id, evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}), ...extra });
   if(d.mode==='bo3'){
     const sets=[];
     ['1','2','3'].forEach(n=>{
@@ -4921,7 +5144,7 @@ window.trackEventGame=()=>{
   window._sel={A:sA, B:sB};
   window._fmt=(!sA.size||!sB.size)?Math.max(sA.size,sB.size,2):null;
   window._trackMode='match'; window._soloPick=null;
-  window._evtPending={evId:ev.id, evA:tA.id, evB:tB.id, ...((d.label||'').trim()?{label:d.label.trim()}:{})};
+  window._evtPending={evId:ev.id, evA:tA.id, evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}), ...((d.label||'').trim()?{label:d.label.trim()}:{})};
   closeSheet(); tab='track'; render();
 };
 
@@ -5207,6 +5430,29 @@ function runSelfTest(){
     ck('Rotation spreads opponents widely', rot12.quality.repeatedOpponents<=16, 'repeats '+rot12.quality.repeatedOpponents);
     const rot10=generateRotationScheduleData({...rotEv(10,2,5,2,4),rotation:{...rotEv(10,2,5,2,4).rotation,seed:'bye-seed',revision:1}});
     ck('Rotation byes and games stay fair with sit-outs', rot10.quality.byesMax-rot10.quality.byesMin<=1 && rot10.quality.gamesMax-rot10.quality.gamesMin<=1, `byes ${rot10.quality.byesMin}-${rot10.quality.byesMax}`);
+    const participation16=analyzeScheduleParticipation({participantIds:Array.from({length:16},(_,i)=>'p'+i),standardRounds:5,courts:3,participantsPerMatch:4,fairnessPolicy:'equalGames'});
+    ck('Participation planner explains 16 entries over five three-court rounds',participation16.standardAppearanceCount===60&&participation16.appearanceRemainder===12&&participation16.makeupMatchCount===1&&participation16.targetGamesForEqualMode===4&&participation16.distribution[0].participantCount===12&&participation16.distribution[1].participantCount===4,JSON.stringify(participation16));
+    const participation8=analyzeScheduleParticipation({participantIds:Array.from({length:8},(_,i)=>'t'+i),standardRounds:5,courts:3,participantsPerMatch:2,fairnessPolicy:'equalGames'});
+    ck('Participation planner explains eight fixed teams over five three-court rounds',participation8.standardAppearanceCount===30&&participation8.makeupMatchCount===1&&participation8.targetGamesForEqualMode===4);
+    const participationEqual=analyzeScheduleParticipation({participantIds:Array.from({length:16},(_,i)=>'p'+i),standardRounds:4,courts:3,participantsPerMatch:4,fairnessPolicy:'equalGames'});
+    ck('Already-equal participation adds no makeup matches',participationEqual.equalParticipationPossible&&participationEqual.makeupMatchCount===0&&participationEqual.targetGamesForEqualMode===3);
+    ck('Participation planner rejects fewer participants than one match needs',!analyzeScheduleParticipation({participantIds:['a','b','c'],standardRounds:2,courts:9,participantsPerMatch:4}).valid);
+    const cappedParticipation=analyzeScheduleParticipation({participantIds:Array.from({length:8},(_,i)=>'t'+i),standardRounds:2,courts:20,participantsPerMatch:2});
+    ck('Participation planner caps courts at legal simultaneous matches',cappedParticipation.usableMatchesPerRound===4);
+    const multiMakeup=analyzeScheduleParticipation({participantIds:Array.from({length:6},(_,i)=>'e'+i),standardRounds:1,courts:1,participantsPerMatch:4,fairnessPolicy:'equalGames'});
+    ck('Participation planner finds multiple makeup matches with integer arithmetic',multiMakeup.makeupMatchCount===2&&multiMakeup.targetGamesForEqualMode===2);
+    const rot16Equal=rotEv(16,3,5,2,4);rot16Equal.rotation={...rot16Equal.rotation,seed:'equal-seed',revision:1,fairnessPolicy:'equalGames'};const made16Equal=appendRotationMakeupMatches(rot16Equal,generateRotationScheduleCandidate(rot16Equal,{seed:'equal-self-test'})),audit16Equal=rotationScheduleAudit(rot16Equal,made16Equal.matches),makeup16=made16Equal.matches.filter(isMakeupScheduleMatch);
+    ck('Rotating equal-games mode adds one valid makeup match',made16Equal.matches.filter(isStandardScheduleMatch).length===15&&makeup16.length===1&&new Set(rotationMatchEntryIds(makeup16[0])).size===4&&audit16Equal.gamesMin===4&&audit16Equal.gamesMax===4);
+    const rot16Unequal={...rot16Equal,rotation:{...rot16Equal.rotation,fairnessPolicy:'allowDifference'}},made16Unequal=appendRotationMakeupMatches(rot16Unequal,generateRotationScheduleCandidate(rot16Unequal,{seed:'unequal-self-test'})),audit16Unequal=rotationScheduleAudit(rot16Unequal,made16Unequal.matches);
+    ck('Rotating keep-rounds mode preserves fifteen matches and a 3–4 distribution',made16Unequal.matches.length===15&&!made16Unequal.matches.some(isMakeupScheduleMatch)&&audit16Unequal.gamesMin===3&&audit16Unequal.gamesMax===4&&audit16Unequal.distribution.find(row=>row.games===3)?.participantCount===4);
+    const materializedMakeup={...rot16Equal,rotationSchedule:made16Equal.matches.map(m=>({...m}))};materializeRotation(materializedMakeup);const savedMakeup=materializedMakeup.rotationSchedule.find(isMakeupScheduleMatch);
+    ck('Rotating materialization preserves makeup metadata',savedMakeup?.makeupIndex===1&&savedMakeup?.scheduleBlock==='makeup'&&Number.isInteger(savedMakeup?.timeOffsetMinutes));
+    const fixedFair={id:'fixed-fair',name:'Fixed fair',eventDate:todayLocalDate(),created:1,teams:Array.from({length:8},(_,i)=>({id:'ft'+i,name:'FT'+i,pool:'',players:[]})),brackets:[],sched:{...evSchedDefaults(),standardRounds:5,courts:3,fairnessPolicy:'equalGames',seed:'fixed-fair-seed',revision:1}},fixedFairSchedule=buildSchedule(fixedFair,[]);
+    ck('Fixed equal-games mode adds one makeup match and reaches four games each',fixedFairSchedule.standardTotal===15&&fixedFairSchedule.makeupSlots.flat().length===1&&fixedFairSchedule.fairnessAudit.gamesMin===4&&fixedFairSchedule.fairnessAudit.gamesMax===4);
+    const fixedUnequal={...fixedFair,sched:{...fixedFair.sched,fairnessPolicy:'allowDifference'}},fixedUnequalSchedule=buildSchedule(fixedUnequal,[]);
+    ck('Fixed keep-rounds mode preserves fifteen matches and a 3–4 distribution',fixedUnequalSchedule.standardTotal===15&&!fixedUnequalSchedule.makeupSlots.length&&fixedUnequalSchedule.fairnessAudit.gamesMin===3&&fixedUnequalSchedule.fairnessAudit.gamesMax===4);
+    const fixedPools={id:'fixed-pool-fair',name:'Fixed pools',eventDate:todayLocalDate(),created:1,teams:Array.from({length:6},(_,i)=>({id:'fpt'+i,name:'FPT'+i,pool:i<3?'A':'B',players:[]})),brackets:[],sched:{...evSchedDefaults(),standardRounds:1,courts:2,fairnessPolicy:'equalGames',seed:'fixed-pool-seed',revision:1}},fixedPoolSchedule=buildSchedule(fixedPools,[]),fixedPoolMakeups=fixedPoolSchedule.makeupSlots.flat();
+    ck('Fixed makeup planning skips an invalid cross-pool minimum and finds the next valid equal target',fixedPoolMakeups.length===4&&fixedPoolMakeups.every(m=>evTeamById(fixedPools,m.a).pool===evTeamById(fixedPools,m.b).pool)&&fixedPoolSchedule.fairnessAudit.gamesMin===2&&fixedPoolSchedule.fairnessAudit.gamesMax===2);
     ck('Same rotating seed and revision recreate the same schedule', JSON.stringify(generateRotationScheduleData(rotBase).matches)===JSON.stringify(rot12.matches));
     const rotNext={...rotBase,rotation:{...rotBase.rotation,revision:2}},rot12Next=generateRotationScheduleData(rotNext);
     ck('A new rotating revision changes teammate or opponent assignments', rotationMaterialSignature(rot12Next.matches)!==rotationMaterialSignature(rot12.matches));
@@ -6376,7 +6622,7 @@ document.addEventListener('keydown',e=>{
 },true);
 
 const SYNC_DEFAULT_URL='https://court-sync.joshsven92.workers.dev';
-const DELETION_KINDS=Object.freeze(['games','players','events','eventTeams','eventEntries','eventBrackets']);
+const DELETION_KINDS=Object.freeze(['games','players','events','eventTeams','eventEntries','eventBrackets','eventScheduleMatches']);
 
 /* Persisted deletion inventory: games, unreferenced players, events, event
    teams, rotating entries, and brackets. Reset/import/demo replacement and
@@ -6429,7 +6675,7 @@ function filterDeletedEventChildren(event,state){
     const next=filterDeletedRecords(kind,out[key],state);
     if(next.length!==out[key].length){if(out===event)out={...event};out[key]=next;}
   };
-  filterChild('teams','eventTeams');filterChild('entries','eventEntries');filterChild('pairs','eventEntries');filterChild('brackets','eventBrackets');
+  filterChild('teams','eventTeams');filterChild('entries','eventEntries');filterChild('pairs','eventEntries');filterChild('brackets','eventBrackets');filterChild('rotationSchedule','eventScheduleMatches');filterChild('pairSchedule','eventScheduleMatches');filterChild('fixedScheduleExtras','eventScheduleMatches');
   if(out.bracket&&isDeleted('eventBrackets',out.bracket.id,state)){if(out===event)out={...event};delete out.bracket;}
   return out;
 }
@@ -6476,6 +6722,8 @@ function replacementDeletionState(local,incoming,state,deletedAt=Date.now()){
     const incomingEvent=event&&nextEvents.get(String(event.id));if(!incomingEvent)return;
     stampMissing('eventTeams',event.teams,incomingEvent.teams);
     stampMissing('eventEntries',event.entries||event.pairs,incomingEvent.entries||incomingEvent.pairs);
+    stampMissing('eventScheduleMatches',[...(event.rotationSchedule||[]),...(event.pairSchedule||[])],[...(incomingEvent.rotationSchedule||[]),...(incomingEvent.pairSchedule||[])]);
+    stampMissing('eventScheduleMatches',event.fixedScheduleExtras,incomingEvent.fixedScheduleExtras);
     const beforeBrackets=Array.isArray(event.brackets)?event.brackets:(event.bracket?[event.bracket]:[]);
     const afterBrackets=Array.isArray(incomingEvent.brackets)?incomingEvent.brackets:(incomingEvent.bracket?[incomingEvent.bracket]:[]);
     stampMissing('eventBrackets',beforeBrackets,afterBrackets);
