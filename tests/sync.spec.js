@@ -113,6 +113,21 @@ test('newer remote data unions records by id and wins id collisions', async ({ p
   });
 });
 
+test('event-root publication metadata syncs to another organizer device without public HTML', async ({ page }) => {
+  const code='publication-metadata-room',publication={
+    scope:'full',publicToken:'public-token',publicUrl:'https://worker.example/s/public-token',managementToken:'private-management-token',
+    contentHash:'a'.repeat(64),createdAt:100,updatedAt:200,disabledAt:null,status:'active',subjectType:'full',subjectId:null,title:'Event · Court schedule'
+  };
+  const remoteEvent=fixedEvent('published-event',{schedulePublications:{full:publication}}),rooms=new Map([[code,{ts:20,data:JSON.stringify(syncPayload({events:[remoteEvent]}))}]]);
+  await seedDevice(page,{events:[fixedEvent('published-event')],sync:{url:WORKER_URL,code,on:true},syncTs:10});await stubWorker(page,rooms);await page.goto('/');
+  await expect.poll(()=>page.evaluate(()=>evById('published-event')?.schedulePublications?.full?.publicUrl)).toBe(publication.publicUrl);
+  const local=await page.evaluate(()=>evById('published-event').schedulePublications.full);
+  expect(local).toEqual(publication);expect(JSON.stringify(local)).not.toContain('<!DOCTYPE html>');
+  await page.evaluate(()=>Sync.push({force:true}));
+  const synced=JSON.parse(rooms.get(code).data).events.find(event=>event.id==='published-event').schedulePublications.full;
+  expect(synced).toEqual(publication);expect(JSON.stringify(synced)).not.toContain('<!DOCTYPE html>');
+});
+
 test('game tombstones drop merged games, retain max timestamps, and prevent resurrection', async ({ page }) => {
   const code = 'tomb-room';
   const rooms = new Map([[code, {
