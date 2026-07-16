@@ -8,6 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
+<meta name="court-build" content="20260716.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -571,6 +572,14 @@
     max-width:calc(100vw - 32px);text-align:center;}
   .toast.show{opacity:1;transform:translateX(-50%)}
 
+  .app-update-notice{position:fixed;z-index:55;left:12px;right:12px;bottom:calc(var(--mobile-nav-h) + env(safe-area-inset-bottom) + 12px);
+    max-width:680px;margin:0 auto;padding:12px;border-radius:18px;background:#152239f5;border:1px solid #74d7ff4d;
+    box-shadow:0 18px 55px #000a;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .app-update-notice[hidden]{display:none}
+  .app-update-copy{min-width:0}.app-update-copy b{display:block;color:var(--cyan);font-size:13.5px}
+  .app-update-copy span{display:block;margin-top:3px;color:var(--muted);font-size:11.5px;line-height:1.35}
+  .app-update-actions{display:flex;flex:none;gap:6px}
+
   /* ---------- dock nav ---------- */
   .dock-wrap{position:fixed;z-index:40;left:0;right:0;bottom:0;pointer-events:none;
     padding:10px 10px calc(10px + env(safe-area-inset-bottom));}
@@ -674,6 +683,7 @@
     .player-card .tags{margin-top:5px}
     .setup-actions,.live-finish{bottom:12px;max-width:560px;margin-left:auto;margin-right:auto}
     .live-score{top:74px}
+    .app-update-notice{left:calc(var(--sidebar-w) + 24px);bottom:18px}
   }
 
   @media (max-width:420px){
@@ -718,12 +728,21 @@
 
 <div class="dock-wrap"><nav class="dock" id="dock" aria-label="Main navigation"></nav></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
+<div class="app-update-notice" id="appUpdateNotice" role="status" aria-live="polite" hidden>
+  <div class="row spread" style="gap:12px;align-items:center">
+    <div class="app-update-copy"><b>Update available</b><span id="appUpdateCopy"></span></div>
+    <div class="app-update-actions">
+      <button class="btn sm primary" onclick="applyAppUpdate()">Update now</button>
+      <button class="btn sm ghost" onclick="dismissAppUpdate()">Later</button>
+    </div>
+  </div>
+</div>
 
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.4.0',
-  build: '20260716.1'
+  version: '0.5.0',
+  build: '20260716.2'
 });
 
 function appVersionLabel(){
@@ -1447,6 +1466,18 @@ function playerAppearsInGames(id){
     !!(g.log&&Object.prototype.hasOwnProperty.call(g.log,id))
   );
 }
+const PLAYER_REFERENCE_ARRAY_KEYS=new Set(['players','playerIds','roster','members','teamA','teamB']);
+const PLAYER_REFERENCE_VALUE_KEYS=new Set(['playerId','winnerPlayerId','loserPlayerId']);
+function playerReferenceTreeContains(value,id,key=''){
+  if(Array.isArray(value)){
+    if(PLAYER_REFERENCE_ARRAY_KEYS.has(key)&&value.includes(id))return true;
+    return value.some(item=>item&&typeof item==='object'&&playerReferenceTreeContains(item,id,key));
+  }
+  if(value&&typeof value==='object')return Object.entries(value).some(([childKey,child])=>playerReferenceTreeContains(child,id,childKey));
+  return PLAYER_REFERENCE_VALUE_KEYS.has(key)&&value===id;
+}
+function playerAppearsInEvents(id){return evts.some(ev=>playerReferenceTreeContains(ev,id));}
+function playerHasHistoricalReferences(id){return playerAppearsInGames(id)||playerAppearsInEvents(id);}
 function clearPlayerRuntimeState(id){
   if(window._sel){ window._sel.A.delete(id); window._sel.B.delete(id); }
   if(window._pool) window._pool.delete(id);
@@ -2667,7 +2698,7 @@ function whyMoved(d){
 function formatLog(log){ if(!log) return ''; return Object.entries(log).map(([k,v])=>`${v}${EV_MAP[k]?.l||k}`).join('  '); }
 window.deleteGame=async(id)=>{
   if(!(await askConfirm('Delete this game? Ratings will be recalculated for everyone who played in it.','Delete game'))) return;
-  games=games.filter(g=>g.id!==id); Sync.noteDelete(id); await commit(); closeSheet(); toast('Game deleted'); render();
+  games=games.filter(g=>g.id!==id); await Sync.noteGameDelete(id); await commit(); closeSheet(); toast('Game deleted'); render();
 };
 
 /* ---------- EVENTS (tournaments · fixed teams · standings) ----------
@@ -4943,7 +4974,11 @@ function renderMore(){
     <div class="card">
       <div class="small" style="font-weight:750;overflow-wrap:anywhere">${esc(appVersionLabel())}</div>
       <div class="tiny soft" style="margin-top:6px">Use this number to confirm that each device is running the same copy of Court.</div>
-      <button class="btn sm ghost" style="margin-top:11px" onclick="copyAppVersion()">Copy version</button>
+      <div class="tiny soft" id="updateStatusLine" style="margin-top:9px">${AppUpdates.statusHtml()}</div>
+      <div class="row" style="gap:8px;margin-top:11px">
+        <button class="btn sm ghost" onclick="copyAppVersion()">Copy version</button>
+        <button class="btn sm ghost" id="checkUpdatesBtn" onclick="checkForUpdates()">Check for updates</button>
+      </div>
     </div></section>
     <section id="settings-help" class="settings-section"><div class="section-head"><h3>About Court · How ratings work</h3><span>plain language</span></div>
     <div class="explain-grid">
@@ -5043,6 +5078,8 @@ window.importFile=(e)=>{
   r.onload=async()=>{ try{
     const d=JSON.parse(r.result); if(!d.players) throw 0;
     players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
+    // Permanent local deletions stay authoritative over an imported older backup.
+    Sync.applyLocalDeletions();
     migrateEvents(); migratePlayers();
     await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored from file'); render();
   }catch(err){ toast('Could not read that file'); } };
@@ -5053,6 +5090,8 @@ window.doImport=async()=>{
     const d=JSON.parse($('#impTxt').value);
     if(!d.players) throw 0;
     players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
+    // Import restores records, but intentionally cannot undelete an ID already tombstoned on this device.
+    Sync.applyLocalDeletions();
     migrateEvents(); migratePlayers();
     await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored'); render();
   }catch(e){ toast('Could not read that backup'); }
@@ -6105,14 +6144,14 @@ window.savePlayer=async()=>{
 };
 window.deletePlayer=async()=>{
   const p=pById(editId); if(!p) return;
-  const historical = playerAppearsInGames(editId);
+  const historical = playerHasHistoricalReferences(editId);
   const msg = historical
     ? 'Archive this player? They will be hidden from roster, tracking, and teams, but kept for old games and rating history.'
     : 'Delete this player? This cannot be undone.';
   if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
   clearPlayerRuntimeState(editId);
   if(historical){ p.archived=true; p.active=false; }
-  else players=players.filter(p=>p.id!==editId);
+  else{ players=players.filter(p=>p.id!==editId); await Sync.notePlayerDelete(editId); }
   await commit(); closeSheet(); toast(historical?'Archived':'Deleted'); render();
 };
 
@@ -6330,47 +6369,93 @@ document.addEventListener('keydown',e=>{
 
 const SYNC_DEFAULT_URL='https://court-sync.joshsven92.workers.dev';
 
+function cleanDeletionMap(value){
+  const out={};
+  if(!value||typeof value!=='object'||Array.isArray(value))return out;
+  for(const [id,deletedAt] of Object.entries(value)){
+    const ts=Number(deletedAt);
+    if(id&&Number.isFinite(ts)&&ts>0)out[id]=ts;
+  }
+  return out;
+}
+function mergeDeletionMaps(...maps){
+  const out={};
+  maps.forEach(map=>{for(const [id,ts] of Object.entries(cleanDeletionMap(map)))out[id]=Math.max(out[id]||0,ts);});
+  return out;
+}
+function normalizeDeletionState(source={},legacyGames={}){
+  const explicit=source&&source.deletions&&typeof source.deletions==='object'
+    ?source.deletions
+    :source&&typeof source==='object'&&!Array.isArray(source)&&
+      ((!Array.isArray(source.games)&&source.games&&typeof source.games==='object')||
+       (!Array.isArray(source.players)&&source.players&&typeof source.players==='object'))?source:{};
+  return {
+    games:mergeDeletionMaps(legacyGames,source&&source.tomb,explicit.games),
+    players:mergeDeletionMaps(explicit.players)
+  };
+}
+function mergeDeletionStates(local,remote){
+  const a=normalizeDeletionState(local),b=normalizeDeletionState(remote);
+  return {games:mergeDeletionMaps(a.games,b.games),players:mergeDeletionMaps(a.players,b.players)};
+}
+function recordIsTombstoned(kind,id,state){
+  return !!(id&&state&&state[kind]&&Object.prototype.hasOwnProperty.call(state[kind],id));
+}
+function filterTombstoned(records,kind,state){return (records||[]).filter(record=>record&&!recordIsTombstoned(kind,record.id,state));}
+function unionById(local,remote,preferRemote){
+  const m=new Map();
+  (local||[]).forEach(x=>{if(x&&x.id!=null)m.set(x.id,x);});
+  (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
+  return [...m.values()];
+}
+
 const Sync=(()=>{
   let cfg={url:SYNC_DEFAULT_URL,code:'',on:false};
-  let tomb={},lastTs=0,lastSig='';
+  let deletions={games:{},players:{}},lastTs=0,lastSig='';
   let pushTimer=null,poller=null,busy=false,lastSyncedAt=0,visBound=false;
 
   const endpoint=()=>cfg.url.replace(/\/+$/,'')+'/?room='+encodeURIComponent(cfg.code);
   const configured=()=>!!(cfg.url&&cfg.code);
-  const payload=()=>({players,games,settings,events:evts,tomb,v:1});
+  // Keep the legacy game-only tomb alias during the v1-to-v2 transition so an
+  // older Court build can still honor game deletions. Player IDs only ever live
+  // in deletions.players and can never be confused with game IDs.
+  const payload=()=>({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:2});
   const payloadStr=()=>JSON.stringify(payload());
 
-  async function loadCfg(){
+  async function loadLocalState(){
     try{const c=await Store.get('vb:sync');if(c)cfg={...cfg,...JSON.parse(c)};}catch(e){}
-    try{const t=await Store.get('vb:tomb');if(t)tomb=JSON.parse(t)||{};}catch(e){}
+    let legacyGames={},savedDeletions={};
+    try{const t=await Store.get('vb:tomb');if(t)legacyGames=JSON.parse(t)||{};}catch(e){}
+    try{const d=await Store.get('vb:deletions');if(d)savedDeletions=JSON.parse(d)||{};}catch(e){}
+    deletions=normalizeDeletionState(savedDeletions,legacyGames);
     try{const l=await Store.get('vb:syncTs');if(l)lastTs=Number(l)||0;}catch(e){}
     if(!cfg.url)cfg.url=SYNC_DEFAULT_URL;
+    await saveDeletions();
   }
   const saveCfg=()=>Store.set('vb:sync',JSON.stringify(cfg)).catch(()=>{});
-  const saveTomb=()=>Store.set('vb:tomb',JSON.stringify(tomb)).catch(()=>{});
+  const saveDeletions=()=>Store.set('vb:deletions',JSON.stringify(deletions)).catch(()=>{});
   const saveTs=()=>Store.set('vb:syncTs',String(lastTs)).catch(()=>{});
 
-  function unionById(local,remote,preferRemote){
-    const m=new Map();
-    (local||[]).forEach(x=>{if(x&&x.id!=null)m.set(x.id,x);});
-    (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
-    return [...m.values()];
+  function applyLocalDeletions(){
+    const nextPlayers=filterTombstoned(players,'players',deletions);
+    const nextGames=filterTombstoned(games,'games',deletions);
+    const changed=nextPlayers.length!==players.length||nextGames.length!==games.length;
+    players=nextPlayers;games=nextGames;
+    return changed;
   }
   function applyRemote(obj,mode){
-    const rTomb=obj.tomb||{};
+    const remoteDeletions=normalizeDeletionState(obj,obj&&obj.tomb);
     if(mode==='replace'){
-      tomb={...rTomb};
-      players=obj.players||[];
-      games=(obj.games||[]).filter(g=>!tomb[g.id]);
+      deletions=remoteDeletions;
+      players=filterTombstoned(obj.players,'players',deletions);
+      games=filterTombstoned(obj.games,'games',deletions);
       settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
       evts=obj.events||[];
     }else{
-      const t={...tomb};
-      for(const id in rTomb)t[id]=Math.max(t[id]||0,rTomb[id]||0);
-      tomb=t;
-      players=unionById(players,obj.players,true);
+      deletions=mergeDeletionStates(deletions,remoteDeletions);
+      players=filterTombstoned(unionById(players,obj.players,true),'players',deletions);
       evts=unionById(evts,obj.events,true);
-      games=unionById(games,obj.games,true).filter(g=>!tomb[g.id]);
+      games=filterTombstoned(unionById(games,obj.games,true),'games',deletions);
       settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
     }
     migrateEvents();migratePlayers();
@@ -6394,7 +6479,7 @@ const Sync=(()=>{
           lastTs=Math.max(lastTs,rts);
           recomputeAll();
           await savePlayers();await saveGames();await saveSettings();await saveEvents();
-          await saveTomb();await saveTs();
+          await saveDeletions();await saveTs();
           lastSyncedAt=Date.now();
           const merged=payloadStr();lastSig=merged;
           if(merged!==env.data)await push({fromMerge:true});
@@ -6408,6 +6493,7 @@ const Sync=(()=>{
   }
   async function push(opts={}){
     if(!cfg.on||!configured())return;
+    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();}
     const body=payloadStr();
     if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return;
     const ts=Math.max(Date.now(),lastTs+1);
@@ -6419,7 +6505,11 @@ const Sync=(()=>{
     finally{updateStatus();}
   }
   function touch(){if(cfg.on&&configured()){clearTimeout(pushTimer);pushTimer=setTimeout(()=>push({}),1500);}}
-  function noteDelete(id){tomb[id]=Date.now();saveTomb();}
+  async function noteDelete(kind,id,deletedAt=Date.now()){
+    if(!deletions[kind])return;
+    deletions={...deletions,[kind]:mergeDeletionMaps(deletions[kind],{[id]:deletedAt})};
+    await saveDeletions();
+  }
   function startPoll(){stopPoll();if(cfg.on&&configured())poller=setInterval(()=>pull({}),15000);}
   function stopPoll(){if(poller){clearInterval(poller);poller=null;}}
   function ago(){
@@ -6436,11 +6526,19 @@ const Sync=(()=>{
   }
   function updateStatus(){const el=document.getElementById('syncStatusLine');if(el)el.innerHTML=statusHtml();}
   async function init(){
-    await loadCfg();lastSig=payloadStr();
+    await loadLocalState();
+    if(applyLocalDeletions()){
+      recomputeAll();await savePlayers();await saveGames();
+      if(typeof render==='function')render();
+    }
+    lastSig=payloadStr();
     if(cfg.on&&configured()){await pull({});startPoll();bindVis();}
   }
   return {
-    init,pull,push,touch,noteDelete,startPoll,stopPoll,statusHtml,configured,endpoint,
+    init,pull,push,touch,startPoll,stopPoll,statusHtml,configured,endpoint,applyLocalDeletions,
+    noteGameDelete:(id,deletedAt)=>noteDelete('games',id,deletedAt),
+    notePlayerDelete:(id,deletedAt)=>noteDelete('players',id,deletedAt),
+    persistLocalState:()=>Promise.all([saveDeletions(),saveTs()]),
     get cfg(){return cfg;},
     async connect(url,code){
       cfg.url=(url||'').trim()||SYNC_DEFAULT_URL;cfg.code=code.trim();cfg.on=false;stopPoll();await saveCfg();updateStatus();
@@ -6458,6 +6556,107 @@ const Sync=(()=>{
   };
 })();
 
+const AppUpdates=(()=>{
+  const DISMISSED_KEY='court:update-dismissed-build';
+  const CHECK_THROTTLE_MS=60000;
+  let status='idle',availableBuild='',checking=false,lastCheck=0,started=false,poller=null;
+
+  function deployedUrl(){
+    const url=new URL(location.href);
+    url.searchParams.delete('_court_build');
+    url.hash='';
+    return url;
+  }
+  function extractBuild(html){
+    try{
+      const doc=new DOMParser().parseFromString(html,'text/html');
+      const build=(doc.querySelector('meta[name="court-build"]')?.content||'').trim();
+      return /^\d{8}\.\d+$/.test(build)?build:'';
+    }catch(e){return '';}
+  }
+  function dismissedBuild(){try{return sessionStorage.getItem(DISMISSED_KEY)||'';}catch(e){return '';}}
+  function statusHtml(){
+    if(status==='checking')return 'Checking for updates…';
+    if(status==='current')return 'This build is current.';
+    if(status==='available')return `Update available · build ${availableBuild}.`;
+    if(status==='offline')return 'Could not check while offline.';
+    if(status==='unknown')return 'Could not verify the deployed build.';
+    return 'Update status has not been checked yet.';
+  }
+  function updateUI(){
+    const line=document.getElementById('updateStatusLine');if(line)line.textContent=statusHtml();
+    const button=document.getElementById('checkUpdatesBtn');if(button)button.disabled=checking;
+    const notice=document.getElementById('appUpdateNotice'),copy=document.getElementById('appUpdateCopy');
+    const show=status==='available'&&availableBuild&&dismissedBuild()!==availableBuild;
+    if(copy&&availableBuild)copy.textContent=`Running build ${APP_INFO.build} · available build ${availableBuild}.`;
+    if(notice)notice.hidden=!show;
+  }
+  async function check(opts={}){
+    if(checking)return null;
+    const now=Date.now();
+    if(!opts.force&&lastCheck&&now-lastCheck<CHECK_THROTTLE_MS)return status;
+    checking=true;lastCheck=now;status='checking';updateUI();
+    try{
+      const response=await fetch(deployedUrl().toString(),{
+        method:'GET',cache:'no-store',headers:{'X-Court-Build-Check':'1'}
+      });
+      if(!response.ok)throw new Error('http '+response.status);
+      const build=extractBuild(await response.text());
+      if(!build){status='unknown';return null;}
+      if(build===APP_INFO.build){availableBuild='';status='current';}
+      else{availableBuild=build;status='available';}
+      return build;
+    }catch(e){
+      if(!availableBuild)status='offline';
+      return null;
+    }finally{checking=false;updateUI();}
+  }
+  function dismiss(){
+    if(availableBuild){try{sessionStorage.setItem(DISMISSED_KEY,availableBuild);}catch(e){}}
+    updateUI();
+  }
+  function unsafeUpdateReason(){
+    if(live)return 'Finish or discard the current game before updating.';
+    if(document.querySelector('.scrim'))return 'Close the open editor or dialog before updating.';
+    if(tab==='track'){
+      const selected=(window._sel?.A?.size||0)+(window._sel?.B?.size||0);
+      if(selected||window._soloPick||window._evtPending)return 'Finish or clear the current tracking setup before updating.';
+    }
+    return '';
+  }
+  function navigationUrl(build=availableBuild){
+    const url=deployedUrl();url.searchParams.set('_court_build',build);return url.toString();
+  }
+  async function applyUpdate(){
+    if(!availableBuild)return false;
+    const reason=unsafeUpdateReason();
+    if(reason){toast(reason);return false;}
+    try{
+      await savePlayers();await saveGames();await saveSettings();await saveEvents();
+      await Sync.persistLocalState();
+    }catch(e){/* Store remains best-effort, matching normal offline saves. */}
+    location.replace(navigationUrl());
+    return true;
+  }
+  function cleanNavigationMarker(){
+    const url=new URL(location.href);
+    if(!url.searchParams.has('_court_build'))return;
+    url.searchParams.delete('_court_build');
+    history.replaceState(history.state,'',url.pathname+url.search+url.hash);
+  }
+  function init(){
+    if(started)return;started=true;cleanNavigationMarker();
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)check({});});
+    setTimeout(()=>check({}),800);
+    poller=setInterval(()=>check({}),300000);
+  }
+  return {init,check,applyUpdate,dismiss,statusHtml,updateUI,navigationUrl,extractBuild,get availableBuild(){return availableBuild;},get status(){return status;}};
+})();
+
+window.checkForUpdates=()=>AppUpdates.check({force:true});
+window.applyAppUpdate=()=>AppUpdates.applyUpdate();
+window.dismissAppUpdate=()=>AppUpdates.dismiss();
+
 (function(){
   const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();return r;};
   const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();return r;};
@@ -6473,6 +6672,7 @@ const Sync=(()=>{
   try{ await savePlayers(); }catch(e){}
   tab = 'home';
   render();
+  try{ AppUpdates.init(); }catch(e){ console.warn('update checks skipped', e); }
   try{ await Sync.init(); }catch(e){ console.warn('sync init skipped', e); }
 })();
 </script>
