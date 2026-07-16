@@ -722,8 +722,8 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.3.0',
-  build: '20260715.3'
+  version: '0.4.0',
+  build: '20260716.1'
 });
 
 function appVersionLabel(){
@@ -2667,7 +2667,7 @@ function whyMoved(d){
 function formatLog(log){ if(!log) return ''; return Object.entries(log).map(([k,v])=>`${v}${EV_MAP[k]?.l||k}`).join('  '); }
 window.deleteGame=async(id)=>{
   if(!(await askConfirm('Delete this game? Ratings will be recalculated for everyone who played in it.','Delete game'))) return;
-  games=games.filter(g=>g.id!==id); await commit(); closeSheet(); toast('Game deleted'); render();
+  games=games.filter(g=>g.id!==id); Sync.noteDelete(id); await commit(); closeSheet(); toast('Game deleted'); render();
 };
 
 /* ---------- EVENTS (tournaments · fixed teams · standings) ----------
@@ -4920,6 +4920,13 @@ function renderMore(){
       </div>
       <div class="tiny faint" style="margin-top:6px">across ${ac.n} ${ac.n===1?'game':'games'} with a clear favorite</div>
     </div>`:''}</section>
+    <section id="settings-sync" class="settings-section"><div class="section-head"><h3>Sync across devices</h3></div>
+    <div class="card">
+      <div class="tiny soft" style="margin-bottom:11px">Keep your phone and computer in step automatically — no more backup and restore.</div>
+      <div class="small" style="font-weight:750;margin-bottom:9px" id="syncStatusLine">${Sync.statusHtml()}</div>
+      <button class="btn block" onclick="openSyncSetup()">${Sync.configured()?'Manage sync':'Set up sync'}</button>
+      ${Sync.configured()?'<button class="btn block ghost" style="margin-top:8px" onclick="syncNow()">Sync now</button>':''}
+    </div></section>
     <section id="settings-data" class="settings-section"><div class="section-head"><h3>Data & backup</h3><span>${players.length} players · ${games.length} games</span></div>
     <div class="card">
       <div class="tiny soft" style="margin-bottom:11px">${Store.mode==='memory'?'⚠ This view can\u2019t save on its own \u2014 open in Safari or use a backup to keep data.':'Saved automatically on this device. Back up occasionally to be safe.'}</div>
@@ -4957,6 +4964,38 @@ function renderMore(){
 window.toggleHide=async()=>{ settings.hideRatings=!settings.hideRatings; await saveSettings(); render(); };
 window.toggleDetailed=async()=>{ settings.detailed=!settings.detailed; await saveSettings(); render(); };
 window.setK=async(v)=>{ settings.eloK=v; settings.eventK = v<=3?0.4:v>=8?0.9:0.6; await saveSettings(); await commit(); toast('Recalculated'); render(); };
+window.syncSuggestCode=()=>{ const el=$('#syncCode'); if(el) el.value='court-'+Math.random().toString(36).slice(2,8)+'-'+Math.random().toString(36).slice(2,6); };
+window.openSyncSetup=()=>{
+  const c=Sync.cfg;
+  openSheet(`<h3>Sync across devices</h3>
+    <p class="small muted">The server URL is prefilled. Pick a private <b>code</b> and use the <b>same code</b> on every device. Keep it secret — it’s what protects your data. (Advanced: point the URL at your own worker.)</p>
+    <div class="tiny soft" style="margin-bottom:4px">Server URL</div>
+    <input id="syncUrl" type="url" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="https://court-sync.you.workers.dev" value="${esc(c.url||SYNC_DEFAULT_URL)}" style="width:100%;margin-bottom:11px">
+    <div class="tiny soft" style="margin-bottom:4px">Sync code</div>
+    <input id="syncCode" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="court-yourname-7h2k9qz" value="${esc(c.code||'')}" style="width:100%;margin-bottom:8px">
+    <button class="btn block ghost" style="margin-bottom:12px;padding:7px" onclick="syncSuggestCode()">Suggest a strong code</button>
+    <button class="btn primary block" onclick="syncConnect()">${Sync.configured()?'Reconnect':'Connect'}</button>
+    ${Sync.configured()?`<button class="btn block ghost" style="margin-top:8px" onclick="syncToggle()">${c.on?'Pause syncing':'Resume syncing'}</button>`:''}
+    ${sheetCloseBtn()}`);
+};
+window.syncConnect=async()=>{
+  const url=$('#syncUrl').value.trim(), code=$('#syncCode').value.trim();
+  if(!code){ toast('Enter a sync code'); return; }
+  if(url&&!/^https?:\/\//i.test(url)){ toast('URL should start with https://'); return; }
+  toast('Connecting…');
+  const res=await Sync.connect(url,code);
+  if(res==='error'){ toast('Could not reach that URL'); return; }
+  if(res==='seeded'){ closeSheet(); toast('Sync on · this device is the source'); render(); return; }
+  openSheet(`<h3>Existing data found</h3>
+    <p class="small muted">This sync code already has data saved to it. What should this device do?</p>
+    <button class="btn primary block" onclick="syncChoose('replace')">Use synced data (replace this device)</button>
+    <button class="btn block ghost" style="margin-top:8px" onclick="syncChoose('merge')">Merge both together</button>
+    <p class="tiny soft" style="margin-top:11px">On a fresh second device, choose <b>Use synced data</b>. Choose <b>Merge</b> only if this device has games the other one doesn’t.</p>
+    ${sheetCloseBtn('Cancel')}`);
+};
+window.syncChoose=async(mode)=>{ toast(mode==='replace'?'Loading synced data…':'Merging…'); await Sync.adopt(mode); closeSheet(); toast('Sync on'); render(); };
+window.syncNow=async()=>{ toast('Syncing…'); await Sync.pull({}); await Sync.push({force:true}); toast('Synced'); render(); };
+window.syncToggle=async()=>{ await Sync.setOn(!Sync.cfg.on); closeSheet(); toast(Sync.cfg.on?'Syncing resumed':'Syncing paused'); render(); };
 function copyTextFallback(text){
   const area=document.createElement('textarea');
   area.value=text; area.setAttribute('readonly','');
@@ -6289,6 +6328,142 @@ document.addEventListener('keydown',e=>{
   if(top&&top.id==='scrim'){ e.preventDefault(); closeSheet(); }
 },true);
 
+const SYNC_DEFAULT_URL='https://court-sync.joshsven92.workers.dev';
+
+const Sync=(()=>{
+  let cfg={url:SYNC_DEFAULT_URL,code:'',on:false};
+  let tomb={},lastTs=0,lastSig='';
+  let pushTimer=null,poller=null,busy=false,lastSyncedAt=0,visBound=false;
+
+  const endpoint=()=>cfg.url.replace(/\/+$/,'')+'/?room='+encodeURIComponent(cfg.code);
+  const configured=()=>!!(cfg.url&&cfg.code);
+  const payload=()=>({players,games,settings,events:evts,tomb,v:1});
+  const payloadStr=()=>JSON.stringify(payload());
+
+  async function loadCfg(){
+    try{const c=await Store.get('vb:sync');if(c)cfg={...cfg,...JSON.parse(c)};}catch(e){}
+    try{const t=await Store.get('vb:tomb');if(t)tomb=JSON.parse(t)||{};}catch(e){}
+    try{const l=await Store.get('vb:syncTs');if(l)lastTs=Number(l)||0;}catch(e){}
+    if(!cfg.url)cfg.url=SYNC_DEFAULT_URL;
+  }
+  const saveCfg=()=>Store.set('vb:sync',JSON.stringify(cfg)).catch(()=>{});
+  const saveTomb=()=>Store.set('vb:tomb',JSON.stringify(tomb)).catch(()=>{});
+  const saveTs=()=>Store.set('vb:syncTs',String(lastTs)).catch(()=>{});
+
+  function unionById(local,remote,preferRemote){
+    const m=new Map();
+    (local||[]).forEach(x=>{if(x&&x.id!=null)m.set(x.id,x);});
+    (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
+    return [...m.values()];
+  }
+  function applyRemote(obj,mode){
+    const rTomb=obj.tomb||{};
+    if(mode==='replace'){
+      tomb={...rTomb};
+      players=obj.players||[];
+      games=(obj.games||[]).filter(g=>!tomb[g.id]);
+      settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
+      evts=obj.events||[];
+    }else{
+      const t={...tomb};
+      for(const id in rTomb)t[id]=Math.max(t[id]||0,rTomb[id]||0);
+      tomb=t;
+      players=unionById(players,obj.players,true);
+      evts=unionById(evts,obj.events,true);
+      games=unionById(games,obj.games,true).filter(g=>!tomb[g.id]);
+      settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
+    }
+    migrateEvents();migratePlayers();
+  }
+  function bindVis(){
+    if(visBound)return;
+    visBound=true;
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull({});});
+  }
+  async function pull(opts={}){
+    if(!cfg.on||!configured()||busy)return;
+    busy=true;
+    try{
+      const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
+      if(!r.ok)throw new Error('http '+r.status);
+      const env=await r.json();
+      if(env&&env.data){
+        const rts=Number(env.ts)||0;
+        if(rts>lastTs||opts.force){
+          applyRemote(JSON.parse(env.data),opts.mode||'merge');
+          lastTs=Math.max(lastTs,rts);
+          recomputeAll();
+          await savePlayers();await saveGames();await saveSettings();await saveEvents();
+          await saveTomb();await saveTs();
+          lastSyncedAt=Date.now();
+          const merged=payloadStr();lastSig=merged;
+          if(merged!==env.data)await push({fromMerge:true});
+          if(typeof render==='function')render();
+        }else lastSyncedAt=Date.now();
+      }else if(players.length||games.length){
+        await push({seed:true});lastSyncedAt=Date.now();
+      }else lastSyncedAt=Date.now();
+    }catch(e){/* Offline and transient failures never block local use. */}
+    finally{busy=false;updateStatus();}
+  }
+  async function push(opts={}){
+    if(!cfg.on||!configured())return;
+    const body=payloadStr();
+    if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return;
+    const ts=Math.max(Date.now(),lastTs+1);
+    try{
+      const r=await fetch(endpoint(),{method:'POST',body:JSON.stringify({ts,data:body})});
+      if(!r.ok)throw new Error('http '+r.status);
+      lastTs=ts;lastSig=body;lastSyncedAt=Date.now();await saveTs();
+    }catch(e){/* Retried on the next change, poll, foreground, or manual sync. */}
+    finally{updateStatus();}
+  }
+  function touch(){if(cfg.on&&configured()){clearTimeout(pushTimer);pushTimer=setTimeout(()=>push({}),1500);}}
+  function noteDelete(id){tomb[id]=Date.now();saveTomb();}
+  function startPoll(){stopPoll();if(cfg.on&&configured())poller=setInterval(()=>pull({}),15000);}
+  function stopPoll(){if(poller){clearInterval(poller);poller=null;}}
+  function ago(){
+    if(!lastSyncedAt)return 'not yet';
+    const s=Math.round((Date.now()-lastSyncedAt)/1000);
+    if(s<5)return 'just now';
+    if(s<60)return s+'s ago';
+    return Math.round(s/60)+'m ago';
+  }
+  function statusHtml(){
+    if(!configured())return 'Not set up on this device.';
+    if(!cfg.on)return 'Paused.';
+    return 'On · last synced '+ago();
+  }
+  function updateStatus(){const el=document.getElementById('syncStatusLine');if(el)el.innerHTML=statusHtml();}
+  async function init(){
+    await loadCfg();lastSig=payloadStr();
+    if(cfg.on&&configured()){await pull({});startPoll();bindVis();}
+  }
+  return {
+    init,pull,push,touch,noteDelete,startPoll,stopPoll,statusHtml,configured,endpoint,
+    get cfg(){return cfg;},
+    async connect(url,code){
+      cfg.url=(url||'').trim()||SYNC_DEFAULT_URL;cfg.code=code.trim();cfg.on=false;stopPoll();await saveCfg();updateStatus();
+      try{
+        const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
+        if(!r.ok)throw new Error('http '+r.status);
+        const env=await r.json();
+        if(env&&env.data)return 'has-data';
+      }catch(e){return 'error';}
+      cfg.on=true;await saveCfg();
+      await push({seed:true});startPoll();bindVis();return 'seeded';
+    },
+    async adopt(mode){cfg.on=true;await saveCfg();await pull({force:true,mode});startPoll();bindVis();},
+    async setOn(on){cfg.on=on;await saveCfg();if(on){await pull({});startPoll();bindVis();}else stopPoll();updateStatus();}
+  };
+})();
+
+(function(){
+  const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();return r;};
+  const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();return r;};
+  const _saveSettings=saveSettings;saveSettings=async function(){const r=await _saveSettings.apply(this,arguments);Sync.touch();return r;};
+})();
+
 /* ============================================================
    BOOT
    ============================================================ */
@@ -6298,6 +6473,7 @@ document.addEventListener('keydown',e=>{
   try{ await savePlayers(); }catch(e){}
   tab = 'home';
   render();
+  try{ await Sync.init(); }catch(e){ console.warn('sync init skipped', e); }
 })();
 </script>
 </body>
