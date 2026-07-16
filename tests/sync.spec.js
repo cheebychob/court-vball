@@ -12,6 +12,18 @@ function game(id, date, extra = {}) {
   return { id, date, teamA: [], teamB: [], scoreA: 25, scoreB: 20, winner: 'A', log: {}, ...extra };
 }
 
+function deletionRegistry(overrides = {}) {
+  return { games: {}, players: {}, events: {}, eventTeams: {}, eventEntries: {}, eventBrackets: {}, ...overrides };
+}
+
+function fixedEvent(id, extra = {}) {
+  return { id, name: `Event ${id}`, eventDate: '2026-07-16', created: 1, done: false, format: 'fixedTeams', teams: [], brackets: [], ...extra };
+}
+
+function rotatingEvent(id, extra = {}) {
+  return fixedEvent(id, { format: 'rotatingGroups', entries: [], rotation: { entrySize: 1, teamSize: 2, rounds: 1, courts: 1 }, rotationSchedule: [], ...extra });
+}
+
 function syncPayload({ players = [], games = [], events = [], settings = {}, tomb, deletions, v = deletions ? 2 : 1 } = {}) {
   const payload = { players, games, settings, events, v };
   if (tomb !== undefined) payload.tomb = tomb;
@@ -120,7 +132,7 @@ test('game tombstones drop merged games, retain max timestamps, and prevent resu
   await page.goto('/');
 
   await expect.poll(() => page.evaluate(() => games.map(g => g.id).sort())).toEqual(['local', 'remote']);
-  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vb:deletions')))).toEqual({ games: { gone: 20, carried: 9 }, players: {} });
+  expect(await page.evaluate(() => JSON.parse(localStorage.getItem('vb:deletions')))).toEqual(deletionRegistry({ games: { gone: 20, carried: 9 } }));
   await expect.poll(() => rooms.get(code).ts).toBeGreaterThan(50);
 
   const current = rooms.get(code);
@@ -164,6 +176,162 @@ test('deletion helpers normalize legacy and modern state without mixing record t
   expect(result.union).toEqual([{ id: 'a', value: 'local' }, { id: 'shared', value: 'remote' }, { id: 'b', value: 'remote' }]);
 });
 
+test('generalized deletion filtering is malformed-safe, idempotent, and order independent', async ({ page }) => {
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const malformed = normalizeDeletionState({ deletions: {
+      games: { valid: '12', zero: 0, negative: -1, infinite: 'Infinity', bool: true, object: { value: 3 } },
+      players: [], events: 'bad', eventTeams: { team: 20 }, eventEntries: { entry: 30 }, eventBrackets: { bracket: 40 }
+    } });
+    const deletions = normalizeDeletionState({ deletions: {
+      games: { 'game-old': 10 }, players: { 'player-old': 11 }, events: { 'event-old': 12 },
+      eventTeams: { 'team-old': 13 }, eventEntries: { 'entry-old': 14 }, eventBrackets: { 'bracket-old': 15 }
+    } });
+    const clean = {
+      players: [{ id: 'player-new' }], games: [{ id: 'game-new' }],
+      events: [{ id: 'event-live', teams: [{ id: 'team-new' }], entries: [{ id: 'entry-new' }], brackets: [{ id: 'bracket-new' }] }]
+    };
+    const stale = {
+      players: [{ id: 'player-old' }, { id: 'player-new' }], games: [{ id: 'game-old' }, { id: 'game-new' }],
+      events: [
+        { id: 'event-old', teams: [], entries: [], brackets: [] },
+        { id: 'event-live', teams: [{ id: 'team-old' }, { id: 'team-new' }], entries: [{ id: 'entry-old' }, { id: 'entry-new' }], brackets: [{ id: 'bracket-old' }, { id: 'bracket-new' }] }
+      ]
+    };
+    const summarize = value => ({
+      players: value.players.map(record => record.id), games: value.games.map(record => record.id), events: value.events.map(event => event.id),
+      teams: value.events.find(event => event.id === 'event-live')?.teams.map(record => record.id),
+      entries: value.events.find(event => event.id === 'event-live')?.entries.map(record => record.id),
+      brackets: value.events.find(event => event.id === 'event-live')?.brackets.map(record => record.id)
+    });
+    const mergedOnce = mergeDeletionStates(deletions, deletions);
+    return {
+      malformed,
+      idempotent: JSON.stringify(mergedOnce) === JSON.stringify(mergeDeletionStates(mergedOnce, deletions)),
+      orders: [
+        summarize(resolveDeletionProtectedRecords(clean, stale, deletions, 'merge')),
+        summarize(resolveDeletionProtectedRecords(stale, clean, deletions, 'merge'))
+      ]
+    };
+  });
+  expect(result.malformed).toEqual(deletionRegistry({ games: { valid: 12 }, eventTeams: { team: 20 }, eventEntries: { entry: 30 }, eventBrackets: { bracket: 40 } }));
+  expect(result.idempotent).toBe(true);
+  expect(result.orders).toEqual([0, 1].map(() => ({
+    players: ['player-new'], games: ['game-new'], events: ['event-live'],
+    teams: ['team-new'], entries: ['entry-new'], brackets: ['bracket-new']
+  })));
+});
+
+test('event deletion keeps historical rating impact and defeats stale pushes in either order', async ({ page }) => {
+  const code = 'event-delete-race', rooms = new Map();
+  const roster = [player('a', 'A', 60), player('b', 'B', 40)];
+  const event = fixedEvent('event-delete', { teams: [{ id: 'ta', name: 'A', players: ['a'] }, { id: 'tb', name: 'B', players: ['b'] }] });
+  const historicalGame = game('event-game', 100, {
+    teamA: ['a'], teamB: ['b'], evId: event.id, evA: 'ta', evB: 'tb', label: 'Final', matchId: 'match-1', eventFormat: 'fixedTeams'
+  });
+  await seedDevice(page, { players: roster, games: [historicalGame], events: [event], sync: { url: WORKER_URL, code, on: true } });
+  await stubWorker(page, rooms);
+  await page.goto('/');
+  await expect.poll(() => rooms.get(code)?.data || null).not.toBeNull();
+
+  const state = await page.evaluate(async () => {
+    recomputeAll();
+    const before = Object.fromEntries(players.map(p => [p.id, p.rating]));
+    window.askConfirm = async () => true;
+    await deleteEvent('event-delete');
+    recomputeAll();
+    return {
+      before, after: Object.fromEntries(players.map(p => [p.id, p.rating])),
+      eventIds: evts.map(e => e.id), game: games.find(g => g.id === 'event-game'),
+      deletions: Sync.deletionState(), selected: window._evOpen
+    };
+  });
+  expect(state.after).toEqual(state.before);
+  expect(state.eventIds).toEqual([]);
+  expect(state.game).toMatchObject({ id: 'event-game', teamA: ['a'], teamB: ['b'], winner: 'A' });
+  for (const key of ['evId', 'evA', 'evB', 'label', 'matchId', 'eventFormat']) expect(state.game).not.toHaveProperty(key);
+  expect(state.deletions.events['event-delete']).toBeGreaterThan(0);
+  expect(state.selected).toBeNull();
+
+  // Stale data reaches the room before the deleting device pushes.
+  rooms.set(code, { ts: rooms.get(code).ts + 1, data: JSON.stringify(syncPayload({ players: roster, games: [historicalGame], events: [event] })) });
+  await page.evaluate(() => Sync.push({ force: true }));
+  let remote = JSON.parse(rooms.get(code).data);
+  expect(remote.events).toEqual([]);
+  expect(remote.games).toHaveLength(1);
+  expect(remote.games[0]).not.toHaveProperty('evId');
+  expect(remote.deletions.events['event-delete']).toBeGreaterThan(0);
+
+  // A later stale push is pulled and resolved back to the deletion state.
+  rooms.set(code, { ts: rooms.get(code).ts + 1, data: JSON.stringify(syncPayload({ players: roster, games: [historicalGame], events: [event] })) });
+  await page.evaluate(() => Sync.pull({ force: true }));
+  expect(await page.evaluate(() => ({ events: evts.map(e => e.id), linked: games.some(g => g.evId === 'event-delete') }))).toEqual({ events: [], linked: false });
+  remote = JSON.parse(rooms.get(code).data);
+  expect(remote.events).toEqual([]);
+  expect(remote.deletions.events['event-delete']).toBeGreaterThan(0);
+});
+
+test('remote event deletion removes the local event but preserves and detaches its game', async ({ page }) => {
+  const code = 'remote-event-delete';
+  const event = fixedEvent('remote-dead', { teams: [{ id: 'one', name: 'One', players: ['a'] }, { id: 'two', name: 'Two', players: ['b'] }] });
+  const linkedGame = game('kept-history', 10, { teamA: ['a'], teamB: ['b'], evId: event.id, evA: 'one', evB: 'two' });
+  const rooms = new Map([[code, { ts: 50, data: JSON.stringify(syncPayload({
+    players: [player('a', 'A'), player('b', 'B')], games: [linkedGame], events: [event],
+    deletions: deletionRegistry({ events: { 'remote-dead': 500 } })
+  })) }]]);
+  await seedDevice(page, {
+    players: [player('a', 'A'), player('b', 'B')], games: [linkedGame], events: [event],
+    sync: { url: WORKER_URL, code, on: true }, syncTs: 0
+  });
+  await stubWorker(page, rooms);
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => evts.length)).toBe(0);
+  expect(await page.evaluate(() => ({ games: games.map(g => g.id), linked: games.some(g => g.evId), gamesPlayed: players.map(p => p.gamesPlayed) }))).toEqual({
+    games: ['kept-history'], linked: false, gamesPlayed: [1, 1]
+  });
+});
+
+test('nested delete actions create markers, clear schedules, and retain linked protections', async ({ page }) => {
+  const fixed = fixedEvent('fixed-nested', {
+    teams: [{ id: 'team-free', name: 'Free', players: [] }, { id: 'team-linked', name: 'Linked', players: [] }],
+    brackets: [{ id: 'bracket-free', name: 'Playoffs', created: 2, seeds: ['team-free', 'team-linked'] }]
+  });
+  const rotating = rotatingEvent('rotating-nested', {
+    entries: [{ id: 'entry-free', name: 'Free', players: [] }, { id: 'entry-linked', name: 'Linked', players: [] }, { id: 'entry-other', name: 'Other', players: [] }],
+    rotationSchedule: [{ id: 'round-1', round: 1, court: 1, sideAEntryIds: ['entry-free'], sideBEntryIds: ['entry-other'] }]
+  });
+  await seedDevice(page, {
+    events: [fixed, rotating],
+    games: [
+      game('fixed-linked', 1, { evId: fixed.id, evA: 'team-linked', evB: 'opponent' }),
+      game('rotation-linked', 2, { evId: rotating.id, evMatchId: 'played', evEntryIdsA: ['entry-linked'], evEntryIdsB: ['entry-other'], eventFormat: 'rotatingGroups' })
+    ]
+  });
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    window.askConfirm = async () => true;
+    window._evTeamDraft = { evId: 'fixed-nested', tid: 'team-free' }; await deleteEventTeam();
+    window._evTeamDraft = { evId: 'fixed-nested', tid: 'team-linked' }; await deleteEventTeam();
+    window._entryDraft = { evId: 'rotating-nested', entryId: 'entry-free' }; await deleteEntry();
+    window._entryDraft = { evId: 'rotating-nested', entryId: 'entry-linked' }; await deleteEntry();
+    await resetBracket('fixed-nested', 'bracket-free');
+    const fixed = evById('fixed-nested'), rotating = evById('rotating-nested');
+    return {
+      teams: fixed.teams.map(t => t.id), entries: rotating.entries.map(e => e.id), brackets: fixed.brackets.map(b => b.id),
+      schedule: rotating.rotationSchedule, deletions: Sync.deletionState()
+    };
+  });
+  expect(result.teams).toEqual(['team-linked']);
+  expect(result.entries).toEqual(['entry-linked', 'entry-other']);
+  expect(result.brackets).toEqual([]);
+  expect(result.schedule).toEqual([]);
+  expect(result.deletions.eventTeams['team-free']).toBeGreaterThan(0);
+  expect(result.deletions.eventTeams).not.toHaveProperty('team-linked');
+  expect(result.deletions.eventEntries['entry-free']).toBeGreaterThan(0);
+  expect(result.deletions.eventEntries).not.toHaveProperty('entry-linked');
+  expect(result.deletions.eventBrackets['bracket-free']).toBeGreaterThan(0);
+});
+
 test('legacy vb:tomb migrates to game deletions only even when a player shares the id', async ({ page }) => {
   await seedDevice(page, {
     players: [player('same-id', 'Same ID Player')],
@@ -174,7 +342,7 @@ test('legacy vb:tomb migrates to game deletions only even when a player shares t
   expect(await page.evaluate(() => ({ players: players.map(p => p.id), games: games.map(g => g.id), deletions: JSON.parse(localStorage.getItem('vb:deletions')) }))).toEqual({
     players: ['same-id'],
     games: [],
-    deletions: { games: { 'same-id': 123 }, players: {} }
+    deletions: deletionRegistry({ games: { 'same-id': 123 } })
   });
 });
 
@@ -222,7 +390,7 @@ test('replace mode applies player and game tombstones before local persistence',
   const rooms = new Map([[code, { ts: 50, data: JSON.stringify(syncPayload({
     players: [player('keep-player', 'Keep'), player('dead-player', 'Dead')],
     games: [game('keep-game', 1), game('dead-game', 2)],
-    deletions: { games: { 'dead-game': 20 }, players: { 'dead-player': 30 } }
+    deletions: deletionRegistry({ games: { 'dead-game': 20 }, players: { 'dead-player': 30 } })
   })) }]]);
   await stubWorker(page, rooms);
   await page.goto('/');
@@ -231,7 +399,7 @@ test('replace mode applies player and game tombstones before local persistence',
   expect(await page.evaluate(() => ({ players: players.map(p => p.id), games: games.map(g => g.id), deletions: JSON.parse(localStorage.getItem('vb:deletions')) }))).toEqual({
     players: ['keep-player'],
     games: ['keep-game'],
-    deletions: { games: { 'dead-game': 20 }, players: { 'dead-player': 30 } }
+    deletions: deletionRegistry({ games: { 'dead-game': 20 }, players: { 'dead-player': 30 } })
   });
 });
 
@@ -316,6 +484,95 @@ test('imported backups cannot resurrect a player tombstoned on this device', asy
   expect(await page.evaluate(() => players.map(p => p.id))).toEqual(['live']);
 });
 
+test('old backups load, backup deletion metadata is honored, and exports include the registry', async ({ page }) => {
+  await seedDevice(page, { players: [player('current', 'Current')], games: [game('current-game', 1)], events: [fixedEvent('current-event')] });
+  await page.goto('/');
+  const state = await page.evaluate(async oldBackup => {
+    tab = 'more';render();openImport();$('#impTxt').value=JSON.stringify(oldBackup);await doImport();
+    await Sync.markDeleted('events', 'backup-dead', 700);
+    window.__backupText = '';
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText: async text => { window.__backupText = text; } } });
+    const originalCreate=URL.createObjectURL,originalClick=HTMLAnchorElement.prototype.click;
+    URL.createObjectURL=()=> 'blob:test';HTMLAnchorElement.prototype.click=()=>{};
+    await exportData();
+    URL.createObjectURL=originalCreate;HTMLAnchorElement.prototype.click=originalClick;
+    return {
+      players: players.map(p => p.id), games: games.map(g => g.id), events: evts.map(e => e.id),
+      exported: JSON.parse(window.__backupText), deletions: Sync.deletionState()
+    };
+  }, { players: [player('old-live', 'Old Live')], games: [], settings: {}, events: [], v: 1 });
+  expect(state.players).toEqual(['old-live']);
+  expect(state.games).toEqual([]);
+  expect(state.events).toEqual([]);
+  expect(state.deletions.players.current).toBeGreaterThan(0);
+  expect(state.deletions.games['current-game']).toBeGreaterThan(0);
+  expect(state.deletions.events['current-event']).toBeGreaterThan(0);
+  expect(state.exported.v).toBe(3);
+  expect(state.exported.deletions).toEqual(state.deletions);
+  expect(state.exported.tomb).toEqual(state.deletions.games);
+});
+
+test('reset marks every named entity and stale records cannot repopulate it', async ({ page }) => {
+  await seedDevice(page, {
+    players: [player('reset-player', 'Reset Player')], games: [game('reset-game', 1)], events: [fixedEvent('reset-event')],
+    settings: { hideRatings: true, eloK: 8 }
+  });
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    window.askConfirm = async () => true;
+    await resetAll();
+    const afterReset = { players: players.length, games: games.length, events: evts.length, settings: { hideRatings: settings.hideRatings, eloK: settings.eloK } };
+    players.push({ id: 'reset-player' });games.push({ id: 'reset-game' });evts.push({ id: 'reset-event', teams: [], brackets: [] });
+    Sync.applyLocalDeletions();
+    return { afterReset, afterStale: { players: players.length, games: games.length, events: evts.length }, deletions: Sync.deletionState() };
+  });
+  expect(result.afterReset).toEqual({ players: 0, games: 0, events: 0, settings: { hideRatings: false, eloK: 5 } });
+  expect(result.afterStale).toEqual({ players: 0, games: 0, events: 0 });
+  expect(result.deletions.players['reset-player']).toBeGreaterThan(0);
+  expect(result.deletions.games['reset-game']).toBeGreaterThan(0);
+  expect(result.deletions.events['reset-event']).toBeGreaterThan(0);
+});
+
+test('loading the demo marks only the players and games it replaces', async ({ page }) => {
+  await seedDevice(page, { players: [player('real-player', 'Real Player')], games: [game('real-game', 1)], events: [fixedEvent('kept-event')] });
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    window.askConfirm = async () => true;await loadDemo();
+    return { playerIds:players.map(p=>p.id),gameIds:games.map(g=>g.id),eventIds:evts.map(e=>e.id),deletions:Sync.deletionState() };
+  });
+  expect(result.playerIds).not.toContain('real-player');
+  expect(result.gameIds).not.toContain('real-game');
+  expect(result.eventIds).toEqual(['kept-event']);
+  expect(result.deletions.players['real-player']).toBeGreaterThan(0);
+  expect(result.deletions.games['real-game']).toBeGreaterThan(0);
+  expect(result.deletions.events).toEqual({});
+});
+
+test('archival and ordinary status changes do not create deletion markers', async ({ page }) => {
+  const roster = [player('historical', 'Historical', 60), player('opponent', 'Opponent', 40), player('status', 'Status', 50)];
+  const historicalGame = game('archive-history', 1, { teamA: ['historical'], teamB: ['opponent'] });
+  await seedDevice(page, { players: roster, games: [historicalGame], events: [fixedEvent('status-event')] });
+  await page.goto('/');
+  const result = await page.evaluate(async () => {
+    recomputeAll();const before=Object.fromEntries(players.map(p=>[p.id,p.rating]));
+    window.askConfirm=async()=>true;editId='historical';await deletePlayer();
+    await toggleEventDone('status-event');
+    openPlayer('status');toggleActive();await savePlayer();
+    recomputeAll();
+    return {
+      before,after:Object.fromEntries(players.map(p=>[p.id,p.rating])),
+      historical:{archived:pById('historical').archived,active:pById('historical').active},statusActive:pById('status').active,
+      eventDone:evById('status-event').done,deletions:Sync.deletionState(),gameIds:games.map(g=>g.id)
+    };
+  });
+  expect(result.after).toEqual(result.before);
+  expect(result.historical).toEqual({ archived: true, active: false });
+  expect(result.statusActive).toBe(false);
+  expect(result.eventDone).toBe(true);
+  expect(result.gameIds).toEqual(['archive-history']);
+  expect(result.deletions).toEqual(deletionRegistry());
+});
+
 test('rating replay is independent of stored game order', async ({ page }) => {
   await page.goto('/');
   const ratings = await page.evaluate(() => {
@@ -357,7 +614,7 @@ test('sync payload excludes device-local config keys', async ({ page }) => {
   expect(JSON.stringify(sent)).not.toContain('vb:sync');
   expect(sent).not.toHaveProperty('sync');
   expect(sent).not.toHaveProperty('syncTs');
-  expect(sent.deletions).toEqual({ games: { deleted: 123 }, players: {} });
+  expect(sent.deletions).toEqual(deletionRegistry({ games: { deleted: 123 } }));
   expect(sent.tomb).toEqual({ deleted: 123 });
 });
 

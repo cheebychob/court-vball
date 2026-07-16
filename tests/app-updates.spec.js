@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const CURRENT_BUILD = '20260716.2';
+const CURRENT_BUILD = '20260716.3';
 
 async function routeBuildChecks(page, getBuild) {
   await page.route('**/*', async route => {

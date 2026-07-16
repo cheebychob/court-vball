@@ -23,17 +23,19 @@ test('Settings renders the centralized Court version and stays readable on mobil
     }));
     expect(info).toMatchObject({
       name: 'Court',
-      version: '0.5.0',
-      build: '20260716.2',
+      version: '0.5.1',
+      build: '20260716.3',
+      releaseNotes: 'Synced deletions now cover events and all persisted deletable records.',
       frozen: true,
-      label: 'Court v0.5.0 · Build 20260716.2'
+      label: 'Court v0.5.1 · Build 20260716.3'
     });
-    expect(info.renderSource).not.toContain('0.5.0');
-    expect(info.renderSource).not.toContain('20260716.2');
+    expect(info.renderSource).not.toContain('0.5.1');
+    expect(info.renderSource).not.toContain('20260716.3');
 
     const about = page.locator('#settings-about');
     await expect(about.getByRole('heading', { name: 'About Court', exact: true })).toBeVisible();
     await expect(about.getByText(info.label, { exact: true })).toBeVisible();
+    await expect(about.getByText(info.releaseNotes, { exact: true })).toBeVisible();
     await expect(about.getByRole('button', { name: 'Copy version', exact: true })).toBeVisible();
 
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -82,7 +84,7 @@ test('Copy version uses the complete formatter label and shows success', async (
   await openSettings(page);
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
-  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.5.0 · Build 20260716.2');
+  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.5.1 · Build 20260716.3');
   await expect(page.locator('#toast')).toHaveText('Version copied');
   await expect(page.locator('#toast')).toHaveClass(/show/);
 });
@@ -100,7 +102,7 @@ test('Copy version safely falls back when the Clipboard API is unavailable or re
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
   expect(await page.evaluate(() => window.__fallbackCopies)).toEqual([
-    { command: 'copy', text: 'Court v0.5.0 · Build 20260716.2' }
+    { command: 'copy', text: 'Court v0.5.1 · Build 20260716.3' }
   ]);
   await expect(page.locator('#toast')).toHaveText('Version copied');
 

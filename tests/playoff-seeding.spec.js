@@ -151,20 +151,22 @@ test('renames and substitutions preserve metadata; rebuild replaces it, clears b
   await seed(page, { playerCount: 30 }); await page.goto('/');
   await buildRotation(page, { names: ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H'] });
   const result = await page.evaluate(async () => {
-    const ev=evts[0], team=ev.teams[0], original=JSON.stringify(team.playoffSource), poolBefore=JSON.stringify(games);
+    const ev=evts[0], team=ev.teams[0], original=JSON.stringify(team.playoffSource), poolBefore=JSON.stringify(games),oldTeamIds=ev.teams.map(t=>t.id);
     openEventTeam(ev.id,team.id); $('#evtName').value='Renamed contender'; window._evTeamDraft.players.delete(team.players[0]); window._evTeamDraft.players.add('p29');
     await saveEventTeam();
     const afterEdit=JSON.stringify(evTeamById(ev,team.id).playoffSource);
     ev.brackets=[{id:'old-bracket',name:'Gold',created:500,seeds:ev.teams.map(t=>t.id)}];
     window.askConfirm=async()=>true; window._rpDraft={evId:ev.id,pattern:'balanced'}; await saveRotationPlayoffTeams();
     return { original, afterEdit, brackets:ev.brackets.length, poolSame:JSON.stringify(games)===poolBefore,
-      patterns:ev.teams.map(t=>t.playoffSource.pattern), valid:validGeneratedPlayoffMetadata(ev) };
+      patterns:ev.teams.map(t=>t.playoffSource.pattern), valid:validGeneratedPlayoffMetadata(ev),oldTeamIds,deletions:Sync.deletionState() };
   });
   expect(result.afterEdit).toBe(result.original);
   expect(result.brackets).toBe(0);
   expect(result.poolSame).toBe(true);
   expect(result.patterns.every(p => p === 'balanced')).toBe(true);
   expect(result.valid).toBe(true);
+  expect(result.oldTeamIds.every(id => result.deletions.eventTeams[id] > 0)).toBe(true);
+  expect(result.deletions.eventBrackets['old-bracket']).toBeGreaterThan(0);
 });
 
 test('incomplete and legacy rotating sets fall back to manual while playoff results still block rebuilds', async ({ page }) => {
