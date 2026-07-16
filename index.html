@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.2">
+<meta name="court-build" content="20260716.3">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -741,8 +741,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.5.0',
-  build: '20260716.2'
+  version: '0.5.1',
+  build: '20260716.3',
+  releaseNotes: 'Synced deletions now cover events and all persisted deletable records.'
 });
 
 function appVersionLabel(){
@@ -2698,7 +2699,8 @@ function whyMoved(d){
 function formatLog(log){ if(!log) return ''; return Object.entries(log).map(([k,v])=>`${v}${EV_MAP[k]?.l||k}`).join('  '); }
 window.deleteGame=async(id)=>{
   if(!(await askConfirm('Delete this game? Ratings will be recalculated for everyone who played in it.','Delete game'))) return;
-  games=games.filter(g=>g.id!==id); await Sync.noteGameDelete(id); await commit(); closeSheet(); toast('Game deleted'); render();
+  await Sync.markDeleted('games',id);
+  games=games.filter(g=>g.id!==id); await commit(); closeSheet(); toast('Game deleted'); render();
 };
 
 /* ---------- EVENTS (tournaments · fixed teams · standings) ----------
@@ -3780,7 +3782,7 @@ function defaultEntryName(ids){const names=ids.map(pById).filter(Boolean).map(p=
 function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(players.filter(p=>p.active&&!isArchived(p))),shown=filterPlayersForQuery(roster,window._entryQuery),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),selected=[...d.players].map(pById).filter(Boolean),type=rotatingEntryLabel(s.entrySize),strength=selected.length===s.entrySize?Math.round(entrySeedStrength({players:[...d.players]})):`choose ${s.entrySize} players`,strengthCopy=settings.hideRatings?'Rating seed strength is hidden. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.':`Rating seed strength: ${strength}. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.`;openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div class="small muted" style="margin:9px 0">${selected.length} of ${s.entrySize} selected${selected.length?` · ${selected.map(p=>esc(p.name)).join(' + ')}`:''}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._entryQuery));return `<span data-search-text="${esc(p.name)}" ${hidden&&!on?'hidden':''}><button data-focus-key="entry-${p.id}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(p.name)}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p class="tiny faint">${strengthCopy}</p><button class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
 window.entryToggle=id=>{const d=entryDraftCapture(),s=rotationSettings(evById(d.evId));if(d.players.has(id))d.players.delete(id);else if(d.players.size<s.entrySize)d.players.add(id);else{toast(`An entry has exactly ${s.entrySize} player${s.entrySize===1?'':'s'}`);return;}if(!d.name&&d.players.size===s.entrySize)d.name=defaultEntryName([...d.players]);renderEntryEditor();};
 window.saveEntry=async()=>{const d=entryDraftCapture(),ev=evById(d.evId),s=rotationSettings(ev);if(!ev||d.players.size!==s.entrySize)return;const duplicate=rotatingEntries(ev).some(e=>e.id!==d.entryId&&(e.players||[]).some(id=>d.players.has(id)));if(duplicate){toast('A player is already assigned to another entry');return;}const hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId),hasSchedule=rotationSchedule(ev).length>0;if(!hasResults&&hasSchedule&&!(await askConfirm('Saving this entry will clear the current unplayed schedule. Continue?','Save and clear schedule')))return;if(d.entryId&&hasResults&&!(await askConfirm('Saved results exist. This change affects future matches only; saved games keep their original players. Continue?','Change entry')))return;materializeRotation(ev);const name=(d.name||defaultEntryName([...d.players])).trim();if(d.entryId){const e=entryById(ev,d.entryId);e.name=name;e.players=[...d.players];e.manualSeed=d.manualSeed;}else ev.entries.push({id:uid(),name,players:[...d.players],manualSeed:d.manualSeed,created:Date.now()});if(!hasResults)clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
-window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev||!d.entryId)return;if(games.some(g=>g.evId===ev.id&&gameEntryIds(g,'A').concat(gameEntryIds(g,'B')).includes(d.entryId))){toast('Remove linked results before deleting this entry');return;}if(rotationSchedule(ev).some(m=>m.sideAEntryIds.includes(d.entryId)||m.sideBEntryIds.includes(d.entryId))&&!(await askConfirm('Deleting this entry will clear the current unplayed schedule. Continue?','Delete entry')))return;materializeRotation(ev);ev.entries=ev.entries.filter(e=>e.id!==d.entryId);clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
+window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev||!d.entryId)return;if(games.some(g=>g.evId===ev.id&&gameEntryIds(g,'A').concat(gameEntryIds(g,'B')).includes(d.entryId))){toast('Remove linked results before deleting this entry');return;}if(rotationSchedule(ev).some(m=>m.sideAEntryIds.includes(d.entryId)||m.sideBEntryIds.includes(d.entryId))&&!(await askConfirm('Deleting this entry will clear the current unplayed schedule. Continue?','Delete entry')))return;await Sync.markDeleted('eventEntries',d.entryId);materializeRotation(ev);ev.entries=ev.entries.filter(e=>e.id!==d.entryId);clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
 window.openRotationSettings=evId=>{const ev=evById(evId);if(!ev)return;window._rotationSettingsEvId=evId;const s=rotationSettings(ev);openSheet(`<h3>Rotating Groups settings</h3><div class="field"><label>Players who stay together</label><input id="rotationEntrySize" aria-label="Players who stay together" type="number" min="1" value="${s.entrySize}" oninput="updateRotationSummary()"><div class="tiny faint">This many players remain together for the whole tournament and earn standings results as one entry.</div></div><div class="field"><label>Players per side</label><input id="rotationTeamSize" aria-label="Players per side" type="number" min="2" value="${s.teamSize}" oninput="updateRotationSummary()"><div class="tiny faint">Each temporary team contains this many total players.</div></div><div id="rotationSummary" class="unkline"></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Rounds</label><input id="rotationRounds" aria-label="Rounds" type="number" min="1" value="${s.rounds}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Courts</label><input id="rotationCourts" aria-label="Courts" type="number" min="1" value="${s.courts}" oninput="updateRotationSummary()"></div></div><div class="field"><label>Schedule seeding</label><select id="rotationSeedMode" aria-label="Schedule seeding"><option value="rating" ${s.seedMode==='rating'?'selected':''}>Rating</option><option value="manual" ${s.seedMode==='manual'?'selected':''}>Manual</option><option value="random" ${s.seedMode==='random'?'selected':''}>Random</option></select><div class="tiny faint">Rating = strongest entries are initially seeded first. Manual = organizer controls initial order. Random = initial order is randomized.</div></div><div class="field"><label>Start time <span class="faint" style="font-weight:500">· optional</span></label><input id="rotationStart" aria-label="Start time" type="time" value="${s.start||''}"><div class="tiny faint">Leave empty for no times. Planned round times stay anchored to the event date and this start time.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Game min</label><input id="rotationSetMin" aria-label="Minutes per game" type="number" min="5" value="${s.setMin}"></div><div class="field" style="flex:1"><label>Playoff match min</label><input id="rotationMatchMin" aria-label="Minutes per playoff match" type="number" min="5" value="${s.matchMin}"></div><div class="field" style="flex:1"><label>Break min</label><input id="rotationBreakMin" aria-label="Break before playoffs" type="number" min="0" value="${s.breakMin}"></div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Win points</label><input id="rotationWinPoints" aria-label="Win points" type="number" step=".5" value="${s.winPoints}"></div><div class="field" style="flex:1"><label>Tie points</label><input id="rotationTiePoints" aria-label="Tie points" type="number" step=".5" value="${s.tiePoints}"></div><div class="field" style="flex:1"><label>Loss points</label><input id="rotationLossPoints" aria-label="Loss points" type="number" step=".5" value="${s.lossPoints}"></div></div><p class="tiny faint">Initial seeding helps construct the schedule and never directly changes standings.</p><button class="btn primary block" onclick="saveRotationSettings('${evId}')">Save settings</button>${sheetCloseBtn()}`);updateRotationSummary();};
 window.updateRotationSummary=()=>{const e=Number($('#rotationEntrySize')?.value),t=Number($('#rotationTeamSize')?.value),v=validateRotationConfig(e,t),box=$('#rotationSummary');if(!box)return;box.style.color=v.valid?'var(--mint)':'var(--gold)';if(!v.valid){box.textContent=v.error;return;}const ev=evById(window._rotationSettingsEvId),n=rotatingEntries(ev).length,courts=positiveInt($('#rotationCourts')?.value,1),rounds=positiveInt($('#rotationRounds')?.value,1),matches=Math.min(courts,Math.floor(n/v.entriesPerMatch)),byes=Math.max(0,n-matches*v.entriesPerMatch),exact=n?((rounds*matches*v.entriesPerMatch)%n===0):false;box.textContent=`Each side will contain ${v.entriesPerSide} ${rotatingEntryLabel(e,v.entriesPerSide!==1).toLowerCase()}. ${v.entriesPerMatch} entries and ${v.playersPerMatch} players are needed per match. With ${n} entries: ${matches} match${matches===1?'':'es'} per round, ${byes} expected bye${byes===1?'':'s'} per round; ${exact?'equal participation is possible':'perfectly equal participation is not possible'} across ${rounds} rounds.`;};
 window.saveRotationSettings=async evId=>{const ev=evById(evId);if(!ev)return;const old=rotationSettings(ev),next={...old,entrySize:Number($('#rotationEntrySize').value),teamSize:Number($('#rotationTeamSize').value),rounds:positiveInt($('#rotationRounds').value,1),courts:positiveInt($('#rotationCourts').value,1),seedMode:$('#rotationSeedMode').value,winPoints:Number($('#rotationWinPoints').value),tiePoints:Number($('#rotationTiePoints').value),lossPoints:Number($('#rotationLossPoints').value),start:($('#rotationStart')?.value||''),setMin:positiveInt($('#rotationSetMin')?.value,25),matchMin:positiveInt($('#rotationMatchMin')?.value,45),breakMin:Math.max(0,Math.round(Number($('#rotationBreakMin')?.value)||0))},v=validateRotationConfig(next.entrySize,next.teamSize);if(!v.valid){toast(v.error);return;}const structural=next.entrySize!==old.entrySize||next.teamSize!==old.teamSize,hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId);if(structural&&hasResults){toast('Remove linked results before changing entry or team size');return;}if(structural&&rotatingEntries(ev).some(e=>(e.players||[]).length!==next.entrySize)){toast(`Existing entries do not contain exactly ${next.entrySize} players. Edit or remove them before changing entry size.`);return;}const regen=structural||next.rounds!==old.rounds||next.courts!==old.courts||next.seedMode!==old.seedMode;if(regen&&rotationSchedule(ev).length&&!(await askConfirm('These changes affect the matchups, so the current unplayed rotating schedule will be cleared. Points and timing changes never clear it. Continue?','Save and clear schedule')))return;materializeRotation(ev);ev.rotation=next;if(regen)clearRotationSchedule(ev);await saveEvents();closeSheet();render();};
@@ -3977,6 +3979,7 @@ window.saveRotationPlayoffTeams=async()=>{
   const preview=rotationPlayoffPreview(ev,d.pattern);
   if(preview.teams.length<2) return;
   if(((ev.teams||[]).length||(ev.brackets||[]).length) && !(await askConfirm('Replace the existing playoff teams? Any bracket seeded from the old teams is cleared too. Pool games and standings are untouched.','Replace'))) return;
+  await Sync.markDeletedMany({eventTeams:ev.teams||[],eventBrackets:ev.brackets||[]});
   const order=rotationPlayoffOrder(ev), seedOf=new Map(order.map((entry,i)=>[entry.id,i+1]));
   const sourceOrderBasis=rotationPlayoffOrderBasis(ev);
   const generatedSetId=uid(), generatedTeamCount=preview.teams.length;
@@ -4153,10 +4156,11 @@ window.deleteEvent=async(id)=>{
   const ev=evById(id); if(!ev) return;
   const n=evGameCount(ev);
   if(!(await askConfirm(`Delete "${ev.name}"?${n?` Its ${n} game${n===1?'':'s'} stay in history and keep their rating impact — they just lose the event grouping and standings.`:''}`,'Delete event'))) return;
-  games.forEach(g=>{ if(g.evId===id){ delete g.evId; delete g.evA; delete g.evB; delete g.label; delete g.matchId; delete g.evMatchId; delete g.evEntryIdsA; delete g.evEntryIdsB; delete g.evPairIdsA; delete g.evPairIdsB; delete g.eventFormat; } });
+  await Sync.markDeleted('events',id);
+  games=filterDeletedGames(games,Sync.deletionState());
   evts=evts.filter(e=>e.id!==id);
   await saveEvents(); await saveGames();
-  window._evOpen=null; toast('Event deleted · games kept'); render();
+  window._evOpen=null; window._eventSection=null; closeSheet(); toast('Event deleted · games kept'); render();
 };
 /* --- event team editor (add / rename / sub players) --- */
 function cleanPoolLabel(v){ return (v||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }
@@ -4301,6 +4305,8 @@ window.saveEventTeam=async()=>{
 };
 window.deleteEventTeam=async()=>{
   const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev||!d.tid) return;
+  if(games.some(g=>g.evId===ev.id&&(g.evA===d.tid||g.evB===d.tid))){toast('Team has games — can’t delete');return;}
+  await Sync.markDeleted('eventTeams',d.tid);
   ev.teams=ev.teams.filter(t=>t.id!==d.tid);
   await saveEvents(); closeSheet(); render();
 };
@@ -4537,6 +4543,7 @@ window.resetBracket=async(evId, brId)=>{
   const ev=evById(evId); if(!ev) return;
   const br=(ev.brackets||[]).find(b=>b.id===brId); if(!br) return;
   if(!(await askConfirm(`Remove the ${br.name} bracket? Games and standings are untouched — only the bracket structure and seeding are cleared.`,'Remove bracket'))) return;
+  await Sync.markDeleted('eventBrackets',brId);
   ev.brackets=ev.brackets.filter(b=>b.id!==brId);
   await saveEvents(); render();
 };
@@ -4973,6 +4980,7 @@ function renderMore(){
     <section id="settings-about" class="settings-section"><div class="section-head"><h3>About Court</h3></div>
     <div class="card">
       <div class="small" style="font-weight:750;overflow-wrap:anywhere">${esc(appVersionLabel())}</div>
+      <div class="tiny soft" style="margin-top:6px">${esc(APP_INFO.releaseNotes)}</div>
       <div class="tiny soft" style="margin-top:6px">Use this number to confirm that each device is running the same copy of Court.</div>
       <div class="tiny soft" id="updateStatusLine" style="margin-top:9px">${AppUpdates.statusHtml()}</div>
       <div class="row" style="gap:8px;margin-top:11px">
@@ -5051,7 +5059,8 @@ window.copyAppVersion=async()=>{
   toast(copied?'Version copied':'Could not copy version');
 };
 window.exportData=async()=>{
-  const data=JSON.stringify({players,games,settings,events:evts,v:1});
+  const deletions=Sync.deletionState();
+  const data=JSON.stringify({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:3});
   let copied=false;
   try{ await navigator.clipboard.writeText(data); copied=true; }catch(e){}
   try{
@@ -5072,32 +5081,30 @@ window.openImport=()=>{
     <button class="btn primary block" style="margin-top:12px" onclick="doImport()">Restore from paste</button>
     ${sheetCloseBtn()}`);
 };
+async function restoreBackupData(d){
+  if(!d||!Array.isArray(d.players))throw new Error('invalid backup');
+  const restored=await Sync.prepareReplacement(d);
+  players=restored.players;games=restored.games;evts=restored.events;
+  settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+  migrateEvents();migratePlayers();
+  await commit();await saveSettings();await saveEvents();
+}
 window.importFile=(e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
   const r=new FileReader();
   r.onload=async()=>{ try{
-    const d=JSON.parse(r.result); if(!d.players) throw 0;
-    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
-    // Permanent local deletions stay authoritative over an imported older backup.
-    Sync.applyLocalDeletions();
-    migrateEvents(); migratePlayers();
-    await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored from file'); render();
+    await restoreBackupData(JSON.parse(r.result));closeSheet();toast('Restored from file');render();
   }catch(err){ toast('Could not read that file'); } };
   r.readAsText(f);
 };
 window.doImport=async()=>{
   try{
-    const d=JSON.parse($('#impTxt').value);
-    if(!d.players) throw 0;
-    players=d.players; games=d.games||[]; settings={...DEFAULT_SETTINGS,...(d.settings||{})}; evts=d.events||[];
-    // Import restores records, but intentionally cannot undelete an ID already tombstoned on this device.
-    Sync.applyLocalDeletions();
-    migrateEvents(); migratePlayers();
-    await commit(); await saveSettings(); await saveEvents(); closeSheet(); toast('Restored'); render();
+    await restoreBackupData(JSON.parse($('#impTxt').value));closeSheet();toast('Restored');render();
   }catch(e){ toast('Could not read that backup'); }
 };
 window.resetAll=async()=>{
-  if(!(await askConfirm('Delete ALL players and games? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
+  if(!(await askConfirm('Delete ALL players, games, events, and settings? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
+  await Sync.markDeletedMany({players,games,events:evts});
   players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; window._evOpen=null;
   await savePlayers(); await saveGames(); await saveSettings(); await saveEvents(); toast('Reset'); render();
 };
@@ -5160,6 +5167,7 @@ function buildDemo(){
 }
 window.loadDemo=async()=>{
   if(!(await askConfirm('Load a demo season? This REPLACES your current players and games. Back up first if you have real data you want to keep.','Load demo'))) return;
+  await Sync.markDeletedMany({players,games});
   buildDemo();
   await commit();
   toast('Demo loaded · '+players.length+' players, '+games.length+' games');
@@ -6151,7 +6159,7 @@ window.deletePlayer=async()=>{
   if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
   clearPlayerRuntimeState(editId);
   if(historical){ p.archived=true; p.active=false; }
-  else{ players=players.filter(p=>p.id!==editId); await Sync.notePlayerDelete(editId); }
+  else{ await Sync.markDeleted('players',editId); players=players.filter(p=>p.id!==editId); }
   await commit(); closeSheet(); toast(historical?'Archived':'Deleted'); render();
 };
 
@@ -6368,11 +6376,20 @@ document.addEventListener('keydown',e=>{
 },true);
 
 const SYNC_DEFAULT_URL='https://court-sync.joshsven92.workers.dev';
+const DELETION_KINDS=Object.freeze(['games','players','events','eventTeams','eventEntries','eventBrackets']);
+
+/* Persisted deletion inventory: games, unreferenced players, events, event
+   teams, rotating entries, and brackets. Reset/import/demo replacement and
+   playoff rebuilding mark the same affected IDs. Archival, completion,
+   schedule clearing/regeneration, pool edits, and UI selections are not
+   permanent deletions and intentionally never create markers. */
+function emptyDeletionState(){return Object.fromEntries(DELETION_KINDS.map(kind=>[kind,{}]));}
 
 function cleanDeletionMap(value){
   const out={};
   if(!value||typeof value!=='object'||Array.isArray(value))return out;
   for(const [id,deletedAt] of Object.entries(value)){
+    if(typeof deletedAt!=='number'&&(typeof deletedAt!=='string'||!deletedAt.trim()))continue;
     const ts=Number(deletedAt);
     if(id&&Number.isFinite(ts)&&ts>0)out[id]=ts;
   }
@@ -6384,42 +6401,99 @@ function mergeDeletionMaps(...maps){
   return out;
 }
 function normalizeDeletionState(source={},legacyGames={}){
-  const explicit=source&&source.deletions&&typeof source.deletions==='object'
-    ?source.deletions
-    :source&&typeof source==='object'&&!Array.isArray(source)&&
-      ((!Array.isArray(source.games)&&source.games&&typeof source.games==='object')||
-       (!Array.isArray(source.players)&&source.players&&typeof source.players==='object'))?source:{};
-  return {
-    games:mergeDeletionMaps(legacyGames,source&&source.tomb,explicit.games),
-    players:mergeDeletionMaps(explicit.players)
-  };
+  const candidate=source&&typeof source==='object'&&!Array.isArray(source)?source:{};
+  const explicit=candidate.deletions&&typeof candidate.deletions==='object'&&!Array.isArray(candidate.deletions)
+    ?candidate.deletions
+    :DELETION_KINDS.some(kind=>candidate[kind]&&typeof candidate[kind]==='object'&&!Array.isArray(candidate[kind]))?candidate:{};
+  const out=emptyDeletionState();
+  DELETION_KINDS.forEach(kind=>out[kind]=mergeDeletionMaps(explicit[kind]));
+  out.games=mergeDeletionMaps(legacyGames,candidate.tomb,out.games);
+  return out;
 }
-function mergeDeletionStates(local,remote){
-  const a=normalizeDeletionState(local),b=normalizeDeletionState(remote);
-  return {games:mergeDeletionMaps(a.games,b.games),players:mergeDeletionMaps(a.players,b.players)};
+function mergeDeletionStates(...states){
+  const out=emptyDeletionState(),normalized=states.map(state=>normalizeDeletionState(state));
+  DELETION_KINDS.forEach(kind=>out[kind]=mergeDeletionMaps(...normalized.map(state=>state[kind])));
+  return out;
 }
-function recordIsTombstoned(kind,id,state){
+function isDeleted(kind,id,state){
   return !!(id&&state&&state[kind]&&Object.prototype.hasOwnProperty.call(state[kind],id));
 }
-function filterTombstoned(records,kind,state){return (records||[]).filter(record=>record&&!recordIsTombstoned(kind,record.id,state));}
+function recordIsTombstoned(kind,id,state){return isDeleted(kind,id,state);}
+function filterDeletedRecords(kind,records,state){return (Array.isArray(records)?records:[]).filter(record=>record&&!isDeleted(kind,record.id,state));}
+function filterTombstoned(records,kind,state){return filterDeletedRecords(kind,records,state);}
+function filterDeletedEventChildren(event,state){
+  if(!event||typeof event!=='object')return event;
+  let out=event;
+  const filterChild=(key,kind)=>{
+    if(!Array.isArray(out[key]))return;
+    const next=filterDeletedRecords(kind,out[key],state);
+    if(next.length!==out[key].length){if(out===event)out={...event};out[key]=next;}
+  };
+  filterChild('teams','eventTeams');filterChild('entries','eventEntries');filterChild('pairs','eventEntries');filterChild('brackets','eventBrackets');
+  if(out.bracket&&isDeleted('eventBrackets',out.bracket.id,state)){if(out===event)out={...event};delete out.bracket;}
+  return out;
+}
+function filterDeletedEvents(records,state){return filterDeletedRecords('events',records,state).map(event=>filterDeletedEventChildren(event,state));}
+const EVENT_GAME_LINK_KEYS=Object.freeze(['evId','evA','evB','label','matchId','evMatchId','evEntryIdsA','evEntryIdsB','evPairIdsA','evPairIdsB','eventFormat']);
+function detachDeletedEventGame(game,state){
+  if(!game||!isDeleted('events',game.evId,state))return game;
+  const out={...game};EVENT_GAME_LINK_KEYS.forEach(key=>delete out[key]);return out;
+}
+function filterDeletedGames(records,state){return filterDeletedRecords('games',records,state).map(game=>detachDeletedEventGame(game,state));}
+function filterPersistedRecords(source,state){
+  const value=source&&typeof source==='object'?source:{};
+  return {
+    players:filterDeletedRecords('players',value.players,state),
+    games:filterDeletedGames(value.games,state),
+    events:filterDeletedEvents(value.events,state)
+  };
+}
 function unionById(local,remote,preferRemote){
   const m=new Map();
   (local||[]).forEach(x=>{if(x&&x.id!=null)m.set(x.id,x);});
   (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
   return [...m.values()];
 }
+function resolveDeletionProtectedRecords(local,remote,state,mode='merge'){
+  const cleanLocal=filterPersistedRecords(local,state),cleanRemote=filterPersistedRecords(remote,state);
+  if(mode==='replace')return cleanRemote;
+  return filterPersistedRecords({
+    players:unionById(cleanLocal.players,cleanRemote.players,true),
+    games:unionById(cleanLocal.games,cleanRemote.games,true),
+    events:unionById(cleanLocal.events,cleanRemote.events,true)
+  },state);
+}
+function replacementDeletionState(local,incoming,state,deletedAt=Date.now()){
+  const current=local&&typeof local==='object'?local:{},next=incoming&&typeof incoming==='object'?incoming:{};
+  const inferred=emptyDeletionState(),ts=Number(deletedAt);
+  const stampMissing=(kind,before,after)=>{
+    const keep=new Set((Array.isArray(after)?after:[]).filter(record=>record&&record.id!=null).map(record=>String(record.id)));
+    (Array.isArray(before)?before:[]).forEach(record=>{if(record&&record.id!=null&&!keep.has(String(record.id)))inferred[kind][record.id]=ts;});
+  };
+  stampMissing('players',current.players,next.players);stampMissing('games',current.games,next.games);stampMissing('events',current.events,next.events);
+  const nextEvents=new Map((Array.isArray(next.events)?next.events:[]).filter(event=>event&&event.id!=null).map(event=>[String(event.id),event]));
+  (Array.isArray(current.events)?current.events:[]).forEach(event=>{
+    const incomingEvent=event&&nextEvents.get(String(event.id));if(!incomingEvent)return;
+    stampMissing('eventTeams',event.teams,incomingEvent.teams);
+    stampMissing('eventEntries',event.entries||event.pairs,incomingEvent.entries||incomingEvent.pairs);
+    const beforeBrackets=Array.isArray(event.brackets)?event.brackets:(event.bracket?[event.bracket]:[]);
+    const afterBrackets=Array.isArray(incomingEvent.brackets)?incomingEvent.brackets:(incomingEvent.bracket?[incomingEvent.bracket]:[]);
+    stampMissing('eventBrackets',beforeBrackets,afterBrackets);
+  });
+  return mergeDeletionStates(state,normalizeDeletionState(next),inferred);
+}
+function collectionChanged(before,after){return before.length!==after.length||before.some((record,index)=>record!==after[index]);}
 
 const Sync=(()=>{
   let cfg={url:SYNC_DEFAULT_URL,code:'',on:false};
-  let deletions={games:{},players:{}},lastTs=0,lastSig='';
+  let deletions=emptyDeletionState(),lastTs=0,lastSig='';
   let pushTimer=null,poller=null,busy=false,lastSyncedAt=0,visBound=false;
 
   const endpoint=()=>cfg.url.replace(/\/+$/,'')+'/?room='+encodeURIComponent(cfg.code);
   const configured=()=>!!(cfg.url&&cfg.code);
-  // Keep the legacy game-only tomb alias during the v1-to-v2 transition so an
-  // older Court build can still honor game deletions. Player IDs only ever live
-  // in deletions.players and can never be confused with game IDs.
-  const payload=()=>({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:2});
+  // Keep the legacy game-only tomb alias during the generalized-registry
+  // transition so older Court builds can still honor game deletions.
+  const payload=()=>({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:3});
   const payloadStr=()=>JSON.stringify(payload());
 
   async function loadLocalState(){
@@ -6433,31 +6507,24 @@ const Sync=(()=>{
     await saveDeletions();
   }
   const saveCfg=()=>Store.set('vb:sync',JSON.stringify(cfg)).catch(()=>{});
-  const saveDeletions=()=>Store.set('vb:deletions',JSON.stringify(deletions)).catch(()=>{});
+  const saveDeletions=()=>Promise.all([
+    Store.set('vb:deletions',JSON.stringify(deletions)),
+    Store.set('vb:tomb',JSON.stringify(deletions.games))
+  ]).catch(()=>{});
   const saveTs=()=>Store.set('vb:syncTs',String(lastTs)).catch(()=>{});
 
   function applyLocalDeletions(){
-    const nextPlayers=filterTombstoned(players,'players',deletions);
-    const nextGames=filterTombstoned(games,'games',deletions);
-    const changed=nextPlayers.length!==players.length||nextGames.length!==games.length;
-    players=nextPlayers;games=nextGames;
+    const next=filterPersistedRecords({players,games,events:evts},deletions);
+    const changed=collectionChanged(players,next.players)||collectionChanged(games,next.games)||collectionChanged(evts,next.events);
+    players=next.players;games=next.games;evts=next.events;
     return changed;
   }
   function applyRemote(obj,mode){
-    const remoteDeletions=normalizeDeletionState(obj,obj&&obj.tomb);
-    if(mode==='replace'){
-      deletions=remoteDeletions;
-      players=filterTombstoned(obj.players,'players',deletions);
-      games=filterTombstoned(obj.games,'games',deletions);
-      settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
-      evts=obj.events||[];
-    }else{
-      deletions=mergeDeletionStates(deletions,remoteDeletions);
-      players=filterTombstoned(unionById(players,obj.players,true),'players',deletions);
-      evts=unionById(evts,obj.events,true);
-      games=filterTombstoned(unionById(games,obj.games,true),'games',deletions);
-      settings={...DEFAULT_SETTINGS,...(obj.settings||{})};
-    }
+    const remote=obj&&typeof obj==='object'?obj:{};
+    deletions=mergeDeletionStates(deletions,normalizeDeletionState(remote));
+    const resolved=resolveDeletionProtectedRecords({players,games,events:evts},remote,deletions,mode);
+    players=resolved.players;games=resolved.games;evts=resolved.events;
+    settings={...DEFAULT_SETTINGS,...(remote.settings||{})};
     migrateEvents();migratePlayers();
   }
   function bindVis(){
@@ -6485,7 +6552,7 @@ const Sync=(()=>{
           if(merged!==env.data)await push({fromMerge:true});
           if(typeof render==='function')render();
         }else lastSyncedAt=Date.now();
-      }else if(players.length||games.length){
+      }else if(players.length||games.length||evts.length||DELETION_KINDS.some(kind=>Object.keys(deletions[kind]).length)){
         await push({seed:true});lastSyncedAt=Date.now();
       }else lastSyncedAt=Date.now();
     }catch(e){/* Offline and transient failures never block local use. */}
@@ -6493,7 +6560,7 @@ const Sync=(()=>{
   }
   async function push(opts={}){
     if(!cfg.on||!configured())return;
-    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();}
+    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();await saveEvents();}
     const body=payloadStr();
     if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return;
     const ts=Math.max(Date.now(),lastTs+1);
@@ -6505,10 +6572,26 @@ const Sync=(()=>{
     finally{updateStatus();}
   }
   function touch(){if(cfg.on&&configured()){clearTimeout(pushTimer);pushTimer=setTimeout(()=>push({}),1500);}}
-  async function noteDelete(kind,id,deletedAt=Date.now()){
-    if(!deletions[kind])return;
-    deletions={...deletions,[kind]:mergeDeletionMaps(deletions[kind],{[id]:deletedAt})};
+  async function markDeleted(kind,id,deletedAt=Date.now()){
+    if(!DELETION_KINDS.includes(kind)||id==null||String(id)==='')return;
+    const ts=Number(deletedAt),value=Number.isFinite(ts)&&ts>0?ts:Date.now();
+    deletions={...deletions,[kind]:mergeDeletionMaps(deletions[kind],{[id]:value})};
     await saveDeletions();
+  }
+  async function markDeletedMany(groups,deletedAt=Date.now()){
+    const ts=Number(deletedAt),value=Number.isFinite(ts)&&ts>0?ts:Date.now();let next=deletions;
+    for(const kind of DELETION_KINDS){
+      const records=groups&&groups[kind];if(!Array.isArray(records))continue;
+      const marked={};records.forEach(record=>{const id=record&&typeof record==='object'?record.id:record;if(id!=null&&String(id)!=='')marked[id]=value;});
+      next={...next,[kind]:mergeDeletionMaps(next[kind],marked)};
+    }
+    deletions=next;await saveDeletions();
+  }
+  async function prepareReplacement(source){
+    const incoming=source&&typeof source==='object'?source:{};
+    deletions=replacementDeletionState({players,games,events:evts},incoming,deletions);
+    const resolved=resolveDeletionProtectedRecords({players,games,events:evts},incoming,deletions,'replace');
+    await saveDeletions();return resolved;
   }
   function startPoll(){stopPoll();if(cfg.on&&configured())poller=setInterval(()=>pull({}),15000);}
   function stopPoll(){if(poller){clearInterval(poller);poller=null;}}
@@ -6528,7 +6611,7 @@ const Sync=(()=>{
   async function init(){
     await loadLocalState();
     if(applyLocalDeletions()){
-      recomputeAll();await savePlayers();await saveGames();
+      recomputeAll();await savePlayers();await saveGames();await saveEvents();
       if(typeof render==='function')render();
     }
     lastSig=payloadStr();
@@ -6536,8 +6619,10 @@ const Sync=(()=>{
   }
   return {
     init,pull,push,touch,startPoll,stopPoll,statusHtml,configured,endpoint,applyLocalDeletions,
-    noteGameDelete:(id,deletedAt)=>noteDelete('games',id,deletedAt),
-    notePlayerDelete:(id,deletedAt)=>noteDelete('players',id,deletedAt),
+    markDeleted,markDeletedMany,prepareReplacement,
+    noteGameDelete:(id,deletedAt)=>markDeleted('games',id,deletedAt),
+    notePlayerDelete:(id,deletedAt)=>markDeleted('players',id,deletedAt),
+    deletionState:()=>normalizeDeletionState(deletions),
     persistLocalState:()=>Promise.all([saveDeletions(),saveTs()]),
     get cfg(){return cfg;},
     async connect(url,code){
