@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.4">
+<meta name="court-build" content="20260716.5">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -548,6 +548,13 @@
   .schedule-match-label{margin-top:7px;color:#66738a;font-size:10px;line-height:1.4}
   .schedule-preview-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #dce3ef;color:#9a6c16;font-size:10px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}
   .schedule-file-note{text-align:center;color:var(--faint);font-size:11px;line-height:1.45;margin:9px 0 0}
+  .public-schedule-panel{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#00000020}
+  .public-schedule-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
+  .public-schedule-head b{font-size:14px}.public-schedule-status{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.45}
+  .public-schedule-status.current{color:var(--good)}.public-schedule-status.stale{color:var(--gold)}.public-schedule-status.disabled{color:var(--coral)}
+  .public-schedule-url{display:block;width:100%;min-height:48px;margin-top:10px;padding:9px 10px;resize:none;border:1px solid #ffffff1d;border-radius:10px;background:#0b1220;color:#dce6f5;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-all}
+  .public-schedule-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
+  .public-schedule-actions .wide{grid-column:1/-1}.public-schedule-help{margin-top:8px;color:var(--faint);font-size:10.5px;line-height:1.4}
   .participant-subject{margin-top:12px;padding:11px;border-radius:11px;background:#17243b;color:#fff}
   .participant-subject-label{display:block;color:#d4deed;font-size:9px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}
   .participant-subject>strong{display:block;margin-top:5px;font-size:16px}.participant-subject-members{display:block;margin-top:3px;color:#d4deed;font-size:11px;line-height:1.4}
@@ -570,6 +577,7 @@
 
   @media (min-width:560px){
     .schedule-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
+    .public-schedule-actions{grid-template-columns:repeat(3,minmax(0,1fr))}.public-schedule-actions .wide{grid-column:auto}
     .schedule-rotation-sides{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch}
     .schedule-rotation-sides>.schedule-vs{align-self:center}
   }
@@ -751,9 +759,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.6.0',
-  build: '20260716.4',
-  releaseNotes: 'Added equal-game schedule planning, makeup matches, custom event matches, and fairness warnings for fixed and rotating events.'
+  version: '0.7.0',
+  build: '20260716.5',
+  releaseNotes: 'Added public schedule links with update-in-place URLs, participant-specific publishing, and disable-link controls.'
 });
 
 function appVersionLabel(){
@@ -1018,6 +1026,7 @@ async function load(){
 function migrateEvents(){
   evts.forEach(ev=>{
     ev.eventDate=normalizeEventDate(ev.eventDate)||localDateFromTimestamp(ev.created)||todayLocalDate();
+    if(ev.schedulePublications!=null&&(typeof ev.schedulePublications!=='object'||Array.isArray(ev.schedulePublications)))delete ev.schedulePublications;
     if(ev.bracket){ ev.brackets=[{id:uid(), name:'Playoffs', created:ev.bracket.created, seeds:ev.bracket.seeds}]; delete ev.bracket; }
     if(!ev.brackets) ev.brackets=[];
     if(eventFormat(ev)==='rotatingGroups'){
@@ -3715,17 +3724,185 @@ function downloadScheduleFile(file){
   return file;
 }
 function currentScheduleExport(evId,subjectType,subjectId){const ev=evById(evId),model=subjectType?deriveParticipantScheduleExportModel(ev,subjectType,subjectId):deriveFullScheduleExportModel(ev);if(!model)toast('This schedule is no longer available');return model;}
+function schedulePublicationScope(subjectType='',subjectId=''){
+  if(!subjectType)return 'full';
+  return ['team','entry','player'].includes(subjectType)&&subjectId?`${subjectType}:${subjectId}`:null;
+}
+function schedulePublicationTitle(model){return `${model.eventName} · Court schedule`;}
+function schedulePublicationTimestamp(value){
+  const d=new Date(Number(value));if(!Number.isFinite(d.getTime()))return '';
+  return `${d.toLocaleDateString([],{month:'short',day:'numeric'})} at ${d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
+}
+function schedulePublicationSnapshot(publication){
+  if(!publication)return '';
+  return JSON.stringify([publication.publicToken||'',publication.managementToken||'',publication.updatedAt||0,publication.status||'',publication.disabledAt||0,publication.contentHash||'']);
+}
+function schedulePublicationError(code,message,status=0){const error=new Error(message);error.code=code;error.status=status;return error;}
+async function scheduleHtmlSha256(html){
+  if(!crypto?.subtle?.digest)throw schedulePublicationError('crypto','Secure schedule hashing is unavailable in this browser.');
+  const value=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(html));
+  return [...new Uint8Array(value)].map(byte=>byte.toString(16).padStart(2,'0')).join('');
+}
+const SchedulePublications=(()=>{
+  const operations=new Map(),views=new Map();
+  const key=(evId,scope)=>`${evId}|${scope}`;
+  const publication=(ev,scope)=>ev?.schedulePublications&&typeof ev.schedulePublications==='object'?ev.schedulePublications[scope]||null:null;
+  const active=pub=>!!(pub&&pub.status!=='disabled'&&pub.status!=='unavailable'&&!pub.disabledAt&&pub.publicUrl);
+  const modelFor=(ev,subjectType,subjectId)=>subjectType?deriveParticipantScheduleExportModel(ev,subjectType,subjectId):deriveFullScheduleExportModel(ev);
+  const args=(evId,subjectType,subjectId)=>`'${evId}','${subjectType}','${subjectId}'`;
+  const apiUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
+
+  function viewMatches(evId,scope){
+    const section=document.querySelector('[data-public-schedule-section]');
+    return section&&section.dataset.eventId===String(evId)&&section.dataset.scope===scope?section:null;
+  }
+  function panelBody(evId,subjectType,subjectId){
+    const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),pub=publication(ev,scope),state=views.get(key(evId,scope))||{},op=operations.get(key(evId,scope)),call=args(evId,subjectType,subjectId),disabled=op?'disabled':'';
+    const head='<div class="public-schedule-head"><b>Public link</b></div>';
+    if(!pub){
+      return `${head}<div class="public-schedule-status">No public link has been created yet.<br>Create a link that anyone can open in a browser.</div><div class="public-schedule-actions"><button class="btn primary wide" ${disabled} onclick="createPublicScheduleLink(${call})">${op?.kind==='create'?'Creating link…':'Create Share Link'}</button></div>`;
+    }
+    if(pub.status==='disabled'||pub.disabledAt){
+      return `${head}<div class="public-schedule-status disabled">This link is disabled.</div><div class="public-schedule-actions"><button class="btn primary wide" ${disabled} onclick="createPublicScheduleLink(${call})">${op?.kind==='create'?'Creating link…':'Create New Link'}</button></div>`;
+    }
+    if(pub.status==='unavailable'){
+      return `${head}<div class="public-schedule-status disabled">The public record no longer exists. Create a new link to publish this schedule again.</div><div class="public-schedule-actions"><button class="btn primary wide" ${disabled} onclick="createPublicScheduleLink(${call})">${op?.kind==='create'?'Creating link…':'Create New Link'}</button></div>`;
+    }
+    const checking=!state.contentHash,stale=!checking&&(!pub.contentHash||state.contentHash!==pub.contentHash),status=checking?'Checking publication…':stale?'Schedule changed since publication.':`Up to date · Published ${schedulePublicationTimestamp(pub.updatedAt||pub.createdAt)}`;
+    const manual=state.manualCopy?'<div class="public-schedule-help">Select the URL above and copy it manually.</div>':'';
+    return `${head}<div class="public-schedule-status ${checking?'':stale?'stale':'current'}">${status}</div><textarea class="public-schedule-url" aria-label="Public schedule URL" readonly onclick="this.select()">${esc(pub.publicUrl)}</textarea>${manual}<div class="public-schedule-actions">${stale||op?.kind==='update'?`<button class="btn primary wide" ${disabled} onclick="updatePublicScheduleLink(${call})">${op?.kind==='update'?'Updating link…':'Update Published Link'}</button>`:''}<button class="btn ghost" ${disabled} onclick="sharePublicScheduleLink(${call})">Share Link</button><button class="btn ghost" ${disabled} onclick="copyPublicScheduleLink(${call})">Copy Link</button><button class="btn ghost" ${disabled} onclick="openPublicScheduleLink(${call})">Open Link</button><button class="btn danger" ${disabled} onclick="disablePublicScheduleLink(${call})">${op?.kind==='disable'?'Disabling link…':'Disable Link'}</button></div>`;
+  }
+  function sectionHtml(evId,subjectType='',subjectId=''){
+    const scope=schedulePublicationScope(subjectType,subjectId);
+    return `<section class="public-schedule-panel" data-public-schedule-section data-event-id="${esc(evId)}" data-scope="${esc(scope)}">${panelBody(evId,subjectType,subjectId)}</section>`;
+  }
+  function renderPanel(evId,subjectType='',subjectId=''){
+    const scope=schedulePublicationScope(subjectType,subjectId),section=viewMatches(evId,scope);if(!section)return;
+    const sheet=section.closest('.sheet'),top=sheet?.scrollTop||0;section.innerHTML=panelBody(evId,subjectType,subjectId);if(sheet)sheet.scrollTop=top;
+  }
+  async function prepare(evId,subjectType='',subjectId=''){
+    const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),model=modelFor(ev,subjectType,subjectId);
+    if(!ev||!scope||!model)throw schedulePublicationError('missing','This schedule is no longer available.');
+    const html=renderScheduleDocument(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title:schedulePublicationTitle(model),scope};
+    views.set(key(evId,scope),{...(views.get(key(evId,scope))||{}),contentHash});renderPanel(evId,subjectType,subjectId);return prepared;
+  }
+  async function refresh(evId,subjectType='',subjectId=''){
+    try{await prepare(evId,subjectType,subjectId);}catch(error){const scope=schedulePublicationScope(subjectType,subjectId);views.set(key(evId,scope),{error:error?.message||'Could not inspect this schedule'});renderPanel(evId,subjectType,subjectId);}
+  }
+  async function responseJson(response){try{return await response.json();}catch(_){return {};}}
+  function validCreateResponse(data){
+    if(!/^[A-Za-z0-9_-]{22,128}$/.test(data?.token||'')||!/^[A-Za-z0-9_-]{22,128}$/.test(data?.managementToken||''))return false;
+    try{const configuredOrigin=new URL(Sync.cfg.url).origin,publicUrl=new URL(data.url);return publicUrl.origin===configuredOrigin&&publicUrl.pathname===`/s/${data.token}`&&!publicUrl.search&&!publicUrl.hash&&Number.isFinite(Number(data.publishedAt))&&Number.isFinite(Number(data.updatedAt));}catch(_){return false;}
+  }
+  async function capability(){
+    if(!Sync.configured())throw schedulePublicationError('not-configured','Set up device sync in Settings before creating a public schedule link.');
+    let response;try{response=await fetch(apiUrl('/api/public-schedules/status'),{method:'GET',cache:'no-store'});}catch(_){throw schedulePublicationError('offline','Could not reach the sync service. Check your connection and try again.');}
+    const data=await responseJson(response);
+    if(data.available===false)throw schedulePublicationError('storage','Public schedule storage is unavailable on the configured sync service. Confirm the PUBLIC_SCHEDULES binding.');
+    if(response.status===404||response.status===405||data.error==='missing room')throw schedulePublicationError('old-worker','Public schedule links are not available on the configured sync service yet.');
+    if(!response.ok||data.available!==true)throw schedulePublicationError('service','The public schedule service is not available right now.');
+    return true;
+  }
+  function apiFailure(response,data,management=false){
+    if(response.status===404)return schedulePublicationError('not-found','The public record no longer exists.',404);
+    if(response.status===410)return schedulePublicationError('disabled','The public link is already disabled.',410);
+    if((response.status===401||response.status===403)&&management)return schedulePublicationError('unauthorized','This device no longer has valid permission to manage that link.',response.status);
+    if(response.status===401||response.status===403)return schedulePublicationError('sync-required','This device needs to successfully sync before it can publish a schedule.',response.status);
+    if(response.status===413)return schedulePublicationError('too-large','This schedule is too large for public link publishing.',413);
+    if(response.status===503&&String(data.error||'').includes('storage'))return schedulePublicationError('storage','Public schedule storage is unavailable on the configured sync service. Confirm the PUBLIC_SCHEDULES binding.',503);
+    return schedulePublicationError('service',data.error||'The public schedule service could not complete the request.',response.status);
+  }
+  async function mergePublication(evId,scope,next){
+    const ev=evById(evId);if(!ev)return false;
+    const all=ev.schedulePublications&&typeof ev.schedulePublications==='object'?ev.schedulePublications:{};
+    ev.schedulePublications={...all,[scope]:next};await saveEvents();return true;
+  }
+  function operationApplies(evId,scope,op){
+    const current=operations.get(key(evId,scope)),ev=evById(evId);
+    return current?.id===op.id&&schedulePublicationSnapshot(publication(ev,scope))===op.expected;
+  }
+  function begin(evId,scope,kind,pub){
+    const operationKey=key(evId,scope);if(operations.has(operationKey))return null;
+    const op={id:uid(),kind,expected:schedulePublicationSnapshot(pub)};operations.set(operationKey,op);return op;
+  }
+  function finish(evId,scope,op,subjectType,subjectId){const operationKey=key(evId,scope);if(operations.get(operationKey)?.id===op.id)operations.delete(operationKey);renderPanel(evId,subjectType,subjectId);}
+  function report(error){toast(error?.message||'Could not manage the public schedule link.');}
+  async function markUnavailable(evId,scope,pub,error){
+    await mergePublication(evId,scope,{...pub,status:error.code==='disabled'?'disabled':'unavailable',disabledAt:error.code==='disabled'?(pub.disabledAt||Date.now()):pub.disabledAt||null,unavailableReason:error.code});
+  }
+  async function create(evId,subjectType='',subjectId=''){
+    const scope=schedulePublicationScope(subjectType,subjectId),ev=evById(evId),before=publication(ev,scope),op=begin(evId,scope,'create',before);if(!op)return;
+    renderPanel(evId,subjectType,subjectId);
+    try{
+      const prepared=await prepare(evId,subjectType,subjectId);await capability();
+      let response;try{response=await fetch(apiUrl('/api/public-schedules'),{method:'POST',headers:{'Content-Type':'application/json','X-Court-Room':Sync.cfg.code},body:JSON.stringify({html:prepared.html,title:prepared.title,contentHash:prepared.contentHash,scope:prepared.scope})});}catch(_){throw schedulePublicationError('offline','Could not reach the sync service. Check your connection and try again.');}
+      const data=await responseJson(response);if(!response.ok)throw apiFailure(response,data,false);
+      if(!validCreateResponse(data))throw schedulePublicationError('service','The sync service returned an invalid publication response.');
+      if(!operationApplies(evId,scope,op))return;
+      await mergePublication(evId,scope,{scope,publicToken:data.token,publicUrl:data.url,managementToken:data.managementToken,contentHash:prepared.contentHash,createdAt:Number(data.publishedAt),updatedAt:Number(data.updatedAt),disabledAt:null,status:'active',subjectType:subjectType||'full',subjectId:subjectId||null,title:prepared.title});
+      toast('Public schedule link created');
+    }catch(error){if(operationApplies(evId,scope,op))report(error);}
+    finally{finish(evId,scope,op,subjectType,subjectId);}
+  }
+  async function update(evId,subjectType='',subjectId=''){
+    const scope=schedulePublicationScope(subjectType,subjectId),ev=evById(evId),pub=publication(ev,scope);if(!active(pub))return;
+    const op=begin(evId,scope,'update',pub);if(!op)return;renderPanel(evId,subjectType,subjectId);
+    try{
+      const prepared=await prepare(evId,subjectType,subjectId);await capability();
+      let response;try{response=await fetch(apiUrl(`/api/public-schedules/${encodeURIComponent(pub.publicToken)}`),{method:'PUT',headers:{'Content-Type':'application/json','X-Management-Token':pub.managementToken||''},body:JSON.stringify({html:prepared.html,title:prepared.title,contentHash:prepared.contentHash})});}catch(_){throw schedulePublicationError('offline','Could not reach the sync service. Check your connection and try again.');}
+      const data=await responseJson(response);if(!response.ok)throw apiFailure(response,data,true);
+      if(!Number.isFinite(Number(data.updatedAt)))throw schedulePublicationError('service','The sync service returned an invalid update response.');
+      if(!operationApplies(evId,scope,op))return;
+      await mergePublication(evId,scope,{...pub,contentHash:prepared.contentHash,title:prepared.title,updatedAt:Number(data.updatedAt),status:'active',disabledAt:null});toast('Published schedule updated');
+    }catch(error){if(operationApplies(evId,scope,op)){if(error.code==='not-found'||error.code==='disabled')await markUnavailable(evId,scope,pub,error);report(error);}}
+    finally{finish(evId,scope,op,subjectType,subjectId);}
+  }
+  async function disable(evId,subjectType='',subjectId=''){
+    const scope=schedulePublicationScope(subjectType,subjectId),ev=evById(evId),pub=publication(ev,scope);if(!active(pub))return;
+    const confirmed=await askConfirm('Disable this public schedule link? Anyone using it will no longer see the schedule. Existing downloaded HTML and PDFs are unaffected, and you can create a new link later.','Disable Link');if(!confirmed)return;
+    const op=begin(evId,scope,'disable',pub);if(!op)return;renderPanel(evId,subjectType,subjectId);
+    try{
+      await capability();let response;try{response=await fetch(apiUrl(`/api/public-schedules/${encodeURIComponent(pub.publicToken)}`),{method:'DELETE',headers:{'X-Management-Token':pub.managementToken||''}});}catch(_){throw schedulePublicationError('offline','Could not reach the sync service. Check your connection and try again.');}
+      const data=await responseJson(response);if(!response.ok)throw apiFailure(response,data,true);if(!Number.isFinite(Number(data.disabledAt))||!Number.isFinite(Number(data.updatedAt)))throw schedulePublicationError('service','The sync service returned an invalid disable response.');if(!operationApplies(evId,scope,op))return;
+      await mergePublication(evId,scope,{...pub,status:'disabled',disabledAt:Number(data.disabledAt),updatedAt:Number(data.updatedAt)});toast('Public schedule link disabled');
+    }catch(error){if(operationApplies(evId,scope,op)){if(error.code==='not-found'||error.code==='disabled')await markUnavailable(evId,scope,pub,error);report(error);}}
+    finally{finish(evId,scope,op,subjectType,subjectId);}
+  }
+  function activeFor(evId,subjectType,subjectId){const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),pub=publication(ev,scope);return active(pub)?pub:null;}
+  async function copy(evId,subjectType='',subjectId=''){
+    const pub=activeFor(evId,subjectType,subjectId);if(!pub)return false;let copied=false;
+    try{if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(pub.publicUrl);copied=true;}}catch(_){}
+    if(copied){toast('Public schedule link copied');return true;}
+    const scope=schedulePublicationScope(subjectType,subjectId),state=views.get(key(evId,scope))||{};views.set(key(evId,scope),{...state,manualCopy:true});renderPanel(evId,subjectType,subjectId);
+    const input=viewMatches(evId,scope)?.querySelector('.public-schedule-url');input?.focus({preventScroll:true});input?.select();toast('Select and copy the public schedule URL');return false;
+  }
+  async function share(evId,subjectType='',subjectId=''){
+    const pub=activeFor(evId,subjectType,subjectId),ev=evById(evId);if(!pub)return;
+    if(navigator.share){try{await navigator.share({title:pub.title||`${ev?.name||'Event'} schedule · Court`,text:`Open the ${ev?.name||'event'} schedule in your browser.`,url:pub.publicUrl});toast('Public schedule link shared');return;}catch(error){if(error?.name==='AbortError')return;}}
+    await copy(evId,subjectType,subjectId);
+  }
+  function open(evId,subjectType='',subjectId=''){const pub=activeFor(evId,subjectType,subjectId);if(!pub)return;const link=document.createElement('a');link.href=pub.publicUrl;link.target='_blank';link.rel='noopener noreferrer';document.body.appendChild(link);try{link.click();}finally{link.remove();}}
+  return {sectionHtml,refresh,create,update,disable,copy,share,open};
+})();
+window.createPublicScheduleLink=(...args)=>SchedulePublications.create(...args);
+window.updatePublicScheduleLink=(...args)=>SchedulePublications.update(...args);
+window.disablePublicScheduleLink=(...args)=>SchedulePublications.disable(...args);
+window.copyPublicScheduleLink=(...args)=>SchedulePublications.copy(...args);
+window.sharePublicScheduleLink=(...args)=>SchedulePublications.share(...args);
+window.openPublicScheduleLink=(...args)=>SchedulePublications.open(...args);
 function scheduleShareActionsHtml(evId,subjectType='',subjectId=''){
   const args=`'${evId}','${subjectType}','${subjectId}'`;
   return `<div class="schedule-actions"><button class="btn primary" data-share-schedule onclick="shareSchedule(${args})">Share Schedule</button><button class="btn ghost" data-download-schedule onclick="downloadSchedule(${args})">Download Schedule</button><button class="btn ghost" data-print-schedule onclick="printSchedule(${args})">Print / Save as PDF</button></div>`;
 }
 window.openScheduleShare=(evId)=>{
   const ev=evById(evId),model=deriveFullScheduleExportModel(ev);if(!model){toast('Generate a usable schedule before sharing');return;}
-  openSheet(`<h3>Save / Share Schedule</h3><p class="small muted" style="margin:-8px 0 12px">Review the complete participant schedule below. Exporting is read-only and creates one self-contained document.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Share or download produces one HTML file. Print / Save as PDF may use several printed pages, but the result is still one PDF file.</div>${scheduleShareActionsHtml(ev.id)}${sheetCloseBtn('Close')}`);
+  openSheet(`<h3>Save / Share Schedule</h3><p class="small muted" style="margin:-8px 0 12px">Review the complete participant schedule below. Exporting is read-only and creates one self-contained document.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Share or download produces one HTML file. Print / Save as PDF may use several printed pages, but the result is still one PDF file.</div>${SchedulePublications.sectionHtml(ev.id)}${scheduleShareActionsHtml(ev.id)}${sheetCloseBtn('Close')}`);
+  void SchedulePublications.refresh(ev.id);
 };
 window.openParticipantScheduleShare=(evId,subjectType,subjectId)=>{
   const ev=evById(evId),model=deriveParticipantScheduleExportModel(ev,subjectType,subjectId);if(!model){toast('No participant schedule is available to share yet');return;}
-  openSheet(`<h3>Save / Share ${model.exportTitle}</h3><p class="small muted" style="margin:-8px 0 12px">A compact, read-only schedule for ${esc(model.subjectName)}.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Share, download, or print this one self-contained schedule document.</div>${scheduleShareActionsHtml(ev.id,subjectType,subjectId)}${sheetCloseBtn('Close')}`);
+  openSheet(`<h3>Save / Share ${model.exportTitle}</h3><p class="small muted" style="margin:-8px 0 12px">A compact, read-only schedule for ${esc(model.subjectName)}.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Share, download, or print this one self-contained schedule document.</div>${SchedulePublications.sectionHtml(ev.id,subjectType,subjectId)}${scheduleShareActionsHtml(ev.id,subjectType,subjectId)}${sheetCloseBtn('Close')}`);
+  void SchedulePublications.refresh(ev.id,subjectType,subjectId);
 };
 window.shareSchedule=async (evId,subjectType='',subjectId='')=>{
   const model=currentScheduleExport(evId,subjectType,subjectId);if(!model)return;

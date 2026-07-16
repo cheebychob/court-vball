@@ -6,9 +6,10 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173",
     "test": "playwright test",
+    "test:worker": "node --test tests/court-sync-worker.test.mjs",
     "test:version-check": "node --test tests/check-version-bump.test.mjs",
     "check:version": "node scripts/check-version-bump.mjs",
-    "verify": "npm run test:version-check && npm run check:version && npm test",
+    "verify": "npm run test:version-check && npm run test:worker && npm run check:version && npm test",
     "test:headed": "playwright test --headed",
     "test:ui": "playwright test --ui"
   },
