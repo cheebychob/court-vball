@@ -258,7 +258,7 @@ test('event schedule spreads fewer pools across available courts', async ({ page
   await expect(scheduleCard.getByText('Pool B').first()).toBeVisible();
 });
 
-test('event schedule explains live time adjustments', async ({ page }) => {
+test('event schedule keeps planned times after the start and after results', async ({ page }) => {
   const teams = Array.from({ length: 4 }, (_, i) => ({
     id: `time-team-${i}`,
     name: `Time Team ${i + 1}`,
@@ -270,6 +270,8 @@ test('event schedule explains live time adjustments', async ({ page }) => {
     const now = new Date();
     now.setHours(11, 10, 0, 0);
     Date.now = () => now.getTime();
+    const pad = value => String(value).padStart(2, '0');
+    const eventDate = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
     localStorage.setItem('vb:players', '[]');
     localStorage.setItem('vb:games', JSON.stringify([{
       id: 'progress-game',
@@ -288,6 +290,7 @@ test('event schedule explains live time adjustments', async ({ page }) => {
       {
         id: 'passed-event',
         name: 'Passed Start Cup',
+        eventDate,
         created: 2,
         done: false,
         teams,
@@ -297,6 +300,7 @@ test('event schedule explains live time adjustments', async ({ page }) => {
       {
         id: 'progress-event',
         name: 'Progress Cup',
+        eventDate,
         created: 1,
         done: false,
         teams,
@@ -310,11 +314,11 @@ test('event schedule explains live time adjustments', async ({ page }) => {
   await clickNav(page, 'Events');
 
   await page.locator('.ev-row').filter({ hasText: 'Passed Start Cup' }).click();
-  await expect(page.getByText('Live-adjusted from now because the 10:00 AM start time has passed.')).toBeVisible();
+  await expect(page.getByText('Planned from 10:00 AM.')).toBeVisible();
 
   await page.getByRole('button', { name: '‹ All events', exact: true }).click();
   await page.locator('.ev-row').filter({ hasText: 'Progress Cup' }).click();
-  await expect(page.getByText('Live-adjusted from current progress.')).toBeVisible();
+  await expect(page.getByText('Planned from 10:00 AM.')).toBeVisible();
 });
 
 test('event schedule clamps extreme custom court saves', async ({ page }) => {
