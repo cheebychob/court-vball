@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.7">
+<meta name="court-build" content="20260716.8">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -770,9 +770,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.7.2',
-  build: '20260716.7',
-  releaseNotes: 'Streamlined schedule actions and combined HTML/PDF downloads.'
+  version: '0.7.3',
+  build: '20260716.8',
+  releaseNotes: 'Pool schedules now protect unique opponents and explain court-time capacity.'
 });
 
 function appVersionLabel(){
@@ -2804,7 +2804,8 @@ function participationAudit(participantIds,matches,getIds,fairnessPolicy){
 function fairnessDistributionLabel(distribution,noun){return (distribution||[]).map(row=>`${row.participantCount} ${noun}${row.participantCount===1?'':'s'} × ${row.games} game${row.games===1?'':'s'}`).join(' · ');}
 function scheduleFairnessAuditHtml(audit,noun){
   if(!audit)return '';const range=audit.gamesMin===audit.gamesMax?String(audit.gamesMin):`${audit.gamesMin}–${audit.gamesMax}`,status=audit.equalGamesAchieved?'Equal games':'Unequal by organizer choice',short=(audit.distribution||[]).filter(row=>row.games<audit.gamesMax).reduce((n,row)=>n+row.participantCount,0);
-  return `<div class="fairness-panel ${audit.equalGamesAchieved?'good':''}" data-schedule-fairness-audit><b>${audit.equalGamesAchieved?'Participation':'Participation warning'}</b>${audit.scheduleNeedsReview?`<div class="schedule-warning" role="status">Schedule needs review. The saved match list no longer matches the selected fairness policy.</div>`:''}<div class="tiny soft" style="margin-top:6px">Games per ${noun}: ${range} · Makeup matches: ${audit.makeupMatchCount||0} · Standard byes: ${audit.byesMin??0}${audit.byesMax!==audit.byesMin?`–${audit.byesMax}`:''} · Game-count difference: ${audit.gameDifference}</div>${short?`<div class="tiny" style="margin-top:5px;color:var(--gold)">${short} ${noun}${short===1?'':'s'} play one fewer match. Standings use win percentage first.</div>`:''}<div class="tiny faint" style="margin-top:5px">Repeated opponents: ${audit.repeatedOpponents||0}${audit.repeatedTeammates!=null?` · Repeated teammates: ${audit.repeatedTeammates}`:''} · Consecutive-play warnings: ${audit.consecutivePlayCount??audit.backToBack??0} · Status: ${status}</div></div>`;
+  const reviewReason=audit.avoidableOpponentRepeats>0?'Avoidable opponent repeats were found. Regenerate the unplayed schedule to correct them.':'Schedule needs review. The saved match list no longer matches the selected fairness policy.';
+  return `<div class="fairness-panel ${audit.equalGamesAchieved?'good':''}" data-schedule-fairness-audit><b>${audit.equalGamesAchieved?'Participation':'Participation warning'}</b>${audit.scheduleNeedsReview?`<div class="schedule-warning" role="status">${esc(reviewReason)}</div>`:''}<div class="tiny soft" style="margin-top:6px">Games per ${noun}: ${range} · Makeup matches: ${audit.makeupMatchCount||0} · Standard byes: ${audit.byesMin??0}${audit.byesMax!==audit.byesMin?`–${audit.byesMax}`:''} · Game-count difference: ${audit.gameDifference}</div>${short?`<div class="tiny" style="margin-top:5px;color:var(--gold)">${short} ${noun}${short===1?'':'s'} play one fewer match. Standings use win percentage first.</div>`:''}<div class="tiny faint" style="margin-top:5px">Repeated opponents: ${audit.repeatedOpponents||0}${audit.repeatedTeammates!=null?` · Repeated teammates: ${audit.repeatedTeammates}`:''} · Consecutive-play warnings: ${audit.consecutivePlayCount??audit.backToBack??0} · Status: ${status}</div>${audit.repeatReason?`<div class="tiny" style="margin-top:5px;color:var(--gold)">${esc(audit.repeatReason)}</div>`:''}</div>`;
 }
 function practicalScheduleAlternatives(plan){
   if(!plan?.valid||plan.equalParticipationPossible)return [];const out=[],seen=new Set(),add=(key,label)=>{if(!seen.has(key)&&out.length<3){seen.add(key);out.push(label);}};
@@ -2947,16 +2948,30 @@ function teammateRotationInfo(ev){
   const n=rotatingEntries(ev).length,per=entriesPerSide(ev),recommendedRounds=Math.max(1,Math.ceil((n-1)/Math.max(1,per-1)));
   return {recommendedRounds,note:'A complete teammate rotation may require many rounds and may not be mathematically exact for this entry count.'};
 }
+function rotationFullMatchupKey(sideA,sideB){return [sideA.slice().sort().join(','),sideB.slice().sort().join(',')].sort().join('~');}
+function bestRotationSidePlan(selected,per,teammates,opponents,exact,strength,seed){
+  if(selected.length!==per*2)return null;let best=null;
+  combinations(selected,per).filter(side=>side.includes(selected[0])).forEach(A=>{
+    const setA=new Set(A),B=selected.filter(id=>!setA.has(id)),fullKey=rotationFullMatchupKey(A,B);let opponentRepeatPairs=0,opponentRepeatLoad=0,teammateRepeatPairs=0,teammateRepeatLoad=0;
+    combinations(A,2).concat(combinations(B,2)).forEach(([a,b])=>{const count=teammates[entryCombinationKey(a,b)]||0;if(count)teammateRepeatPairs++;teammateRepeatLoad+=count;});
+    A.forEach(a=>B.forEach(b=>{const count=opponents[entryCombinationKey(a,b)]||0;if(count)opponentRepeatPairs++;opponentRepeatLoad+=count;}));
+    const seedGap=Math.abs(A.reduce((sum,id)=>sum+(strength[id]||0),0)-B.reduce((sum,id)=>sum+(strength[id]||0),0)),score=[opponentRepeatPairs,opponentRepeatLoad,exact[fullKey]||0,teammateRepeatPairs,teammateRepeatLoad,Math.round(seedGap*1000),hash32(`${seed}:${fullKey}`)];
+    if(!best||compareNumberKeys(score,best.score)<0)best={A:A.slice(),B:B.slice(),score,seedGap,fullKey};
+  });
+  return best;
+}
+function addNumberKeys(...keys){const size=Math.max(0,...keys.map(key=>key?.length||0));return Array.from({length:size},(_,index)=>keys.reduce((sum,key)=>sum+(Number(key?.[index])||0),0));}
 function generateRotationScheduleCandidate(ev,opts={}){
   /* Rebuilt grouping engine. The old version chose each court's entries purely
      by fairness order, which is IDENTICAL every round when nobody has a bye —
      so the same pods repeated forever and seeding appeared to do nothing.
      Now each round: (1) who plays is decided by fairness (fewest games, most
      byes); (2) the playing field is partitioned into match groups that
-     minimize prior meetings (teammate repeats weighted heaviest), via greedy
+     minimize prior meetings (opponent repeats are the hard first priority), via greedy
      anchored grouping plus deterministic swap-improvement sweeps so the last
      court never gets stuck with leftovers; (3) each group splits into sides
-     minimizing teammate repeats, then opponent repeats, then seed gap.
+     minimizing opponent repeats, then exact matchup and teammate repeats,
+     then seed gap.
      Fully deterministic for a given entry list and settings. */
   const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),seed=opts.seed??`${state.seed}:${state.revision}`,rng=seededRng(seed),validation=rotationValidation(ev),seedMeta=entrySeedMetadata(ev,{projectedOnly:true,seed:opts.entrySeed??`${state.seed}:${state.revision}:entries`}),entries=seedMeta.orderedEntries;
   if(!validation.valid) return {error:validation.error,matches:[]};
@@ -2966,19 +2981,21 @@ function generateRotationScheduleCandidate(ev,opts={}){
   const rosterIds=entries.flatMap(entry=>entry.players||[]);if(new Set(rosterIds).size!==rosterIds.length)return {error:'A player cannot belong to more than one rotating entry.',matches:[]};
   const ids=entries.map(entry=>entry.id), seedIx=Object.fromEntries(ids.map((id,i)=>[id,i])),jitter=Object.fromEntries(ids.map(id=>[id,rng()]));
   const strength=seedMeta.strengths;
-  const gamesPlayed={},byes={},teammates={},opponents={},lastRound=new Set(),placement=createSchedulePlacementState(ids,Math.max(1,courts),per); ids.forEach(id=>{gamesPlayed[id]=0;byes[id]=0;});
+  const gamesPlayed={},byes={},teammates={},opponents={},exact={},lastRound=new Set(),placement=createSchedulePlacementState(ids,Math.max(1,courts),per); ids.forEach(id=>{gamesPlayed[id]=0;byes[id]=0;});
   const K=entryCombinationKey;
-  const pairCost=(x,y)=>{ const t=teammates[K(x,y)]||0, o=opponents[K(x,y)]||0, m=t+o; return m*m*4+t*3; };
-  const groupCost=g=>{ let c=0; for(let i=0;i<g.length;i++) for(let j=i+1;j<g.length;j++) c+=pairCost(g[i],g[j]); return c; };
+  const pairCost=(x,y)=>{const t=teammates[K(x,y)]||0,o=opponents[K(x,y)]||0,m=t+o;return o*12+t*4+m*m;};
+  const groupPlan=(group,label='group')=>bestRotationSidePlan(group,per,teammates,opponents,exact,strength,`${seed}:${label}:${group.slice().sort().join(',')}`);
+  const groupCost=(group,label='group')=>groupPlan(group,label)?.score||[Infinity];
   const matches=[]; let backToBack=0,seedSpreadTotal=0,invalidRounds=0;
   const recordMatch=m=>{
     const selected=[...m.sideAEntryIds,...m.sideBEntryIds];
     selected.forEach(id=>{gamesPlayed[id]++;if(lastRound.has(id))backToBack++;});
     combinations(m.sideAEntryIds,2).concat(combinations(m.sideBEntryIds,2)).forEach(([x,y])=>{const k=K(x,y);teammates[k]=(teammates[k]||0)+1;});
     m.sideAEntryIds.forEach(x=>m.sideBEntryIds.forEach(y=>{const k=K(x,y);opponents[k]=(opponents[k]||0)+1;}));
+    const fullKey=rotationFullMatchupKey(m.sideAEntryIds,m.sideBEntryIds);exact[fullKey]=(exact[fullKey]||0)+1;
     seedSpreadTotal+=Math.abs(m.sideAEntryIds.reduce((z,id)=>z+(strength[id]||0),0)-m.sideBEntryIds.reduce((z,id)=>z+(strength[id]||0),0));
   };
-  const locked=(opts.lockedMatches||[]).map(normalizedRotationMatch).sort((a,b)=>a.round-b.round||a.court-b.court),lockedRounds=[...new Set(locked.map(m=>m.round))];
+  const locked=(opts.lockedMatches||[]).map(normalizedRotationMatch),lockedRounds=[...new Set(locked.map(m=>m.round))];
   lockedRounds.forEach(round=>{const roundMatches=locked.filter(m=>m.round===round),playing=new Set(roundMatches.flatMap(m=>[...m.sideAEntryIds,...m.sideBEntryIds]));roundMatches.forEach(m=>{matches.push({...m,sideAEntryIds:m.sideAEntryIds.slice(),sideBEntryIds:m.sideBEntryIds.slice()});recordMatch(m);recordSchedulePlacement(placement,m,{courtAlternatives:roundMatches.length>1,sideAlternatives:true});});ids.filter(id=>!playing.has(id)).forEach(id=>byes[id]++);lastRound.clear();playing.forEach(id=>lastRound.add(id));});
   const firstRound=lockedRounds.length?Math.max(...lockedRounds)+1:1;
   for(let round=firstRound;round<=rounds;round++){
@@ -3003,9 +3020,10 @@ function generateRotationScheduleCandidate(ev,opts={}){
       for(let gi=0;gi<groups.length;gi++) for(let gj=gi+1;gj<groups.length;gj++){
         const g1=groups[gi], g2=groups[gj];
         for(let a=0;a<need;a++) for(let b=0;b<need;b++){
-          const cur=groupCost(g1)+groupCost(g2);
+          const cur=addNumberKeys(groupCost(g1,`r${round}:g${gi}`),groupCost(g2,`r${round}:g${gj}`));
           const x=g1[a]; g1[a]=g2[b]; g2[b]=x;
-          if(groupCost(g1)+groupCost(g2)<cur-1e-9) improved=true;
+          const next=addNumberKeys(groupCost(g1,`r${round}:g${gi}`),groupCost(g2,`r${round}:g${gj}`));
+          if(compareNumberKeys(next,cur)<0) improved=true;
           else { const y=g1[a]; g1[a]=g2[b]; g2[b]=y; }
         }
       }
@@ -3017,8 +3035,7 @@ function generateRotationScheduleCandidate(ev,opts={}){
     groups.sort((a,b)=>Math.min(...a.map(id=>jitter[id]))-Math.min(...b.map(id=>jitter[id])));
     const roundMatches=[];
     groups.forEach(selected=>{
-      const sideChoices=combinations(selected,per).filter(side=>side.includes(selected[0])); let best=null;
-      sideChoices.forEach((A,i)=>{const setA=new Set(A),B=selected.filter(id=>!setA.has(id));let teamRepeats=0,oppRepeats=0;combinations(A,2).forEach(([x,y])=>teamRepeats+=teammates[K(x,y)]||0);combinations(B,2).forEach(([x,y])=>teamRepeats+=teammates[K(x,y)]||0);A.forEach(x=>B.forEach(y=>oppRepeats+=opponents[K(x,y)]||0));const seedGap=Math.abs(A.reduce((z,id)=>z+strength[id],0)-B.reduce((z,id)=>z+strength[id],0));const score=teamRepeats*1000+oppRepeats*30+seedGap*.05+rng()*.001;if(!best||score<best.score)best={A,B,score,seedGap};});
+      const best=groupPlan(selected,`r${round}:sides`);
       if(!best){ invalidRounds++; return; }
       roundMatches.push({round,sideAEntryIds:best.A.slice(),sideBEntryIds:best.B.slice(),status:'pending'});
     });
@@ -3032,36 +3049,43 @@ function generateRotationScheduleCandidate(ev,opts={}){
     sitting.forEach(id=>byes[id]++);
     lastRound.clear(); playing.forEach(id=>lastRound.add(id));
   }
-  rebalanceRotationPlacements(matches,ids,Math.max(1,courts),per,firstRound-1,seed,`${ev.id}-v${state.revision}`);matches.sort((a,b)=>a.round-b.round||a.court-b.court);
-  const vals=Object.values(gamesPlayed),byeVals=Object.values(byes),repeatedTeammates=Object.values(teammates).reduce((z,v)=>z+Math.max(0,v-1),0),repeatedOpponents=Object.values(opponents).reduce((z,v)=>z+Math.max(0,v-1),0),placementQuality=rotationPlacementAudit(matches,ids,Math.max(1,courts),per);delete placementQuality.entries;
-  return {matches,initialSeeds:seedMeta.seeds,quality:{gamesMin:Math.min(...vals),gamesMax:Math.max(...vals),byesMin:Math.min(...byeVals),byesMax:Math.max(...byeVals),repeatedTeammates,repeatedOpponents,backToBack,invalidRounds,seedSpread:matches.length?seedSpreadTotal/matches.length:0,...placementQuality}};
+  rebalanceRotationPlacements(matches,ids,Math.max(1,courts),per,firstRound-1,seed,`${ev.id}-v${state.revision}`);const lockedIds=new Set(locked.map(match=>match.id)),futureMatches=matches.filter(match=>!lockedIds.has(match.id)).sort((a,b)=>a.round-b.round||a.court-b.court),lockedMatches=locked.map(source=>matches.find(match=>match.id===source.id)||source);matches.splice(0,matches.length,...lockedMatches,...futureMatches);
+  const vals=Object.values(gamesPlayed),byeVals=Object.values(byes),repeatedTeammates=Object.values(teammates).reduce((z,v)=>z+Math.max(0,v-1),0),repeatedOpponents=Object.values(opponents).reduce((z,v)=>z+Math.max(0,v-1),0),exactMatchupRepeats=Object.values(exact).reduce((z,v)=>z+Math.max(0,v-1),0),opponentCapacity=rotationOpponentCapacityAudit(ids,matches),placementQuality=rotationPlacementAudit(matches,ids,Math.max(1,courts),per);delete placementQuality.entries;
+  return {matches,initialSeeds:seedMeta.seeds,quality:{gamesMin:Math.min(...vals),gamesMax:Math.max(...vals),byesMin:Math.min(...byeVals),byesMax:Math.max(...byeVals),repeatedTeammates,repeatedOpponents,exactMatchupRepeats,backToBack,invalidRounds,seedSpread:matches.length?seedSpreadTotal/matches.length:0,...opponentCapacity,...placementQuality}};
 }
 function rotationMaterialSignature(matches){
   const by={};(matches||[]).map(normalizedRotationMatch).forEach(m=>{const sides=[m.sideAEntryIds.slice().sort().join(','),m.sideBEntryIds.slice().sort().join(',')].sort();(by[m.round]=by[m.round]||[]).push(`${sides[0]}~${sides[1]}`);});
   return Object.keys(by).map(Number).sort((a,b)=>a-b).map(r=>`${r}:${by[r].sort().join(';')}`).join('|');
 }
 function rotationPlacementSignature(matches){return (matches||[]).map(normalizedRotationMatch).slice().sort((a,b)=>a.round-b.round||a.court-b.court||String(a.id||'').localeCompare(String(b.id||''))).map(m=>`${m.round}:${m.court}:${m.sideAEntryIds.join(',')}~${m.sideBEntryIds.join(',')}`).join('|');}
-function rotationQualityKey(q={}){return [q.invalidRounds||0,(q.gamesMax||0)-(q.gamesMin||0),(q.byesMax||0)-(q.byesMin||0),q.repeatedTeammates||0,q.repeatedOpponents||0,q.backToBack||0,Math.round((q.seedSpread||0)*10),q.courtSpread||0,q.sameCourtStreaks||0,q.sideSpread||0,q.sameSideStreaks||0,q.positionSpread||q.firstPositionSpread||0];}
+function rotationQualityKey(q={}){return [q.invalidRounds||0,(q.gamesMax||0)-(q.gamesMin||0),(q.byesMax||0)-(q.byesMin||0),q.avoidableOpponentRepeats||0,q.repeatedOpponents||0,q.exactMatchupRepeats||0,q.repeatedTeammates||0,q.backToBack||0,Math.round((q.seedSpread||0)*10),q.courtSpread||0,q.sameCourtStreaks||0,q.sideSpread||0,q.sameSideStreaks||0,q.positionSpread||q.firstPositionSpread||0];}
 function compareQuality(a,b){const A=rotationQualityKey(a),B=rotationQualityKey(b);for(let i=0;i<A.length;i++){if(A[i]!==B[i])return A[i]-B[i];}return 0;}
 function rotationMatchEntryIds(match){const m=normalizedRotationMatch(match);return [...m.sideAEntryIds,...m.sideBEntryIds];}
+function rotationOpponentCapacityAudit(entryIds,matches=[]){
+  const ids=[...new Set(entryIds||[])],validIds=new Set(ids),opponents={},opponentAppearances=Object.fromEntries(ids.map(id=>[id,0]));let totalOpponentAssignments=0;
+  (matches||[]).map(normalizedRotationMatch).forEach(match=>match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{if(!validIds.has(a)||!validIds.has(b)||a===b)return;const key=entryCombinationKey(a,b);opponents[key]=(opponents[key]||0)+1;opponentAppearances[a]++;opponentAppearances[b]++;totalOpponentAssignments++;})));
+  const validOpponentPairs=combinations(ids,2).map(([a,b])=>entryCombinationKey(a,b)),unusedOpponentCombinations=validOpponentPairs.filter(key=>!opponents[key]),duplicateOpponentCombinations=Object.entries(opponents).filter(([,count])=>count>1).map(([key,count])=>({key,count,repeats:count-1})),repeatedOpponents=duplicateOpponentCombinations.reduce((sum,row)=>sum+row.repeats,0),unavoidableOpponentRepeats=Math.max(0,totalOpponentAssignments-validOpponentPairs.length),avoidableOpponentRepeats=Math.max(0,repeatedOpponents-unavoidableOpponentRepeats),repetitionUnavoidable=repeatedOpponents>0&&avoidableOpponentRepeats===0,repeatReason=repetitionUnavoidable?`${totalOpponentAssignments} opposing-entry assignments exceed the ${validOpponentPairs.length} unique entry pairings, so at least ${unavoidableOpponentRepeats} repeat${unavoidableOpponentRepeats===1?' is':'s are'} mathematically unavoidable.`:'';
+  return {opponentPairCounts:opponents,opponentAppearances,totalOpponentAssignments,totalValidOpponentCombinations:validOpponentPairs.length,unusedOpponentCombinations,unusedOpponentCombinationCount:unusedOpponentCombinations.length,duplicateOpponentCombinations,repeatedOpponents,unavoidableOpponentRepeats,avoidableOpponentRepeats,repetitionUnavoidable,repeatReason};
+}
 function rotationScheduleAudit(ev,matches=rotationSchedule(ev)){
-  const s=rotationSettings(ev),entries=rotatingEntries(ev),ids=entries.map(e=>e.id),standard=matches.filter(isStandardScheduleMatch),base=participationAudit(ids,matches,rotationMatchEntryIds,s.fairnessPolicy),teammates={},opponents={},exact={},invalidMatches=[];
+  const s=rotationSettings(ev),entries=rotatingEntries(ev),ids=entries.map(e=>e.id),standard=matches.filter(isStandardScheduleMatch),base=participationAudit(ids,matches,rotationMatchEntryIds,s.fairnessPolicy),teammates={},opponents={},exact={},invalidMatches=[],roundEntryConflicts=[];
   matches.map(normalizedRotationMatch).forEach(match=>{
     const all=rotationMatchEntryIds(match);if(new Set(all).size!==all.length||all.some(id=>!ids.includes(id)))invalidMatches.push(match.id);
     combinations(match.sideAEntryIds,2).concat(combinations(match.sideBEntryIds,2)).forEach(([a,b])=>{const k=entryCombinationKey(a,b);teammates[k]=(teammates[k]||0)+1;});
     match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{const k=entryCombinationKey(a,b);opponents[k]=(opponents[k]||0)+1;}));
-    const sides=[match.sideAEntryIds.slice().sort().join(','),match.sideBEntryIds.slice().sort().join(',')].sort().join('~');exact[sides]=(exact[sides]||0)+1;
+    const sides=rotationFullMatchupKey(match.sideAEntryIds,match.sideBEntryIds);exact[sides]=(exact[sides]||0)+1;
   });
+  const byRound={};matches.map(normalizedRotationMatch).forEach(match=>{const key=isStandardScheduleMatch(match)?`standard:${match.round}`:`${scheduleBlockOf(match)}:${positiveInt(match.makeupBlock,match.round)}`,seen=byRound[key]||(byRound[key]=new Set());rotationMatchEntryIds(match).forEach(id=>{if(seen.has(id))roundEntryConflicts.push({round:key,entryId:id,matchId:match.id||null});seen.add(id);});});
   const standardCounts=participationAudit(ids,standard,rotationMatchEntryIds,s.fairnessPolicy).counts,byeValues=ids.map(id=>Math.max(0,positiveInt(s.rounds,1)-standardCounts[id])),placement=ids.length&&matches.length?rotationPlacementAudit(matches,ids,Math.max(1,positiveInt(s.courts,1)),Math.max(1,entriesPerSide(ev))):{};if(placement.entries)delete placement.entries;
   const blocks={};matches.forEach(m=>{const key=isStandardScheduleMatch(m)?Number(m.round):positiveInt(m.makeupBlock,positiveInt(s.rounds,1)+1);(blocks[key]=blocks[key]||new Set()).add(rotationMatchEntryIds(m));});
   let consecutivePlayCount=0,last=new Set();Object.keys(blocks).map(Number).sort((a,b)=>a-b).forEach(key=>{const playing=new Set([...blocks[key]].flat());playing.forEach(id=>{if(last.has(id))consecutivePlayCount++;});last=playing;});
-  return {...base,byesMin:byeValues.length?Math.min(...byeValues):0,byesMax:byeValues.length?Math.max(...byeValues):0,repeatedTeammates:Object.values(teammates).reduce((n,v)=>n+Math.max(0,v-1),0),repeatedOpponents:Object.values(opponents).reduce((n,v)=>n+Math.max(0,v-1),0),exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),backToBack:consecutivePlayCount,consecutivePlayCount,invalidMatches:invalidMatches.length,invalidRounds:0,scheduleNeedsReview:!!ev.rotation?.scheduleNeedsReview||!!invalidMatches.length||(scheduleFairnessPolicy(s.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
+  const opponentCapacity=rotationOpponentCapacityAudit(ids,matches);
+  return {...base,byesMin:byeValues.length?Math.min(...byeValues):0,byesMax:byeValues.length?Math.max(...byeValues):0,repeatedTeammates:Object.values(teammates).reduce((n,v)=>n+Math.max(0,v-1),0),exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),backToBack:consecutivePlayCount,consecutivePlayCount,invalidMatches:invalidMatches.length,invalidRounds:0,roundEntryConflicts,...opponentCapacity,scheduleNeedsReview:!!ev.rotation?.scheduleNeedsReview||!!invalidMatches.length||!!roundEntryConflicts.length||(!ev.done&&opponentCapacity.avoidableOpponentRepeats>0)||(scheduleFairnessPolicy(s.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
 }
 function chooseRotationMakeupSides(ev,entryIds,existing,seed){
-  const per=entriesPerSide(ev),strength=entrySeedMetadata(ev,{projectedOnly:true,seed}).strengths,teammates={},opponents={},exact=new Set();
-  existing.map(normalizedRotationMatch).forEach(match=>{combinations(match.sideAEntryIds,2).concat(combinations(match.sideBEntryIds,2)).forEach(([a,b])=>{const k=entryCombinationKey(a,b);teammates[k]=(teammates[k]||0)+1;});match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{const k=entryCombinationKey(a,b);opponents[k]=(opponents[k]||0)+1;}));exact.add([match.sideAEntryIds.slice().sort().join(','),match.sideBEntryIds.slice().sort().join(',')].sort().join('~'));});
-  let best=null;combinations(entryIds,per).filter(side=>side.includes(entryIds[0])).forEach(A=>{const setA=new Set(A),B=entryIds.filter(id=>!setA.has(id)),key=[A.slice().sort().join(','),B.slice().sort().join(',')].sort().join('~');let teamRepeats=0,opponentRepeats=0;combinations(A,2).concat(combinations(B,2)).forEach(([a,b])=>teamRepeats+=teammates[entryCombinationKey(a,b)]||0);A.forEach(a=>B.forEach(b=>opponentRepeats+=opponents[entryCombinationKey(a,b)]||0));const seedGap=Math.abs(A.reduce((n,id)=>n+(strength[id]||0),0)-B.reduce((n,id)=>n+(strength[id]||0),0)),score=(exact.has(key)?100000:0)+teamRepeats*1000+opponentRepeats*30+seedGap*.05+hash32(`${seed}:${key}`)/4294967296;if(!best||score<best.score)best={A:A.slice(),B:B.slice(),score};});
-  return best;
+  const per=entriesPerSide(ev),strength=entrySeedMetadata(ev,{projectedOnly:true,seed}).strengths,teammates={},opponents={},exact={};
+  existing.map(normalizedRotationMatch).forEach(match=>{combinations(match.sideAEntryIds,2).concat(combinations(match.sideBEntryIds,2)).forEach(([a,b])=>{const k=entryCombinationKey(a,b);teammates[k]=(teammates[k]||0)+1;});match.sideAEntryIds.forEach(a=>match.sideBEntryIds.forEach(b=>{const k=entryCombinationKey(a,b);opponents[k]=(opponents[k]||0)+1;}));const key=rotationFullMatchupKey(match.sideAEntryIds,match.sideBEntryIds);exact[key]=(exact[key]||0)+1;});
+  return bestRotationSidePlan(entryIds,per,teammates,opponents,exact,strength,seed);
 }
 function assignMakeupBlocks(matchEntrySets,courts){
   const blocks=[];matchEntrySets.forEach(ids=>{let placed=false;for(let i=0;i<blocks.length&&!placed;i++){const block=blocks[i],used=new Set(block.flat());if(block.length<courts&&ids.every(id=>!used.has(id))){block.push(ids);placed=true;}}if(!placed)blocks.push([ids]);});return blocks;
@@ -3078,10 +3102,11 @@ function appendRotationMakeupMatches(ev,result,opts={}){
 }
 function generateRotationScheduleData(ev,opts={}){
   const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),base=opts.seed??`${state.seed}:${state.revision}`,entrySeed=opts.entrySeed??`${base}:entries`,candidates=[];
-  for(let i=0;i<12;i++) candidates.push(generateRotationScheduleCandidate(ev,{...opts,seed:`${base}:candidate:${i}`,entrySeed}));
+  for(let i=0;i<32;i++) candidates.push(generateRotationScheduleCandidate(ev,{...opts,seed:`${base}:candidate:${i}`,entrySeed}));
   const valid=candidates.filter(c=>!c.error);if(!valid.length)return candidates[0];
-  valid.sort((a,b)=>compareQuality(a.quality,b.quality)||rotationPlacementSignature(a.matches).localeCompare(rotationPlacementSignature(b.matches)));
-  return appendRotationMakeupMatches(ev,valid[0],opts);
+  const completed=valid.map(candidate=>appendRotationMakeupMatches(ev,candidate,opts)),usable=completed.filter(candidate=>!candidate.error);if(!usable.length)return completed[0];usable.sort((a,b)=>compareQuality(a.quality,b.quality)||rotationPlacementSignature(a.matches).localeCompare(rotationPlacementSignature(b.matches)));
+  let chosen=usable[0];if(entriesPerSide(ev)===2&&chosen.quality.avoidableOpponentRepeats>0){for(let i=32;i<256&&chosen.quality.avoidableOpponentRepeats>0;i++){const raw=generateRotationScheduleCandidate(ev,{...opts,seed:`${base}:candidate:${i}`,entrySeed});if(raw.error)continue;const candidate=appendRotationMakeupMatches(ev,raw,opts);if(!candidate.error&&(compareQuality(candidate.quality,chosen.quality)<0||(compareQuality(candidate.quality,chosen.quality)===0&&rotationPlacementSignature(candidate.matches).localeCompare(rotationPlacementSignature(chosen.matches))<0)))chosen=candidate;}}
+  const audit=rotationScheduleAudit(ev,chosen.matches);if(audit.avoidableOpponentRepeats>0)return {...chosen,error:`Court could not build these rotating rounds without ${audit.avoidableOpponentRepeats} avoidable opposing-entry repeat${audit.avoidableOpponentRepeats===1?'':'s'}. Change the round, court, or entry settings instead of accepting a mystery rematch.`,quality:{...chosen.quality,...audit}};return {...chosen,quality:{...chosen.quality,...audit}};
 }
 function linkedRotationGame(ev,match){ return games.find(g=>g.evId===ev.id&&g.evMatchId===match.id); }
 function rotationMatchResult(ev,match){
@@ -3374,14 +3399,47 @@ function fixedMatchPlayed(ev,match,gameList=games){
   if(match?.id&&match.scheduleBlock&&match.scheduleBlock!=='standard')return false;
   return gameList.some(g=>g.evId===ev.id&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)));
 }
+const UNIQUE_OPPONENT_POLICY='unique-v1';
+function usesUniqueOpponentPolicy(settingsValue){return settingsValue?.opponentPolicy===UNIQUE_OPPONENT_POLICY;}
+function fixedPoolGroups(ev){
+  const teams=ev?.teams||[],labels=eventPoolLabels(ev),values=labels.length?[...new Set(teams.map(team=>team.pool||''))]:[''];
+  return values.map(pool=>({pool,ids:teams.filter(team=>!labels.length||(team.pool||'')===pool).map(team=>team.id)})).filter(group=>group.ids.length);
+}
+function fixedUniqueMatchupCandidates(ev,seed='fixed-matchups'){
+  const out=[];
+  fixedPoolGroups(ev).forEach(group=>{
+    const ordered=seededShuffle(group.ids,`${seed}:pool:${group.pool}`);
+    roundRobinRounds(ordered).forEach((round,logicalRound)=>round.forEach(([a,b],pairIndex)=>out.push({a,b,pool:group.pool,logicalRound,pairIndex,scheduleBlock:'standard',status:'pending'})));
+  });
+  return out;
+}
+function fixedScheduleCapacityInfo(ev,{rounds=positiveInt(ev?.sched?.standardRounds,1),courts=sanitizeCourtCount(ev?.sched?.courts,1)}={}){
+  const groups=fixedPoolGroups(ev),requestedSlots=positiveInt(rounds,1),requestedCourts=sanitizeCourtCount(courts,1),uniqueMatchups=groups.reduce((sum,group)=>sum+group.ids.length*(group.ids.length-1)/2,0),maxLegalMatchesPerSlot=groups.reduce((sum,group)=>sum+Math.floor(group.ids.length/2),0),matchesPerSlot=Math.min(requestedCourts,maxLegalMatchesPerSlot),poolRoundRequirement=Math.max(0,...groups.map(group=>group.ids.length<2?0:group.ids.length%2?group.ids.length:group.ids.length-1)),courtCapacityRequirement=uniqueMatchups?Math.ceil(uniqueMatchups/Math.max(1,matchesPerSlot)):0,completeRoundRobinSlots=Math.max(poolRoundRequirement,courtCapacityRequirement),slotCapacity=requestedSlots*matchesPerSlot,scheduledUniqueCapacity=Math.min(uniqueMatchups,slotCapacity);
+  return {requestedSlots,requestedCourts,uniqueMatchups,maxLegalMatchesPerSlot,matchesPerSlot,poolRoundRequirement,courtCapacityRequirement,completeRoundRobinSlots,slotCapacity,scheduledUniqueCapacity,completeRoundRobinPossible:requestedSlots>=completeRoundRobinSlots};
+}
+function fixedScheduleValidation(ev,matches=[]){
+  const teams=ev?.teams||[],ids=new Set(teams.map(team=>team.id)),hasPools=eventPoolLabels(ev).length>0,teamPool=Object.fromEntries(teams.map(team=>[team.id,team.pool||''])),gamesPerTeam=Object.fromEntries(teams.map(team=>[team.id,0])),pairCounts={},poolPairCounts={},crossPoolMatchups=[],invalidTeamMatchups=[],slotConflicts=[];
+  (matches||[]).forEach(match=>{
+    const a=match?.a,b=match?.b,key=entryCombinationKey(a,b),pool=ids.has(a)?teamPool[a]:'';
+    if(!ids.has(a)||!ids.has(b)||a===b)invalidTeamMatchups.push({matchId:match?.id||null,a,b});
+    else{gamesPerTeam[a]++;gamesPerTeam[b]++;}
+    if(hasPools&&ids.has(a)&&ids.has(b)&&teamPool[a]!==teamPool[b])crossPoolMatchups.push({matchId:match?.id||null,a,b,poolA:teamPool[a],poolB:teamPool[b]});
+    pairCounts[key]=(pairCounts[key]||0)+1;(poolPairCounts[pool]=poolPairCounts[pool]||{})[key]=((poolPairCounts[pool]||{})[key]||0)+1;
+  });
+  const bySlot={};(matches||[]).forEach(match=>{const slot=Math.max(0,Math.trunc(Number(match?.slot)||0)),seen=bySlot[slot]||(bySlot[slot]=new Set());for(const id of [match?.a,match?.b]){if(seen.has(id))slotConflicts.push({slot,teamId:id,matchId:match?.id||null});seen.add(id);}});
+  const validPairKeys=new Set(),validPairsByPool={};fixedPoolGroups(ev).forEach(group=>{const set=validPairsByPool[group.pool]||(validPairsByPool[group.pool]=new Set());combinations(group.ids,2).forEach(([a,b])=>{const key=entryCombinationKey(a,b);set.add(key);validPairKeys.add(key);});});
+  const duplicateMatchups=Object.entries(pairCounts).filter(([,count])=>count>1).map(([key,count])=>({key,count,repeats:count-1})),unusedValidMatchups=[...validPairKeys].filter(key=>!pairCounts[key]),avoidableDuplicateMatchups=[];
+  duplicateMatchups.forEach(duplicate=>{const [sample]=(matches||[]).filter(match=>entryCombinationKey(match.a,match.b)===duplicate.key),pool=sample&&ids.has(sample.a)?teamPool[sample.a]:'';if([...(validPairsByPool[pool]||[])].some(key=>!pairCounts[key]))avoidableDuplicateMatchups.push(duplicate);});
+  return {valid:!invalidTeamMatchups.length&&!crossPoolMatchups.length&&!slotConflicts.length&&!duplicateMatchups.length,gamesPerTeam,duplicateMatchups,crossPoolMatchups,invalidTeamMatchups,slotConflicts,unusedValidMatchups,unusedValidMatchupCount:unusedValidMatchups.length,avoidableDuplicateMatchups,avoidableRepeatCount:avoidableDuplicateMatchups.reduce((sum,row)=>sum+row.repeats,0),uniqueMatchupCount:Object.keys(pairCounts).length,totalMatchCount:(matches||[]).length,totalValidMatchups:validPairKeys.size};
+}
 function fixedScheduleAudit(ev,matches,{includePlacement=true}={}){
-  const ids=(ev.teams||[]).map(t=>t.id),base=participationAudit(ids,matches,fixedMatchParticipantIds,ev.sched?.fairnessPolicy),pairs={},exact={};
+  const ids=(ev.teams||[]).map(t=>t.id),base=participationAudit(ids,matches,fixedMatchParticipantIds,ev.sched?.fairnessPolicy),validation=fixedScheduleValidation(ev,matches),pairs={},exact={};
   (matches||[]).forEach(m=>{const key=entryCombinationKey(m.a,m.b);pairs[key]=(pairs[key]||0)+1;exact[`${m.a}~${m.b}`]=(exact[`${m.a}~${m.b}`]||0)+1;});
   const standard=(matches||[]).filter(isStandardScheduleMatch),rounds=positiveInt(ev.sched?.standardRounds,standard.length?[...new Set(standard.map(m=>m.slot))].length:0),standardCounts=participationAudit(ids,standard,fixedMatchParticipantIds,ev.sched?.fairnessPolicy).counts,byes=ids.map(id=>Math.max(0,rounds-standardCounts[id])),placement=includePlacement&&ids.length&&matches.length?fixedPlacementAudit(matches.map(m=>({...m,court:m.court||0,slot:m.slot||0})),ids,Math.max(1,positiveInt(ev.sched?.courts,1))):{};
-  return {...base,byesMin:byes.length?Math.min(...byes):0,byesMax:byes.length?Math.max(...byes):0,repeatedOpponents:Object.values(pairs).reduce((n,v)=>n+Math.max(0,v-1),0),repeatedTeammates:0,exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),scheduleNeedsReview:!!ev.sched?.scheduleNeedsReview||(scheduleFairnessPolicy(ev.sched?.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
+  return {...base,byesMin:byes.length?Math.min(...byes):0,byesMax:byes.length?Math.max(...byes):0,repeatedOpponents:Object.values(pairs).reduce((n,v)=>n+Math.max(0,v-1),0),repeatedTeammates:0,exactMatchupRepeats:Object.values(exact).reduce((n,v)=>n+Math.max(0,v-1),0),duplicateMatchups:validation.duplicateMatchups,crossPoolMatchups:validation.crossPoolMatchups,slotConflicts:validation.slotConflicts,unusedValidMatchups:validation.unusedValidMatchups,avoidableOpponentRepeats:validation.avoidableRepeatCount,scheduleNeedsReview:!!ev.sched?.scheduleNeedsReview||!validation.valid||(scheduleFairnessPolicy(ev.sched?.fairnessPolicy)==='equalGames'&&!base.equalGamesAchieved),...placement};
 }
 function markScheduleNeedsReview(ev){if(eventFormat(ev)==='rotatingGroups'){ev.rotation=rotationSettings(ev);ev.rotation.scheduleNeedsReview=true;}else if(ev.sched)ev.sched.scheduleNeedsReview=true;}
-function fixedRoundPlan(ev,s,startMs,scheduleSeed){
+function legacyFixedRoundPlan(ev,s,startMs,scheduleSeed){
   const teams=ev.teams||[],ids=teams.map(t=>t.id),rounds=positiveInt(s.standardRounds,1),pools=eventPoolLabels(ev),samePool=(a,b)=>!pools.length||(evTeamById(ev,a)?.pool||'')===(evTeamById(ev,b)?.pool||''),maxPoolMatches=pools.length?[...new Set(teams.map(t=>t.pool||''))].reduce((sum,p)=>sum+Math.floor(teams.filter(t=>(t.pool||'')===p).length/2),0):Math.floor(ids.length/2),matchesPerRound=Math.min(sanitizeCourtCount(s.courts,1),maxPoolMatches),state=scheduleState(s,'fixed:'+ev.id),counts=Object.fromEntries(ids.map(id=>[id,0])),pairCounts={},plannedSlots=[],locked=(Array.isArray(s.lockedMatches)?s.lockedMatches:[]).map(normalizedFixedExtraMatch).filter(m=>m&&isStandardScheduleMatch(m)&&ids.includes(m.a)&&ids.includes(m.b)&&m.a!==m.b&&samePool(m.a,m.b)),lockedBySlot={};locked.forEach(m=>(lockedBySlot[m.slot]=lockedBySlot[m.slot]||[]).push(m));
   const record=m=>{counts[m.a]++;counts[m.b]++;const key=entryCombinationKey(m.a,m.b);pairCounts[key]=(pairCounts[key]||0)+1;};
   for(let slot=0;slot<rounds;slot++){
@@ -3397,18 +3455,40 @@ function fixedRoundPlan(ev,s,startMs,scheduleSeed){
   }
   return {plannedSlots,matchesPerRound,counts};
 }
-function optimizeFixedMakeupSets(plan,standardMatches,seed,canPair=()=>true){
-  const left={...plan.deficits},pairCounts={};standardMatches.forEach(m=>{const key=entryCombinationKey(m.a,m.b);pairCounts[key]=(pairCounts[key]||0)+1;});const out=[];
-  for(let index=0;index<plan.matchCount;index++){
-    const remaining=plan.matchCount-index-1,ids=Object.keys(left).filter(id=>left[id]>0),choices=combinations(ids,2).filter(([a,b])=>canPair(a,b)).filter(([a,b])=>{const next={...left,[a]:left[a]-1,[b]:left[b]-1};return Math.max(0,...Object.values(next))<=remaining&&Object.values(next).reduce((n,v)=>n+v,0)===remaining*2;}).map(pair=>({pair,key:[pairCounts[entryCombinationKey(pair[0],pair[1])]||0,-left[pair[0]]-left[pair[1]],hash32(`${seed}:${index}:${entryCombinationKey(pair[0],pair[1])}`)]})).sort((a,b)=>compareNumberKeys(a.key,b.key));
-    if(!choices.length)return null;const [a,b]=choices[0].pair;left[a]--;left[b]--;pairCounts[entryCombinationKey(a,b)]=(pairCounts[entryCombinationKey(a,b)]||0)+1;out.push([a,b]);
+const FIXED_ROUND_SELECTION_CANDIDATES=64;
+function fixedRoundSelectionKey(ev,slots,rounds){
+  const matches=slots.flat(),ids=(ev.teams||[]).map(team=>team.id),counts=Object.fromEntries(ids.map(id=>[id,0]));matches.forEach(match=>{counts[match.a]++;counts[match.b]++;});const values=Object.values(counts),spread=values.length?Math.max(...values)-Math.min(...values):0,squares=values.reduce((sum,value)=>sum+value*value,0),poolSpread=fixedPoolGroups(ev).reduce((sum,group)=>{const poolCounts=group.ids.map(id=>counts[id]);return sum+(poolCounts.length?Math.max(...poolCounts)-Math.min(...poolCounts):0);},0),emptySlots=Math.max(0,rounds-slots.length);
+  return [-matches.length,spread,poolSpread,squares,emptySlots];
+}
+function fixedRoundPlan(ev,s,startMs,scheduleSeed){
+  if(!usesUniqueOpponentPolicy(s))return legacyFixedRoundPlan(ev,s,startMs,scheduleSeed);
+  const teams=ev.teams||[],ids=teams.map(team=>team.id),rounds=positiveInt(s.standardRounds,1),groups=fixedPoolGroups(ev),maxPoolMatches=groups.reduce((sum,group)=>sum+Math.floor(group.ids.length/2),0),matchesPerRound=Math.min(sanitizeCourtCount(s.courts,1),maxPoolMatches),state=scheduleState(s,'fixed:'+ev.id),selectionSeed=`${state.seed}:opponents`,allCandidates=fixedUniqueMatchupCandidates(ev,selectionSeed),locked=normalizedFixedLockedMatches(s,allCandidates).filter(match=>match.slot<rounds),lockedKeys=new Set(locked.map(match=>entryCombinationKey(match.a,match.b))),lockedSlotCount=locked.length?Math.max(...locked.map(match=>match.slot))+1:0,futureSlotCount=Math.max(0,rounds-lockedSlotCount),available=allCandidates.filter(match=>!lockedKeys.has(entryCombinationKey(match.a,match.b))),lockedSlots=Array.from({length:lockedSlotCount},()=>[]);locked.forEach(match=>(lockedSlots[match.slot]=lockedSlots[match.slot]||[]).push({...match,slot:match.slot,round:match.slot+1,scheduleBlock:'standard',est:eventScheduleTimestamp(ev,s.start||'10:00',match.slot*s.setMin)}));lockedSlots.forEach(slot=>slot.sort((a,b)=>a.court-b.court));
+  let selected=null,selectedKey=null;
+  for(let candidate=0;candidate<FIXED_ROUND_SELECTION_CANDIDATES;candidate++){
+    const order=candidate?seededShuffle(available,`${selectionSeed}:candidate:${candidate}`):available.slice().sort((a,b)=>a.logicalRound-b.logicalRound||hash32(`${selectionSeed}:${a.pool}:${entryCombinationKey(a.a,a.b)}`)-hash32(`${selectionSeed}:${b.pool}:${entryCombinationKey(b.a,b.b)}`)),future=assignFixedScheduleSlots(order,matchesPerRound,startMs,s.setMin,lockedSlotCount).slice(0,futureSlotCount),slots=lockedSlots.concat(future),key=[...fixedRoundSelectionKey(ev,slots,rounds),candidate];
+    if(!selectedKey||compareNumberKeys(key,selectedKey)<0){selected=slots;selectedKey=key;}
   }
-  return out;
+  const selectedFuture=(selected||[]).slice(lockedSlotCount).flat(),packed=selectedFuture.length?packFixedScheduleSlots(selectedFuture,matchesPerRound,startMs,s.setMin,scheduleSeed,{lockedMatches:locked,slotOffset:lockedSlotCount,teamIds:ids}):{slots:[],placementQuality:{}},plannedSlots=lockedSlots.concat(packed.slots).slice(0,rounds),counts=Object.fromEntries(ids.map(id=>[id,0]));
+  plannedSlots.forEach(slot=>slot.sort((a,b)=>a.court-b.court).forEach((match,index)=>{match.slot=slot[0]?.slot??match.slot;match.round=match.slot+1;match.court=Number.isInteger(match.court)?match.court:index;match.est=eventScheduleTimestamp(ev,s.start||'10:00',match.slot*s.setMin);match.scheduleBlock='standard';match.status=match.status||'pending';match.pool=evTeamById(ev,match.a)?.pool||'';if(!match.id||!lockedKeys.has(entryCombinationKey(match.a,match.b)))match.id=`${ev.id}-v${state.revision}-r${match.round}-c${match.court+1}`;counts[match.a]++;counts[match.b]++;}));
+  const capacity=fixedScheduleCapacityInfo(ev,{rounds,courts:s.courts});
+  return {plannedSlots,matchesPerRound,counts,totalUniqueMatchups:allCandidates.length,requiredUniqueSlots:capacity.completeRoundRobinSlots,selectedUniqueMatchups:plannedSlots.flat().length,placementQuality:packed.placementQuality,capacity};
+}
+function optimizeFixedMakeupSets(plan,standardMatches,seed,canPair=()=>true){
+  const left={...plan.deficits},pairCounts={};standardMatches.forEach(match=>{const key=entryCombinationKey(match.a,match.b);pairCounts[key]=(pairCounts[key]||0)+1;});const out=[],ids=Object.keys(left),MAX_SEARCH=250000;let visited=0;
+  const partnersFor=a=>ids.filter(b=>b!==a&&left[b]>0&&canPair(a,b)&&!(pairCounts[entryCombinationKey(a,b)]||0));
+  const search=index=>{
+    if(++visited>MAX_SEARCH)return false;
+    const remaining=plan.matchCount-index,active=ids.filter(id=>left[id]>0),total=active.reduce((sum,id)=>sum+left[id],0);if(!remaining)return total===0;if(total!==remaining*2||active.some(id=>left[id]>remaining))return false;
+    const a=active.slice().sort((x,y)=>partnersFor(x).length-partnersFor(y).length||left[y]-left[x]||hash32(`${seed}:${index}:entry:${x}`)-hash32(`${seed}:${index}:entry:${y}`))[0],choices=partnersFor(a).sort((x,y)=>left[y]-left[x]||hash32(`${seed}:${index}:pair:${entryCombinationKey(a,x)}`)-hash32(`${seed}:${index}:pair:${entryCombinationKey(a,y)}`));
+    for(const b of choices){const key=entryCombinationKey(a,b);left[a]--;left[b]--;pairCounts[key]=(pairCounts[key]||0)+1;out.push([a,b]);if(search(index+1))return true;out.pop();pairCounts[key]--;left[a]++;left[b]++;}
+    return false;
+  };
+  return search(0)?out:null;
 }
 function findValidFixedMakeupPlan(ids,counts,standardMatches,seed,canPair){
   const appearances=Object.values(counts).reduce((sum,n)=>sum+n,0),cycle=Math.max(1,ids.length/integerGcd(ids.length,2));
   for(let matchCount=0;matchCount<=cycle*2;matchCount++){const total=appearances+matchCount*2;if(total%ids.length)continue;const targetGames=total/ids.length,deficits=Object.fromEntries(ids.map(id=>[id,targetGames-counts[id]]));if(Object.values(deficits).some(n=>n<0||n>matchCount)||Object.values(deficits).reduce((sum,n)=>sum+n,0)!==matchCount*2)continue;const plan={valid:true,matchCount,targetGames,deficits},matches=optimizeFixedMakeupSets(plan,standardMatches,seed,canPair);if(matches)return {...plan,matches};}
-  return {valid:false,error:'Court could not compose valid fixed-team makeup matches within the event pools.'};
+  return {valid:false,error:'Equal games would require a repeated pool opponent with this match list. Court kept the unique schedule and did not add a rematch.'};
 }
 function buildFixedRoundsSchedule(ev,gameList=games,now=Date.now()){
   const s=ev.sched,teams=ev.teams||[],ids=teams.map(t=>t.id);if(ids.length<2)return null;const state=scheduleState(s,'fixed:'+ev.id),scheduleSeed=`${state.seed}:${state.revision}`,startMs=eventScheduleTimestamp(ev,s.start||'10:00');if(startMs==null)return null;
@@ -3416,9 +3496,11 @@ function buildFixedRoundsSchedule(ev,gameList=games,now=Date.now()){
   if(scheduleFairnessPolicy(s.fairnessPolicy)==='equalGames'&&analysis.valid){const counts=participationAudit(ids,baseMatches,fixedMatchParticipantIds,s.fairnessPolicy).counts,hasPools=eventPoolLabels(ev).length>0,canPair=(a,b)=>!hasPools||(evTeamById(ev,a)?.pool||'')===(evTeamById(ev,b)?.pool||''),plan=findValidFixedMakeupPlan(ids,counts,baseMatches,scheduleSeed,canPair);if(plan.valid){const blocks=assignMakeupBlocks(plan.matches,Math.max(1,positiveInt(s.courts,1)));let makeupIndex=0;blocks.forEach((block,blockIndex)=>block.forEach(([a,b],courtIndex)=>{makeupIndex++;generated.push({id:`${ev.id}-v${state.revision}-makeup-${makeupIndex}`,a,b,pool:evTeamById(ev,a)?.pool||'',slot:positiveInt(s.standardRounds,1)+blockIndex,round:positiveInt(s.standardRounds,1)+blockIndex+1,court:courtIndex,est:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+blockIndex)*s.setMin),scheduleBlock:'makeup',makeupIndex,makeupBlock:blockIndex+1,timeOffsetMinutes:(positiveInt(s.standardRounds,1)+blockIndex)*positiveInt(s.setMin,25),status:'pending',label:'Balances games played'});}));}else fairnessError=plan.error;}
   const extraMatches=preserved.concat(generated),makeupBlockNumbers=[...new Set(extraMatches.map(m=>positiveInt(m.makeupBlock,Math.max(1,m.slot-positiveInt(s.standardRounds,1)+1))))].sort((a,b)=>a-b),makeupSlots=makeupBlockNumbers.map(block=>extraMatches.filter(m=>positiveInt(m.makeupBlock,Math.max(1,m.slot-positiveInt(s.standardRounds,1)+1))===block).sort((a,b)=>a.court-b.court)),allMatches=standard.concat(extraMatches),played=allMatches.filter(m=>fixedMatchPlayed(ev,m,gameList)),pendingStandard=standardPlan.plannedSlots.map(slot=>slot.filter(m=>!fixedMatchPlayed(ev,m,gameList))).filter(slot=>slot.length),pendingMakeup=makeupSlots.map(slot=>slot.filter(m=>!fixedMatchPlayed(ev,m,gameList))).filter(slot=>slot.length),requestedCourts=sanitizeCourtCount(s.courts,1),warnings=[];
   if(requestedCourts>standardPlan.matchesPerRound)warnings.push(`Using ${standardPlan.matchesPerRound} of ${requestedCourts} requested courts; unused courts are normal when there are not enough legal simultaneous matches.`);
+  if(usesUniqueOpponentPolicy(s)&&standardPlan.capacity&&standardPlan.selectedUniqueMatchups<standardPlan.totalUniqueMatchups)warnings.push(`Standard rounds are physical court time slots. ${positiveInt(s.standardRounds,1)} slot${positiveInt(s.standardRounds,1)===1?'':'s'} schedule ${standardPlan.selectedUniqueMatchups} of ${standardPlan.totalUniqueMatchups} unique pool matchups; a complete round robin needs ${standardPlan.requiredUniqueSlots} slots with ${requestedCourts} court${requestedCourts===1?'':'s'}. Court will not add rematches to fill the current plan.`);
+  if(usesUniqueOpponentPolicy(s)&&standardPlan.capacity&&positiveInt(s.standardRounds,1)>standardPlan.requiredUniqueSlots&&standardPlan.selectedUniqueMatchups===standardPlan.totalUniqueMatchups)warnings.push(`All ${standardPlan.totalUniqueMatchups} unique pool matchups fit in ${standardPlan.plannedSlots.length} time slots. Additional requested slots stay empty because filling them would require rematches.`);
   if(fairnessError)warnings.push(fairnessError);
   const courts=Array.from({length:requestedCourts},(_,ci)=>{const items=pendingStandard.flat().filter(m=>m.court===ci);return {label:courtLabel(s,ci),pools:[...new Set(items.map(m=>m.pool).filter(Boolean))],items,done:played.length,total:items.length};}).filter(c=>c.items.length),standardEnd=eventScheduleTimestamp(ev,s.start||'10:00',positiveInt(s.standardRounds,1)*s.setMin),eventEnd=eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin),brRounds=Math.max(0,...(ev.brackets||[]).map(br=>bracketState(ev,br)?.rounds.length||0)),playoff=brRounds?Array.from({length:brRounds},(_,i)=>({name:'Playoff round '+(i+1),est:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin+i*s.matchMin)})):null;
-  return {courts,slots:pendingStandard,plannedSlots:standardPlan.plannedSlots,makeupSlots,makeupPending:pendingMakeup,allMatches,done:played.length,total:allMatches.length,standardTotal:standard.length,requestedCourts,effectiveCourts:standardPlan.matchesPerRound,plannedCourtCount:standardPlan.matchesPerRound,maxLegalSimultaneousMatches:standardPlan.matchesPerRound,poolsEnd:standardEnd,eventEnd,playoffStart:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin),playoff,warnings,s:{...s,courts:requestedCourts},rawCourts:Number(s.courts),timeNote:scheduleTimeStatus(startMs,now,played.length).note,timeMode:'planned',participationPlan:analysis,fairnessAudit:fixedScheduleAudit(ev,allMatches),awards:playoff?eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin+brRounds*s.matchMin):null};
+  return {courts,slots:pendingStandard,plannedSlots:standardPlan.plannedSlots,makeupSlots,makeupPending:pendingMakeup,allMatches,done:played.length,total:allMatches.length,standardTotal:standard.length,requestedCourts,effectiveCourts:standardPlan.matchesPerRound,plannedCourtCount:standardPlan.matchesPerRound,maxLegalSimultaneousMatches:standardPlan.matchesPerRound,poolsEnd:standardEnd,eventEnd,playoffStart:eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin),playoff,warnings,capacity:standardPlan.capacity||null,s:{...s,courts:requestedCourts},rawCourts:Number(s.courts),timeNote:scheduleTimeStatus(startMs,now,played.length).note,timeMode:'planned',participationPlan:analysis,fairnessAudit:fixedScheduleAudit(ev,allMatches),awards:playoff?eventScheduleTimestamp(ev,s.start||'10:00',(positiveInt(s.standardRounds,1)+makeupSlots.length)*s.setMin+s.breakMin+brRounds*s.matchMin):null};
 }
 function buildSchedule(ev,gameList=games,now=Date.now()){
   const s=ev.sched; if(!s) return null;
@@ -4736,8 +4818,13 @@ function evsCapture(){
   const policy=document.querySelector('input[name="fairnessPolicy"]:checked');if(policy)d.fairnessPolicy=policy.value;
   return d;
 }
-function fixedSettingsParticipationPlan(d,ev){return analyzeScheduleParticipation({participantIds:(ev.teams||[]).map(t=>t.id),standardRounds:positiveInt(d.standardRounds,1),courts:sanitizeCourtCount(d.courts,1),participantsPerMatch:2,fairnessPolicy:d.fairnessPolicy});}
-window.updateEvFairnessPreview=()=>{const d=evsCapture(),ev=d&&evById(d.evId),box=$('#fixedFairnessPreview');if(!ev||!box)return;box.innerHTML=scheduleFairnessPreviewHtml(fixedSettingsParticipationPlan(d,ev),{noun:'team',rounds:positiveInt(d.standardRounds,1),setMin:d.setMin,start:d.start,eventDate:eventLocalDate(ev),selected:d.fairnessPolicy});};
+function fixedSettingsParticipationPlan(d,ev){const capacity=fixedScheduleCapacityInfo(ev,{rounds:positiveInt(d.standardRounds,1),courts:sanitizeCourtCount(d.courts,1)});return analyzeScheduleParticipation({participantIds:(ev.teams||[]).map(t=>t.id),standardRounds:positiveInt(d.standardRounds,1),courts:sanitizeCourtCount(d.courts,1),participantsPerMatch:2,matchesPerRound:capacity.matchesPerSlot,fairnessPolicy:d.fairnessPolicy});}
+function fixedCapacityPreviewHtml(ev,d){
+  const info=fixedScheduleCapacityInfo(ev,{rounds:positiveInt(d.standardRounds,1),courts:sanitizeCourtCount(d.courts,1)});if(!info.uniqueMatchups)return '';
+  if(info.completeRoundRobinPossible)return `<div class="tiny faint" style="margin-top:6px">Standard rounds are physical court time slots. This plan has room for all ${info.uniqueMatchups} unique pool matchups; no rematches are used.</div>`;
+  return `<div class="unkline" style="margin-top:8px">Standard rounds are physical court time slots. ${info.requestedSlots} slot${info.requestedSlots===1?'':'s'} can hold ${info.scheduledUniqueCapacity} of ${info.uniqueMatchups} unique pool matchups. A complete round robin needs at least ${info.completeRoundRobinSlots} slots with ${info.requestedCourts} court${info.requestedCourts===1?'':'s'}.</div>`;
+}
+window.updateEvFairnessPreview=()=>{const d=evsCapture(),ev=d&&evById(d.evId),box=$('#fixedFairnessPreview'),capacity=$('#fixedCapacityPreview');if(!ev||!box)return;box.innerHTML=scheduleFairnessPreviewHtml(fixedSettingsParticipationPlan(d,ev),{noun:'team',rounds:positiveInt(d.standardRounds,1),setMin:d.setMin,start:d.start,eventDate:eventLocalDate(ev),selected:d.fairnessPolicy});if(capacity)capacity.innerHTML=fixedCapacityPreviewHtml(ev,d);};
 window.scheduleFairnessChanged=value=>{if(!FAIRNESS_POLICIES.includes(value))return;if(window._evsDraft){window._evsDraft.fairnessPolicy=value;updateEvFairnessPreview();}if(window._rotationSettingsEvId){window._rotationFairnessPolicy=value;updateRotationSummary();}};
 function renderEvSettingsSheet(){
   const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
@@ -4757,7 +4844,7 @@ function renderEvSettingsSheet(){
       <div class="tiny faint" style="margin-top:5px">Each time slot fills every court it can without scheduling a team twice.</div>
       ${courtCount>8?`<div class="tiny" style="color:var(--gold);margin-top:5px">Large court counts are saved and scheduled; unused courts are normal when there are not enough legal simultaneous matches.</div>`:''}
       ${Number.isFinite(rawCourtCount)&&rawCourtCount>MAX_COURTS?`<div class="tiny" style="color:var(--gold);margin-top:5px">Court counts are capped at ${MAX_COURTS} for stability.</div>`:''}</div>
-    <div class="field"><label for="evsRounds">Standard rounds</label><input id="evsRounds" type="number" inputmode="numeric" min="1" value="${esc(String(d.standardRounds))}" oninput="updateEvFairnessPreview()"><div class="tiny faint">Each round uses every legal court it can. Makeup matches, when selected, stay outside the numbered rounds.</div></div>
+    <div class="field"><label for="evsRounds">Standard rounds</label><input id="evsRounds" type="number" inputmode="numeric" min="1" value="${esc(String(d.standardRounds))}" oninput="updateEvFairnessPreview()"><div class="tiny faint">Each round is one physical court time slot and uses every legal court it can. Makeup matches, when selected, stay outside the numbered rounds.</div><div id="fixedCapacityPreview">${fixedCapacityPreviewHtml(ev,d)}</div></div>
     <div class="field"><label>Court names</label>
       <div class="seg"><button class="${d.courtStyle!=='letter'?'on':''}" onclick="evsSet('courtStyle','num')">Court 1, 2…</button><button class="${d.courtStyle==='letter'?'on':''}" onclick="evsSet('courtStyle','letter')">Court A, B…</button></div></div>
     <div class="row" style="gap:10px">
@@ -4783,19 +4870,19 @@ window.evsSetCustom=(k,id)=>{
 window.saveEvSettings=async()=>{
   const d=evsCapture(); const ev=evById(d.evId); if(!ev) return;
   const plan=fixedSettingsParticipationPlan(d,ev);if(!plan.valid){toast(plan.error);return;}if(!plan.equalParticipationPossible&&!FAIRNESS_POLICIES.includes(d.fairnessPolicy)){toast('Choose Equal games or Keep requested rounds');return;}
-  const current=ev.sched?buildSchedule(ev):null,lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),state=ev.sched?scheduleState(ev.sched,'fixed:'+ev.id):{seed:newScheduleSeed(),revision:1};
-  ev.sched={...state, start:d.start||'10:00', courts:sanitizeCourtCount(d.courts,1), courtStyle:d.courtStyle==='letter'?'letter':'num',
+  const previous=ev.sched,current=ev.sched?buildSchedule(ev):null,lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),state=ev.sched?scheduleState(ev.sched,'fixed:'+ev.id):{seed:newScheduleSeed(),revision:1};
+  ev.sched={...state, start:d.start||'10:00', courts:sanitizeCourtCount(d.courts,1), courtStyle:d.courtStyle==='letter'?'letter':'num',opponentPolicy:UNIQUE_OPPONENT_POLICY,
     standardRounds:positiveInt(d.standardRounds,1),fairnessPolicy:plan.equalParticipationPossible?(FAIRNESS_POLICIES.includes(d.fairnessPolicy)?d.fairnessPolicy:'equalGames'):d.fairnessPolicy,setMin:Math.max(5,Math.round(Number(d.setMin)||25)), matchMin:Math.max(10,Math.round(Number(d.matchMin)||45)), breakMin:Math.max(0,Math.round(Number(d.breakMin)||0)),...(lockedMatches.length?{lockedMatches}:{}) };
-  const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);
+  const next=buildSchedule(ev),validation=next?.allMatches?fixedScheduleValidation(ev,next.allMatches.filter(match=>!isCustomScheduleMatch(match))):null;if(!next||!validation?.valid){ev.sched=previous;toast('Court could not save a unique, same-pool schedule for these settings.');return;}if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);
   await saveEvents(); closeSheet(); render();
 };
 window.regenerateFixedSchedule=async evId=>{
   const ev=evById(evId);if(!ev||!ev.sched)return;
-  const current=buildSchedule(ev);if(!current)return;
-  const played=games.some(g=>g.evId===ev.id&&g.evA&&g.evB),msg=played?'Regenerate the remaining fixed-team schedule? Saved games, standings, ratings, and the complete pool opponent set stay unchanged. Pending rounds, courts, sides, and times will be mixed.':'Regenerate the full fixed-team schedule? Every round-robin opponent stays the same, while order, courts, sides, and times will be mixed.';
+  const current=buildSchedule(ev);if(!current)return;const upgrading=!usesUniqueOpponentPolicy(ev.sched);
+  const played=games.some(g=>g.evId===ev.id&&g.evA&&g.evB),msg=upgrading?(played?'Correct future pool matchups so unused opponents come before rematches? Started rounds, saved games, standings, and ratings stay exactly as they are.':'Correct the pool schedule so every matchup is unique? Rounds, courts, sides, and times may be reordered.'):(played?'Regenerate the remaining fixed-team schedule? Saved games, standings, ratings, and the complete pool opponent set stay unchanged. Pending rounds, courts, sides, and times will be mixed.':'Regenerate the full fixed-team schedule? Every round-robin opponent stays the same, while order, courts, sides, and times will be mixed.');
   if(!(await askConfirm(msg,played?'Regenerate remaining':'Regenerate full schedule')))return;
   const state=scheduleState(ev.sched,'fixed:'+ev.id),lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),oldOrder=fixedScheduleOrderSignature(current),oldSet=fixedMatchupSetSignature(current);let chosen=null;
-  for(let attempt=1;attempt<=32;attempt++){const candidate={...ev,sched:{...ev.sched,seed:ev.sched.seed||newScheduleSeed(),revision:state.revision+attempt,...(lockedMatches.length?{lockedMatches}:{})}},sc=buildSchedule(candidate);if(sc&&fixedMatchupSetSignature(sc)===oldSet&&fixedScheduleOrderSignature(sc)!==oldOrder){chosen=candidate.sched;break;}}
+  for(let attempt=1;attempt<=32;attempt++){const candidate={...ev,sched:{...ev.sched,opponentPolicy:UNIQUE_OPPONENT_POLICY,seed:ev.sched.seed||newScheduleSeed(),revision:state.revision+attempt,...(lockedMatches.length?{lockedMatches}:{})}},sc=buildSchedule(candidate),lastLockedSlot=Math.max(-1,...lockedMatches.map(match=>Number(match.slot)||0)),lockedKeys=new Set(lockedMatches.map(match=>entryCombinationKey(match.a,match.b))),generated=sc?sc.allMatches.filter(match=>!isCustomScheduleMatch(match)&&(!isStandardScheduleMatch(match)||match.slot>lastLockedSlot)):[],validation=sc?fixedScheduleValidation(candidate,generated):null,noLockedRematch=generated.every(match=>!lockedKeys.has(entryCombinationKey(match.a,match.b)));if(sc&&validation?.valid&&noLockedRematch&&(upgrading||fixedMatchupSetSignature(sc)===oldSet)&&fixedScheduleOrderSignature(sc)!==oldOrder){chosen=candidate.sched;break;}}
   if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}
   ev.sched=chosen;delete ev.sched.scheduleNeedsReview;const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);await saveEvents();toast(`Schedule regenerated · version ${ev.sched.revision}`);render({scroll:'anchor',anchorId:'schedule'});
 };
@@ -4821,7 +4908,7 @@ window.saveCustomScheduleMatch=async()=>{
   await saveEvents();closeSheet();toast('Custom match saved');render({scroll:'anchor',anchorId:'schedule'});
 };
 window.deleteCustomScheduleMatch=async(evId,matchId)=>{const ev=evById(evId);if(!ev)return;if(games.some(g=>g.evId===ev.id&&g.evMatchId===matchId)){toast('Delete or unlink the saved result first');return;}if(!(await askConfirm('Delete this unplayed schedule match? Saved results and ratings are not affected.','Delete match')))return;await Sync.markDeleted('eventScheduleMatches',matchId);if(eventFormat(ev)==='rotatingGroups'){materializeRotation(ev);ev.rotationSchedule=ev.rotationSchedule.filter(m=>m.id!==matchId);ev.rotationScheduleQuality=rotationScheduleAudit(ev,ev.rotationSchedule);}else ev.fixedScheduleExtras=fixedScheduleExtras(ev).filter(m=>m.id!==matchId);await saveEvents();closeSheet();toast('Match deleted');render({scroll:'anchor',anchorId:'schedule'});};
-window.balanceScheduleGames=async evId=>{const ev=evById(evId);if(!ev)return;if(!(await askConfirm('Rebuild only unplayed generated makeup matches so every participant has the same number of scheduled games? Played and custom matches stay unchanged.','Balance games')))return;if(eventFormat(ev)==='rotatingGroups'){materializeRotation(ev);ev.rotation.fairnessPolicy='equalGames';delete ev.rotation.scheduleNeedsReview;const schedule=rotationSchedule(ev),standard=schedule.filter(isStandardScheduleMatch),preserved=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),result=generateRotationScheduleData(ev,{lockedMatches:standard,preservedMatches:preserved});if(result.error){toast(result.error);return;}ev.rotationSchedule=result.matches;ev.rotationScheduleQuality=result.quality;}else{if(!ev.sched?.standardRounds){toast('Choose standard rounds in schedule settings before balancing games');return;}ev.sched.fairnessPolicy='equalGames';delete ev.sched.scheduleNeedsReview;const result=buildSchedule(ev);if(!result){toast('Schedule could not be balanced');return;}ev.fixedScheduleExtras=result.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);}await saveEvents();toast('Games balanced');render({scroll:'anchor',anchorId:'schedule'});};
+window.balanceScheduleGames=async evId=>{const ev=evById(evId);if(!ev)return;if(!(await askConfirm('Rebuild only unplayed generated makeup matches so every participant has the same number of scheduled games? Played and custom matches stay unchanged.','Balance games')))return;if(eventFormat(ev)==='rotatingGroups'){materializeRotation(ev);ev.rotation.fairnessPolicy='equalGames';delete ev.rotation.scheduleNeedsReview;const schedule=rotationSchedule(ev),standard=schedule.filter(isStandardScheduleMatch),preserved=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),result=generateRotationScheduleData(ev,{lockedMatches:standard,preservedMatches:preserved});if(result.error){toast(result.error);return;}ev.rotationSchedule=result.matches;ev.rotationScheduleQuality=result.quality;}else{if(!ev.sched?.standardRounds){toast('Choose standard rounds in schedule settings before balancing games');return;}ev.sched.fairnessPolicy='equalGames';ev.sched.opponentPolicy=UNIQUE_OPPONENT_POLICY;delete ev.sched.scheduleNeedsReview;const result=buildSchedule(ev);if(!result){toast('Schedule could not be balanced');return;}ev.fixedScheduleExtras=result.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);}await saveEvents();toast('Games balanced');render({scroll:'anchor',anchorId:'schedule'});};
 
 /* --- bracket setup: name it, seed by pool rank / top-N / by hand; any 2+ teams --- */
 function bracketAutomaticSeedInfo(ev){
@@ -5644,8 +5731,8 @@ function runSelfTest(){
     ck('A persisted rotating seed snapshot resolves as initial, while a legacy schedule stays projected',entrySeedMetadata(snapshottedRot).kind==='initial'&&entrySeedMetadata({...rotBase,rotationSchedule:rot12.matches}).kind==='projected');
     const podKeys=new Set(rot12.matches.map(m=>[...m.sideAEntryIds,...m.sideBEntryIds].sort().join('|')));
     ck('Rotation groups reshuffle across rounds (not stuck pods)', podKeys.size>=12, podKeys.size+' distinct groups of 15');
-    ck('Rotation avoids repeated teammate combinations when possible', rot12.quality.repeatedTeammates===0, 'repeats '+rot12.quality.repeatedTeammates);
-    ck('Rotation spreads opponents widely', rot12.quality.repeatedOpponents<=16, 'repeats '+rot12.quality.repeatedOpponents);
+    ck('Rotation rejects avoidable repeated opponent combinations',rot12.quality.avoidableOpponentRepeats===0&&rot12.quality.repeatedOpponents===0,'repeats '+rot12.quality.repeatedOpponents);
+    ck('Rotation still limits teammate repeats after opponent uniqueness',rot12.quality.repeatedTeammates<=3,'repeats '+rot12.quality.repeatedTeammates);
     const rot10=generateRotationScheduleData({...rotEv(10,2,5,2,4),rotation:{...rotEv(10,2,5,2,4).rotation,seed:'bye-seed',revision:1}});
     ck('Rotation byes and games stay fair with sit-outs', rot10.quality.byesMax-rot10.quality.byesMin<=1 && rot10.quality.gamesMax-rot10.quality.gamesMin<=1, `byes ${rot10.quality.byesMin}-${rot10.quality.byesMax}`);
     const participation16=analyzeScheduleParticipation({participantIds:Array.from({length:16},(_,i)=>'p'+i),standardRounds:5,courts:3,participantsPerMatch:4,fairnessPolicy:'equalGames'});
