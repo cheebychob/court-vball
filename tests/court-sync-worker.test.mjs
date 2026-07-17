@@ -7,6 +7,7 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
 
 const source = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const appSource = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const worker = (await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
 
@@ -91,8 +92,11 @@ test('public event behavior script is same-origin, storage-free, and served with
   assert.match(response.headers.get('content-type'), /application\/javascript/);
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   assert.match(script, /data-rules-search/);
+  assert.match(script, /rules-search-hit-active/);
+  assert.match(script, /No results/);
   assert.match(script, /navigator\.share/);
   assert.doesNotMatch(script, /COURT|PUBLIC_SCHEDULES|room:|managementToken|localStorage/i);
+  assert.equal(source.match(/const PUBLIC_EVENT_SCRIPT = `([\s\S]*?)`;/)?.[1], appSource.match(/function publicEventBehaviorScript\(\)\{return `([\s\S]*?)`;\}/)?.[1]);
   assert.equal(bindings.COURT.gets.length, 0);
   assert.equal(bindings.PUBLIC_SCHEDULES.gets.length, 0);
 });
@@ -178,6 +182,9 @@ test('public GET returns the exact stored HTML with security headers and never r
   assert.equal(response.headers.get('cache-control'), 'public, max-age=60');
   assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
   assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
+  const behaviorScript = await (await worker.fetch(request('/assets/public-event.js'), bindings)).text();
+  const behaviorHash = createHash('sha256').update(behaviorScript).digest('base64');
+  assert.ok(response.headers.get('content-security-policy').includes(`'sha256-${behaviorHash}'`));
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
 });
