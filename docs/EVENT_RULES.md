@@ -42,7 +42,9 @@ Unpublishing clears only the current-public pointer and preserves the complete a
 
 Rules reuse the existing full-event publication token in `event.schedulePublications.full`. The stable Worker URL remains `/s/:token`; a direct Rules link appends `#rules`. Updating rules replaces the opaque public HTML at the same token. Updating the full schedule after rules exist also renders the unified event document, preventing a schedule update from dropping rules.
 
-The unified public document contains Overview, Schedule, Standings, Bracket, and Rules navigation. It exposes only the current published revision and public revision history—never drafts, acknowledgements, sync state, management tokens, internal notes, ratings, or private IDs. Search behavior comes from the Worker’s fixed same-origin `/assets/public-event.js`; the publication Content Security Policy permits that script but no arbitrary inline or third-party scripts.
+The unified public document contains Overview, Schedule, Standings, Bracket, and Rules navigation. It exposes only the current published revision and public revision history—never drafts, acknowledgements, sync state, management tokens, internal notes, ratings, or private IDs. Its fixed search behavior is embedded so a saved standalone copy keeps working without Court, local storage, or the Worker. The Worker Content Security Policy allows only the exact script hash; `/assets/public-event.js` remains available for already-published older documents.
+
+Standalone rendering omits the hosted header’s Print and Share controls, since those controls cannot be guaranteed under `file://`. The hosted public renderer retains them, while both modes retain the print stylesheet and complete five-section event layout.
 
 Public publishing still requires Court Sync because the existing Worker uses a successful sync room as publication authorization. A locally published revision remains saved if the network is unavailable; the organizer can create or refresh the public link later.
 

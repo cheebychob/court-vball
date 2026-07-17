@@ -24,19 +24,33 @@ const PUBLIC_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
   "Cache-Control": "public, max-age=60",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'sha256-yQj4lJ9FRk1OdEWKjhtxCRV6740q31uCgIAq9TpP5H4='; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
 const PUBLIC_EVENT_SCRIPT = `(()=>{
-  const input=document.querySelector('[data-rules-search]'),body=document.querySelector('[data-rules-search-body]'),meta=document.querySelector('[data-search-meta]');
-  const synonyms={tips:['tip','open-hand','dink','placement','poke','knuckle','roll shot'],tip:['tips','open-hand','dink','placement'],girls:['women','woman','female','gender','coed'],women:['girls','female','gender','coed'],tie:['tiebreaker','tiebreakers','head-to-head','standings'],late:['grace','arrival','forfeit','readiness'],weather:['rain','lightning','heat','air quality'],injury:['medical','blood','substitution'],ref:['official','officiating','work team']};
-  let hits=[],current=-1;
-  const clear=()=>{body?.querySelectorAll('mark.rules-search-hit').forEach(mark=>mark.replaceWith(document.createTextNode(mark.textContent)));body?.normalize();hits=[];current=-1;};
-  const focus=index=>{if(!hits.length)return;current=(index+hits.length)%hits.length;hits.forEach((hit,i)=>hit.classList.toggle('rules-search-current',i===current));hits[current].scrollIntoView({block:'center',behavior:'smooth'});if(meta)meta.textContent=(current+1)+' of '+hits.length+' matches';};
-  const run=()=>{clear();const query=(input?.value||'').trim().toLocaleLowerCase();if(!query){if(meta)meta.textContent='Search scoring, tips, late teams, weather…';return;}const terms=[query,...(synonyms[query]||[])].sort((a,b)=>b.length-a.length),walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())if(walker.currentNode.nodeValue.trim())nodes.push(walker.currentNode);nodes.forEach(node=>{const lower=node.nodeValue.toLocaleLowerCase();let found=null;for(const term of terms){const index=lower.indexOf(term.toLocaleLowerCase());if(index>=0){found={index,length:term.length};break;}}if(!found)return;const range=document.createRange();range.setStart(node,found.index);range.setEnd(node,found.index+found.length);const mark=document.createElement('mark');mark.className='rules-search-hit';range.surroundContents(mark);hits.push(mark);});if(meta)meta.textContent=hits.length?hits.length+' matches':'No matches';if(hits.length)focus(0);};
-  input?.addEventListener('input',run);document.querySelector('[data-search-next]')?.addEventListener('click',()=>focus(current+1));document.querySelector('[data-search-prev]')?.addEventListener('click',()=>focus(current-1));document.querySelector('[data-search-clear]')?.addEventListener('click',()=>{if(input){input.value='';input.focus();}run();});
-  document.querySelector('[data-public-print]')?.addEventListener('click',()=>window.print());document.querySelector('[data-public-share]')?.addEventListener('click',async()=>{const data={title:document.title,url:location.href};if(navigator.share){try{await navigator.share(data);return;}catch(error){if(error?.name==='AbortError')return;}}try{await navigator.clipboard.writeText(location.href);if(meta)meta.textContent='Link copied';}catch{if(meta)meta.textContent='Copy the address from your browser';}});
+  const init=()=>{
+    const input=document.querySelector('[data-rules-search]'),body=document.querySelector('[data-rules-search-body]'),meta=document.querySelector('[data-search-meta]'),previous=document.querySelector('[data-search-prev]'),next=document.querySelector('[data-search-next]'),clearButton=document.querySelector('[data-search-clear]');
+    const synonymGroups=[['scoring','score','points','set format'],['tips','tip','dink','dinks','open-hand'],['tie','ties','tiebreaker','tiebreakers'],['late','grace period','forfeit'],['girls','women','female','gender'],['weather','rain','lightning','heat','air quality']];
+    let hits=[],activeIndex=-1;
+    const normalized=value=>String(value||'').trim().replace(/\\s+/g,' ').toLocaleLowerCase();
+    const termsFor=query=>{const terms=[query];synonymGroups.forEach(group=>{if(group.includes(query))terms.push(...group);});return [...new Set(terms.map(normalized).filter(Boolean))].sort((a,b)=>b.length-a.length);};
+    const updateButtons=query=>{const available=!!query&&hits.length>0;if(previous)previous.disabled=!available;if(next)next.disabled=!available;if(clearButton)clearButton.disabled=!query;};
+    const clearHighlights=()=>{body?.querySelectorAll('mark.rules-search-hit').forEach(mark=>mark.replaceWith(document.createTextNode(mark.textContent||'')));body?.normalize();hits=[];activeIndex=-1;};
+    const resultLabel=count=>count===1?'1 result':count+' results';
+    const activate=index=>{if(!hits.length)return;activeIndex=(index+hits.length)%hits.length;hits.forEach((hit,position)=>hit.classList.toggle('rules-search-hit-active',position===activeIndex));const hit=hits[activeIndex];hit.scrollIntoView({block:'center',behavior:'smooth'});if(hit.getBoundingClientRect().top<130)window.scrollBy({top:-130,behavior:'smooth'});if(meta)meta.textContent=(activeIndex+1)+' of '+resultLabel(hits.length);};
+    const search=()=>{
+      clearHighlights();const query=normalized(input?.value);if(!query){if(meta)meta.textContent='No search active';updateButtons('');return;}
+      const terms=termsFor(query),walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT),nodes=[];
+      while(walker.nextNode()){const node=walker.currentNode,parent=node.parentElement;if(!node.nodeValue?.trim()||parent?.closest('script,style,input,textarea,select,option,button,mark'))continue;nodes.push(node);}
+      nodes.forEach(node=>{const text=node.nodeValue,lower=text.toLocaleLowerCase(),candidates=[];terms.forEach(term=>{let from=0,index;while((index=lower.indexOf(term,from))!==-1){candidates.push({start:index,end:index+term.length});from=index+Math.max(1,term.length);}});candidates.sort((a,b)=>a.start-b.start||(b.end-b.start)-(a.end-a.start));const matches=[];let covered=-1;candidates.forEach(match=>{if(match.start>=covered){matches.push(match);covered=match.end;}});if(!matches.length)return;const fragment=document.createDocumentFragment();let cursor=0;matches.forEach(match=>{if(match.start>cursor)fragment.appendChild(document.createTextNode(text.slice(cursor,match.start)));const mark=document.createElement('mark');mark.className='rules-search-hit';mark.textContent=text.slice(match.start,match.end);fragment.appendChild(mark);hits.push(mark);cursor=match.end;});if(cursor<text.length)fragment.appendChild(document.createTextNode(text.slice(cursor)));node.replaceWith(fragment);});
+      if(!hits.length){if(meta)meta.textContent='No results';updateButtons(query);return;}if(meta)meta.textContent=resultLabel(hits.length);updateButtons(query);activate(0);
+    };
+    input?.addEventListener('input',search);input?.addEventListener('keydown',event=>{if(event.key!=='Enter')return;event.preventDefault();if(hits.length)activate(activeIndex+(event.shiftKey?-1:1));});next?.addEventListener('click',()=>activate(activeIndex+1));previous?.addEventListener('click',()=>activate(activeIndex-1));clearButton?.addEventListener('click',()=>{if(input){input.value='';input.focus();}search();});
+    document.querySelector('[data-public-print]')?.addEventListener('click',()=>window.print());document.querySelector('[data-public-share]')?.addEventListener('click',async()=>{const data={title:document.title,url:location.href};if(navigator.share){try{await navigator.share(data);return;}catch(error){if(error?.name==='AbortError')return;}}try{await navigator.clipboard.writeText(location.href);if(meta)meta.textContent='Link copied';}catch{if(meta)meta.textContent='Copy the address from your browser';}});
+    if(meta)meta.textContent='No search active';updateButtons('');
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();`;
 
 function privateCors(request) {

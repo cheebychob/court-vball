@@ -67,12 +67,12 @@ Run on a narrow phone viewport and desktop:
 3. Build from event settings; verify inherited Quick Rules identify their source.
 4. Start from a format-aware template, then use Build Your Rules. Skip a section, mark one Not applicable, and mark another Not decided.
 5. Paste a long rules document containing headings, lists, links, a table, and unsupported formatting. Confirm formatting is cleaned and no unsafe content survives.
-6. Exercise heading, bold, italic, lists, link, callout, divider, table, undo, redo, and clear-format controls. Confirm toolbar horizontal scrolling and keyboard focus on mobile.
+6. Exercise heading, bold, italic, lists, link, callout, divider, table, undo, redo, and clear-format controls. At desktop, 390×844, and 375×667, confirm no buttons overlap; confirm grouped wrapping/scrolling, touch access, and keyboard focus.
 7. Make an unsaved edit and test Cancel, Escape, and the close button; keep editing once and discard once.
 8. Save the draft, sync another device, and confirm the draft appears without exposing it on the public link.
 9. Create a structured Quick Rules override that differs from Court. Test Update event settings, Update draft language, intentional exception, and Review later.
 10. Publish with incomplete sections after explicit confirmation. Verify the immutable revision number and optional summary.
-11. Open the public event link and direct `#rules` link. Test navigation, Quick Rules, contents, exact/case-insensitive/synonym search, next/previous, Clear, share/copy, and print/save-PDF.
+11. Open the public event link and a saved standalone full-event HTML copy. Test navigation, Quick Rules, contents, exact/case-insensitive/synonym search, next/previous/wrap, Enter, Clear, and section chips. Confirm standalone header Print/Share buttons are absent while hosted controls still work.
 12. Advance the event clock/date, publish another revision, and verify the required explanation and public update notice.
 13. Open revision history, view an older revision, copy it into a new draft, and publish it as a new revision.
 14. Unpublish with confirmation. Confirm the stable public URL remains but no rules body or draft is exposed.

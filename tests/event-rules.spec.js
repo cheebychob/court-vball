@@ -1,4 +1,6 @@
 import { test, expect } from '@playwright/test';
+import { writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 
 function fixedEvent(extra = {}) {
   return {
@@ -29,6 +31,29 @@ async function seed(page, events) {
     localStorage.setItem('vb:settings', '{}');
   }, events);
   await page.goto('/');
+}
+
+async function installRulesDraft(page) {
+  await page.evaluate(() => {
+    const event = evts[0], now = Date.now();
+    event.rules = createEmptyRulesModel();
+    event.rules.draft = createRulesDraft(rulesDocumentFromHtml('<h2>Scoring</h2><p>Select and format this text.</p>'), {}, now);
+    openRulesEditor(event.id);
+  });
+}
+
+async function toolbarGeometry(page) {
+  return page.locator('.rules-toolbar').evaluate(toolbar => {
+    const box = element => { const rect = element.getBoundingClientRect(); return { left: rect.left, right: rect.right, top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height }; };
+    const buttons = [...toolbar.querySelectorAll('button')].map(button => ({ label: button.getAttribute('aria-label'), ...box(button) }));
+    const overlaps = [];
+    for (let i = 0; i < buttons.length; i++) for (let j = i + 1; j < buttons.length; j++) {
+      const a = buttons[i], b = buttons[j], width = Math.min(a.right, b.right) - Math.max(a.left, b.left), height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+      if (width > .5 && height > .5) overlaps.push(`${a.label} / ${b.label}`);
+    }
+    const editor = document.querySelector('[data-rules-editor]')?.getBoundingClientRect(), sheet = toolbar.closest('.sheet')?.getBoundingClientRect();
+    return { toolbar: box(toolbar), buttons, overlaps, editorTop: editor?.top, sheet: sheet && { left: sheet.left, right: sheet.right, top: sheet.top, bottom: sheet.bottom }, scrollWidth: toolbar.scrollWidth, clientWidth: toolbar.clientWidth, pageOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
+  });
 }
 
 test('rules defaults and migration are safe for old, malformed, and future events', async ({ page }) => {
@@ -167,6 +192,55 @@ test('Rules action is prominent for fixed and rotating formats and blank draft c
   await expect(page.getByRole('button', { name: 'Rules — Draft', exact: true })).toBeVisible();
 });
 
+test('Rules editor toolbar groups wrap without overlap on desktop and controls remain functional', async ({ page }) => {
+  await page.setViewportSize({ width: 1200, height: 800 });
+  await seed(page, [fixedEvent()]);
+  await installRulesDraft(page);
+  const geometry = await toolbarGeometry(page);
+  expect(geometry.buttons.length).toBe(17);
+  expect(geometry.overlaps).toEqual([]);
+  expect(geometry.buttons.every(button => button.width > 0 && button.height >= 40)).toBe(true);
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
+  expect(geometry.editorTop).toBeGreaterThanOrEqual(geometry.toolbar.bottom - .5);
+  expect(geometry.pageOverflow).toBeLessThanOrEqual(0);
+  await expect(page.locator('.rules-tool-group')).toHaveCount(7);
+  const editor = page.locator('[data-rules-editor]');
+  await editor.locator('p').evaluate(paragraph => { const range = document.createRange(); range.selectNodeContents(paragraph); const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range); });
+  await page.getByRole('button', { name: 'Bold', exact: true }).click();
+  await expect(editor.locator('b, strong')).toContainText('Select and format this text.');
+  await editor.focus();
+  await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+  await expect(editor.locator('table')).toBeVisible();
+});
+
+test('Rules editor toolbar scrolls without overlap at both required mobile sizes', async ({ page }) => {
+  await seed(page, [fixedEvent()]);
+  for (const viewport of [{ width: 390, height: 844 }, { width: 375, height: 667 }]) {
+    await page.setViewportSize(viewport);
+    await installRulesDraft(page);
+    const beforeScroll = await page.evaluate(() => window.scrollY);
+    const geometry = await toolbarGeometry(page);
+    expect(geometry.overlaps, `${viewport.width}px overlaps`).toEqual([]);
+    expect(geometry.buttons.every(button => button.width > 0 && button.height >= 44), `${viewport.width}px touch targets`).toBe(true);
+    expect(geometry.pageOverflow, `${viewport.width}px page overflow`).toBeLessThanOrEqual(0);
+    expect(geometry.sheet.left).toBeGreaterThanOrEqual(-.5);
+    expect(geometry.sheet.right).toBeLessThanOrEqual(viewport.width + .5);
+    expect(geometry.editorTop).toBeGreaterThanOrEqual(geometry.toolbar.bottom - .5);
+    expect(geometry.scrollWidth).toBeGreaterThan(geometry.clientWidth);
+    const scrolled = await page.locator('.rules-toolbar').evaluate(toolbar => { toolbar.scrollLeft = toolbar.scrollWidth; return toolbar.scrollLeft; });
+    expect(scrolled).toBeGreaterThan(0);
+    const editor = page.locator('[data-rules-editor]');
+    await editor.focus();
+    await page.getByRole('button', { name: 'Insert table', exact: true }).click();
+    await expect(editor.locator('table')).toBeVisible();
+    expect(await page.evaluate(() => window.scrollY)).toBe(beforeScroll);
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('alertdialog').getByRole('button', { name: 'Discard edits', exact: true }).click();
+    await expect(page.getByRole('heading', { name: 'Event Rules Hub' })).toBeVisible();
+    await page.getByRole('button', { name: 'Close', exact: true }).click();
+  }
+});
+
 test('public rules document has navigation, quick rules, search synonyms, revision notice, and no draft content', async ({ page }) => {
   await seed(page, []);
   const result = await page.evaluate(eventInput => {
@@ -206,7 +280,8 @@ test('full-event publication switches to unified HTML without changing the exist
     publishRulesRevision(event, { summary: 'Initial', now: new Date(2026, 6, 16, 12).getTime() });
     const before = event.schedulePublications.full.publicUrl;
     const prepared = await SchedulePublications.prepare(event.id);
-    return { before, after: event.schedulePublications.full.publicUrl, title: prepared.title, html: prepared.html, direct: rulesPublicUrl(event.schedulePublications.full) };
+    const document = new DOMParser().parseFromString(prepared.html, 'text/html');
+    return { before, after: event.schedulePublications.full.publicUrl, title: prepared.title, html: prepared.html, direct: rulesPublicUrl(event.schedulePublications.full), embeddedBehaviorMatches: document.querySelector('script')?.textContent === publicEventBehaviorScript() };
   });
   expect(result.before).toBe(result.after);
   expect(result.direct).toBe('https://example.test/s/stable-token#rules');
@@ -214,6 +289,89 @@ test('full-event publication switches to unified HTML without changing the exist
   expect(result.html).toContain('href="#schedule"');
   expect(result.html).toContain('href="#rules"');
   expect(result.html).toContain('One set to 25.');
+  expect(result.html).toContain('data-public-print');
+  expect(result.html).toContain('data-public-share');
+  expect(result.html).not.toContain('src="/assets/public-event.js"');
+  expect(result.embeddedBehaviorMatches).toBe(true);
+});
+
+test('actual standalone full-event HTML searches Rules and omits hosted header controls', async ({ page }, testInfo) => {
+  await seed(page, [fixedEvent()]);
+  const html = await page.evaluate(() => {
+    const event = evts[0]; event.rules = createEmptyRulesModel();
+    event.rules.draft = createRulesDraft(rulesDocumentFromHtml('<h2>Scoring and Set Format</h2><p>Scoring uses 21 points. The score cap is 25.</p><h2>Ball Handling</h2><p>Open-hand tips and dinks are not allowed.</p><h2>Work Teams</h2><p>Losing teams officiate.</p><h2>Injuries</h2><p>Medical substitutions are allowed.</p><h2>Conduct</h2><p>Captains manage spectators.</p><h2>Weather Policy</h2><p>Rain, lightning, heat, and air quality can stop play.</p><h2>Protests</h2><p>Protests must be timely.</p>'), {}, 10);
+    publishRulesRevision(event, { summary: 'Initial', now: new Date(2026, 6, 16, 12).getTime() });
+    return renderPublicEventDocument(event, { standalone: true });
+  });
+  const filePath = testInfo.outputPath('standalone-event.html');
+  writeFileSync(filePath, html);
+  const browserErrors = [];
+  page.on('pageerror', error => browserErrors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') browserErrors.push(message.text()); });
+  await page.goto(pathToFileURL(filePath).href);
+  for (const section of ['Overview', 'Schedule', 'Standings', 'Bracket', 'Rules']) await expect(page.getByRole('heading', { name: section, exact: true }).first()).toBeVisible();
+  await expect(page.locator('.public-event-head').getByRole('heading', { name: 'Summer Sand 4s', exact: true })).toBeVisible();
+  await expect(page.locator('.public-event-head')).toContainText('July 18, 2026');
+  await expect(page.locator('[data-public-print], [data-public-share], .public-print-actions')).toHaveCount(0);
+  expect(html).toContain('@media print');
+  expect(html).not.toContain('src="/assets/public-event.js"');
+
+  const input = page.getByRole('searchbox', { name: 'Search published rules' });
+  const meta = page.locator('[data-search-meta]');
+  const previous = page.getByRole('button', { name: 'Previous search result' });
+  const next = page.getByRole('button', { name: 'Next search result' });
+  await expect(previous).toBeDisabled();
+  await expect(next).toBeDisabled();
+
+  await input.fill('  SCORING  ');
+  await expect(meta).toContainText(/\d+ results?/);
+  const exactCount = await page.locator('mark.rules-search-hit').count();
+  expect(exactCount).toBeGreaterThan(2);
+  await expect(page.locator('mark.rules-search-hit-active')).toHaveCount(1);
+  const firstIndex = await page.locator('mark.rules-search-hit-active').evaluate(element => [...document.querySelectorAll('mark.rules-search-hit')].indexOf(element));
+  await next.click();
+  const nextIndex = await page.locator('mark.rules-search-hit-active').evaluate(element => [...document.querySelectorAll('mark.rules-search-hit')].indexOf(element));
+  expect(nextIndex).toBe((firstIndex + 1) % exactCount);
+  await previous.click();
+  await expect(page.locator('mark.rules-search-hit-active')).toHaveCount(1);
+  await previous.click();
+  const wrappedIndex = await page.locator('mark.rules-search-hit-active').evaluate(element => [...document.querySelectorAll('mark.rules-search-hit')].indexOf(element));
+  expect(wrappedIndex).toBe(exactCount - 1);
+  await input.press('Enter');
+  await expect(page.locator('mark.rules-search-hit-active')).toHaveCount(1);
+  await input.press('Shift+Enter');
+  const shiftWrappedIndex = await page.locator('mark.rules-search-hit-active').evaluate(element => [...document.querySelectorAll('mark.rules-search-hit')].indexOf(element));
+  expect(shiftWrappedIndex).toBe(exactCount - 1);
+
+  await input.fill('tips');
+  await expect(meta).toContainText(/\d+ results?/);
+  expect(await page.locator('mark.rules-search-hit').count()).toBeGreaterThanOrEqual(3);
+  expect(await page.locator('mark.rules-search-hit mark').count()).toBe(0);
+  await input.fill('weather');
+  await expect(meta).toContainText(/\d+ results?/);
+  await input.fill('[.*');
+  await expect(meta).toHaveText('No results');
+  await expect(previous).toBeDisabled();
+  await input.fill('score');
+  await expect(meta).toContainText(/\d+ results?/);
+  expect(await page.locator('mark.rules-search-hit mark').count()).toBe(0);
+  await input.fill('25');
+  await expect(meta).toHaveText('1 of 1 result');
+  await page.getByRole('button', { name: 'Clear rules search' }).click();
+  await expect(input).toHaveValue('');
+  await expect(page.locator('mark.rules-search-hit')).toHaveCount(0);
+  await expect(meta).toHaveText('No search active');
+  await expect(previous).toBeDisabled();
+  await expect(next).toBeDisabled();
+
+  const weatherChip = page.getByRole('navigation', { name: 'Rules table of contents' }).getByRole('link', { name: 'Weather Policy', exact: true });
+  await weatherChip.click();
+  await expect.poll(() => new URL(page.url()).hash).toBe('#rule-weather_policy');
+  await expect(page.locator('#rule-weather_policy')).toHaveText('Weather Policy');
+  await page.setViewportSize({ width: 375, height: 667 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  expect(await page.locator('.public-toc').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(browserErrors).toEqual([]);
 });
 
 test('format-aware templates, settings drafts, builder states, and Quick Rules remain editable', async ({ page }) => {
