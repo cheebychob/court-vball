@@ -193,9 +193,10 @@ test('Share Link sends a URL, cancellation is silent, clipboard fallback works, 
   const state = publicWorkerState();await seed(page);await mockPublicWorker(page, state);await page.goto('/');await openFullShare(page);
   const panel=page.locator('.public-schedule-panel');await panel.getByRole('button', { name: 'Create Share Link', exact: true }).click();await expect(panel).toContainText('Up to date');
   await page.evaluate(() => {
-    window.__urlShares=[];window.__copied=[];
+    window.__urlShares=[];window.__copied=[];window.__openedLinks=[];
     Object.defineProperty(navigator,'share',{configurable:true,value:async data=>window.__urlShares.push(data)});
     Object.defineProperty(navigator,'clipboard',{configurable:true,value:{writeText:async value=>window.__copied.push(value)}});
+    HTMLAnchorElement.prototype.click=function(){window.__openedLinks.push({href:this.href,target:this.target,rel:this.rel});};
   });
   await panel.getByRole('button', { name: 'Share Link', exact: true }).click();
   const shared=await page.evaluate(() => window.__urlShares[0]);
@@ -205,6 +206,9 @@ test('Share Link sends a URL, cancellation is silent, clipboard fallback works, 
   await page.evaluate(() => Object.defineProperty(navigator,'share',{configurable:true,value:undefined}));
   await panel.getByRole('button', { name: 'Share Link', exact: true }).click();await expect(page.locator('#toast')).toHaveText('Public schedule link copied');
   expect((await page.evaluate(() => window.__copied.at(-1)))).toMatch(/\/s\//);
+  await panel.getByRole('button', { name: 'Open Link', exact: true }).click();
+  expect(await page.evaluate(() => window.__openedLinks.at(-1))).toMatchObject({target:'_blank',rel:'noopener noreferrer'});
+  expect((await page.evaluate(() => window.__openedLinks.at(-1).href))).toMatch(/\/s\//);
   await page.setViewportSize({width:320,height:700});
   await page.evaluate(() => Object.defineProperty(navigator,'clipboard',{configurable:true,value:undefined}));
   await panel.getByRole('button', { name: 'Copy Link', exact: true }).click();

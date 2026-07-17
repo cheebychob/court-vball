@@ -225,22 +225,29 @@ test('schedule titles identify full, fixed-team, named rotating-entry, unnamed r
   for (const [scope, title] of Object.entries(expected)) expect(result[scope]).toEqual({ shared: title, published: title, document: title });
 });
 
-test('participant file sharing sends the scope-specific title and a matching document title to navigator.share', async ({ page }) => {
+test('participant download chooser saves the scope-specific document and keeps public-link sharing separate', async ({ page }) => {
   const event = rotatingEvent({ entries: 8, rounds: 3, courts: 2, name: 'Pair Share Cup' });
   event.entries[0].name = 'Pair B';
   await seed(page, { events: [event], playerCount: 24 }); await page.goto('/');
   await page.evaluate(async () => { const ev = evts[0]; ev.rotationSchedule = generateRotationScheduleData(ev).matches; await saveEvents(); openParticipantScheduleShare(ev.id, 'entry', 'e0'); });
   await page.evaluate(() => {
-    window.__participantShare = null;
-    Object.defineProperty(navigator, 'canShare', { configurable: true, value: data => data.files.length === 1 });
-    Object.defineProperty(navigator, 'share', { configurable: true, value: async data => {
-      const html = await data.files[0].text();
-      window.__participantShare = { title: data.title, documentTitle: new DOMParser().parseFromString(html, 'text/html').title };
-    } });
+    window.__participantDownload = null;
+    URL.createObjectURL = blob => { window.__participantBlob = blob; return 'blob:participant-schedule'; };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = async function () {
+      const html = await window.__participantBlob.text();
+      window.__participantDownload = { name: this.download, documentTitle: new DOMParser().parseFromString(html, 'text/html').title };
+    };
   });
-  await page.locator('.sheet').getByRole('button', { name: 'Share Schedule', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__participantShare)).not.toBeNull();
-  expect(await page.evaluate(() => window.__participantShare)).toEqual({ title: 'Pair Share Cup · Pair B schedule', documentTitle: 'Pair Share Cup · Pair B schedule' });
+  const sheet = page.locator('.sheet');
+  await expect(sheet.getByRole('button', { name: 'Share Schedule', exact: true })).toHaveCount(0);
+  await sheet.getByRole('button', { name: 'Download Schedule', exact: true }).click();
+  const chooser = page.getByRole('dialog', { name: 'Download Schedule', exact: true });
+  await expect(chooser.getByRole('button', { name: 'Download HTML', exact: true })).toBeFocused();
+  await chooser.getByRole('button', { name: 'Download HTML', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__participantDownload)).not.toBeNull();
+  expect(await page.evaluate(() => window.__participantDownload)).toEqual({ name: 'Pair_Share_Cup_Pair_B_schedule.html', documentTitle: 'Pair Share Cup · Pair B schedule' });
+  await expect(sheet.getByRole('heading', { name: /^Save \/ Share .+ Schedule$/ })).toBeVisible();
 });
 
 test('team and entry modals expose participant sharing and unavailable exports show a clear toast', async ({ page }) => {
@@ -337,8 +344,8 @@ test('standalone HTML escapes participant values and filenames are safe and read
   expect(result.filenames).toEqual(['Summer_Smash_schedule.html', 'Friday_4s_Finals_schedule.html', 'court_event_schedule.html', 'court_event_schedule.html']);
 });
 
-test('fixed preview shares or downloads exactly one HTML file and preserves all state, scroll, and focus', async ({ page }) => {
-  const event = fixedEvent(); await seed(page, { events: [event] }); await openEvent(page, event.name);
+test('fixed preview offers one download chooser, downloads once, and preserves state, scroll, and focus', async ({ page }) => {
+  const event = fixedEvent(); await seed(page, { events: [event] }); await openEvent(page, event.name); await page.setViewportSize({ width: 320, height: 720 });
   const trigger = page.getByRole('button', { name: 'Save / Share Schedule', exact: true });
   const before = await page.evaluate(() => JSON.stringify({ evts, games, players }));
   await trigger.scrollIntoViewIfNeeded(); const scrollBefore = await page.evaluate(() => window.scrollY); await trigger.click();
@@ -347,34 +354,44 @@ test('fixed preview shares or downloads exactly one HTML file and preserves all 
   await expect(preview).toContainText(event.name);
   for (const name of event.teams.map(t => t.name)) await expect(preview).toContainText(name);
   await expect(sheet.getByText('one self-contained document', { exact: false })).toBeVisible();
-  await expect(sheet.getByRole('button', { name: 'Share Schedule', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Share Schedule', exact: true })).toHaveCount(0);
   await expect(sheet.getByRole('button', { name: 'Download Schedule', exact: true })).toBeVisible();
-  await expect(sheet.getByRole('button', { name: 'Print / Save as PDF', exact: true })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Print / Save as PDF', exact: true })).toHaveCount(0);
 
   await page.evaluate(() => {
-    window.__shares = []; window.__canShare = []; window.__downloads = []; window.__urls = []; window.__revoked = [];
+    window.__downloads = []; window.__urls = []; window.__revoked = [];
     URL.createObjectURL = blob => { const url = `blob:schedule-${window.__urls.length + 1}`; window.__urls.push({ url, type: blob.type }); return url; };
     URL.revokeObjectURL = url => window.__revoked.push(url);
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push({ name: this.download, href: this.href }); };
-    Object.defineProperty(navigator, 'canShare', { configurable: true, value: data => { window.__canShare.push(data.files.map(f => ({ name: f.name, type: f.type }))); return true; } });
-    Object.defineProperty(navigator, 'share', { configurable: true, value: async data => { const file = data.files[0]; window.__shares.push({ count: data.files.length, name: file.name, type: file.type, text: await file.text() }); } });
   });
-  await sheet.getByRole('button', { name: 'Share Schedule', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__shares.length)).toBe(1);
-  const native = await page.evaluate(() => ({ share: window.__shares[0], canShare: window.__canShare[0], downloads: window.__downloads }));
-  expect(native.share).toMatchObject({ count: 1, name: 'Summer_Smash_2026_Finals_schedule.html', type: 'text/html' });
-  expect(native.share.text).toContain(event.name);
-  expect(native.canShare).toEqual([{ name: 'Summer_Smash_2026_Finals_schedule.html', type: 'text/html' }]);
-  expect(native.downloads).toEqual([]);
-
-  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }));
-  await sheet.getByRole('button', { name: 'Share Schedule', exact: true }).click();
+  const download = sheet.getByRole('button', { name: 'Download Schedule', exact: true });
+  await download.click();
+  const chooser = page.getByRole('dialog', { name: 'Download Schedule', exact: true });
+  await expect(chooser).toBeVisible();
+  await expect(chooser.getByRole('button', { name: 'Download HTML', exact: true })).toBeFocused();
+  await expect(chooser.getByRole('button', { name: 'Print / Save as PDF', exact: true })).toBeVisible();
+  await expect(chooser.getByRole('button', { name: 'Cancel', exact: true })).toBeVisible();
+  await page.keyboard.press('Shift+Tab');
+  await expect(chooser.getByRole('button', { name: 'Cancel', exact: true })).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(chooser.getByRole('button', { name: 'Download HTML', exact: true })).toBeFocused();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+  await chooser.getByRole('button', { name: 'Download HTML', exact: true }).dblclick();
   await expect.poll(() => page.evaluate(() => window.__downloads.length)).toBe(1);
-  await sheet.getByRole('button', { name: 'Download Schedule', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__downloads.length)).toBe(2);
-  await expect.poll(() => page.evaluate(() => window.__revoked.length)).toBe(2);
-  expect(await page.evaluate(() => window.__downloads.map(d => d.name))).toEqual(['Summer_Smash_2026_Finals_schedule.html', 'Summer_Smash_2026_Finals_schedule.html']);
+  await expect.poll(() => page.evaluate(() => window.__revoked.length)).toBe(1);
+  expect(await page.evaluate(() => window.__downloads.map(d => d.name))).toEqual(['Summer_Smash_2026_Finals_schedule.html']);
+  await expect(chooser).toHaveCount(0);
+  await expect(download).toBeFocused();
   expect(await page.evaluate(() => JSON.stringify({ evts, games, players }))).toBe(before);
+
+  for (const closeWith of ['Cancel', 'Escape']) {
+    await download.click();
+    if (closeWith === 'Escape') await page.keyboard.press('Escape');
+    else await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.getByRole('dialog', { name: 'Download Schedule', exact: true })).toHaveCount(0);
+    await expect(sheet.getByRole('heading', { name: 'Save / Share Schedule', exact: true })).toBeVisible();
+    await expect(download).toBeFocused();
+  }
 
   await sheet.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(sheet).toHaveCount(0); await expect(trigger).toBeFocused();
@@ -393,7 +410,8 @@ test('Print / Save as PDF writes one complete print document and reports blocked
       addEventListener() {}, focus() { window.__printState.focuses++; }, print() { window.__printState.prints++; }
     });
   });
-  await page.locator('.sheet').getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'Download Schedule', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Print / Save as PDF', exact: true }).dblclick();
   await expect.poll(() => page.evaluate(() => window.__printState.prints)).toBe(1);
   const printed = await page.evaluate(() => window.__printState);
   expect(printed.focuses).toBe(1);
@@ -402,14 +420,16 @@ test('Print / Save as PDF writes one complete print document and reports blocked
   expect(printed.html).toContain('@page{size:portrait');
   expect(printed.html).not.toMatch(/<button\b|Share Schedule|Download Schedule/i);
   expect(await page.evaluate(() => JSON.stringify({ evts, games, players }))).toBe(before);
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Save / Share Schedule', exact: true })).toBeVisible();
 
   await page.evaluate(() => { window.open = () => null; });
-  await page.locator('.sheet').getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'Download Schedule', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Print / Save as PDF', exact: true }).click();
   await expect(page.locator('.toast')).toContainText('Print view was blocked');
   expect(await page.evaluate(() => JSON.stringify({ evts, games, players }))).toBe(before);
 });
 
-test('rotating preview shows the complete schedule responsively and shares one consolidated file', async ({ page }) => {
+test('rotating preview shows the complete schedule responsively and downloads one consolidated file', async ({ page }) => {
   const event = rotatingEvent(); await seed(page, { events: [event], playerCount: 24 }); await page.goto('/');
   await page.evaluate(async () => { const ev = evts[0], made = generateRotationScheduleData(ev); ev.rotationSchedule = made.matches; ev.rotationScheduleQuality = made.quality; await saveEvents(); });
   await page.locator('[data-tab="events"]:visible').first().click(); await page.locator('.ev-row').click();
@@ -427,18 +447,20 @@ test('rotating preview shows the complete schedule responsively and shares one c
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Save / Share Schedule', exact: true }).click();
   await page.evaluate(() => {
-    window.__rotShare = null;
-    Object.defineProperty(navigator, 'canShare', { configurable: true, value: data => data.files.length === 1 });
-    Object.defineProperty(navigator, 'share', { configurable: true, value: async data => { window.__rotShare = { count: data.files.length, name: data.files[0].name, type: data.files[0].type, text: await data.files[0].text() }; } });
+    window.__rotDownload = null;
+    URL.createObjectURL = blob => { window.__rotBlob = blob; return 'blob:rotating-schedule'; };
+    URL.revokeObjectURL = () => {};
+    HTMLAnchorElement.prototype.click = async function () { window.__rotDownload = { name: this.download, type: window.__rotBlob.type, text: await window.__rotBlob.text() }; };
   });
-  await page.locator('.sheet').getByRole('button', { name: 'Share Schedule', exact: true }).click();
-  await expect.poll(() => page.evaluate(() => window.__rotShare?.count)).toBe(1);
-  const shared = await page.evaluate(() => window.__rotShare);
-  expect(shared).toMatchObject({ count: 1, name: 'Rotating_Share_Night_schedule.html', type: 'text/html' });
-  expect(shared.text).toContain('Pair 1'); expect(shared.text).toContain('Byes / sit-outs');
+  await page.locator('.sheet').getByRole('button', { name: 'Download Schedule', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Download HTML', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__rotDownload?.name)).toBe('Rotating_Share_Night_schedule.html');
+  const downloaded = await page.evaluate(() => window.__rotDownload);
+  expect(downloaded).toMatchObject({ name: 'Rotating_Share_Night_schedule.html', type: 'text/html' });
+  expect(downloaded.text).toContain('Pair 1'); expect(downloaded.text).toContain('Byes / sit-outs');
 });
 
-test('share cancellation is silent, real failures are useful, unsupported sharing downloads once, and empty schedules stay unavailable', async ({ page }) => {
+test('the chooser can be reopened without duplicate downloads and empty schedules stay unavailable', async ({ page }) => {
   const event = fixedEvent({ name: 'Error Paths' }); const empty = rotatingEvent({ name: 'No Rotation Yet' });
   await seed(page, { events: [event, empty] }); await openEvent(page, event.name);
   await page.getByRole('button', { name: 'Save / Share Schedule', exact: true }).click();
@@ -446,21 +468,16 @@ test('share cancellation is silent, real failures are useful, unsupported sharin
     window.__downloads = []; window.__revoked = [];
     URL.createObjectURL = () => 'blob:error-path'; URL.revokeObjectURL = url => window.__revoked.push(url);
     HTMLAnchorElement.prototype.click = function () { window.__downloads.push(this.download); };
-    Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => true });
-    Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw new DOMException('cancelled', 'AbortError'); } });
   });
-  const share = page.locator('.sheet').getByRole('button', { name: 'Share Schedule', exact: true });
-  await share.click(); await expect.poll(() => share.isEnabled()).toBe(true); await page.waitForTimeout(100);
+  const download = page.locator('.sheet').getByRole('button', { name: 'Download Schedule', exact: true });
+  for (let i = 0; i < 2; i++) {
+    await download.click();
+    await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Cancel', exact: true }).click();
+  }
   expect(await page.evaluate(() => window.__downloads)).toEqual([]);
-  await expect(page.locator('.toast')).not.toHaveClass(/show/);
-
-  await page.evaluate(() => Object.defineProperty(navigator, 'share', { configurable: true, value: async () => { throw new Error('share broke'); } }));
-  await share.click(); await expect.poll(() => share.isEnabled()).toBe(true);
-  await expect(page.locator('.toast')).toContainText('Could not share the schedule');
-  expect(await page.evaluate(() => window.__downloads)).toEqual([]);
-
-  await page.evaluate(() => Object.defineProperty(navigator, 'canShare', { configurable: true, value: () => false }));
-  await share.click(); await expect.poll(() => page.evaluate(() => window.__downloads.length)).toBe(1);
+  await download.click();
+  await page.getByRole('dialog', { name: 'Download Schedule', exact: true }).getByRole('button', { name: 'Download HTML', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__downloads.length)).toBe(1);
   await expect.poll(() => page.evaluate(() => window.__revoked.length)).toBe(1);
   expect(await page.evaluate(() => window.__downloads)).toEqual(['Error_Paths_schedule.html']);
   await page.locator('.sheet').getByRole('button', { name: 'Close', exact: true }).click();

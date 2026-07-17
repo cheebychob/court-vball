@@ -342,8 +342,9 @@ test('event schedule clamps extreme custom court saves', async ({ page }) => {
   await page.goto('/');
   await clickNav(page, 'Events');
   await page.locator('.ev-row').filter({ hasText: 'Extreme Courts Cup' }).click();
-  await page.getByRole('button', { name: 'Courts & schedule', exact: true }).click();
+  await page.getByRole('button', { name: 'Schedule settings', exact: true }).click();
   await page.locator('#evsCourts').fill('1000000000');
+  await expect(page.locator('#evsCourts')).toHaveValue('1000000000');
   await page.locator('.sheet').getByRole('button', { name: 'Save schedule', exact: true }).click();
 
   const saved = await page.evaluate(() => {
