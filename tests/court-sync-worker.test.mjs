@@ -83,6 +83,20 @@ test('public route ordering bypasses missing-room handling and unknown paths ret
   assert.equal(unknown.status, 404);
 });
 
+test('public event behavior script is same-origin, storage-free, and served with strict headers', async () => {
+  const bindings = env();
+  const response = await worker.fetch(request('/assets/public-event.js'), bindings);
+  const script = await response.text();
+  assert.equal(response.status, 200);
+  assert.match(response.headers.get('content-type'), /application\/javascript/);
+  assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(script, /data-rules-search/);
+  assert.match(script, /navigator\.share/);
+  assert.doesNotMatch(script, /COURT|PUBLIC_SCHEDULES|room:|managementToken|localStorage/i);
+  assert.equal(bindings.COURT.gets.length, 0);
+  assert.equal(bindings.PUBLIC_SCHEDULES.gets.length, 0);
+});
+
 test('capability status reports ready and distinguishes a missing public binding without private details', async () => {
   const ready = await worker.fetch(request('/api/public-schedules/status', { headers: { Origin: ORIGIN } }), env());
   assert.equal(ready.status, 200);
@@ -163,6 +177,7 @@ test('public GET returns the exact stored HTML with security headers and never r
   assert.equal(response.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(response.headers.get('cache-control'), 'public, max-age=60');
   assert.match(response.headers.get('content-security-policy'), /default-src 'none'/);
+  assert.match(response.headers.get('content-security-policy'), /script-src 'self'/);
   assert.equal(response.headers.get('referrer-policy'), 'no-referrer');
   assert.match(response.headers.get('permissions-policy'), /camera=\(\)/);
 });
