@@ -24,10 +24,20 @@ const PUBLIC_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
   "Cache-Control": "public, max-age=60",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
+const PUBLIC_EVENT_SCRIPT = `(()=>{
+  const input=document.querySelector('[data-rules-search]'),body=document.querySelector('[data-rules-search-body]'),meta=document.querySelector('[data-search-meta]');
+  const synonyms={tips:['tip','open-hand','dink','placement','poke','knuckle','roll shot'],tip:['tips','open-hand','dink','placement'],girls:['women','woman','female','gender','coed'],women:['girls','female','gender','coed'],tie:['tiebreaker','tiebreakers','head-to-head','standings'],late:['grace','arrival','forfeit','readiness'],weather:['rain','lightning','heat','air quality'],injury:['medical','blood','substitution'],ref:['official','officiating','work team']};
+  let hits=[],current=-1;
+  const clear=()=>{body?.querySelectorAll('mark.rules-search-hit').forEach(mark=>mark.replaceWith(document.createTextNode(mark.textContent)));body?.normalize();hits=[];current=-1;};
+  const focus=index=>{if(!hits.length)return;current=(index+hits.length)%hits.length;hits.forEach((hit,i)=>hit.classList.toggle('rules-search-current',i===current));hits[current].scrollIntoView({block:'center',behavior:'smooth'});if(meta)meta.textContent=(current+1)+' of '+hits.length+' matches';};
+  const run=()=>{clear();const query=(input?.value||'').trim().toLocaleLowerCase();if(!query){if(meta)meta.textContent='Search scoring, tips, late teams, weather…';return;}const terms=[query,...(synonyms[query]||[])].sort((a,b)=>b.length-a.length),walker=document.createTreeWalker(body,NodeFilter.SHOW_TEXT),nodes=[];while(walker.nextNode())if(walker.currentNode.nodeValue.trim())nodes.push(walker.currentNode);nodes.forEach(node=>{const lower=node.nodeValue.toLocaleLowerCase();let found=null;for(const term of terms){const index=lower.indexOf(term.toLocaleLowerCase());if(index>=0){found={index,length:term.length};break;}}if(!found)return;const range=document.createRange();range.setStart(node,found.index);range.setEnd(node,found.index+found.length);const mark=document.createElement('mark');mark.className='rules-search-hit';range.surroundContents(mark);hits.push(mark);});if(meta)meta.textContent=hits.length?hits.length+' matches':'No matches';if(hits.length)focus(0);};
+  input?.addEventListener('input',run);document.querySelector('[data-search-next]')?.addEventListener('click',()=>focus(current+1));document.querySelector('[data-search-prev]')?.addEventListener('click',()=>focus(current-1));document.querySelector('[data-search-clear]')?.addEventListener('click',()=>{if(input){input.value='';input.focus();}run();});
+  document.querySelector('[data-public-print]')?.addEventListener('click',()=>window.print());document.querySelector('[data-public-share]')?.addEventListener('click',async()=>{const data={title:document.title,url:location.href};if(navigator.share){try{await navigator.share(data);return;}catch(error){if(error?.name==='AbortError')return;}}try{await navigator.clipboard.writeText(location.href);if(meta)meta.textContent='Link copied';}catch{if(meta)meta.textContent='Copy the address from your browser';}});
+})();`;
 
 function privateCors(request) {
   const origin = request.headers.get("Origin");
@@ -240,6 +250,11 @@ export default {
         return new Response(null, { status: 204, headers: privateCors(request) });
       }
       if (request.method === "OPTIONS") return new Response(null, { headers: LEGACY_CORS });
+
+      if (path === "/assets/public-event.js") {
+        if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+        return new Response(PUBLIC_EVENT_SCRIPT, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+      }
 
       if (path === "/api/public-schedules/status") {
         if (request.method !== "GET") return apiError(request, 405, "method not allowed");

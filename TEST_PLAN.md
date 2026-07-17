@@ -46,6 +46,8 @@ Regression areas that should stay covered:
 - One-sided score-only partial games record the result without moving ratings.
 - Stat event logs survive backup/import as part of saved games.
 - Event/tournament data survives backup/import.
+- Event Rules drafts, immutable revisions, publication state, structured mismatches, and draft-deletion timestamps survive backup/import and sync.
+- Public Rules pages expose only published content and keep the existing full-event URL.
 - Event metadata does not affect rating replay.
 - Event standings, best-of-3 grouping, brackets, round robin scheduling, and guest teams stay covered by self-test.
 - Hide ratings mode does not leak numeric rating deltas.
@@ -55,3 +57,25 @@ Next test focus:
 - Dynamic format controls after hard UI caps are removed.
 - Custom team counts, players-per-side values, event courts, pools, bracket sizes, and match formats.
 - Validation for impossible states and mobile-friendly preset behavior.
+
+## Event Rules manual checklist
+
+Run on a narrow phone viewport and desktop:
+
+1. Create one fixed-team event and one rotating event (individuals and pairs when practical).
+2. Open the prominent Rules action and verify Not created, Draft, Published, Updated, and Needs review states.
+3. Build from event settings; verify inherited Quick Rules identify their source.
+4. Start from a format-aware template, then use Build Your Rules. Skip a section, mark one Not applicable, and mark another Not decided.
+5. Paste a long rules document containing headings, lists, links, a table, and unsupported formatting. Confirm formatting is cleaned and no unsafe content survives.
+6. Exercise heading, bold, italic, lists, link, callout, divider, table, undo, redo, and clear-format controls. Confirm toolbar horizontal scrolling and keyboard focus on mobile.
+7. Make an unsaved edit and test Cancel, Escape, and the close button; keep editing once and discard once.
+8. Save the draft, sync another device, and confirm the draft appears without exposing it on the public link.
+9. Create a structured Quick Rules override that differs from Court. Test Update event settings, Update draft language, intentional exception, and Review later.
+10. Publish with incomplete sections after explicit confirmation. Verify the immutable revision number and optional summary.
+11. Open the public event link and direct `#rules` link. Test navigation, Quick Rules, contents, exact/case-insensitive/synonym search, next/previous, Clear, share/copy, and print/save-PDF.
+12. Advance the event clock/date, publish another revision, and verify the required explanation and public update notice.
+13. Open revision history, view an older revision, copy it into a new draft, and publish it as a new revision.
+14. Unpublish with confirmation. Confirm the stable public URL remains but no rules body or draft is exposed.
+15. Duplicate the event. Confirm Rules are a private draft, public IDs/URLs are absent, and event name/date/venue references are flagged for review.
+16. Back up and restore. Confirm draft/revisions/publication metadata survive without an automatic Worker republish.
+17. Delete the event, sync both devices, and confirm it does not return. Verify historical games and ratings remain unchanged.

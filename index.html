@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.9">
+<meta name="court-build" content="20260717.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -565,6 +565,16 @@
   .public-schedule-url{display:block;width:100%;min-height:48px;margin-top:10px;padding:9px 10px;resize:none;border:1px solid #ffffff1d;border-radius:10px;background:#0b1220;color:#dce6f5;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-all}
   .public-schedule-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
   .public-schedule-actions .wide{grid-column:1/-1}.public-schedule-help{margin-top:8px;color:var(--faint);font-size:10.5px;line-height:1.4}
+  .rules-entry{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:0 0 12px;padding:13px 14px;border:1px solid #f2c66d45;border-radius:17px;background:linear-gradient(135deg,#f2c66d18,#ffffff08);text-align:left;width:100%}
+  .rules-entry b{display:block;font-size:14px}.rules-entry span{display:block;margin-top:4px;color:var(--muted);font-size:11px}.rules-entry .pill{margin:0;flex:none}
+  .rules-hub-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:12px 0}.rules-hub-actions .wide{grid-column:1/-1}
+  .rules-start-grid{display:grid;gap:9px}.rules-start-card{min-height:74px;padding:13px;border:1px solid var(--line);border-radius:15px;background:#ffffff09;text-align:left}.rules-start-card b{display:block}.rules-start-card span{display:block;margin-top:5px;color:var(--muted);font-size:11px;line-height:1.4}
+  .rules-preview{padding:15px;border:1px solid var(--line);border-radius:15px;background:#080d18}.rules-preview h2{margin:20px 0 8px;font-size:20px}.rules-preview h2:first-child{margin-top:0}.rules-preview h3{margin:17px 0 7px;font-size:16px}.rules-preview p,.rules-preview li,.rules-preview td,.rules-preview th{font-size:13px;line-height:1.55}.rules-preview ul,.rules-preview ol{padding-left:22px}.rules-preview a{color:var(--cyan)}.rules-preview hr{border:0;border-top:1px solid var(--line);margin:18px 0}.rules-preview aside{margin:12px 0;padding:12px;border-left:4px solid var(--gold);border-radius:10px;background:#f2c66d10}.rules-preview aside[data-callout="weather"]{border-color:var(--cyan);background:#74d7ff10}.rules-preview aside[data-callout="penalty"]{border-color:var(--coral);background:#ff7d7210}.rules-preview table{width:100%;border-collapse:collapse;display:block;overflow:auto}.rules-preview td,.rules-preview th{padding:8px;border:1px solid var(--line);min-width:110px;text-align:left}
+  .rules-toolbar{position:sticky;top:-18px;z-index:3;display:flex;gap:6px;overflow-x:auto;margin:0 -2px 10px;padding:8px 2px;background:#121b2df2;scrollbar-width:none}.rules-toolbar::-webkit-scrollbar{display:none}.rules-toolbar button{min-width:40px;min-height:40px;padding:7px 9px;border:1px solid var(--line);border-radius:10px;background:#ffffff0b;color:var(--muted);font-size:12px;font-weight:800;white-space:nowrap}
+  .rules-editor{min-height:46vh;padding:15px;border:1px solid var(--line-strong);border-radius:15px;background:#080d18;line-height:1.55;overflow-wrap:anywhere}.rules-editor:empty::before{content:"Start writing event rules…";color:var(--faint)}.rules-editor h2{margin:19px 0 7px}.rules-editor h3{margin:16px 0 6px}.rules-editor a{color:var(--cyan)}.rules-editor aside{padding:11px;border-left:4px solid var(--gold);background:#f2c66d10}.rules-editor table{width:100%;border-collapse:collapse}.rules-editor td,.rules-editor th{padding:7px;border:1px solid var(--line)}
+  .quick-rules-grid{display:grid;gap:8px}.quick-rule{padding:11px;border:1px solid var(--line);border-radius:13px;background:#ffffff08}.quick-rule b{display:block;font-size:12px}.quick-rule span{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.4}.quick-rule-state{color:var(--gold)!important;text-transform:capitalize}
+  .rules-review-list{display:grid;gap:7px}.rules-review-row{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;padding:10px;border:1px solid var(--line);border-radius:12px}.rules-review-row span:first-child{font-size:12px}.rules-review-row .pill{flex:none}.rules-review-row.contradiction{border-color:#ff7d7255}.rules-review-row.missing{border-color:#ffd36d45}
+  .rules-builder-section{margin-top:9px;border:1px solid var(--line);border-radius:14px;background:#ffffff07;overflow:hidden}.rules-builder-section summary{padding:13px;font-size:13px;font-weight:800;cursor:pointer}.rules-builder-body{padding:0 13px 13px}.rules-builder-prompts{margin:0 0 10px;padding-left:18px;color:var(--muted);font-size:11px;line-height:1.5}.rules-template-grid{display:grid;gap:8px}.rules-history-item{padding:12px;border:1px solid var(--line);border-radius:13px;background:#ffffff07}.rules-history-item.current{border-color:#5fe3ae55}.rules-history-item .summary{margin-top:5px;color:var(--muted);font-size:11px;line-height:1.4}
   .participant-subject{margin-top:12px;padding:11px;border-radius:11px;background:#17243b;color:#fff}
   .participant-subject-label{display:block;color:#d4deed;font-size:9px;font-weight:850;letter-spacing:.1em;text-transform:uppercase}
   .participant-subject>strong{display:block;margin-top:5px;font-size:16px}.participant-subject-members{display:block;margin-top:3px;color:#d4deed;font-size:11px;line-height:1.4}
@@ -799,9 +809,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.8.0',
-  build: '20260716.9',
-  releaseNotes: 'Event finales, shareable recaps, and completed playoff matches now stay useful from the bracket.'
+  version: '0.9.0',
+  build: '20260717.1',
+  releaseNotes: 'Event Rules Hub adds guided drafting, safe rich text, immutable revisions, Quick Rules, public search, sharing, and print.'
 });
 
 function appVersionLabel(){
@@ -1067,6 +1077,7 @@ function migrateEvents(){
   evts.forEach(ev=>{
     ev.eventDate=normalizeEventDate(ev.eventDate)||localDateFromTimestamp(ev.created)||todayLocalDate();
     if(ev.schedulePublications!=null&&(typeof ev.schedulePublications!=='object'||Array.isArray(ev.schedulePublications)))delete ev.schedulePublications;
+    if(ev.rules!=null&&rulesModelSupported(ev.rules))ev.rules=normalizeRulesModel(ev.rules);
     if(ev.bracket){ ev.brackets=[{id:uid(), name:'Playoffs', created:ev.bracket.created, seeds:ev.bracket.seeds}]; delete ev.bracket; }
     if(!ev.brackets) ev.brackets=[];
     if(eventFormat(ev)==='rotatingGroups'){
@@ -2775,6 +2786,285 @@ function evById(id){ return evts.find(e=>e.id===id); }
 function evTeamById(ev,tid){ return (ev.teams||[]).find(t=>t.id===tid); }
 function evGameCount(ev){ return games.filter(g=>g.evId===ev.id).length; }
 function eventFormat(ev){ return ev&&(ev.format==='rotatingGroups'||ev.format==='rotatingPairs4s')?'rotatingGroups':'fixedTeams'; }
+
+/* ============================================================
+   EVENT RULES — schema, sanitization, revisions, and sync merge
+
+   Rules use a small document schema. Each block stores only allowlisted,
+   normalized HTML for that block; arbitrary browser HTML is never persisted.
+   The same sanitizer runs when content enters the editor model, when saved
+   data is normalized, and again before organizer/public rendering.
+   ============================================================ */
+const RULES_SCHEMA_VERSION=1;
+const RULES_DOCUMENT_SCHEMA_VERSION=1;
+const RULES_CALLOUT_TYPES=Object.freeze(['important','format-exception','weather','penalty','updated-rule']);
+const RULES_BLOCK_TAGS=Object.freeze(['H2','H3','P','UL','OL','ASIDE','HR','TABLE']);
+const RULES_FORBIDDEN_TAGS=new Set(['SCRIPT','STYLE','IFRAME','FRAME','FRAMESET','OBJECT','EMBED','FORM','INPUT','BUTTON','SELECT','OPTION','TEXTAREA','META','LINK','BASE','SVG','MATH','VIDEO','AUDIO','CANVAS']);
+
+function createEmptyRulesModel(){
+  return {schemaVersion:RULES_SCHEMA_VERSION,draft:null,draftDeletedAt:null,publishedRevisionId:null,revisions:[],settingsAcknowledgements:{},unpublishedAt:null,publicationUpdatedAt:null,conflicts:[],updatedAt:null};
+}
+function rulesModelSupported(value){return !value||positiveInt(value.schemaVersion,RULES_SCHEMA_VERSION)<=RULES_SCHEMA_VERSION;}
+function safeRulesLink(value){
+  const href=String(value||'').trim();if(!href)return '';
+  if(href.startsWith('#'))return href;
+  try{const url=new URL(href,location.href);return ['http:','https:','mailto:','tel:'].includes(url.protocol)?href:'';}catch(_){return '';}
+}
+function sanitizeRulesHtml(value){
+  const parser=new DOMParser(),doc=parser.parseFromString(`<div id="court-rules-root">${String(value||'')}</div>`,'text/html'),root=doc.getElementById('court-rules-root');
+  if(!root)return '';
+  const allowed=new Set(['H2','H3','P','STRONG','EM','UL','OL','LI','A','BR','HR','ASIDE','TABLE','TBODY','THEAD','TR','TH','TD']);
+  /* Preserve the two supported semantic attributes before removing all other
+     attributes. DOMParser keeps them inert; validation below controls values. */
+  const cleanWithAttrs=node=>{
+    [...node.childNodes].forEach(child=>{
+      if(child.nodeType===Node.COMMENT_NODE){child.remove();return;}
+      if(child.nodeType!==Node.ELEMENT_NODE)return;
+      const tag=child.tagName,original={href:child.getAttribute('href'),callout:child.getAttribute('data-callout'),colspan:child.getAttribute('colspan')};
+      if(RULES_FORBIDDEN_TAGS.has(tag)){child.remove();return;}
+      if(!allowed.has(tag)){const fragment=doc.createDocumentFragment();while(child.firstChild)fragment.appendChild(child.firstChild);child.replaceWith(fragment);cleanWithAttrs(node);return;}
+      [...child.attributes].forEach(attribute=>child.removeAttribute(attribute.name));
+      if(tag==='A'){const href=safeRulesLink(original.href);if(href){child.setAttribute('href',href);child.setAttribute('target','_blank');child.setAttribute('rel','noopener noreferrer');}}
+      if(tag==='ASIDE'){const raw=String(original.callout||'important').toLowerCase();child.setAttribute('data-callout',RULES_CALLOUT_TYPES.includes(raw)?raw:'important');}
+      if(['TH','TD'].includes(tag)){const colspan=clamp(positiveInt(original.colspan,1),1,8);if(colspan>1)child.setAttribute('colspan',String(colspan));}
+      cleanWithAttrs(child);
+    });
+  };
+  cleanWithAttrs(root);
+  return root.innerHTML.trim();
+}
+function rulesDocumentFromHtml(value){
+  const sanitized=sanitizeRulesHtml(value),doc=new DOMParser().parseFromString(`<div id="court-rules-document">${sanitized}</div>`,'text/html'),root=doc.getElementById('court-rules-document'),blocks=[];
+  if(!root)return {schemaVersion:RULES_DOCUMENT_SCHEMA_VERSION,blocks:[]};
+  const append=(type,html)=>{const clean=sanitizeRulesHtml(html);if(clean)blocks.push({id:uid(),type,html:clean});};
+  [...root.childNodes].forEach(node=>{
+    if(node.nodeType===Node.TEXT_NODE){if(node.textContent.trim())append('paragraph',`<p>${esc(node.textContent.trim())}</p>`);return;}
+    if(node.nodeType!==Node.ELEMENT_NODE)return;
+    const tag=node.tagName;if(!RULES_BLOCK_TAGS.includes(tag)){if(node.textContent.trim())append('paragraph',`<p>${esc(node.textContent.trim())}</p>`);return;}
+    const type=tag==='H2'||tag==='H3'?'heading':tag==='UL'||tag==='OL'?'list':tag==='ASIDE'?'callout':tag==='HR'?'divider':tag==='TABLE'?'table':'paragraph';append(type,node.outerHTML);
+  });
+  return {schemaVersion:RULES_DOCUMENT_SCHEMA_VERSION,blocks};
+}
+function normalizeRulesDocument(value){
+  if(!value||typeof value!=='object'||Array.isArray(value)||positiveInt(value.schemaVersion,RULES_DOCUMENT_SCHEMA_VERSION)>RULES_DOCUMENT_SCHEMA_VERSION||!Array.isArray(value.blocks))return {schemaVersion:RULES_DOCUMENT_SCHEMA_VERSION,blocks:[]};
+  const blocks=[];value.blocks.forEach(block=>{
+    if(!block||typeof block!=='object'||typeof block.html!=='string')return;
+    const clean=sanitizeRulesHtml(block.html);if(!clean)return;
+    const parsed=rulesDocumentFromHtml(clean);parsed.blocks.forEach((next,index)=>blocks.push({...next,id:index===0&&block.id?String(block.id):next.id}));
+  });
+  return {schemaVersion:RULES_DOCUMENT_SCHEMA_VERSION,blocks};
+}
+function rulesDocumentToHtml(value){return sanitizeRulesHtml(normalizeRulesDocument(value).blocks.map(block=>block.html).join(''));}
+function normalizeQuickRules(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return {};
+  const out={};for(const [key,row] of Object.entries(value)){
+    if(!row||typeof row!=='object'||Array.isArray(row))continue;
+    const state=['inherited','custom','notDecided','notApplicable'].includes(row.state)?row.state:'custom';out[key]={state,value:String(row.value||'').slice(0,500),source:row.source?String(row.source).slice(0,120):undefined};
+  }return out;
+}
+function normalizeRulesDraft(value){
+  if(!value||typeof value!=='object'||Array.isArray(value)||!value.document||typeof value.document!=='object')return null;
+  return {document:normalizeRulesDocument(value.document),quickRules:normalizeQuickRules(value.quickRules),builder:value.builder&&typeof value.builder==='object'&&!Array.isArray(value.builder)?JSON.parse(JSON.stringify(value.builder)):{sections:{}},updatedAt:Number(value.updatedAt)||null,updatedBy:value.updatedBy?String(value.updatedBy).slice(0,120):null,basedOnRevisionId:value.basedOnRevisionId?String(value.basedOnRevisionId):null,reviewFields:Array.isArray(value.reviewFields)?value.reviewFields.map(String):[]};
+}
+function normalizeRulesRevision(value){
+  if(!value||typeof value!=='object'||Array.isArray(value)||!value.id||!value.document)return null;
+  return {id:String(value.id),number:positiveInt(value.number,1),document:normalizeRulesDocument(value.document),quickRules:normalizeQuickRules(value.quickRules),publishedAt:Number(value.publishedAt)||0,author:value.author?String(value.author).slice(0,120):null,changeSummary:String(value.changeSummary||'').slice(0,500),afterStart:!!value.afterStart,settingsSnapshot:value.settingsSnapshot&&typeof value.settingsSnapshot==='object'&&!Array.isArray(value.settingsSnapshot)?JSON.parse(JSON.stringify(value.settingsSnapshot)):{},schemaVersion:positiveInt(value.schemaVersion,RULES_SCHEMA_VERSION)};
+}
+function normalizeRulesModel(value){
+  if(value&&typeof value==='object'&&!Array.isArray(value)&&positiveInt(value.schemaVersion,RULES_SCHEMA_VERSION)>RULES_SCHEMA_VERSION)return value;
+  const base=createEmptyRulesModel();if(!value||typeof value!=='object'||Array.isArray(value))return base;
+  const revisions=Array.isArray(value.revisions)?value.revisions.map(normalizeRulesRevision).filter(Boolean):[];
+  const revisionIds=new Set(revisions.map(revision=>revision.id));
+  return {...base,schemaVersion:RULES_SCHEMA_VERSION,draft:normalizeRulesDraft(value.draft),draftDeletedAt:Number(value.draftDeletedAt)||null,publishedRevisionId:revisionIds.has(String(value.publishedRevisionId||''))?String(value.publishedRevisionId):null,revisions,settingsAcknowledgements:value.settingsAcknowledgements&&typeof value.settingsAcknowledgements==='object'&&!Array.isArray(value.settingsAcknowledgements)?JSON.parse(JSON.stringify(value.settingsAcknowledgements)):{},unpublishedAt:Number(value.unpublishedAt)||null,publicationUpdatedAt:Number(value.publicationUpdatedAt)||null,conflicts:Array.isArray(value.conflicts)?value.conflicts.filter(row=>row&&typeof row==='object').map(row=>({...row})):[],updatedAt:Number(value.updatedAt)||null};
+}
+function eventRules(ev){return normalizeRulesModel(ev?.rules);}
+function createRulesDraft(document,quickRules={},updatedAt=Date.now(),basedOnRevisionId=null){return {document:normalizeRulesDocument(document),quickRules:normalizeQuickRules(quickRules),builder:{sections:{}},updatedAt:Number(updatedAt)||Date.now(),updatedBy:null,basedOnRevisionId:basedOnRevisionId||null,reviewFields:[]};}
+function publishedRulesRevision(ev){const rules=eventRules(ev);return rules.revisions.find(revision=>revision.id===rules.publishedRevisionId)||null;}
+function rulesSettingsSnapshot(ev){
+  const rotating=eventFormat(ev)==='rotatingGroups',rotation=rotating?rotationSettings(ev):null,sched=rotating?rotation:ev?.sched||{};
+  const teamSize=rotating?rotation.teamSize:Math.max(0,...(ev?.teams||[]).map(team=>(team.players||[]).length));
+  return {format:rotating?'rotatingGroups':'fixedTeams',teamSize:teamSize||null,entrySize:rotating?rotation.entrySize:null,courts:positiveInt(sched?.courts,0)||null,rounds:positiveInt(rotating?rotation.rounds:ev?.sched?.standardRounds,0)||null,standings:rotating?(rotation.tiebreakers||[]).slice():['matchRecord','setRecord','pointDifferential'],bracketCount:(ev?.brackets||[]).length,poolCount:eventPoolLabels(ev).length,eventDate:eventLocalDate(ev),startTime:sched?.start||null};
+}
+function eventStartTimestamp(ev){const settings=rulesSettingsSnapshot(ev),scheduled=settings.startTime&&combineLocalDateTime(settings.eventDate,settings.startTime,0);if(Number.isFinite(scheduled))return scheduled;const midnight=combineLocalDateTime(settings.eventDate,'00:00',0);return Number.isFinite(midnight)?midnight:(Number(ev?.created)||Infinity);}
+function eventHasStarted(ev,now=Date.now()){return Number(now)>=eventStartTimestamp(ev);}
+function publishRulesRevision(ev,{summary='',now=Date.now(),author=null}={}){
+  if(!ev)throw Object.assign(new Error('event missing'),{code:'event-missing'});const rules=eventRules(ev);if(!rulesModelSupported(rules))throw Object.assign(new Error('rules schema unsupported'),{code:'unsupported-schema'});if(!rules.draft)throw Object.assign(new Error('draft missing'),{code:'draft-missing'});
+  const afterStart=eventHasStarted(ev,now),changeSummary=String(summary||'').trim();if(afterStart&&!changeSummary)throw Object.assign(new Error('Explain changes published after the event began.'),{code:'post-start-summary-required'});
+  const revision={id:`rules-${uid()}`,number:Math.max(0,...rules.revisions.map(item=>positiveInt(item.number,0)))+1,document:normalizeRulesDocument(rules.draft.document),quickRules:normalizeQuickRules(rules.draft.quickRules),publishedAt:Number(now)||Date.now(),author:author?String(author).slice(0,120):null,changeSummary:changeSummary.slice(0,500),afterStart,settingsSnapshot:rulesSettingsSnapshot(ev),schemaVersion:RULES_SCHEMA_VERSION};
+  ev.rules={...rules,draft:null,draftDeletedAt:null,publishedRevisionId:revision.id,revisions:[...rules.revisions,revision],unpublishedAt:null,publicationUpdatedAt:revision.publishedAt,updatedAt:revision.publishedAt};return revision;
+}
+function canonicalRulesJson(value){
+  if(Array.isArray(value))return `[${value.map(canonicalRulesJson).join(',')}]`;if(value&&typeof value==='object')return `{${Object.keys(value).sort().map(key=>`${JSON.stringify(key)}:${canonicalRulesJson(value[key])}`).join(',')}}`;return JSON.stringify(value);
+}
+function canonicalRulesRevisionPayload(revision){return canonicalRulesJson({...revision,id:''});}
+function mergeRulesModels(localValue,remoteValue){
+  if(!localValue)return normalizeRulesModel(remoteValue);if(!remoteValue)return normalizeRulesModel(localValue);
+  if(!rulesModelSupported(localValue)||!rulesModelSupported(remoteValue))return (Number(remoteValue?.updatedAt)||0)>=(Number(localValue?.updatedAt)||0)?remoteValue:localValue;
+  const local=normalizeRulesModel(localValue),remote=normalizeRulesModel(remoteValue),byId=new Map(),conflicts=[...(local.conflicts||[]),...(remote.conflicts||[])];
+  for(const revision of [...local.revisions,...remote.revisions]){
+    const current=byId.get(revision.id);if(!current){byId.set(revision.id,revision);continue;}
+    if(canonicalRulesJson(current)!==canonicalRulesJson(revision)){
+      const pair=[current,revision].sort((a,b)=>canonicalRulesJson(a).localeCompare(canonicalRulesJson(b))),suffix=hash32(canonicalRulesJson(pair)).toString(36),alternateRevisionId=`${revision.id}~conflict-${suffix}`;
+      byId.set(revision.id,pair[0]);byId.set(alternateRevisionId,{...pair[1],id:alternateRevisionId});
+      conflicts.push({id:`conflict-${revision.id}-${suffix}`,type:'revision-id-content',revisionId:revision.id,alternateRevisionId,detectedAt:Math.max(current.publishedAt||0,revision.publishedAt||0)});
+    }
+  }
+  const revisions=[...byId.values()].sort((a,b)=>a.number-b.number||a.publishedAt-b.publishedAt||a.id.localeCompare(b.id));
+  const localDraftTime=Math.max(Number(local.draft?.updatedAt)||0,Number(local.draftDeletedAt)||0),remoteDraftTime=Math.max(Number(remote.draft?.updatedAt)||0,Number(remote.draftDeletedAt)||0),draftSource=remoteDraftTime>=localDraftTime?remote:local,draftDeletedAt=Math.max(Number(local.draftDeletedAt)||0,Number(remote.draftDeletedAt)||0)||null,draft=draftDeletedAt>=(Number(draftSource.draft?.updatedAt)||0)?null:draftSource.draft;
+  const mappedPublishedId=source=>{const sourceRevision=source.revisions.find(item=>item.id===source.publishedRevisionId);if(!sourceRevision)return null;const payload=canonicalRulesRevisionPayload(sourceRevision);return revisions.find(item=>canonicalRulesRevisionPayload(item)===payload)?.id||null;},candidateIds=[...new Set([mappedPublishedId(local),mappedPublishedId(remote)].filter(Boolean))],publishedRevisionId=candidateIds.sort((a,b)=>{const A=byId.get(a),B=byId.get(b);return (B.publishedAt-A.publishedAt)||(B.number-A.number)||b.localeCompare(a);})[0]||null,publicationTime=Math.max(Number(local.publicationUpdatedAt)||0,Number(remote.publicationUpdatedAt)||0,Number(byId.get(publishedRevisionId)?.publishedAt)||0),unpublishedAt=Math.max(Number(local.unpublishedAt)||0,Number(remote.unpublishedAt)||0)||null;
+  const acknowledgements={...local.settingsAcknowledgements};for(const [key,row] of Object.entries(remote.settingsAcknowledgements||{})){if((Number(row?.acknowledgedAt)||0)>=(Number(acknowledgements[key]?.acknowledgedAt)||0))acknowledgements[key]=row;}
+  const uniqueConflicts=[...new Map(conflicts.map(row=>[row.id||canonicalRulesJson(row),row])).values()];
+  return {schemaVersion:RULES_SCHEMA_VERSION,draft,draftDeletedAt,publishedRevisionId:unpublishedAt&&unpublishedAt>=publicationTime?null:publishedRevisionId,revisions,settingsAcknowledgements:acknowledgements,unpublishedAt,publicationUpdatedAt:publicationTime||null,conflicts:uniqueConflicts,updatedAt:Math.max(Number(local.updatedAt)||0,Number(remote.updatedAt)||0,localDraftTime,remoteDraftTime,publicationTime)||null};
+}
+function mergeEventRecords(local,remote,preferRemote=true){
+  const preferred=preferRemote?remote:local,fallback=preferRemote?local:remote,out={...(fallback||{}),...(preferred||{})};
+  if(local?.rules||remote?.rules)out.rules=mergeRulesModels(local?.rules,remote?.rules);return out;
+}
+function duplicateEventData(source,{id=uid(),name=`${source?.name||'Event'} Copy`,now=Date.now(),eventDate=todayLocalDate(now)}={}){
+  const copy=JSON.parse(JSON.stringify(source||{})),teamIds=new Map(),entryIds=new Map(),bracketIds=new Map(),matchIds=new Map(),newId=prefix=>`${prefix}-${uid()}`;
+  copy.id=id;copy.name=name;copy.created=Number(now)||Date.now();copy.eventDate=normalizeEventDate(eventDate)||todayLocalDate(now);copy.done=false;delete copy.schedulePublications;
+  (copy.teams||[]).forEach(team=>{const next=newId('team');teamIds.set(team.id,next);team.id=next;});
+  const entries=copy.entries||copy.pairs||[];entries.forEach(entry=>{const next=newId('entry');entryIds.set(entry.id,next);entry.id=next;});
+  (copy.teams||[]).forEach(team=>{if(team.playoffSource?.entryIds)team.playoffSource.entryIds=team.playoffSource.entryIds.map(value=>entryIds.get(value)||value);});
+  if(copy.rotation?.initialSeeds&&typeof copy.rotation.initialSeeds==='object')copy.rotation.initialSeeds=Object.fromEntries(Object.entries(copy.rotation.initialSeeds).map(([key,value])=>[entryIds.get(key)||key,value]));
+  (copy.brackets||[]).forEach(bracket=>{const next=newId('bracket');bracketIds.set(bracket.id,next);bracket.id=next;bracket.created=Number(now)||Date.now();bracket.seeds=(bracket.seeds||[]).map(seed=>teamIds.get(seed)||seed);});
+  const remapMatch=match=>{const old=match.id,next=newId('match');matchIds.set(old,next);match.id=next;if(match.a)match.a=teamIds.get(match.a)||match.a;if(match.b)match.b=teamIds.get(match.b)||match.b;if(match.sideAEntryIds)match.sideAEntryIds=match.sideAEntryIds.map(value=>entryIds.get(value)||value);if(match.sideBEntryIds)match.sideBEntryIds=match.sideBEntryIds.map(value=>entryIds.get(value)||value);if(match.pairIdsA)match.pairIdsA=match.pairIdsA.map(value=>entryIds.get(value)||value);if(match.pairIdsB)match.pairIdsB=match.pairIdsB.map(value=>entryIds.get(value)||value);};
+  [...(copy.rotationSchedule||[]),...(copy.pairSchedule||[]),...(copy.fixedScheduleExtras||[])].forEach(remapMatch);
+  const rules=eventRules(source),published=publishedRulesRevision(source),basis=rules.draft||published&&{document:published.document,quickRules:published.quickRules,builder:{sections:{}},updatedAt:now,basedOnRevisionId:null};
+  copy.rules=createEmptyRulesModel();if(basis){copy.rules.draft=createRulesDraft(basis.document,basis.quickRules,now,null);copy.rules.draft.builder=JSON.parse(JSON.stringify(basis.builder||{sections:{}}));copy.rules.draft.reviewFields=['eventName','eventDate','venue'];copy.rules.updatedAt=Number(now)||Date.now();}
+  return copy;
+}
+
+const QUICK_RULE_DEFS=Object.freeze([
+  ['teamFormat','Team format'],['poolPlay','Pool-play format'],['playoffFormat','Playoff format'],['coedRequirement','Coed requirement'],['tipRule','Tip rule'],['blockContact','Block contact'],['letServe','Let serve'],['advancement','Advancement'],['tiebreakerOrder','Tiebreaker order'],['weatherPolicy','Weather policy']
+]);
+const RULES_BUILDER_SECTIONS=Object.freeze([
+  {key:'authority',title:'Governing rules and authority',prompts:['Baseline rule system (USAV, FIVB, AVP, local, or custom)','Event-specific overrides and rules-silence procedure','Tournament-director authority and emergency operational changes']},
+  {key:'eligibility',title:'Divisions and eligibility',prompts:['Division, skill, age, player and gender eligibility','Roster deadlines, size, and multiple-roster limits','Check-in, waivers, and identification']},
+  {key:'composition',title:'Team composition',prompts:['Players on court and minimums to begin or continue','Gender contacts and reverse-coed attack, block, or serve limits','Rotation, positions, libero, and rotating pair/group integrity']},
+  {key:'equipment',title:'Courts and equipment',prompts:['Surface, dimensions, net, antennas, boundaries, pursuit, and overheads','Ball and provider, footwear, jewelry, and braces','Court-switch procedure']},
+  {key:'poolPlay',title:'Pool-play match format',prompts:['Sets, points, deciding set, win by two, cap, and scoring system','Whether all sets count, incomplete matches, and time limits','Warm-up, side switches, and timeouts']},
+  {key:'ballHandling',title:'Playing-the-ball rules',prompts:['Tips, roll shots, pokes, doubles, serve setting, and hand-setting over','Lifts, block contact, let serves, screening, net and under-net contact','Reaching, back-row attacks, and multiple-contact interpretation']},
+  {key:'tiebreakers',title:'Standings and tiebreakers',prompts:['Match/set record and head-to-head','Two-team and multi-team procedures, percentages, differential, and caps','Draws, played tiebreakers, forfeits, incomplete matches, and restart policy']},
+  {key:'advancement',title:'Advancement and brackets',prompts:['Brackets and teams advancing from pools','Cross-pool seeds, reseeding, byes, rematch avoidance, and play-ins','Elimination type, round formats, championship, third place, withdrawals, and shortening']},
+  {key:'scheduling',title:'Scheduling and readiness',prompts:['Fixed or rolling schedule, arrival, grace period, and late penalties','Set/match forfeits, reassignments, early starts, and wrong-opponent procedure','Delayed courts and schedule-change announcements']},
+  {key:'officiating',title:'Officiating and work teams',prompts:['Self-officiated or assigned officials and work roles','Losing-team/championship work, penalties, and certification','Equipment responsibility, reporting, and correction deadlines']},
+  {key:'injuries',title:'Substitutions and injuries',prompts:['Between-set, during-set, injury substitutions, and return','Short-handed play, medical/blood procedure, and replacement eligibility','Doubles injury and set/match forfeiture']},
+  {key:'conduct',title:'Conduct',prompts:['Captain/referee communication and sportsmanship','Abuse, spectators, fighting, ejection, and disqualification','Cleanup and substance rules where relevant']},
+  {key:'weather',title:'Weather and safety policy',prompts:['Rain, lightning, heat, air quality, and unsafe courts','Delay intervals, resumption, communication, shortening, and cancellation','Refunds, unfinished standings/prizes, and director authority']},
+  {key:'protests',title:'Protests and disputes',prompts:['Who may protest and protestable versus judgment decisions','Deadline, play status, evidence, authority, and corrections','Final authority']},
+  {key:'modifications',title:'Event-day modifications',prompts:['Who may publish a change, communication, and effective time','Effect on completed matches and acknowledgement','Emergency-rule precedence']}
+]);
+const RULES_TEMPLATE_DEFS=Object.freeze([
+  {key:'indoor6s',label:'Indoor 6s',formats:['fixedTeams'],intro:'Indoor six-player tournament rules using a conventional team format.'},
+  {key:'sandDoubles',label:'Sand doubles',formats:['fixedTeams'],intro:'Outdoor sand doubles rules with ball-handling and weather decisions called out.'},
+  {key:'grassDoubles',label:'Grass doubles',formats:['fixedTeams'],intro:'Outdoor grass doubles rules with court, equipment, and weather policies.'},
+  {key:'triples',label:'Triples',formats:['fixedTeams'],intro:'Three-player team rules for pool play and playoffs.'},
+  {key:'quads',label:'Quads',formats:['fixedTeams'],intro:'Four-player team rules for pool play and playoffs.'},
+  {key:'coed4s',label:'Coed 4s',formats:['fixedTeams'],intro:'Coed four-player rules with composition and contact requirements left for organizer review.'},
+  {key:'reverseCoed',label:'Reverse coed',formats:['fixedTeams'],intro:'Reverse-coed rules with attack, block, and serve restrictions left for organizer review.'},
+  {key:'fixedTournament',label:'Fixed-team tournament',formats:['fixedTeams'],intro:'General fixed-team pool-play and playoff rules.'},
+  {key:'rotatingPairs',label:'Rotating pairs',formats:['rotatingGroups'],entrySize:2,intro:'Registered pairs stay together while combining into temporary teams.'},
+  {key:'rotatingIndividuals',label:'Rotating individuals',formats:['rotatingGroups'],entrySize:1,intro:'Individuals rotate through temporary teams while keeping individual standings.'},
+  {key:'custom',label:'General custom event',formats:['fixedTeams','rotatingGroups'],intro:'A flexible event-rules outline with every major policy area available.'}
+]);
+function rulesInheritedQuickRules(ev){
+  const settings=rulesSettingsSnapshot(ev),rotating=settings.format==='rotatingGroups',teamValue=rotating?`${settings.entrySize===1?'Individuals':settings.entrySize===2?'Pairs':`${settings.entrySize}-player groups`} combine into ${settings.teamSize}s`:`Fixed teams${settings.teamSize?` · up to ${settings.teamSize} rostered player${settings.teamSize===1?'':'s'}`:''}`;
+  const bracketValue=settings.bracketCount?`${settings.bracketCount} saved playoff bracket${settings.bracketCount===1?'':'s'}`:'Not decided';
+  const standingsValue=rotating?(settings.standings||[]).map(key=>({winPct:'Win percentage',standingsPoints:'Standings points',wins:'Wins',pointDiff:'Point differential',pointDiffPerGame:'Point differential per game',pointsFor:'Points scored',pointsForPerGame:'Points scored per game'}[key]||key)).join(' → '):'Match record → set record → point differential';
+  return {
+    teamFormat:{state:'inherited',value:teamValue,source:'event format'},
+    poolPlay:{state:'notDecided',value:'Not decided',source:'rules'},
+    playoffFormat:settings.bracketCount?{state:'inherited',value:bracketValue,source:'saved brackets'}:{state:'notDecided',value:'Not decided',source:'rules'},
+    coedRequirement:{state:'notDecided',value:'Not decided',source:'rules'},tipRule:{state:'notDecided',value:'Not decided',source:'rules'},blockContact:{state:'notDecided',value:'Not decided',source:'rules'},letServe:{state:'notDecided',value:'Not decided',source:'rules'},
+    advancement:settings.bracketCount?{state:'inherited',value:bracketValue,source:'saved brackets'}:{state:'notDecided',value:'Not decided',source:'rules'},
+    tiebreakerOrder:{state:'inherited',value:standingsValue,source:'Court standings'},weatherPolicy:{state:'notDecided',value:'See Weather and safety policy',source:'rules'}
+  };
+}
+function deriveRulesQuickRules(ev,overrides=null){return {...rulesInheritedQuickRules(ev),...normalizeQuickRules(overrides||eventRules(ev).draft?.quickRules||publishedRulesRevision(ev)?.quickRules)};}
+function rulesSettingsMismatch(ev,quickRules=deriveRulesQuickRules(ev)){
+  const inherited=rulesInheritedQuickRules(ev),rules=eventRules(ev),out=[];
+  for(const key of ['teamFormat','advancement','tiebreakerOrder']){
+    const row=quickRules[key],expected=inherited[key];if(!row||row.state!=='custom'||normalizeSearchText(row.value)===normalizeSearchText(expected.value))continue;
+    const fingerprint=hash32(`${key}|${expected.value}|${row.value}`).toString(36),ack=rules.settingsAcknowledgements?.[key];if(ack?.fingerprint===fingerprint&&ack?.resolution==='intentionalException')continue;
+    out.push({key,label:Object.fromEntries(QUICK_RULE_DEFS)[key],written:row.value,configured:expected.value,fingerprint,resolution:ack?.fingerprint===fingerprint?ack.resolution:null});
+  }return out;
+}
+function rulesDocumentText(documentValue){const doc=new DOMParser().parseFromString(`<div>${rulesDocumentToHtml(documentValue)}</div>`,'text/html');return normalizeSearchText(doc.body.textContent);}
+function reviewEventRules(ev,draft=eventRules(ev).draft){
+  if(!draft)return [];
+  const text=rulesDocumentText(draft.document),sections=draft.builder?.sections||{},required=['poolPlay','tiebreakers','scheduling','officiating','injuries','protests','advancement'],rotating=eventFormat(ev)==='rotatingGroups';if(rotating)required.push('composition');
+  const results=[];for(const key of required){const def=RULES_BUILDER_SECTIONS.find(section=>section.key===key),state=sections[key]?.state,found=text.includes(normalizeSearchText(def?.title||key).split(' ')[0]);results.push({key,label:def?.title||key,status:state==='notApplicable'?'notApplicable':state==='notDecided'?'notDecided':state==='answered'||state==='custom'||found?'completed':'missing'});}
+  for(const mismatch of rulesSettingsMismatch(ev,draft.quickRules))results.push({key:`mismatch:${mismatch.key}`,label:`${mismatch.label}: written rules differ from Court`,status:'contradiction',mismatch});
+  return results;
+}
+function rulesDisplayState(ev){
+  const rules=eventRules(ev);if(!rulesModelSupported(rules))return {key:'unsupported',label:'Needs newer Court',tone:'warn'};
+  if(rules.conflicts?.length)return {key:'needsReview',label:'Needs review',tone:'bad'};
+  if(rules.draft&&rulesSettingsMismatch(ev,rules.draft.quickRules).length)return {key:'needsReview',label:'Needs review',tone:'bad'};
+  if(rules.publishedRevisionId&&rules.draft)return {key:'updated',label:'Updated',tone:'warn'};
+  if(rules.publishedRevisionId)return {key:'published',label:'Published',tone:'good'};
+  if(rules.draft)return {key:'draft',label:'Draft',tone:'warn'};
+  return {key:'none',label:'Not created',tone:''};
+}
+function rulesEntryActionHtml(ev){const state=rulesDisplayState(ev);return `<button class="rules-entry pressable" aria-label="Rules — ${esc(state.label)}" onclick="openRulesHub('${ev.id}')"><span><b>Event Rules</b><span>Create, publish, search, print, and share the complete event policy.</span></span><span class="pill ${state.tone}">${esc(state.label)}</span></button>`;}
+function rulesTemplateOptions(ev){const format=eventFormat(ev),entrySize=format==='rotatingGroups'?rotationSettings(ev).entrySize:null;return RULES_TEMPLATE_DEFS.filter(template=>template.formats.includes(format)&&(!template.entrySize||template.entrySize===entrySize||template.key==='custom'));}
+function rulesTemplateDocument(ev,templateKey){
+  const template=RULES_TEMPLATE_DEFS.find(item=>item.key===templateKey)||RULES_TEMPLATE_DEFS.find(item=>item.key==='custom'),quick=deriveRulesQuickRules(ev,{}),quickLines=QUICK_RULE_DEFS.map(([key,label])=>`<li><strong>${esc(label)}:</strong> ${esc(quick[key]?.value||'Not decided')}</li>`).join('');
+  const body=RULES_BUILDER_SECTIONS.map(section=>`<h2>${esc(section.title)}</h2><p>Not decided yet. Review: ${esc(section.prompts.join('; '))}.</p>`).join('');
+  return rulesDocumentFromHtml(`<h2>Event rules</h2><p>${esc(template?.intro||'Custom event rules.')}</p><aside data-callout="important"><strong>Organizer review required.</strong> Template language is a starting point, not a completeness certification.</aside><h2>Quick rules</h2><ul>${quickLines}</ul>${body}`);
+}
+function rulesFromSettingsDocument(ev){
+  const quick=deriveRulesQuickRules(ev,{}),items=QUICK_RULE_DEFS.map(([key,label])=>`<li><strong>${esc(label)}:</strong> ${esc(quick[key]?.value||'Not decided')}</li>`).join('');
+  return rulesDocumentFromHtml(`<h2>Event rules</h2><aside data-callout="important">Values labeled from Court reflect current event settings. Policies Court does not configure remain not decided.</aside><h2>Quick rules</h2><ul>${items}</ul><h2>Governing rules and authority</h2><p>Not decided yet.</p><h2>Pool-play match format</h2><p>Not decided yet.</p><h2>Standings and tiebreakers</h2><p>${esc(quick.tiebreakerOrder.value)}</p><h2>Advancement and brackets</h2><p>${esc(quick.advancement.value)}</p><h2>Weather and safety policy</h2><p>Not decided yet.</p><h2>Protests and disputes</h2><p>Not decided yet.</p>`);
+}
+function rulesBuilderSuggestedAnswer(ev,key){
+  const quick=deriveRulesQuickRules(ev,eventRules(ev).draft?.quickRules),suggestions={
+    authority:'USAV rules apply except where these event rules state otherwise. The tournament director has final authority and may make documented emergency changes for safety or operations.',
+    eligibility:'Players must meet the published division requirements, complete check-in and required waivers, and appear on an eligible roster before its deadline.',
+    composition:`${quick.teamFormat.value}. A team must have the published minimum eligible players to begin and continue.`,
+    equipment:'The organizer will identify the approved ball, court boundaries, net height, footwear policy, and court-switch procedure before play.',
+    poolPlay:'Pool-play scoring, set count, win-by-two rule, cap, warm-up, time limits, and incomplete-match procedure must be announced before the first match.',
+    ballHandling:'Officials apply the governing-rule interpretation unless this section states an event-specific exception for tips, doubles, setting, blocks, serves, net contact, or under-net contact.',
+    tiebreakers:`Court currently ranks this format using: ${quick.tiebreakerOrder.value}. Any event-specific tie procedure must be written here.`,
+    advancement:`Current Court bracket setting: ${quick.advancement.value}. The organizer must confirm advancement count, seeding, byes, rematches, and each playoff round format.`,
+    scheduling:'Teams must be ready at the assigned court. The organizer will announce the arrival requirement, grace period, late penalty, reassignment process, and official schedule-change channel.',
+    officiating:'The organizer will publish officiating and work-team assignments, required roles, score-reporting procedure, correction deadline, and missed-work penalty.',
+    injuries:'The organizer will apply the governing medical and blood procedures and publish substitution, replacement, short-handed, and injury-forfeit rules for this format.',
+    conduct:'Captains are responsible for team and spectator conduct. Abuse, threats, and fighting may result in ejection or event disqualification at the tournament director’s discretion.',
+    weather:'The tournament director may delay, shorten, relocate, or cancel play for rain, lightning, heat, air quality, or unsafe courts and will announce the resumption and unfinished-event procedure through the official event channel.',
+    protests:'Only the captain may protest a rule application before the next serve. Judgment calls are not protestable. The tournament director or named committee has final authority.',
+    modifications:'Only the tournament director or a designated organizer may publish an event-day rule change. The notice must state its effective time, reason, effect on completed matches, and emergency precedence.'
+  };return suggestions[key]||'';
+}
+function buildRulesSearchIndex(documentValue){
+  const doc=new DOMParser().parseFromString(`<div id="rules-search-root">${rulesDocumentToHtml(documentValue)}</div>`,'text/html'),root=doc.getElementById('rules-search-root'),rows=[];let section='Event rules';
+  [...(root?.children||[])].forEach((element,index)=>{if(/^H[23]$/.test(element.tagName))section=element.textContent.trim()||section;rows.push({index,section,text:normalizeSearchText(element.textContent),html:element.outerHTML});});return rows;
+}
+const RULES_SEARCH_SYNONYMS=Object.freeze({tips:['tip','open-hand','dink','placement','poke','knuckle','roll shot'],tip:['tips','open-hand','dink','placement'],girls:['women','woman','female','gender','coed'],women:['girls','female','gender','coed'],tie:['tiebreaker','tiebreakers','head-to-head','standings'],late:['grace','arrival','forfeit','readiness'],weather:['rain','lightning','heat','air quality'],injury:['medical','blood','substitution'],ref:['official','officiating','work team']});
+function searchRulesIndex(index,query){const normalized=normalizeSearchText(query);if(!normalized)return {count:0,matches:[]};const terms=new Set([normalized,...(RULES_SEARCH_SYNONYMS[normalized]||[])]),matches=(index||[]).filter(row=>[...terms].some(term=>row.text.includes(normalizeSearchText(term))));return {count:matches.length,matches};}
+function rulesPublicUrl(publication){return publication?.publicUrl?`${publication.publicUrl.replace(/#.*$/,'')}#rules`:'';}
+
+function publicStandingsHtml(ev){
+  const e=scheduleHtmlEscape,rotating=eventFormat(ev)==='rotatingGroups',rows=rotating?entryStandings(ev):eventStandings(ev);if(!rows.length)return '<p class="public-empty">Standings will appear after results are saved.</p>';
+  return `<div class="public-table"><div class="public-table-row head"><span>#</span><span>${rotating?'Entry':'Team'}</span><span>Record</span></div>${rows.map((row,index)=>{const name=rotating?row.entry.name:row.t.name,record=rotating?`${row.wins}-${row.losses}-${row.ties}`:`${row.mw}-${row.ml}${row.mt?`-${row.mt}`:''}`;return `<div class="public-table-row"><span>${index+1}</span><strong>${e(name)}</strong><span>${e(record)}</span></div>`;}).join('')}</div>`;
+}
+function publicBracketHtml(ev){const e=scheduleHtmlEscape;if(!(ev.brackets||[]).length)return '<p class="public-empty">No playoff bracket has been published yet.</p>';return (ev.brackets||[]).map(bracket=>`<article class="public-bracket"><h3>${e(bracket.name||'Playoffs')}</h3><p>${(bracket.seeds||[]).map((id,index)=>`${index+1}. ${e(evTeamById(ev,id)?.name||'TBD')}`).join(' · ')}</p></article>`).join('');}
+function publicQuickRulesHtml(ev,revision){const e=scheduleHtmlEscape,quick=deriveRulesQuickRules(ev,revision?.quickRules);return `<div class="public-quick-grid">${QUICK_RULE_DEFS.map(([key,label])=>{const row=quick[key]||{state:'notDecided',value:'Not decided'};return `<div class="public-quick"><span>${e(label)}</span><strong>${e(row.value||'Not decided')}</strong><small>${e(row.state==='notDecided'?'Not decided':row.state==='notApplicable'?'Not applicable':row.state==='inherited'?'From event settings':'Rule override')}</small></div>`;}).join('')}</div>`;}
+function publicRulesHistoryHtml(ev,current){const e=scheduleHtmlEscape,rules=eventRules(ev);return rules.revisions.slice().sort((a,b)=>b.number-a.number).map(revision=>`<details class="public-revision" ${revision.id===current?.id?'open':''}><summary><strong>Revision ${revision.number}${revision.id===current?.id?' · Current':''}</strong><span>${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}</span></summary><p>${e(revision.changeSummary||'No change summary provided.')}${revision.afterStart?' · Published after the event began.':''}</p>${revision.id===current?.id?'':`<div class="public-old-rules">${rulesDocumentToHtml(revision.document)}</div>`}</details>`).join('');}
+function publicRulesTocHtml(documentValue){const doc=new DOMParser().parseFromString(`<div>${rulesDocumentToHtml(documentValue)}</div>`,'text/html'),seen=new Map();return [...doc.querySelectorAll('h2,h3')].map((heading,index)=>{const base=safeScheduleFilename(heading.textContent).toLowerCase(),count=seen.get(base)||0;seen.set(base,count+1);const id=`rule-${base}${count?`-${count+1}`:''}`;heading.setAttribute('id',id);return {id,label:heading.textContent.trim(),index};});}
+function rulesHtmlWithHeadingIds(documentValue){const doc=new DOMParser().parseFromString(`<div id="rules-id-root">${rulesDocumentToHtml(documentValue)}</div>`,'text/html'),seen=new Map();doc.querySelectorAll('h2,h3').forEach(heading=>{const base=safeScheduleFilename(heading.textContent).toLowerCase(),count=seen.get(base)||0;seen.set(base,count+1);heading.id=`rule-${base}${count?`-${count+1}`:''}`;});return doc.getElementById('rules-id-root')?.innerHTML||'';}
+function publicEventStyles(){return `${scheduleDocumentStyles()}
+  body{padding:0;background:#eef2f7}.public-event{max-width:1050px;margin:0 auto;background:#f7f9fd;min-height:100vh}.public-event-head{padding:28px 22px 20px;background:#17243b;color:#fff}.public-event-head h1{color:#fff}.public-event-kicker{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.15em;text-transform:uppercase}.public-nav{position:sticky;top:0;z-index:4;display:flex;gap:4px;overflow-x:auto;padding:8px 12px;background:#17243bf2;box-shadow:0 5px 18px #17243b24}.public-nav a{padding:9px 11px;border-radius:9px;color:#dce5f3;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}.public-nav a:focus,.public-nav a:hover{background:#ffffff18;color:#fff}.public-section{padding:24px 22px;border-top:1px solid #d9e0eb;scroll-margin-top:58px}.public-section>h2{margin:0 0 14px;font-size:25px}.public-overview-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.public-overview-grid div,.public-quick{padding:12px;border:1px solid #d9e0eb;border-radius:11px;background:#fff}.public-overview-grid b{display:block;font-size:20px}.public-overview-grid span{color:#5d6a80;font-size:11px}.public-table{border:1px solid #d9e0eb;border-radius:11px;overflow:hidden}.public-table-row{display:grid;grid-template-columns:36px minmax(0,1fr) auto;gap:9px;padding:10px 12px;border-top:1px solid #e2e7ef;background:#fff;font-size:13px}.public-table-row:first-child{border-top:0}.public-table-row.head{background:#edf1f7;color:#5d6a80;font-size:10px;font-weight:850;text-transform:uppercase}.public-empty{color:#5d6a80}.rules-search-bar{position:sticky;top:56px;z-index:3;display:grid;grid-template-columns:minmax(0,1fr) auto auto auto;gap:7px;padding:10px 0;background:#f7f9fdf2}.rules-search-bar input{color:#172033;background:#fff;border:1px solid #cfd8e5}.rules-search-bar button{padding:9px 11px;border:1px solid #cfd8e5;border-radius:9px;background:#fff;color:#334155;font-weight:800}.rules-search-meta{min-height:20px;color:#5d6a80;font-size:11px}.public-toc{display:flex;gap:6px;overflow-x:auto;margin:0 0 14px;padding-bottom:5px}.public-toc a{padding:7px 9px;border:1px solid #d9e0eb;border-radius:999px;background:#fff;color:#334155;text-decoration:none;font-size:11px;white-space:nowrap}.public-quick-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin:0 0 18px}.public-quick span,.public-quick small{display:block;color:#65738a;font-size:10px}.public-quick strong{display:block;margin:4px 0;font-size:13px}.public-update{margin-bottom:15px;padding:12px;border-left:4px solid #c37711;border-radius:9px;background:#fff3d8;color:#5e4518;font-size:13px;line-height:1.45}.public-rules-body{line-height:1.6}.public-rules-body h2{margin:30px 0 9px;scroll-margin-top:122px}.public-rules-body h3{margin:22px 0 8px;scroll-margin-top:122px}.public-rules-body aside{padding:12px;border-left:4px solid #9a6c16;border-radius:9px;background:#fff3d8}.public-rules-body aside[data-callout="weather"]{border-color:#1974a5;background:#e8f6fd}.public-rules-body aside[data-callout="penalty"]{border-color:#b4483f;background:#fff0ee}.public-rules-body table{display:block;max-width:100%;overflow:auto;border-collapse:collapse}.public-rules-body td,.public-rules-body th{padding:8px;border:1px solid #d9e0eb}.public-rules-body a{color:#185f91}.public-revision{margin-top:9px;padding:11px;border:1px solid #d9e0eb;border-radius:10px;background:#fff}.public-revision summary{display:flex;justify-content:space-between;gap:10px;cursor:pointer}.public-revision summary span,.public-revision p{color:#5d6a80;font-size:11px}.public-old-rules{margin-top:13px;padding-top:13px;border-top:1px solid #d9e0eb}.rules-search-hit{background:#ffe28a;color:#2d2107}.rules-search-current{outline:3px solid #d99e37;outline-offset:4px}.public-print-actions{display:flex;gap:8px;margin-top:14px}.public-print-actions button{padding:10px 13px;border:1px solid #ffffff44;border-radius:9px;background:#ffffff10;color:#fff;font-weight:800}.public-bracket{padding:12px;border:1px solid #d9e0eb;border-radius:10px;background:#fff}.public-bracket h3{margin:0}.public-bracket p{color:#5d6a80;font-size:12px;line-height:1.5}
+  @media(min-width:720px){.public-overview-grid{grid-template-columns:repeat(4,minmax(0,1fr))}.public-quick-grid{grid-template-columns:repeat(3,minmax(0,1fr))}.public-section{padding:30px 36px}.public-event-head{padding:36px}.public-nav{padding-left:26px}}
+  @media(max-width:480px){.public-quick-grid{grid-template-columns:1fr}.rules-search-bar{grid-template-columns:minmax(0,1fr) auto}.rules-search-bar button[data-search-prev]{display:none}}
+  @media print{.public-nav,.rules-search-bar,.rules-search-meta,.public-print-actions{display:none!important}.public-section{padding:18px 0}.public-event-head{padding:0 0 18px;background:#fff;color:#172033}.public-event-head h1{color:#172033}.public-event{max-width:none}.public-rules-body h2{break-after:avoid}.public-revision:not([open]){display:none}}`}
+function renderPublicEventDocument(ev){
+  const e=scheduleHtmlEscape,revision=publishedRulesRevision(ev),rules=eventRules(ev),scheduleModel=deriveFullScheduleExportModel(ev),schedule=scheduleModel?scheduleExportBodyHtml(scheduleModel):'<p class="public-empty">A public schedule has not been generated yet.</p>',toc=revision?publicRulesTocHtml(revision.document):[],afterNotice=revision?.afterStart?`<div class="public-update"><strong>Rules updated ${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}.</strong> ${e(revision.changeSummary||'The organizer published an event-day change.')}</div>`:'';
+  const overview=`<div class="public-overview-grid"><div><b>${eventFormat(ev)==='rotatingGroups'?rotatingEntries(ev).length:(ev.teams||[]).length}</b><span>${eventFormat(ev)==='rotatingGroups'?'entries':'teams'}</span></div><div><b>${e(formatEventDate(eventLocalDate(ev),{month:'short',day:'numeric',year:'numeric'}))}</b><span>event date</span></div><div><b>${evGameCount(ev)}</b><span>saved games</span></div><div><b>${(ev.brackets||[]).length}</b><span>brackets</span></div></div>`;
+  const rulesBody=revision?`${afterNotice}<div class="rules-search-bar"><input type="search" data-rules-search aria-label="Search rules" placeholder="Search rules"><button type="button" data-search-prev aria-label="Previous search result">Previous</button><button type="button" data-search-next aria-label="Next search result">Next</button><button type="button" data-search-clear aria-label="Clear rules search">Clear</button></div><div class="rules-search-meta" data-search-meta>Search scoring, tips, late teams, weather…</div><nav class="public-toc" aria-label="Rules table of contents">${toc.map(item=>`<a href="#${e(item.id)}">${e(item.label)}</a>`).join('')}</nav><h3>Quick Rules</h3>${publicQuickRulesHtml(ev,revision)}<div class="public-rules-body" data-rules-search-body>${rulesHtmlWithHeadingIds(revision.document)}</div><h3>Revision history</h3>${publicRulesHistoryHtml(ev,revision)}`:'<p class="public-empty">The organizer has not published event rules. Drafts are private and never appear here.</p>';
+  const title=revision?`${String(ev.name||'Event').trim()} — Tournament Rules`:`${String(ev.name||'Event').trim()} — Event`;return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="${e(title)}"><meta property="og:title" content="${e(title)}"><meta property="og:description" content="Published event information from Court"><meta property="og:type" content="website"><title>${e(title)}</title><style>${publicEventStyles()}</style><script src="/assets/public-event.js" defer><${'/'}script></head><body><main class="public-event"><header class="public-event-head"><div class="public-event-kicker">Court · public event</div><h1>${e(ev.name||'Event')}</h1><p>${e(eventTimingSummary(ev))}</p><div class="public-print-actions"><button type="button" data-public-print>Print / Save PDF</button><button type="button" data-public-share>Share</button></div></header><nav class="public-nav" aria-label="Event navigation"><a href="#overview">Overview</a><a href="#schedule">Schedule</a><a href="#standings">Standings</a><a href="#bracket">Bracket</a><a href="#rules">Rules</a></nav><section id="overview" class="public-section"><h2>Overview</h2>${overview}</section><section id="schedule" class="public-section"><h2>Schedule</h2>${schedule}</section><section id="standings" class="public-section"><h2>Standings</h2>${publicStandingsHtml(ev)}</section><section id="bracket" class="public-section"><h2>Bracket</h2>${publicBracketHtml(ev)}</section><section id="rules" class="public-section"><h2>Rules</h2><p>Last updated: ${revision?e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'})):'Not published'}</p>${rulesBody}</section></main></body></html>`;
+}
 const FAIRNESS_POLICIES=Object.freeze(['equalGames','allowDifference']);
 function scheduleFairnessPolicy(value){return value==='equalGames'?'equalGames':'allowDifference';}
 function hasExplicitFairnessPolicy(value){return !!(value&&FAIRNESS_POLICIES.includes(value.fairnessPolicy));}
@@ -3958,8 +4248,9 @@ const SchedulePublications=(()=>{
   }
   async function prepare(evId,subjectType='',subjectId=''){
     const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),model=modelFor(ev,subjectType,subjectId);
-    if(!ev||!scope||!model)throw schedulePublicationError('missing','This schedule is no longer available.');
-    const html=renderScheduleDocument(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title:schedulePublicationTitle(model),scope};
+    const rules=ev&&eventRules(ev),unified=!subjectType&&rules&&(rules.publishedRevisionId||rules.revisions.length||rules.unpublishedAt);
+    if(!ev||!scope||(!model&&!unified))throw schedulePublicationError('missing','This event publication is no longer available.');
+    const html=unified?renderPublicEventDocument(ev):renderScheduleDocument(model),title=unified?(publishedRulesRevision(ev)?`${ev.name} — Tournament Rules`:`${ev.name} — Event`):schedulePublicationTitle(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title,scope};
     views.set(key(evId,scope),{...(views.get(key(evId,scope))||{}),contentHash});renderPanel(evId,subjectType,subjectId);return prepared;
   }
   async function refresh(evId,subjectType='',subjectId=''){
@@ -4058,7 +4349,7 @@ const SchedulePublications=(()=>{
     await copy(evId,subjectType,subjectId);
   }
   function open(evId,subjectType='',subjectId=''){const pub=activeFor(evId,subjectType,subjectId);if(!pub)return;const link=document.createElement('a');link.href=pub.publicUrl;link.target='_blank';link.rel='noopener noreferrer';document.body.appendChild(link);try{link.click();}finally{link.remove();}}
-  return {sectionHtml,refresh,create,update,disable,copy,share,open};
+  return {sectionHtml,refresh,create,update,disable,copy,share,open,activeFor,prepare};
 })();
 window.createPublicScheduleLink=(...args)=>SchedulePublications.create(...args);
 window.updatePublicScheduleLink=(...args)=>SchedulePublications.update(...args);
@@ -4066,6 +4357,78 @@ window.disablePublicScheduleLink=(...args)=>SchedulePublications.disable(...args
 window.copyPublicScheduleLink=(...args)=>SchedulePublications.copy(...args);
 window.sharePublicScheduleLink=(...args)=>SchedulePublications.share(...args);
 window.openPublicScheduleLink=(...args)=>SchedulePublications.open(...args);
+
+/* ---------- organizer-facing Event Rules Hub ---------- */
+function quickRulesPreviewHtml(ev,quickRules){const quick=deriveRulesQuickRules(ev,quickRules);return `<div class="quick-rules-grid">${QUICK_RULE_DEFS.map(([key,label])=>{const row=quick[key];return `<div class="quick-rule"><b>${esc(label)}</b><span>${esc(row?.value||'Not decided')}</span><span class="quick-rule-state">${esc(row?.state==='notDecided'?'not decided':row?.state==='notApplicable'?'not applicable':row?.state==='inherited'?'from event settings':'custom rule')}</span></div>`;}).join('')}</div>`;}
+function rulesPreviewHtml(documentValue){const html=rulesDocumentToHtml(documentValue);return `<article class="rules-preview">${html||'<p class="faint">This draft is blank.</p>'}</article>`;}
+function rulesReviewHtml(ev,draft){const review=reviewEventRules(ev,draft);if(!review.length)return '<div class="tiny faint">No draft is available to review.</div>';return `<div class="rules-review-list">${review.map(row=>`<div class="rules-review-row ${row.status}" style="display:block"><div class="row spread"><span>${esc(row.label)}</span><span class="pill ${row.status==='completed'||row.status==='notApplicable'?'good':row.status==='contradiction'?'bad':'warn'}">${esc(row.status==='notApplicable'?'Not applicable':row.status==='notDecided'?'Not decided':row.status==='completed'?'Completed':row.status==='contradiction'?'Contradiction detected':'Missing')}</span></div>${row.mismatch?`<p class="tiny muted">Court: ${esc(row.mismatch.configured)}<br>Written override: ${esc(row.mismatch.written)}</p><div class="row" style="gap:6px;flex-wrap:wrap"><button class="btn sm ghost" onclick="openRulesEventSetting('${ev.id}','${row.mismatch.key}')">Update event settings</button><button class="btn sm ghost" onclick="useInheritedQuickRule('${ev.id}','${row.mismatch.key}')">Update draft language</button><button class="btn sm ghost" onclick="acknowledgeRulesMismatch('${ev.id}','${row.mismatch.key}','intentionalException')">Keep as intentional exception</button><button class="btn sm ghost" onclick="acknowledgeRulesMismatch('${ev.id}','${row.mismatch.key}','reviewLater')">Review later</button></div>`:''}</div>`).join('')}</div>`;}
+function rulesHubPublicationHtml(ev){const pub=SchedulePublications.activeFor(ev.id,'',''),revision=publishedRulesRevision(ev);if(!revision)return '';
+  if(!pub)return `<div class="card flat" style="margin-top:12px"><b>Public Rules link</b><p class="tiny muted">Rules are published in Court, but no public event link exists yet.${Sync.configured()?' Create it below.':' Set up Sync in Settings to create a shareable link.'}</p>${Sync.configured()?`<button class="btn primary block" onclick="publishRulesPublic('${ev.id}')">Create public event link</button>`:''}</div>`;
+  const url=rulesPublicUrl(pub);return `<div class="card flat" style="margin-top:12px"><b>Public Rules link</b><textarea class="public-schedule-url" aria-label="Public Rules URL" readonly onclick="this.select()">${esc(url)}</textarea><div class="rules-hub-actions"><button class="btn ghost" onclick="copyRulesLink('${ev.id}')">Copy Rules link</button><button class="btn ghost" onclick="shareRulesLink('${ev.id}')">Share</button><button class="btn ghost" onclick="openRulesLink('${ev.id}')">Open</button><button class="btn ghost" onclick="printEventRules('${ev.id}')">Print / PDF</button></div></div>`;}
+function renderRulesHub(evId,view='preview'){
+  const ev=evById(evId);if(!ev)return;if(window._evOpen===evId)render();const rules=eventRules(ev),state=rulesDisplayState(ev),draft=rules.draft,published=publishedRulesRevision(ev),message=window._rulesHubMessage;window._rulesHubMessage='';
+  if(!rulesModelSupported(rules)){openSheet(`<h3>Event Rules Hub</h3><div class="unkline">These rules were created by a newer Court schema. They are preserved unchanged, but this version will not edit or publish them.</div>${sheetCloseBtn('Close')}`);return;}
+  let body=`<div class="row spread" style="margin-bottom:12px"><div><h3 style="margin:0">Event Rules Hub</h3><div class="tiny faint" style="margin-top:5px">${esc(ev.name)} · Rules ${esc(state.label)}</div></div><span class="pill ${state.tone}">${esc(state.label)}</span></div>${message?`<div class="unkline" role="status">${esc(message)}</div>`:''}`;
+  if(rules.conflicts?.length)body+=`<div class="unkline" role="alert"><b>Rules sync conflict needs review.</b><br>${esc(rules.conflicts.length)} revision ${rules.conflicts.length===1?'ID has':'IDs have'} different content from another device. Court preserved both versions with separate IDs instead of overwriting history. Compare revision history before publishing again.</div>`;
+  if(!draft&&!published){
+    body+=`<p class="small muted">Choose a starting point. Every option creates an editable draft; nothing becomes public until you publish it.</p><div class="rules-start-grid"><button class="rules-start-card" onclick="startRulesDraft('${ev.id}','settings')"><b>Build from event settings</b><span>Pull current format, team, standings, bracket, court, and timing values into an editable outline.</span></button><button class="rules-start-card" onclick="showRulesTemplates('${ev.id}')"><b>Start from a template</b><span>Choose a format-aware outline and customize every section.</span></button><button class="rules-start-card" onclick="showRulesPaste('${ev.id}')"><b>Paste existing rules</b><span>Paste from a document; Court cleans unsafe and unsupported formatting.</span></button><button class="rules-start-card" onclick="startRulesDraft('${ev.id}','blank')"><b>Start blank</b><span>Open the editor immediately without a guided flow.</span></button></div>${sheetCloseBtn('Close')}`;openSheet(body);return;
+  }
+  const source=view==='published'&&published?published:draft||published,sourceLabel=source===draft?'Draft':`Published revision ${published?.number}`;
+  body+=`<div class="seg" style="margin-bottom:10px">${draft?`<button class="${view!=='published'?'on':''}" onclick="renderRulesHub('${ev.id}','draft')">Draft</button>`:''}${published?`<button class="${view==='published'||!draft?'on':''}" onclick="renderRulesHub('${ev.id}','published')">Published</button>`:''}<button onclick="renderRulesHistory('${ev.id}')">History · ${rules.revisions.length}</button></div><div class="tiny faint" style="margin-bottom:7px">Previewing ${esc(sourceLabel)}</div>${rulesPreviewHtml(source.document)}<h4 style="margin:18px 0 8px">Quick Rules</h4>${quickRulesPreviewHtml(ev,source.quickRules)}`;
+  if(draft){const review=reviewEventRules(ev,draft),issues=review.filter(row=>row.status==='missing'||row.status==='notDecided'||row.status==='contradiction').length;body+=`<h4 style="margin:18px 0 8px">Completeness review</h4>${rulesReviewHtml(ev,draft)}<div class="rules-hub-actions"><button class="btn primary wide" onclick="openRulesPublish('${ev.id}')">Publish${issues?` · review ${issues}`:''}</button><button class="btn ghost" onclick="openRulesEditor('${ev.id}')">Edit document</button><button class="btn ghost" onclick="renderRulesBuilder('${ev.id}')">Build Your Rules</button><button class="btn ghost" onclick="renderQuickRulesEditor('${ev.id}')">Edit Quick Rules</button><button class="btn ghost" onclick="printRulesDraft('${ev.id}')">Print draft preview</button><button class="btn danger" onclick="deleteRulesDraft('${ev.id}')">Delete draft</button></div>`;}
+  else body+=`<div class="rules-hub-actions"><button class="btn primary wide" onclick="editPublishedRules('${ev.id}')">Create updated draft</button><button class="btn ghost" onclick="renderRulesHistory('${ev.id}')">Revision history</button><button class="btn ghost" onclick="printEventRules('${ev.id}')">Print / PDF</button></div>`;
+  body+=rulesHubPublicationHtml(ev);if(published)body+=`<button class="btn danger block" style="margin-top:8px" onclick="unpublishEventRules('${ev.id}')">Unpublish current rules</button>`;body+=sheetCloseBtn('Close');openSheet(body);
+}
+window.openRulesHub=evId=>renderRulesHub(evId);
+window.renderRulesHub=renderRulesHub;
+window.startRulesDraft=async(evId,kind,templateKey='custom')=>{const ev=evById(evId);if(!ev)return;const rules=eventRules(ev),documentValue=kind==='settings'?rulesFromSettingsDocument(ev):kind==='template'?rulesTemplateDocument(ev,templateKey):rulesDocumentFromHtml('');ev.rules={...rules,draft:createRulesDraft(documentValue,deriveRulesQuickRules(ev,{}),Date.now(),rules.publishedRevisionId),draftDeletedAt:null,updatedAt:Date.now()};await saveEvents();openRulesEditor(evId);};
+window.showRulesTemplates=evId=>{const ev=evById(evId);if(!ev)return;openSheet(`<h3>Start from a template</h3><p class="small muted">Templates are editable outlines. “Not decided yet” remains visible until you replace it.</p><div class="rules-template-grid">${rulesTemplateOptions(ev).map(template=>`<button class="rules-start-card" onclick="startRulesDraft('${ev.id}','template','${template.key}')"><b>${esc(template.label)}</b><span>${esc(template.intro)}</span></button>`).join('')}</div>${sheetCloseBtn()}`);};
+window.showRulesPaste=evId=>openSheet(`<h3>Paste existing rules</h3><p class="small muted">Paste formatted text or HTML. Court keeps headings, emphasis, lists, links, callouts, simple tables, and dividers; unsafe content is removed.</p><textarea id="rulesPaste" rows="14" placeholder="Paste rules here"></textarea><button class="btn primary block" style="margin-top:10px" onclick="savePastedRules('${evId}')">Create editable draft</button>${sheetCloseBtn()}`);
+window.savePastedRules=async evId=>{const ev=evById(evId);if(!ev)return;const input=$('#rulesPaste'),html=input?.value||'';if(!html.trim()){toast('Paste rules first');return;}const rules=eventRules(ev);ev.rules={...rules,draft:createRulesDraft(rulesDocumentFromHtml(html),deriveRulesQuickRules(ev,{}),Date.now(),rules.publishedRevisionId),draftDeletedAt:null,updatedAt:Date.now()};await saveEvents();openRulesEditor(evId);};
+window.editPublishedRules=async evId=>{const ev=evById(evId),revision=ev&&publishedRulesRevision(ev);if(!ev||!revision)return;const rules=eventRules(ev);ev.rules={...rules,draft:createRulesDraft(revision.document,revision.quickRules,Date.now(),revision.id),draftDeletedAt:null,updatedAt:Date.now()};await saveEvents();openRulesEditor(evId);};
+
+function renderRulesToolbar(){return `<div class="rules-toolbar" role="toolbar" aria-label="Rules formatting"><button type="button" aria-label="Undo" onclick="rulesEditorCommand('undo')">↶</button><button type="button" aria-label="Redo" onclick="rulesEditorCommand('redo')">↷</button><button type="button" aria-label="Heading 2" onclick="rulesEditorBlock('h2')">H2</button><button type="button" aria-label="Heading 3" onclick="rulesEditorBlock('h3')">H3</button><button type="button" aria-label="Bold" onclick="rulesEditorCommand('bold')"><b>B</b></button><button type="button" aria-label="Italic" onclick="rulesEditorCommand('italic')"><i>I</i></button><button type="button" aria-label="Bulleted list" onclick="rulesEditorCommand('insertUnorderedList')">• List</button><button type="button" aria-label="Numbered list" onclick="rulesEditorCommand('insertOrderedList')">1. List</button><button type="button" aria-label="Add link" onclick="rulesEditorLink()">Link</button><button type="button" aria-label="Divider" onclick="rulesEditorInsert('divider')">Divider</button><button type="button" aria-label="Important callout" onclick="rulesEditorInsert('callout:important')">Important</button><button type="button" aria-label="Format exception callout" onclick="rulesEditorInsert('callout:format-exception')">Exception</button><button type="button" aria-label="Weather callout" onclick="rulesEditorInsert('callout:weather')">Weather</button><button type="button" aria-label="Penalty callout" onclick="rulesEditorInsert('callout:penalty')">Penalty</button><button type="button" aria-label="Updated rule callout" onclick="rulesEditorInsert('callout:updated-rule')">Updated</button><button type="button" aria-label="Table" onclick="rulesEditorInsert('table')">Table</button><button type="button" aria-label="Clear formatting" onclick="rulesEditorCommand('removeFormat')">Clear</button></div>`;}
+window.openRulesEditor=evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;window._rulesEditor={evId,dirty:false,initial:rulesDocumentToHtml(draft.document)};openSheet(`<h3>Edit event rules</h3><p class="tiny muted">Formatting is intentionally limited for consistent phone and print readability.</p>${renderRulesToolbar()}<div class="rules-editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Event rules document" data-rules-editor oninput="rulesEditorChanged()" onpaste="rulesEditorPaste(event)">${window._rulesEditor.initial}</div><div class="row" style="gap:8px;margin-top:12px"><button class="btn primary" style="flex:1" onclick="saveRulesEditor()">Save draft</button><button class="btn ghost" style="flex:1" onclick="cancelRulesEditor()">Cancel</button></div>`);window._sheetBeforeClose=async()=>{if(!window._rulesEditor?.dirty)return true;return askConfirm('Discard unsaved rules edits? Your last saved draft will be kept.','Discard edits');};};
+window.rulesEditorChanged=()=>{if(window._rulesEditor)window._rulesEditor.dirty=true;};
+window.rulesEditorCommand=command=>{document.execCommand(command,false,null);document.querySelector('[data-rules-editor]')?.focus();rulesEditorChanged();};
+window.rulesEditorBlock=tag=>{document.execCommand('formatBlock',false,tag);document.querySelector('[data-rules-editor]')?.focus();rulesEditorChanged();};
+window.rulesEditorLink=()=>{const href=prompt('Enter an https://, http://, mailto:, tel:, or # link');if(!href)return;const safe=safeRulesLink(href);if(!safe){toast('That link type is not allowed');return;}document.execCommand('createLink',false,safe);rulesEditorChanged();};
+window.rulesEditorInsert=kind=>{const callout=kind.startsWith('callout:')?kind.split(':')[1]:null,label=callout?({'important':'Important','format-exception':'Format exception',weather:'Weather',penalty:'Penalty','updated-rule':'Updated rule'}[callout]||'Important'):'';const html=kind==='divider'?'<hr>':kind==='table'?'<table><tbody><tr><th>Item</th><th>Rule</th></tr><tr><td>Example</td><td>Edit this value</td></tr></tbody></table><p><br></p>':`<aside data-callout="${callout||'important'}"><strong>${label}:</strong> Add the rule here.</aside><p><br></p>`;document.execCommand('insertHTML',false,html);rulesEditorChanged();};
+window.rulesEditorPaste=event=>{event.preventDefault();const clipboard=event.clipboardData,html=clipboard?.getData('text/html'),text=clipboard?.getData('text/plain')||'',clean=html?sanitizeRulesHtml(html):sanitizeRulesHtml(`<p>${esc(text).replace(/\n\n+/g,'</p><p>').replace(/\n/g,'<br>')}</p>`);document.execCommand('insertHTML',false,clean);rulesEditorChanged();};
+window.saveRulesEditor=async()=>{const state=window._rulesEditor,ev=state&&evById(state.evId),editor=document.querySelector('[data-rules-editor]');if(!ev||!editor)return;const rules=eventRules(ev),draft=rules.draft;if(!draft)return;ev.rules={...rules,draft:{...draft,document:rulesDocumentFromHtml(editor.innerHTML),updatedAt:Date.now()},draftDeletedAt:null,updatedAt:Date.now()};await saveEvents();window._rulesEditor=null;window._rulesHubMessage='Draft saved';render();renderRulesHub(ev.id,'draft');};
+window.cancelRulesEditor=async()=>{const state=window._rulesEditor;if(state?.dirty&&!(await askConfirm('Discard unsaved rules edits? Your last saved draft will be kept.','Discard edits')))return;const evId=state?.evId;window._rulesEditor=null;renderRulesHub(evId,'draft');};
+
+window.renderRulesBuilder=evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;window._rulesBuilderEvId=evId;const values=draft.builder?.sections||{};openSheet(`<h3>Build Your Rules</h3><p class="small muted">Skip any section and return later. Answers generate an editable draft; finishing this guide never marks the rules complete.</p>${RULES_BUILDER_SECTIONS.map((section,index)=>{const row=values[section.key]||{};return `<details class="rules-builder-section" ${index===0?'open':''}><summary>${esc(section.title)}</summary><div class="rules-builder-body"><ul class="rules-builder-prompts">${section.prompts.map(prompt=>`<li>${esc(prompt)}</li>`).join('')}</ul><div class="field"><label for="builder-state-${section.key}">Section status</label><select id="builder-state-${section.key}"><option value="skipped" ${!row.state||row.state==='skipped'?'selected':''}>Skip for now</option><option value="answered" ${row.state==='answered'?'selected':''}>Use suggested / predefined answer</option><option value="custom" ${row.state==='custom'?'selected':''}>Custom answer</option><option value="notApplicable" ${row.state==='notApplicable'?'selected':''}>Not applicable</option><option value="notDecided" ${row.state==='notDecided'?'selected':''}>Not decided yet</option></select></div><button class="btn sm ghost" type="button" onclick="applyRulesBuilderSuggestion('${section.key}')">Use suggested starting language</button><div class="field"><label for="builder-answer-${section.key}">Rule language</label><textarea id="builder-answer-${section.key}" rows="4" placeholder="Write or adapt the rule">${esc(row.answer||'')}</textarea></div><div class="field"><label for="builder-explanation-${section.key}">Additional explanation</label><textarea id="builder-explanation-${section.key}" rows="2" placeholder="Optional context, exceptions, or examples">${esc(row.explanation||'')}</textarea></div></div></details>`;}).join('')}<button class="btn primary block" style="margin-top:12px" onclick="saveRulesBuilder('${ev.id}')">Generate editable draft</button>${sheetCloseBtn()}`);};
+window.applyRulesBuilderSuggestion=key=>{const ev=evById(window._rulesBuilderEvId),input=$(`#builder-answer-${key}`),state=$(`#builder-state-${key}`);if(!ev||!input)return;input.value=rulesBuilderSuggestedAnswer(ev,key);if(state)state.value='answered';input.focus({preventScroll:true});};
+function rulesDocumentWithBuilderSections(documentValue,generatedHtml){
+  const parser=new DOMParser(),doc=parser.parseFromString(`<div id="rules-builder-root">${rulesDocumentToHtml(documentValue)}</div>`,'text/html'),root=doc.getElementById('rules-builder-root'),builderTitles=new Set(RULES_BUILDER_SECTIONS.map(section=>normalizeSearchText(section.title)));
+  if(!root)return rulesDocumentFromHtml(generatedHtml);
+  let removing=false;for(const node of [...root.children]){if(node.tagName==='H2'){removing=builderTitles.has(normalizeSearchText(node.textContent));}if(removing)node.remove();}
+  const base=root.innerHTML.trim()?root.innerHTML:'<h2>Event rules</h2>';return rulesDocumentFromHtml(`${base}${generatedHtml}`);
+}
+window.saveRulesBuilder=async evId=>{const ev=evById(evId),rules=ev&&eventRules(ev),draft=rules?.draft;if(!ev||!draft)return;const sections={};let generated='';for(const section of RULES_BUILDER_SECTIONS){const state=$(`#builder-state-${section.key}`)?.value||'skipped',entered=$(`#builder-answer-${section.key}`)?.value.trim()||'',answer=state==='answered'&&!entered?rulesBuilderSuggestedAnswer(ev,section.key):entered,explanation=$(`#builder-explanation-${section.key}`)?.value.trim()||'';sections[section.key]={state,answer,explanation};if(state==='skipped')continue;const text=state==='notApplicable'?'Not applicable.':state==='notDecided'?'Not decided yet.':answer||'Not decided yet.';generated+=`<h2>${esc(section.title)}</h2><p>${esc(text)}</p>${explanation?`<p><em>${esc(explanation)}</em></p>`:''}`;}ev.rules={...rules,draft:{...draft,document:rulesDocumentWithBuilderSections(draft.document,generated),builder:{sections},updatedAt:Date.now()},updatedAt:Date.now()};await saveEvents();window._rulesHubMessage='Builder answers updated in the editable draft';renderRulesHub(ev.id,'draft');};
+
+window.renderQuickRulesEditor=evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;const quick=deriveRulesQuickRules(ev,draft.quickRules);openSheet(`<h3>Edit Quick Rules</h3><p class="small muted">Inherited values come from real event settings. Choose a custom override only when the written rule is intentionally different.</p>${QUICK_RULE_DEFS.map(([key,label])=>{const row=quick[key];return `<div class="quick-rule" style="margin-top:8px"><b>${esc(label)}</b><div class="field"><label for="quick-state-${key}">Source</label><select id="quick-state-${key}" onchange="quickRuleStateChanged('${key}')"><option value="inherited" ${row.state==='inherited'?'selected':''}>Inherit event setting</option><option value="custom" ${row.state==='custom'?'selected':''}>Custom rule override</option><option value="notDecided" ${row.state==='notDecided'?'selected':''}>Not decided</option><option value="notApplicable" ${row.state==='notApplicable'?'selected':''}>Not applicable</option></select></div><div class="field"><label for="quick-value-${key}">Value</label><input id="quick-value-${key}" value="${esc(row.value)}" ${row.state==='inherited'?'readonly':''}></div></div>`;}).join('')}<button class="btn primary block" style="margin-top:12px" onclick="saveQuickRules('${ev.id}')">Save Quick Rules</button>${sheetCloseBtn()}`);};
+window.quickRuleStateChanged=key=>{const state=$(`#quick-state-${key}`)?.value,input=$(`#quick-value-${key}`);if(input)input.readOnly=state==='inherited';};
+window.saveQuickRules=async evId=>{const ev=evById(evId),rules=ev&&eventRules(ev),draft=rules?.draft;if(!ev||!draft)return;const inherited=rulesInheritedQuickRules(ev),quick={};QUICK_RULE_DEFS.forEach(([key])=>{const state=$(`#quick-state-${key}`)?.value||'notDecided',value=state==='inherited'?inherited[key].value:state==='notDecided'?'Not decided':state==='notApplicable'?'Not applicable':$(`#quick-value-${key}`)?.value.trim()||'Not decided';quick[key]={state,value,source:state==='inherited'?inherited[key].source:'rules'};});ev.rules={...rules,draft:{...draft,quickRules:quick,updatedAt:Date.now()},updatedAt:Date.now()};await saveEvents();window._rulesHubMessage='Quick Rules saved';renderRulesHub(ev.id,'draft');};
+window.useInheritedQuickRule=async(evId,key)=>{const ev=evById(evId),rules=ev&&eventRules(ev),draft=rules?.draft,inherited=ev&&rulesInheritedQuickRules(ev)[key];if(!draft||!inherited)return;const now=Date.now();ev.rules={...rules,draft:{...draft,quickRules:{...draft.quickRules,[key]:inherited},updatedAt:now},settingsAcknowledgements:{...rules.settingsAcknowledgements,[key]:undefined},updatedAt:now};delete ev.rules.settingsAcknowledgements[key];await saveEvents();window._rulesHubMessage='Draft now matches the Court event setting';renderRulesHub(ev.id,'draft');};
+window.acknowledgeRulesMismatch=async(evId,key,resolution)=>{const ev=evById(evId),rules=ev&&eventRules(ev),mismatch=ev&&rulesSettingsMismatch(ev,rules.draft?.quickRules).find(row=>row.key===key);if(!ev||!mismatch)return;const now=Date.now();ev.rules={...rules,settingsAcknowledgements:{...rules.settingsAcknowledgements,[key]:{resolution,fingerprint:mismatch.fingerprint,acknowledgedAt:now,note:resolution==='intentionalException'?'Written rules intentionally override Court without changing completed results or ratings.':'Organizer deferred review.'}},updatedAt:now};await saveEvents();window._rulesHubMessage=resolution==='intentionalException'?'Intentional exception recorded':'Mismatch marked for later review';renderRulesHub(ev.id,'draft');};
+window.openRulesEventSetting=(evId,key)=>{const ev=evById(evId);if(!ev)return;window._sheetBeforeClose=null;closeSheet(true);render();if(key==='advancement')openBracketSetup(evId);else if(eventFormat(ev)==='rotatingGroups')openRotationSettings(evId);else openEvSettings(evId);};
+
+window.openRulesPublish=evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;const review=reviewEventRules(ev,draft),issues=review.filter(row=>row.status!=='completed'&&row.status!=='notApplicable'),started=eventHasStarted(ev);openSheet(`<h3>Publish event rules</h3><p class="small muted">Review the exact public document. Publishing creates an immutable revision and never exposes later drafts.</p>${issues.length?`<div class="unkline">${issues.length} review item${issues.length===1?' remains':'s remain'}. Publication is allowed after explicit confirmation.</div>`:''}${rulesReviewHtml(ev,draft)}<div class="field" style="margin-top:12px"><label for="rulesChangeSummary">Change summary${started?' · required because the event has started':' · optional'}</label><textarea id="rulesChangeSummary" rows="3" placeholder="What changed and why?"></textarea></div><h4>Public preview</h4>${rulesPreviewHtml(draft.document)}<button class="btn primary block" onclick="confirmRulesPublish('${ev.id}')">Publish rules</button>${sheetCloseBtn()}`);};
+window.confirmRulesPublish=async evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;const summary=$('#rulesChangeSummary')?.value.trim()||'',issues=reviewEventRules(ev,draft).filter(row=>row.status!=='completed'&&row.status!=='notApplicable');if(eventHasStarted(ev)&&!summary){toast('Explain this event-day rules change');return;}if(issues.length&&!(await askConfirm(`Publish with ${issues.length} unresolved review item${issues.length===1?'':'s'}? They will remain visible to the organizer. Draft content will become public.`, 'Publish anyway',false)))return;try{publishRulesRevision(ev,{summary,now:Date.now()});await saveEvents();window._rulesHubMessage='Rules published as a new immutable revision';renderRulesHub(ev.id,'published');if(Sync.configured())void publishRulesPublic(ev.id);}catch(error){toast(error?.message||'Could not publish rules');}};
+window.publishRulesPublic=async evId=>{const pub=SchedulePublications.activeFor(evId,'','');if(pub)await SchedulePublications.update(evId);else await SchedulePublications.create(evId);renderRulesHub(evId,'published');};
+window.deleteRulesDraft=async evId=>{const ev=evById(evId),rules=ev&&eventRules(ev);if(!ev||!rules?.draft)return;if(!(await askConfirm('Delete this unpublished draft? Published revisions remain unchanged and public.','Delete draft')))return;const now=Date.now();ev.rules={...rules,draft:null,draftDeletedAt:now,updatedAt:now};await saveEvents();window._rulesHubMessage='Unpublished draft deleted';renderRulesHub(ev.id,'published');};
+window.unpublishEventRules=async evId=>{const ev=evById(evId),rules=ev&&eventRules(ev);if(!ev||!rules?.publishedRevisionId)return;if(!(await askConfirm('Unpublish the current rules? The public event link will show that rules are not published. Revision history stays saved, and the existing URL is preserved.','Unpublish rules')))return;const now=Date.now();ev.rules={...rules,publishedRevisionId:null,unpublishedAt:now,publicationUpdatedAt:now,updatedAt:now};await saveEvents();const pub=SchedulePublications.activeFor(evId,'','');if(pub)void SchedulePublications.update(evId);window._rulesHubMessage='Rules unpublished · revision history preserved';renderRulesHub(ev.id);};
+window.renderRulesHistory=evId=>{const ev=evById(evId),rules=ev&&eventRules(ev);if(!ev)return;openSheet(`<h3>Rules revision history</h3><p class="small muted">Published revisions are immutable. Copying an older revision creates a new draft; it never rewrites history or changes the public page immediately.</p>${rules.revisions.length?rules.revisions.slice().sort((a,b)=>b.number-a.number).map(revision=>`<article class="rules-history-item ${revision.id===rules.publishedRevisionId?'current':''}"><div class="row spread"><b>Revision ${revision.number}</b><span class="pill ${revision.id===rules.publishedRevisionId?'good':''}">${revision.id===rules.publishedRevisionId?'Current':'Previous'}</span></div><div class="summary">${esc(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))} · ${esc(revision.changeSummary||'No change summary')}${revision.afterStart?' · after event start':''}</div><div class="row" style="gap:7px;margin-top:9px"><button class="btn sm ghost" onclick="viewRulesRevision('${ev.id}','${revision.id}')">View</button><button class="btn sm ghost" onclick="copyRulesRevisionToDraft('${ev.id}','${revision.id}')">Copy to new draft</button></div></article>`).join(''):'<div class="stat-empty">No published revisions yet.</div>'}${sheetCloseBtn('Close')}`);};
+window.viewRulesRevision=(evId,revisionId)=>{const ev=evById(evId),revision=eventRules(ev).revisions.find(item=>item.id===revisionId);if(!revision)return;openSheet(`<h3>Rules revision ${revision.number}</h3><p class="tiny muted">Published ${esc(new Date(revision.publishedAt).toLocaleString())} · ${esc(revision.changeSummary||'No change summary')}</p>${rulesPreviewHtml(revision.document)}<button class="btn primary block" onclick="copyRulesRevisionToDraft('${ev.id}','${revision.id}')">Copy into a new draft</button>${sheetCloseBtn('Close')}`);};
+window.copyRulesRevisionToDraft=async(evId,revisionId)=>{const ev=evById(evId),rules=ev&&eventRules(ev),revision=rules?.revisions.find(item=>item.id===revisionId);if(!ev||!revision)return;if(rules.draft&&!(await askConfirm('Replace the current unpublished draft with a copy of this revision?','Replace draft')))return;const now=Date.now();ev.rules={...rules,draft:createRulesDraft(revision.document,revision.quickRules,now,revision.id),draftDeletedAt:null,updatedAt:now};await saveEvents();window._rulesHubMessage=`Revision ${revision.number} copied into a new draft`;renderRulesHub(ev.id,'draft');};
+window.copyRulesLink=async evId=>{const pub=SchedulePublications.activeFor(evId,'',''),url=rulesPublicUrl(pub);if(!url)return;let copied=false;try{await navigator.clipboard.writeText(url);copied=true;}catch(_){}if(!copied)copyTextFallback(url);toast('Rules link copied');};
+window.shareRulesLink=async evId=>{const ev=evById(evId),pub=SchedulePublications.activeFor(evId,'',''),url=rulesPublicUrl(pub);if(!url)return;if(navigator.share){try{await navigator.share({title:`${ev.name} — Tournament Rules`,text:`Open the ${ev.name} tournament rules.`,url});return;}catch(error){if(error?.name==='AbortError')return;}}await copyRulesLink(evId);};
+window.openRulesLink=evId=>{const url=rulesPublicUrl(SchedulePublications.activeFor(evId,'',''));if(!url)return;const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';document.body.appendChild(link);link.click();link.remove();};
+window.printEventRules=evId=>{const ev=evById(evId);if(!ev||!publishedRulesRevision(ev)){toast('Publish rules before printing the public version');return;}const target=window.open('','_blank');if(!target){toast('Allow pop-ups to print rules');return;}writeSchedulePrintWindow(target,renderPublicEventDocument(ev));};
+window.printRulesDraft=evId=>{const ev=evById(evId),draft=ev&&eventRules(ev).draft;if(!ev||!draft)return;const target=window.open('','_blank');if(!target){toast('Allow pop-ups to print the draft');return;}const e=scheduleHtmlEscape,html=`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(ev.name)} — Draft Rules</title><style>${publicEventStyles()}</style></head><body><main class="public-event"><header class="public-event-head"><div class="public-event-kicker">Court · private draft preview</div><h1>${e(ev.name)}</h1><p>Unpublished draft · not a public revision</p></header><section class="public-section"><h2>Quick Rules</h2>${publicQuickRulesHtml(ev,{quickRules:draft.quickRules})}<div class="public-rules-body">${rulesHtmlWithHeadingIds(draft.document)}</div></section></main></body></html>`;writeSchedulePrintWindow(target,html);};
+window.duplicateEvent=async evId=>{const ev=evById(evId);if(!ev)return;const name=`${ev.name} Copy`;if(!(await askConfirm(`Duplicate “${ev.name}” as “${name}”? Rules become a private draft and public links are not copied.`,'Duplicate event',false)))return;const copy=duplicateEventData(ev,{name,now:Date.now(),eventDate:todayLocalDate()});evts.push(copy);await saveEvents();closeSheet();window._evOpen=copy.id;render({scroll:'top'});toast('Event duplicated · rules need review');};
 function scheduleShareActionsHtml(evId,subjectType='',subjectId=''){
   const args=`'${evId}','${subjectType}','${subjectId}'`;
   return `<div class="schedule-actions"><button class="btn primary" data-download-schedule onclick="openScheduleDownloadOptions(${args})">Download Schedule</button></div>`;
@@ -4388,7 +4751,7 @@ function renderRotatingEventDetail(ev){
   main.classList.add('event-detail');const entries=rotatingEntries(ev),schedule=rotationSchedule(ev),standings=entryStandings(ev),completed=schedule.filter(m=>linkedRotationGame(ev,m)).length,s=rotationSettings(ev),validation=rotationValidation(ev),leader=standings.find(r=>r.played),persistedQuality=ev.rotationScheduleQuality||ev.pairScheduleQuality,quality=schedule.length?{...persistedQuality,...rotationScheduleAudit(ev,schedule)}:persistedQuality,typePlural=rotatingEntryLabel(s.entrySize,true),typeSingular=rotatingEntryLabel(s.entrySize),rotationInfo=teammateRotationInfo(ev),placementNote=quality?.courtUnevenEntries?`Court use is uneven for ${quality.courtUnevenEntries} entr${quality.courtUnevenEntries===1?'y':'ies'}.`:quality?.sideUnevenEntries?`Side assignments are uneven for ${quality.sideUnevenEntries} entr${quality.sideUnevenEntries===1?'y':'ies'}.`:'';
   const tl=rotationTimeline(ev);
   const sideHtml=ids=>`<div class="rotation-side">${ids.map(id=>{const e=entryById(ev,id);return `<button class="rotation-entry pressable" onclick="openEntrySchedule('${ev.id}','${id}')"><b>${esc(e?.name||'Missing entry')}</b><span>${(e?.players||[]).map(pid=>pById(pid)?.name||'Historical player').map(esc).join(' · ')}</span></button>`;}).join('')}</div>`;
-  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(ev.done?'Rotating Groups · final':'Rotating Groups · live',esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}<nav class="event-subnav" aria-label="Event sections">${[['overview','Overview'],['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['entries','Entries']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}</nav>
+  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(ev.done?'Rotating Groups · final':'Rotating Groups · live',esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}<nav class="event-subnav" aria-label="Event sections">${[['overview','Overview'],['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['entries','Entries']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}</nav>${rulesEntryActionHtml(ev)}
     ${championsStripHtml(ev)}
     <section id="event-overview" class="card"><div class="row spread"><div class="stat-title" style="margin:0">Rotating Groups</div><span class="pill good">${ev.done?'final':'live'}</span></div><p class="small soft">${esc(rotatingFormatDescription(s.entrySize,s.teamSize))} Each side contains ${validation.valid?validation.entriesPerSide:'—'} ${typePlural.toLowerCase()}.</p><div class="event-overview"><div class="event-metric"><b class="num">${entries.length}</b><span>${typePlural.toLowerCase()}</span></div><div class="event-metric"><b class="num">${s.teamSize}s</b><span>players per side</span></div><div class="event-metric"><b class="num">${validation.valid?validation.entriesPerSide:'—'}</b><span>entries per side</span></div><div class="event-metric"><b class="num">${completed}</b><span>completed</span></div><div class="event-metric"><b class="num">${Math.max(0,schedule.length-completed)}</b><span>remaining</span></div><div class="event-metric"><b>${leader?esc(leader.entry.name):'—'}</b><span>leader</span></div></div><div class="tiny faint">${s.rounds} rounds · ${s.courts} courts · Win ${s.winPoints} · tie ${s.tiePoints} · loss ${s.lossPoints}. ${esc(entryRulesLabel(ev))}</div>${tl?`<div class="tiny" style="margin-top:7px;color:var(--gold)">Planned pool play ends ${fmtScheduleTime(ev,tl.poolsEnd)}${tl.playoff?` · playoffs ${fmtScheduleTime(ev,tl.playoff[0].est)} · awards ${fmtScheduleTime(ev,tl.awards)}`:''}</div>`:''}${quality?`<div class="unkline" style="margin-top:9px">Games per ${typeSingular.toLowerCase()}: ${quality.gamesMin}–${quality.gamesMax} · byes ${quality.byesMin}–${quality.byesMax} · repeated teammate combinations ${quality.repeatedTeammates??quality.repeatedPartnerships??0} · repeated opponent combinations ${quality.repeatedOpponents||0} · back-to-back assignments ${quality.backToBack||0} · incomplete rounds ${quality.invalidRounds||0}${settings.hideRatings?'':` · average seed spread ${(quality.seedSpread||0).toFixed(1)}`}</div>`:''}${placementNote?`<div class="tiny faint" style="margin-top:6px">${esc(placementNote)}</div>`:''}</section>`;
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
@@ -4407,7 +4770,7 @@ function renderRotatingEventDetail(ev){
   html+=`</section><section id="event-entries"></section><section id="event-standings" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}`;
   if(!standings.length)html+=`<div class="stat-empty">No ${typePlural.toLowerCase()} yet. Each ${typeSingular.toLowerCase()} must contain exactly ${s.entrySize} player${s.entrySize===1?'':'s'}.</div>`;
   else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id];return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span></span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
-  html+=`</section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;
+  html+=`</section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;
 }
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
 function entryDraftCapture(){const d=window._entryDraft,n=$('#entryName'),seed=$('#entryManualSeed');if(n)d.name=n.value;if(seed)d.manualSeed=positiveInt(seed.value,d.manualSeed);return d;}
@@ -4647,6 +5010,7 @@ function renderEventDetail(ev){
   html += `<nav class="event-subnav" aria-label="Event sections">
     ${[['overview','Overview'],['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['teams','Teams']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}
   </nav>`;
+  html += rulesEntryActionHtml(ev);
   html += championsStripHtml(ev);
   html += `<section id="event-overview" class="card" style="border-color:${ev.done?'#ffffff20':'#5fe3ae42'}">
     <div class="row spread"><div><div class="stat-title" style="margin:0">${ev.done?'Event complete':'Event command center'}</div><div class="small soft" style="margin-top:5px">${ev.done?'Results are final. Reopen to add or edit event operations.':canLog?'Log the next result, review court flow, or manage the field.':'Add at least two teams before logging a result.'}</div></div><span class="pill ${ev.done?'':'good'}">${ev.done?'final':'live'}</span></div>
@@ -4736,6 +5100,7 @@ function renderEventDetail(ev){
   }
   html += `<button class="btn ghost block" style="margin-top:12px" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button>
+    <button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button>
     <button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;
   main.innerHTML=html;
 }
@@ -4774,7 +5139,7 @@ window.createNewEvent=async()=>{
   const name=($('#evName').value||'').trim(); if(!name){ toast('Give the event a name'); return; }
   const eventDate=normalizeEventDate($('#evDate')?.value);if(!eventDate){toast('Choose a valid event date');return;}
   const format=window._newEventFormat==='rotatingGroups'?'rotatingGroups':'fixedTeams';
-  const ev={id:uid(), name, eventDate, created:Date.now(), done:false, format, teams:[]};
+  const ev={id:uid(), name, eventDate, created:Date.now(), done:false, format, teams:[],rules:createEmptyRulesModel()};
   if(format==='rotatingGroups'){const entrySize=Number($('#newEntrySize')?.value),teamSize=Number($('#newTeamSize')?.value),v=validateRotationConfig(entrySize,teamSize);if(!v.valid){toast(v.error);return;}ev.entries=[];ev.rotation={...DEFAULT_ROTATION,entrySize,teamSize};ev.rotationSchedule=[];}
   evts.push(ev); await saveEvents(); closeSheet();
   window._evOpen=ev.id; tab='events'; render({scroll:'top'});
@@ -7040,16 +7405,16 @@ function sheetCloseBtn(label='Cancel'){
 function openSheet(html){
   const prior=$('#scrim .sheet'), priorFocus=document.activeElement;
   const sheetState=prior?{top:prior.scrollTop,key:priorFocus?.dataset?.focusKey,start:priorFocus?.selectionStart,end:priorFocus?.selectionEnd}:null;
-  closeSheet();
+  closeSheet(true);
   window._sheetReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   const s=document.createElement('div'); s.className='scrim'; s.id='scrim';
   s.setAttribute('role','presentation');
-  s.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Close dialog" onclick="closeSheet()">×</button>${html}</div>`;
+  s.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Close dialog" onclick="requestCloseSheet()">×</button>${html}</div>`;
   const dialog=s.querySelector('.sheet'), heading=dialog.querySelector('h3');
   if(heading){ heading.id='sheet-title-'+Date.now(); dialog.setAttribute('aria-labelledby',heading.id); }
   else dialog.setAttribute('aria-label','Court dialog');
   s.addEventListener('click',e=>{ if(e.target===s) e.preventDefault(); });
-  s.addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); closeSheet(); } });
+  s.addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); requestCloseSheet(); }else if(e.key==='Tab')trapDialogTab(dialog,e); });
   document.body.classList.add('modal-open');
   document.body.appendChild(s);
   requestAnimationFrame(()=>{
@@ -7057,9 +7422,18 @@ function openSheet(html){
     const target=dialog.querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]):not(.sheet-x)') || dialog.querySelector('.sheet-x'); target?.focus();
   });
 }
-function closeSheet(){
-  const s=$('#scrim'); if(!s) return;
-  s.remove();window._scheduleDownloadChoice=null;
+function trapDialogTab(dialog,event){
+  const focusable=[...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[contenteditable="true"],[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&element.getClientRects().length);
+  if(!focusable.length){event.preventDefault();dialog.focus();return;}const first=focusable[0],last=focusable[focusable.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+}
+function requestCloseSheet(){
+  const guard=window._sheetBeforeClose;if(!guard){closeSheet(true);return;}
+  Promise.resolve().then(()=>guard()).then(allowed=>{if(allowed!==false)closeSheet(true);});
+}
+function closeSheet(force=false){
+  if(!force&&window._sheetBeforeClose){requestCloseSheet();return;}
+  const s=$('#scrim'); if(!s){if(force)window._sheetBeforeClose=null;return;}
+  s.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;
   if(!document.querySelector('.scrim')) document.body.classList.remove('modal-open');
   const back=window._sheetReturnFocus; window._sheetReturnFocus=null;
   if(back&&back.isConnected) requestAnimationFrame(()=>back.focus({preventScroll:true}));
@@ -7088,7 +7462,7 @@ function askConfirm(msg, yesLabel='Confirm', danger=true){
       }
       if(e.target===sc) done(false);
     });
-    sc.addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); done(false); } });
+    const dialog=sc.querySelector('.sheet');sc.addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); done(false); }else if(e.key==='Tab')trapDialogTab(dialog,e); });
     requestAnimationFrame(()=>sc.querySelector('[data-action="cancel"]')?.focus());
   });
 }
@@ -7182,13 +7556,18 @@ function unionById(local,remote,preferRemote){
   (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
   return [...m.values()];
 }
+function mergeEventsById(local,remote,preferRemote){
+  const m=new Map();(local||[]).forEach(event=>{if(event&&event.id!=null)m.set(event.id,event);});
+  (remote||[]).forEach(event=>{if(!event||event.id==null)return;const current=m.get(event.id);m.set(event.id,current?mergeEventRecords(current,event,preferRemote):event);});
+  return [...m.values()];
+}
 function resolveDeletionProtectedRecords(local,remote,state,mode='merge'){
   const cleanLocal=filterPersistedRecords(local,state),cleanRemote=filterPersistedRecords(remote,state);
   if(mode==='replace')return cleanRemote;
   return filterPersistedRecords({
     players:unionById(cleanLocal.players,cleanRemote.players,true),
     games:unionById(cleanLocal.games,cleanRemote.games,true),
-    events:unionById(cleanLocal.events,cleanRemote.events,true)
+    events:mergeEventsById(cleanLocal.events,cleanRemote.events,true)
   },state);
 }
 function replacementDeletionState(local,incoming,state,deletedAt=Date.now()){
