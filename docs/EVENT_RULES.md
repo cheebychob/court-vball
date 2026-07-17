@@ -44,7 +44,7 @@ Rules reuse the existing full-event publication token in `event.schedulePublicat
 
 The unified public document contains Overview, Schedule, Standings, Bracket, and Rules navigation. It exposes only the current published revision and public revision history—never drafts, acknowledgements, sync state, management tokens, internal notes, ratings, or private IDs. Its fixed search behavior is embedded so a saved standalone copy keeps working without Court, local storage, or the Worker. The Worker Content Security Policy allows only the exact script hash; `/assets/public-event.js` remains available for already-published older documents.
 
-Standalone rendering omits the hosted header’s Print and Share controls, since those controls cannot be guaranteed under `file://`. The hosted public renderer retains them, while both modes retain the print stylesheet and complete five-section event layout.
+Public and saved standalone documents omit header Print and Share controls. Organizer-only print, copy, share, and open actions remain in Court, while both document forms retain the print stylesheet and complete five-section event layout.
 
 Public publishing still requires Court Sync because the existing Worker uses a successful sync room as publication authorization. A locally published revision remains saved if the network is unavailable; the organizer can create or refresh the public link later.
 

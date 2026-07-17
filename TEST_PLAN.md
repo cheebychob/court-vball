@@ -72,7 +72,7 @@ Run on a narrow phone viewport and desktop:
 8. Save the draft, sync another device, and confirm the draft appears without exposing it on the public link.
 9. Create a structured Quick Rules override that differs from Court. Test Update event settings, Update draft language, intentional exception, and Review later.
 10. Publish with incomplete sections after explicit confirmation. Verify the immutable revision number and optional summary.
-11. Open the public event link and a saved standalone full-event HTML copy. Test navigation, Quick Rules, contents, exact/case-insensitive/synonym search, next/previous/wrap, Enter, Clear, and section chips. Confirm standalone header Print/Share buttons are absent while hosted controls still work.
+11. Open the public event link and a saved standalone full-event HTML copy. Test navigation, Quick Rules, contents, exact/case-insensitive/synonym search, next/previous/wrap, Enter, Clear, and section chips. Confirm header Print/Share buttons are absent in both copies and the hosted search runs under the Worker Content Security Policy.
 12. Advance the event clock/date, publish another revision, and verify the required explanation and public update notice.
 13. Open revision history, view an older revision, copy it into a new draft, and publish it as a new revision.
 14. Unpublish with confirmation. Confirm the stable public URL remains but no rules body or draft is exposed.

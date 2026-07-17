@@ -1,6 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+
+const workerSource = readFileSync(resolve(process.cwd(), 'cloudflare/court-sync-worker.js'), 'utf8');
+const workerCsp = workerSource.match(/"Content-Security-Policy": "([^"]+)"/)?.[1];
+if (!workerCsp) throw new Error('Worker public Content-Security-Policy not found');
 
 function fixedEvent(extra = {}) {
   return {
@@ -281,7 +286,7 @@ test('full-event publication switches to unified HTML without changing the exist
     const before = event.schedulePublications.full.publicUrl;
     const prepared = await SchedulePublications.prepare(event.id);
     const document = new DOMParser().parseFromString(prepared.html, 'text/html');
-    return { before, after: event.schedulePublications.full.publicUrl, title: prepared.title, html: prepared.html, direct: rulesPublicUrl(event.schedulePublications.full), embeddedBehaviorMatches: document.querySelector('script')?.textContent === publicEventBehaviorScript() };
+    return { before, after: event.schedulePublications.full.publicUrl, title: prepared.title, html: prepared.html, direct: rulesPublicUrl(event.schedulePublications.full), hasHeaderActions: !!document.querySelector('[data-public-print], [data-public-share], .public-print-actions'), embeddedBehaviorMatches: document.querySelector('script')?.textContent === publicEventBehaviorScript() };
   });
   expect(result.before).toBe(result.after);
   expect(result.direct).toBe('https://example.test/s/stable-token#rules');
@@ -289,19 +294,18 @@ test('full-event publication switches to unified HTML without changing the exist
   expect(result.html).toContain('href="#schedule"');
   expect(result.html).toContain('href="#rules"');
   expect(result.html).toContain('One set to 25.');
-  expect(result.html).toContain('data-public-print');
-  expect(result.html).toContain('data-public-share');
+  expect(result.hasHeaderActions).toBe(false);
   expect(result.html).not.toContain('src="/assets/public-event.js"');
   expect(result.embeddedBehaviorMatches).toBe(true);
 });
 
-test('actual standalone full-event HTML searches Rules and omits hosted header controls', async ({ page }, testInfo) => {
+test('actual standalone and Worker-hosted full-event HTML search Rules without public header controls', async ({ page }, testInfo) => {
   await seed(page, [fixedEvent()]);
   const html = await page.evaluate(() => {
     const event = evts[0]; event.rules = createEmptyRulesModel();
     event.rules.draft = createRulesDraft(rulesDocumentFromHtml('<h2>Scoring and Set Format</h2><p>Scoring uses 21 points. The score cap is 25.</p><h2>Ball Handling</h2><p>Open-hand tips and dinks are not allowed.</p><h2>Work Teams</h2><p>Losing teams officiate.</p><h2>Injuries</h2><p>Medical substitutions are allowed.</p><h2>Conduct</h2><p>Captains manage spectators.</p><h2>Weather Policy</h2><p>Rain, lightning, heat, and air quality can stop play.</p><h2>Protests</h2><p>Protests must be timely.</p>'), {}, 10);
     publishRulesRevision(event, { summary: 'Initial', now: new Date(2026, 6, 16, 12).getTime() });
-    return renderPublicEventDocument(event, { standalone: true });
+    return renderPublicEventDocument(event);
   });
   const filePath = testInfo.outputPath('standalone-event.html');
   writeFileSync(filePath, html);
@@ -371,6 +375,23 @@ test('actual standalone full-event HTML searches Rules and omits hosted header c
   await page.setViewportSize({ width: 375, height: 667 });
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
   expect(await page.locator('.public-toc').evaluate(element => element.scrollWidth > element.clientWidth)).toBe(true);
+  expect(browserErrors).toEqual([]);
+
+  await page.route('https://court-sync.example/s/test-public-token', route => route.fulfill({
+    status: 200,
+    contentType: 'text/html; charset=utf-8',
+    headers: { 'Content-Security-Policy': workerCsp },
+    body: html
+  }));
+  await page.goto('https://court-sync.example/s/test-public-token#rules');
+  await expect(page.locator('[data-public-print], [data-public-share], .public-print-actions')).toHaveCount(0);
+  const hostedInput = page.getByRole('searchbox', { name: 'Search published rules' });
+  const hostedMeta = page.locator('[data-search-meta]');
+  await hostedInput.fill('tips');
+  await expect(hostedMeta).toContainText(/\d+ results?/);
+  await expect(page.locator('mark.rules-search-hit-active')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Previous search result' })).toBeEnabled();
+  await expect(page.getByRole('button', { name: 'Next search result' })).toBeEnabled();
   expect(browserErrors).toEqual([]);
 });
 
