@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.8">
+<meta name="court-build" content="20260716.9">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -647,24 +647,50 @@
   .pool-title:first-of-type{margin-top:6px}
   .set-grid{display:grid;grid-template-columns:44px 1fr 1fr;gap:8px;align-items:center;margin-bottom:8px}
   .set-grid .lbl{font-size:12px;color:var(--faint);font-weight:700}
-  /* ---------- bracket ---------- */
-  .bracket-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -6px;padding:2px 6px 6px}
-  .bracket{display:flex;gap:16px;min-width:max-content;align-items:stretch}
-  .br-col{display:flex;flex-direction:column;min-width:132px}
-  .br-round{font-size:10px;letter-spacing:.6px;text-transform:uppercase;color:var(--faint);
-    text-align:center;font-weight:800;padding-bottom:8px}
+  /* ---------- event finale / results / bracket ---------- */
+  .event-finale{position:relative;overflow:hidden;border-color:#f2c66d55;background:#101827;
+    box-shadow:inset 0 1px 0 #ffffff0d,0 18px 60px #0003}
+  .event-finale::before{content:"";position:absolute;inset:-40% 38% 20% -12%;pointer-events:none;
+    background:radial-gradient(circle,#f2c66d20,transparent 68%)}
+  .finale-status,.results-kicker{font-size:10px;font-weight:900;letter-spacing:.15em;text-transform:uppercase;color:var(--gold)}
+  .finale-grid{position:relative;display:grid;gap:16px;margin-top:11px}
+  .finale-champion{min-width:0}.finale-champion h3{font-size:28px;line-height:1.05;margin:6px 0;color:#fff;overflow-wrap:anywhere}
+  .finale-trophy{width:46px;height:46px;display:grid;place-items:center;border-radius:16px;color:var(--gold);
+    border:1px solid #f2c66d55;background:#f2c66d12}.finale-trophy svg{width:26px;height:26px}
+  .finale-members{font-size:11px;line-height:1.4;color:var(--muted);margin-top:6px}
+  .finale-stats{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}
+  .finale-stat{min-width:0;border:1px solid var(--border);background:#ffffff08;border-radius:12px;padding:9px 10px}
+  .finale-stat b{display:block;color:var(--text);font-size:15px;line-height:1.15;overflow-wrap:anywhere}.finale-stat span{display:block;margin-top:3px;color:var(--faint);font-size:9.5px;text-transform:uppercase;letter-spacing:.06em}
+  .finale-match{border-left:2px solid #f2c66d55;padding-left:13px;min-width:0}.finale-match strong{display:block;font-size:17px;overflow-wrap:anywhere}
+  .finale-score{font-size:28px;font-weight:900;color:var(--gold);margin:7px 0 3px}.finale-actions{position:relative;display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.finale-actions .btn{flex:1;min-width:145px}
+  .results-view{display:grid;gap:12px}.results-event-head{padding:14px;border:1px solid #f2c66d3d;border-radius:18px;background:#f2c66d0b}
+  .results-event-head h4{font-size:23px;line-height:1.08;margin:5px 0 8px;overflow-wrap:anywhere}.results-meta{display:flex;flex-wrap:wrap;gap:6px;color:var(--muted);font-size:11px}
+  .results-section{border:1px solid var(--border);border-radius:16px;padding:13px;background:#ffffff06}.results-section h4{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin:0 0 10px}
+  .results-spotlight{display:grid;gap:10px}.results-champ{padding:12px;border-radius:14px;background:#f2c66d0d;border:1px solid #f2c66d3d}.results-champ b{font-size:21px;color:#fff;overflow-wrap:anywhere}
+  .podium-grid{display:grid;gap:7px}.podium-row,.journey-row,.result-standing{display:grid;grid-template-columns:34px minmax(0,1fr) auto;gap:8px;align-items:center;padding:8px 0;border-bottom:1px solid var(--border)}
+  .podium-row:last-child,.journey-row:last-child,.result-standing:last-child{border-bottom:0}.podium-place{font-weight:900;color:var(--gold)}
+  .result-standing.champion{color:var(--gold)}.result-standing.runner{color:#d7e4ff}.results-detail summary{cursor:pointer;font-weight:750;font-size:12px;padding:4px 0}.results-detail[open] summary{margin-bottom:7px}
+  .highlight-list{display:grid;gap:7px}.highlight-item{display:flex;gap:9px;align-items:flex-start;font-size:12px;line-height:1.4}.highlight-item::before{content:"";flex:none;width:6px;height:6px;border-radius:50%;background:var(--gold);margin-top:5px}
+  .results-footer{text-align:center;color:var(--faint);font-size:10px;letter-spacing:.05em;padding:4px 0}
+  .bracket-card{margin-top:12px;padding:14px}.bracket-summary{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:10px;align-items:start;margin-bottom:10px}
+  .bracket-summary h3{font-size:16px;margin:0;color:var(--gold);overflow-wrap:anywhere}.bracket-summary-line{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4}
+  .bracket-menu{position:relative}.bracket-menu summary{list-style:none;cursor:pointer;width:34px;height:34px;display:grid;place-items:center;border:1px solid var(--border);border-radius:11px;color:var(--muted)}.bracket-menu summary::-webkit-details-marker{display:none}.bracket-menu-pop{position:absolute;z-index:3;right:0;top:38px;min-width:150px;padding:6px;border:1px solid var(--border);border-radius:12px;background:#111a2a;box-shadow:0 12px 35px #0008}.bracket-menu-pop button{width:100%;text-align:left}
+  .bracket-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch;margin:0 -7px;padding:2px 7px 10px;scrollbar-color:#ffffff29 transparent}
+  .bracket{display:flex;gap:13px;width:max-content;min-width:100%;align-items:stretch;justify-content:center}
+  .br-col{display:flex;flex-direction:column;width:176px;min-width:176px;position:relative}
+  .br-round{position:sticky;left:0;font-size:10px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);text-align:center;font-weight:850;padding:0 0 9px}
   .br-slots{flex:1;display:flex;flex-direction:column;justify-content:space-around;gap:10px}
-  .br-match{display:block;width:100%;background:var(--surface2);border:1px solid var(--border);
-    border-radius:12px;padding:0;color:inherit;font:inherit;text-align:left}
-  .br-match.open{cursor:pointer;border-color:#f2c66d44}
-  .br-team{display:flex;justify-content:space-between;align-items:center;gap:8px;padding:8px 10px;font-size:12.5px;font-weight:600}
-  .br-team+.br-team{border-top:1px solid var(--border)}
-  .br-team .sd{font-size:10px;color:var(--faint);font-weight:700;min-width:12px}
-  .br-team.win{color:var(--gold);font-weight:800}
-  .br-team.lose{color:var(--faint)}
-  .br-team.tbd{color:var(--faint);font-weight:500;font-style:italic}
-  .br-champ{border:1px solid #f2c66d66;background:#f2c66d12;border-radius:12px;padding:12px 10px;text-align:center}
-  .br-champ b{color:var(--gold);font-size:13.5px}
+  .br-match{position:relative;display:block;width:100%;min-height:82px;background:var(--surface2);border:1px solid var(--border);border-radius:13px;padding:0;color:inherit;font:inherit;text-align:left;overflow:hidden}
+  button.br-match{cursor:pointer;transition:border-color .14s ease,background .14s ease,transform .14s ease,box-shadow .14s ease}
+  button.br-match:hover{border-color:#f2c66d72;background:#f2c66d0b;box-shadow:0 8px 24px #0004}button.br-match:active{transform:scale(.985)}button.br-match:focus-visible{outline:3px solid #75c9ff;outline-offset:3px}
+  .br-match.ready{border-color:#f2c66d62}.br-match.complete{border-color:#71d3a64f}.br-match.championship{box-shadow:inset 0 0 0 1px #f2c66d29}.br-match.waiting{opacity:.68}.br-match.invalid{border-style:dashed;border-color:#e997974f}
+  .br-team{display:grid;grid-template-columns:20px minmax(0,1fr) auto;align-items:center;gap:6px;padding:8px 9px;font-size:12px;font-weight:650;min-height:35px}
+  .br-team+.br-team{border-top:1px solid var(--border)}.br-team .sd{font-size:9px;color:var(--faint);font-weight:800;min-width:12px}.br-team-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .br-team.win{color:var(--gold);font-weight:850}.br-team.win .br-team-name::after{content:"  ✓";font-size:10px}.br-team.lose{color:var(--faint)}.br-team.tbd{color:var(--faint);font-weight:500;font-style:italic}
+  .br-match-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:5px 9px;background:#ffffff07;border-top:1px solid var(--border);font-size:9px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted)}.br-match.ready .br-match-foot,.br-match.complete .br-match-foot{color:var(--gold)}
+  .br-champ{border:1px solid #f2c66d66;background:#f2c66d12;border-radius:13px;padding:15px 10px;text-align:center;min-height:82px;display:grid;place-items:center}.br-champ b{color:var(--gold);font-size:13.5px;overflow-wrap:anywhere}
+  .match-detail-score{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:9px;padding:13px;border:1px solid #f2c66d3d;background:#f2c66d0b;border-radius:15px;text-align:center}.match-detail-score b{overflow-wrap:anywhere}.match-detail-score .num{font-size:25px;color:var(--gold)}
+  .match-sets{margin-top:10px}.match-set{display:grid;grid-template-columns:1fr auto 1fr;gap:10px;padding:7px 2px;border-bottom:1px solid var(--border);font-size:12px;text-align:center}
   @media (min-width:760px){
     body{padding-bottom:110px}
     .topbar{padding-left:24px;padding-right:24px}
@@ -684,6 +710,9 @@
     .selection-panel.A{grid-column:1}.selection-panel.available{grid-column:2;grid-row:1}.selection-panel.B{grid-column:3;grid-row:1}
     .live-workspace{grid-template-columns:1fr 1fr;align-items:start}
     .event-overview{grid-template-columns:repeat(5,minmax(0,1fr))}
+    .finale-grid{grid-template-columns:minmax(220px,1.15fr) minmax(230px,.9fr) minmax(210px,.9fr);align-items:center}
+    .results-spotlight{grid-template-columns:1.1fr .9fr}.podium-grid{grid-template-columns:repeat(2,minmax(0,1fr));column-gap:18px}
+    .bracket-card{padding:16px}.br-col{width:190px;min-width:190px}
   }
 
   @media (min-width:1060px){
@@ -770,9 +799,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.7.3',
-  build: '20260716.8',
-  releaseNotes: 'Pool schedules now protect unique opponents and explain court-time capacity.'
+  version: '0.8.0',
+  build: '20260716.9',
+  releaseNotes: 'Event finales, shareable recaps, and completed playoff matches now stay useful from the bracket.'
 });
 
 function appVersionLabel(){
@@ -2681,6 +2710,7 @@ window.filterHistoryRows=(value)=>{
 };
 window.viewGame=(id)=>{
   const g=games.find(x=>x.id===id); if(!g) return;
+  const playoff=findPlayoffContextForGame(g);
   if(g.solo){
     const p=pById(g.teamA[0]); const d=g.deltas&&g.deltas[g.teamA[0]];
     openSheet(`<h3>Solo · ${esc(p?p.name:'player')}</h3>
@@ -2716,7 +2746,7 @@ window.viewGame=(id)=>{
     ${evLine}${probLine}${tieLine}${ctxLine}
     <div class="teamhdr A" style="margin-top:0">Team A${uA?` <span class="unktag">· +${uA} untracked</span>`:''} ${g.winner==='A'?'· won':''}</div>${list(g.teamA)}
     <div class="teamhdr B">Team B${uB?` <span class="unktag">· +${uB} untracked</span>`:''} ${g.winner==='B'?'· won':''}</div>${list(g.teamB)}
-    <button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>
+    ${playoff?`<button class="btn ghost block" style="margin-top:16px" onclick="openPlayoffMatchDetails('${playoff.ev.id}','${playoff.br.id}',${playoff.roundIndex},${playoff.matchIndex})">Back to playoff match actions</button>`:`<button class="btn danger block" style="margin-top:16px" onclick="deleteGame('${g.id}')">Delete game</button>`}
     ${sheetCloseBtn('Done')}
   `);
 };
@@ -2728,6 +2758,8 @@ function whyMoved(d){
 }
 function formatLog(log){ if(!log) return ''; return Object.entries(log).map(([k,v])=>`${v}${EV_MAP[k]?.l||k}`).join('  '); }
 window.deleteGame=async(id)=>{
+  const linked=findPlayoffContextForGame(games.find(g=>g.id===id));
+  if(linked){await deletePlayoffMatchResult(linked.ev.id,linked.br.id,linked.roundIndex,linked.matchIndex);return;}
   if(!(await askConfirm('Delete this game? Ratings will be recalculated for everyone who played in it.','Delete game'))) return;
   await Sync.markDeleted('games',id);
   games=games.filter(g=>g.id!==id); await commit(); closeSheet(); toast('Game deleted'); render();
@@ -3242,29 +3274,35 @@ function bracketMatchLabel(br, P, roundIdx, i, count){
   const nm=bracketRoundName(P/Math.pow(2,roundIdx),true);
   return (br.name?br.name+' · ':'')+nm+(count>1?' '+(i+1):'');
 }
-function bracketPairResult(ev, br, ta, tb){
-  const groups={};
-  games.forEach(g=>{
-    if(g.evId!==ev.id || g.date<br.created) return;
-    if(!((g.evA===ta&&g.evB===tb)||(g.evA===tb&&g.evB===ta))) return;
-    const k=g.matchId||g.id; (groups[k]=groups[k]||[]).push(g);
+function playoffMatchId(br,roundIndex,matchIndex){return `playoff:${br.id}:r${roundIndex+1}:m${matchIndex+1}`;}
+function playoffGamePairMatches(g,ta,tb){return !!(g&&ta&&tb&&((g.evA===ta&&g.evB===tb)||(g.evA===tb&&g.evB===ta)));}
+function groupedSavedGames(list){
+  const groups={};(list||[]).forEach(g=>{const key=g.matchId||g.id;(groups[key]=groups[key]||[]).push(g);});
+  return Object.values(groups).map(sets=>sets.slice().sort((a,b)=>a.date-b.date));
+}
+function playoffResultFromGames(sets,ta,tb){
+  let wa=0,wb=0,latest=0;const scores=[];
+  (sets||[]).slice().sort((a,b)=>a.date-b.date).forEach(g=>{
+    const direct=g.evA===ta,sa=direct?g.scoreA:g.scoreB,sb=direct?g.scoreB:g.scoreA;
+    if(sa>sb)wa++;else if(sb>sa)wb++;latest=Math.max(latest,Number(g.date)||0);scores.push({a:sa,b:sb,game:g});
   });
-  let best=null, bestDate=0;
-  Object.values(groups).forEach(sets=>{
-    let wa=0, wb=0, latest=0;
-    const sc=[];
-    sets.slice().sort((x,y)=>x.date-y.date).forEach(g=>{
-      const sa=g.evA===ta?g.scoreA:g.scoreB, sb=g.evA===ta?g.scoreB:g.scoreA;
-      if(sa>sb)wa++; else if(sb>sa)wb++;
-      latest=Math.max(latest,g.date); sc.push(sa+'\u2013'+sb);
-    });
-    if(wa===wb) return;
-    if(latest>=bestDate){
-      bestDate=latest;
-      best={winner: wa>wb?ta:tb, disp: sc.length>1?`${Math.max(wa,wb)}-${Math.min(wa,wb)}`:sc[0]};
-    }
-  });
+  if(!scores.length||wa===wb)return null;
+  return {winner:wa>wb?ta:tb,disp:scores.length>1?`${Math.max(wa,wb)}-${Math.min(wa,wb)}`:`${scores[0].a}\u2013${scores[0].b}`,setWinsA:wa,setWinsB:wb,scores,latest};
+}
+/* New playoff results carry a deterministic evMatchId. Legacy results did not,
+   so old events retain the pair-and-created-time lookup used by prior builds. */
+function getPlayoffMatchGames(ev,br,match,roundIndex,matchIndex){
+  if(!ev||!br||!match)return [];
+  const id=playoffMatchId(br,roundIndex,matchIndex),exact=games.filter(g=>g.evId===ev.id&&g.evMatchId===id);
+  if(exact.length)return exact.every(g=>playoffGamePairMatches(g,match.a,match.b))?exact.slice().sort((a,b)=>a.date-b.date):[];
+  if(!match.a||!match.b)return [];
+  const legacy=games.filter(g=>g.evId===ev.id&&!g.evMatchId&&Number(g.date)>=Number(br.created||0)&&playoffGamePairMatches(g,match.a,match.b));
+  let best=[],bestDate=-Infinity;
+  groupedSavedGames(legacy).forEach(sets=>{const result=playoffResultFromGames(sets,match.a,match.b);if(result&&result.latest>=bestDate){best=sets;bestDate=result.latest;}});
   return best;
+}
+function bracketPairResult(ev,br,match,roundIndex,matchIndex){
+  return playoffResultFromGames(getPlayoffMatchGames(ev,br,match,roundIndex,matchIndex),match.a,match.b);
 }
 function bracketState(ev, br){
   if(!br||!br.seeds||br.seeds.length<2) return null;
@@ -3280,9 +3318,11 @@ function bracketState(ev, br){
   }
   const rounds=[];
   for(;;){
-    round.forEach(m=>{
+    const roundIndex=rounds.length;
+    round.forEach((m,matchIndex)=>{
+      m.roundIndex=roundIndex;m.matchIndex=matchIndex;m.id=playoffMatchId(br,roundIndex,matchIndex);
       if(m.bye){ m.winner=m.a||m.b; m.res=null; return; }
-      const res=(m.a&&m.b)?bracketPairResult(ev,br,m.a,m.b):null;
+      const res=(m.a&&m.b)?bracketPairResult(ev,br,m,roundIndex,matchIndex):null;
       m.res=res; m.winner=res?res.winner:null;
     });
     rounds.push(round);
@@ -3292,6 +3332,40 @@ function bracketState(ev, br){
     round=next;
   }
   return {rounds, seedNum, size:P, byes:P-N};
+}
+function getPlayoffMatchState(ev,br,state,roundIndex,matchIndex){
+  const match=state?.rounds?.[roundIndex]?.[matchIndex];if(!match)return null;
+  const roundName=bracketRoundName(state.size/Math.pow(2,roundIndex),true),championship=roundIndex===state.rounds.length-1;
+  const exact=games.filter(g=>g.evId===ev.id&&g.evMatchId===playoffMatchId(br,roundIndex,matchIndex));
+  const invalidated=exact.length&&!exact.every(g=>playoffGamePairMatches(g,match.a,match.b));
+  const key=match.bye?'bye':invalidated?'invalidated':match.winner?(championship?'championshipCompleted':'completed'):(match.a&&match.b?'ready':'waiting');
+  return {key,label:key==='championshipCompleted'?'Championship completed':key==='completed'?'Completed':key==='ready'?'Ready to play':key==='bye'?'Bye':key==='invalidated'?'Invalidated':'Waiting for teams',match,roundName,championship,
+    games:invalidated?exact.slice().sort((a,b)=>a.date-b.date):getPlayoffMatchGames(ev,br,match,roundIndex,matchIndex)};
+}
+function getDivisionProgress(ev,br,state=bracketState(ev,br)){
+  if(!state)return null;let completed=0,ready=0,waiting=0,currentRound='';
+  state.rounds.forEach((round,ri)=>round.forEach((_,mi)=>{const s=getPlayoffMatchState(ev,br,state,ri,mi);if(s.key==='completed'||s.key==='championshipCompleted')completed++;else if(s.key==='ready'){ready++;if(!currentRound)currentRound=s.roundName;}else if((s.key==='waiting'||s.key==='invalidated')){waiting++;if(!currentRound)currentRound=s.key==='invalidated'?`${s.roundName} needs review`:s.roundName;}}));
+  const final=state.rounds[state.rounds.length-1][0],champion=final.winner,total=Math.max(1,(br.seeds||[]).length-1);
+  return {completed,total,ready,waiting,currentRound:champion?'Complete':currentRound||'Awaiting results',champion,complete:!!champion};
+}
+function getDownstreamPlayoffDependencies(ev,br,roundIndex,matchIndex){
+  const state=bracketState(ev,br),out=[];let index=matchIndex;
+  if(!state)return out;
+  for(let ri=roundIndex+1;ri<state.rounds.length;ri++){
+    index=Math.floor(index/2);const match=state.rounds[ri][index],linked=getPlayoffMatchGames(ev,br,match,ri,index);
+    linked.forEach(game=>{if(!out.some(item=>item.id===game.id))out.push(game);});
+    const exact=games.filter(g=>g.evId===ev.id&&g.evMatchId===playoffMatchId(br,ri,index));
+    exact.forEach(game=>{if(!out.some(item=>item.id===game.id))out.push(game);});
+  }
+  return out.sort((a,b)=>a.date-b.date);
+}
+function findPlayoffContextForGame(game){
+  if(!game?.evId)return null;const ev=evById(game.evId);if(!ev)return null;const candidates=[];
+  (ev.brackets||[]).forEach(br=>{const state=bracketState(ev,br);state?.rounds.forEach((round,ri)=>round.forEach((match,mi)=>{
+    const exact=game.evMatchId===playoffMatchId(br,ri,mi),linked=getPlayoffMatchGames(ev,br,match,ri,mi).some(g=>g.id===game.id);
+    if(exact||linked)candidates.push({ev,br,state,roundIndex:ri,matchIndex:mi,exact});
+  }));});
+  return candidates.sort((a,b)=>Number(b.exact)-Number(a.exact)||Number(b.br.created||0)-Number(a.br.created||0))[0]||null;
 }
 /* --- courts & schedule: ev.sched stores the plan {start, courts, courtStyle,
    setMin, matchMin, breakMin}. The timeline itself is DERIVED on every render
@@ -4044,45 +4118,80 @@ window.printSchedule=(evId,subjectType='',subjectId='')=>{
   }catch(error){toast('Could not open the print view. Try Download Schedule instead.');}
   finally{if(button&&button.isConnected){button.disabled=false;button.textContent='Print / Save as PDF';}}
 };
-/* --- champions & results card: podium is DERIVED from bracket state on every
-   render (same self-correcting rule as everything else). The results card is a
-   canvas PNG in the night-court style, shared/saved like the player card. --- */
+/* --- event finale and results: every display/export value is derived from the
+   saved event games, bracket seeds, and canonical standings on each render. --- */
 function eventChampions(ev){
   return (ev.brackets||[]).map(br=>{
     const bs=bracketState(ev,br); if(!bs) return null;
     const final=bs.rounds[bs.rounds.length-1][0];
     const champ=final.winner; if(!champ) return null;
     const runner=final.bye?null:(final.a===champ?final.b:final.a);
-    return {br, champId:champ, runnerId:runner, res:final.res};
+    return {br,state:bs,champId:champ,runnerId:runner,res:final.res,final};
   }).filter(Boolean);
 }
-function championsStripHtml(ev){
-  const champs=eventChampions(ev); if(!champs.length) return '';
-  const nm=id=>{ const t=id&&evTeamById(ev,id); return t?t.name:null; };
-  return `<div class="card" style="border-color:#f2c66d66;background:linear-gradient(150deg,#221c30,#131a2b)">
-    ${champs.map(c=>`<div class="row spread" style="gap:10px;padding:3px 0">
-      <span class="small" style="min-width:0">${icons.trophy} <b style="color:var(--gold)">${esc(nm(c.champId)||'?')}</b> <span class="tiny faint">wins ${esc(c.br.name||'the bracket')}${c.res?` · ${c.res.disp}`:''}</span></span>
-      ${c.runnerId&&nm(c.runnerId)?`<span class="tiny faint" style="white-space:nowrap;text-align:right">2nd · ${esc(nm(c.runnerId))}</span>`:''}
-    </div>`).join('')}
-    <button class="btn sm ghost block" style="margin-top:9px;color:var(--gold)" onclick="openEventResults('${ev.id}')">Results card · view &amp; share ▸</button>
-  </div>`;
+function eventMatchGroups(ev,gameList=games.filter(g=>g.evId===ev.id)){
+  const groups={};gameList.filter(g=>g.evId===ev.id).forEach(g=>{const key=g.matchId||g.evMatchId||g.id;(groups[key]=groups[key]||[]).push(g);});
+  return Object.values(groups).map(sets=>sets.slice().sort((a,b)=>a.date-b.date)).sort((a,b)=>(a[0]?.date||0)-(b[0]?.date||0));
 }
-function eventResultsData(ev){
-  const rotating=eventFormat(ev)==='rotatingGroups';
-  const nm=id=>{ const t=id&&evTeamById(ev,id); return t?t.name:'?'; };
-  const podiums=eventChampions(ev).map(c=>({bracket:c.br.name||'Bracket', champ:nm(c.champId), runner:c.runnerId?nm(c.runnerId):null, disp:c.res?c.res.disp:null}));
-  let standings;
-  if(rotating) standings=entryStandings(ev).filter(r=>r.played).map(r=>({name:r.entry.name, line:`${r.wins}-${r.losses}${r.ties?`-${r.ties}`:''} · ${r.standingsPoints} pts · ${r.diff>0?'+':''}${r.diff}`}));
-  else standings=eventStandings(ev).filter(r=>r.gp).map(r=>({name:r.t.name, line:`${r.mw}-${r.ml} · sets ${r.sw}-${r.sl} · ${r.diff>0?'+':''}${r.diff}`}));
-  const n=games.filter(g=>g.evId===ev.id).length;
-  return {name:ev.name, date:new Date(ev.created||Date.now()).toLocaleDateString([],{month:'long',day:'numeric',year:'numeric'}),
-    sub:`${rotating?rotatingFormatDescription(rotationSettings(ev).entrySize,rotationSettings(ev).teamSize):'Fixed teams'} · ${n} game${n===1?'':'s'}`,
-    podiums, standings, standingsTitle:rotating?'Pool standings':'Standings'};
+function playoffGameIdSet(ev){
+  const ids=new Set();(ev.brackets||[]).forEach(br=>{const state=bracketState(ev,br);state?.rounds.forEach((round,ri)=>round.forEach((match,mi)=>getPlayoffMatchGames(ev,br,match,ri,mi).forEach(g=>ids.add(g.id))));});return ids;
+}
+function getChampionJourney(ev,champion){
+  if(!champion)return [];const out=[],state=champion.state,id=champion.champId;
+  state.rounds.forEach((round,ri)=>{const match=round.find(m=>m.a===id||m.b===id||(m.bye&&m.winner===id));if(!match)return;const opponent=match.a===id?match.b:match.a;
+    out.push({round:bracketRoundName(state.size/Math.pow(2,ri),true),bye:!!match.bye,opponentId:opponent,opponent:opponent?(evTeamById(ev,opponent)?.name||'?'):null,score:match.res?.disp||null,result:match.bye?'Bye':match.winner===id?'Won':'Lost'});});
+  return out;
+}
+function getEventPodium(ev){
+  return eventChampions(ev).map(champion=>{const penultimate=champion.state.rounds.length>1?champion.state.rounds[champion.state.rounds.length-2]:[],semifinalists=penultimate.map(match=>match.winner===match.a?match.b:match.a).filter(id=>id&&id!==champion.runnerId);
+    return {division:champion.br.name||'Bracket',championId:champion.champId,champion:evTeamById(ev,champion.champId)?.name||'?',runnerId:champion.runnerId,runner:evTeamById(ev,champion.runnerId)?.name||null,score:champion.res?.disp||null,championSeed:champion.state.seedNum[champion.champId]||null,runnerSeed:champion.state.seedNum[champion.runnerId]||null,semifinalists:semifinalists.map(id=>({id,name:evTeamById(ev,id)?.name||'?'})),journey:getChampionJourney(ev,champion),brId:champion.br.id,finalRound:champion.state.rounds.length-1};
+  });
+}
+function resultGroupSummary(ev,sets){
+  if(!sets?.length)return null;const first=sets[0],a=first.evA,b=first.evB;if(!a||!b)return null;let wa=0,wb=0,pA=0,pB=0;
+  sets.forEach(g=>{const direct=g.evA===a,sa=direct?g.scoreA:g.scoreB,sb=direct?g.scoreB:g.scoreA;pA+=Number(sa)||0;pB+=Number(sb)||0;if(sa>sb)wa++;else if(sb>sa)wb++;});
+  return {a,b,aName:evTeamById(ev,a)?.name||'?',bName:evTeamById(ev,b)?.name||'?',winner:wa===wb?null:(wa>wb?a:b),loser:wa===wb?null:(wa>wb?b:a),disp:sets.length>1?`${Math.max(wa,wb)}-${Math.min(wa,wb)}`:`${pA}\u2013${pB}`,setCount:sets.length,pointMargin:Math.abs(pA-pB),pointDiff:pA-pB,date:Math.max(...sets.map(g=>Number(g.date)||0)),sets};
+}
+function getEventResultHighlights(ev,podium=getEventPodium(ev)){
+  const summaries=eventMatchGroups(ev).map(sets=>resultGroupSummary(ev,sets)).filter(Boolean),out=[];
+  const decidedFinal=summaries.filter(m=>m.setCount>=3&&m.disp==='2-1').length;if(decidedFinal)out.push({kind:'finalSet',text:`${decidedFinal} match${decidedFinal===1?' was':'es were'} decided in a final set.`});
+  const decisive=summaries.filter(m=>m.winner);if(decisive.length){const closest=decisive.slice().sort((a,b)=>a.pointMargin-b.pointMargin||a.date-b.date||a.aName.localeCompare(b.aName))[0];out.push({kind:'closest',text:`Closest match: ${evTeamById(ev,closest.winner)?.name||'?'} over ${evTeamById(ev,closest.loser)?.name||'?'}, ${closest.disp}.`});}
+  podium.forEach(p=>{if(p.championSeed>1)out.push({kind:'upsetRun',text:`${p.division}: seed ${p.championSeed} ${p.champion} won the division.`});});
+  if(eventFormat(ev)==='fixedTeams')podium.forEach(p=>{const row=eventStandings(ev).find(r=>r.t.id===p.championId);if(row?.matchesPlayed&&row.ml===0)out.push({kind:'undefeated',text:`${p.champion} finished undefeated at ${row.mw}-${row.ml}.`});});
+  const largest=decisive.slice().sort((a,b)=>b.pointMargin-a.pointMargin||a.date-b.date)[0];if(largest?.pointMargin>0)out.push({kind:'largestMargin',text:`Largest match point margin: ${largest.pointMargin} by ${evTeamById(ev,largest.winner)?.name||'?'}.`});
+  return out.slice(0,6);
+}
+function getEventResultSummary(ev){
+  const rotating=eventFormat(ev)==='rotatingGroups',champions=eventChampions(ev),podium=getEventPodium(ev),brackets=(ev.brackets||[]).map(br=>getDivisionProgress(ev,br)).filter(Boolean),allComplete=brackets.length&&brackets.every(p=>p.complete),primary=champions.slice().sort((a,b)=>Number(!/championship|gold/i.test(a.br.name||''))-Number(!/championship|gold/i.test(b.br.name||'')))[0]||null;
+  const allEventGames=games.filter(g=>g.evId===ev.id),playoffIds=playoffGameIdSet(ev),poolGames=allEventGames.filter(g=>!playoffIds.has(g.id)),champTeam=primary&&evTeamById(ev,primary.champId),runnerTeam=primary&&evTeamById(ev,primary.runnerId),allRow=primary&&eventStandings(ev).find(r=>r.t.id===primary.champId),poolRow=primary&&eventStandings(ev,poolGames).find(r=>r.t.id===primary.champId),journey=getChampionJourney(ev,primary),status=allComplete?'CHAMPION CROWNED':brackets.length?'PLAYOFFS IN PROGRESS':ev.done?'POOL PLAY COMPLETE':'EVENT IN PROGRESS';
+  const leader=rotating?entryStandings(ev).find(r=>r.played):eventStandings(ev,poolGames).find(r=>r.matchesPlayed),leaderName=leader?(rotating?leader.entry.name:leader.t.name):null,matchCount=eventMatchGroups(ev).length,entryCount=rotating?rotatingEntries(ev).length:(ev.teams||[]).length;
+  return {status,rotating,champions,podium,primary,champTeam,runnerTeam,champion:champTeam?.name||null,runner:runnerTeam?.name||null,division:primary?.br.name||null,score:primary?.res?.disp||null,championSeed:primary?.state.seedNum[primary.champId]||null,allRow,poolRow,journey,leaderName,allComplete,entryCount,matchCount,setCount:allEventGames.length,date:formatEventDate(eventLocalDate(ev))||'',format:rotating?rotatingFormatDescription(rotationSettings(ev).entrySize,rotationSettings(ev).teamSize):'Fixed teams',venue:ev.venue||ev.location||null};
+}
+function championsStripHtml(ev){
+  const d=getEventResultSummary(ev),focus=d.champTeam||null,focusName=d.champion||d.leaderName||'Championship pending',focusLabel=d.champion?'Champion':d.leaderName?'Current leader':'Event status',memberLine=focus?teamMemberNames(focus).join(', '):'',stats=[];
+  if(d.championSeed)stats.push([`#${d.championSeed}`,'Playoff seed']);if(!d.rotating&&d.allRow?.matchesPlayed)stats.push([`${d.allRow.mw}-${d.allRow.ml}`,'Tournament']);if(d.poolRow?.matchesPlayed)stats.push([`${d.poolRow.mw}-${d.poolRow.ml}`,'Pool play']);if(d.journey.length)stats.push([`${d.journey.filter(r=>r.result==='Won').length}-0`,'Playoffs']);if(d.allRow?.gp)stats.push([`${d.allRow.sw}-${d.allRow.sl}`,'Sets']);if(d.allRow?.diff)stats.push([`${d.allRow.diff>0?'+':''}${d.allRow.diff}`,'Point diff']);stats.push([String(d.entryCount),d.rotating?'Entries':'Teams'],[String(d.matchCount),'Matches']);
+  return `<section class="card event-finale" data-event-finale><div class="row spread" style="position:relative;gap:12px"><div class="finale-status">${esc(d.status)}</div><div class="tiny faint" style="text-align:right">${esc(ev.name||'Event')} · ${esc(d.date)}</div></div><div class="finale-grid">
+    <div class="finale-champion"><div class="finale-trophy">${icons.trophy}</div><div class="tiny faint" style="margin-top:10px">${esc(d.division||focusLabel)}</div><h3>${esc(focusName)}</h3>${memberLine?`<div class="finale-members">${esc(memberLine)}</div>`:''}${!d.champion&&d.leaderName?`<div class="tiny" style="color:var(--gold);margin-top:7px">Current leader · championship pending</div>`:''}</div>
+    <div class="finale-stats">${stats.slice(0,8).map(([value,label])=>`<div class="finale-stat"><b class="num">${esc(value)}</b><span>${esc(label)}</span></div>`).join('')}</div>
+    <div class="finale-match"><span class="tiny faint">${d.champion?'Championship final':'Event progress'}</span>${d.runner?`<strong>${esc(d.runner)}</strong><div class="finale-score num">${esc(d.score||'Final')}</div><div class="tiny faint">Runner-up${d.primary?.state.seedNum[d.primary.runnerId]?` · Seed ${d.primary.state.seedNum[d.primary.runnerId]}`:''}</div>`:`<strong>${d.allComplete?'Final complete':'Championship pending'}</strong><div class="small soft" style="margin-top:7px">${d.matchCount} completed match${d.matchCount===1?'':'es'} · ${esc(d.date)}</div>`}</div>
+  </div><div class="finale-actions"><button class="btn primary" onclick="openEventResults('${ev.id}')">View full results</button><button class="btn ghost" onclick="shareEventResults('${ev.id}')">Share results</button>${d.primary?`<button class="btn ghost" onclick="openPlayoffMatchDetails('${ev.id}','${d.primary.br.id}',${d.primary.state.rounds.length-1},0)">View championship match</button>`:''}</div></section>`;
+}
+function eventResultsData(ev,mode='recap'){
+  const summary=getEventResultSummary(ev),podiums=summary.podium,rotating=summary.rotating;
+  const standings=rotating?entryStandings(ev).filter(r=>r.played).map((r,i)=>({id:r.entry.id,place:i+1,name:r.entry.name,record:`${r.wins}-${r.losses}${r.ties?`-${r.ties}`:''}`,sets:null,diff:r.diff,line:`${r.wins}-${r.losses}${r.ties?`-${r.ties}`:''} · ${r.standingsPoints} pts${r.diff?` · ${r.diff>0?'+':''}${r.diff}`:''}`})):eventStandings(ev).filter(r=>r.gp).map((r,i)=>({id:r.t.id,place:i+1,name:r.t.name,record:`${r.mw}-${r.ml}`,sets:`${r.sw}-${r.sl}`,diff:r.diff,line:`${r.mw}-${r.ml} · sets ${r.sw}-${r.sl}${r.diff?` · ${r.diff>0?'+':''}${r.diff}`:''}`}));
+  return {mode,name:ev.name||'Event',date:summary.date,format:summary.format,entryCount:summary.entryCount,matchCount:summary.matchCount,setCount:summary.setCount,venue:summary.venue,status:summary.status,podiums,standings,standingsTitle:rotating?'Pool-play standings':'Combined event standings',highlights:getEventResultHighlights(ev,podiums),summary};
+}
+function eventResultsHtml(ev,d){
+  const champIds=new Set(d.podiums.map(p=>p.championId)),runnerIds=new Set(d.podiums.map(p=>p.runnerId));
+  const podium=d.podiums.map(p=>`<div class="results-section"><h4>${esc(p.division)}</h4><div class="results-spotlight"><div class="results-champ"><span class="results-kicker">Champion</span><b style="display:block;margin-top:4px">${esc(p.champion)}</b>${p.championSeed?`<span class="tiny faint">Seed ${p.championSeed}</span>`:''}</div><div><div class="tiny faint">Runner-up</div><b>${esc(p.runner||'\u2014')}</b>${p.score?`<div class="finale-score num">${esc(p.score)}</div>`:''}</div></div>${p.semifinalists.length?`<div class="tiny faint" style="margin-top:9px">Semifinalists · ${p.semifinalists.map(t=>esc(t.name)).join(' · ')}</div>`:''}</div>`).join('');
+  const journeys=d.podiums.filter(p=>p.journey.length).map(p=>`<div class="results-section"><h4>${esc(p.division)} · champion journey</h4>${p.journey.map(step=>`<div class="journey-row"><span class="podium-place">${step.bye?'BYE':'✓'}</span><span><b>${esc(step.round)}</b><span class="tiny faint" style="display:block">${step.bye?'Advanced with a bye':`defeated ${esc(step.opponent||'?')}`}</span></span><span class="num small">${esc(step.score||'Bye')}</span></div>`).join('')}</div>`).join('');
+  const standings=`<div class="results-section"><h4>${esc(d.standingsTitle)}</h4><div class="tiny faint" style="margin-bottom:5px">${d.summary.rotating?'Pool standings remain attached to registered entries; playoff divisions use the combined playoff teams shown above.':'Includes every saved pool and playoff result in Court’s canonical standings order.'}</div>${d.standings.map(r=>`<div class="result-standing ${champIds.has(r.id)?'champion':runnerIds.has(r.id)?'runner':''}"><span class="podium-place">${r.place}</span><span><b>${esc(r.name)}</b></span><span class="num tiny">${esc(r.line)}</span></div>`).join('')||'<div class="tiny faint">No completed standings yet.</div>'}</div>`;
+  const details=`<details class="results-section results-detail"><summary>Completed match list · ${d.matchCount}</summary>${eventMatchGroups(ev).slice().reverse().map(sets=>{const m=resultGroupSummary(ev,sets);return m?`<div class="row spread" style="gap:8px;padding:7px 0;border-bottom:1px solid var(--border)"><span class="small">${esc(m.aName)} <span class="faint">vs</span> ${esc(m.bName)}</span><span class="num tiny">${esc(m.disp)}</span></div>`:'';}).join('')||'<div class="tiny faint">No completed matches.</div>'}</details>`;
+  return `<div class="results-view" data-results-view><div class="results-event-head"><div class="results-kicker">Court · event recap</div><h4>${esc(d.name)}</h4><div class="results-meta"><span>${esc(d.date)}</span><span>· ${esc(d.format)}</span><span>· ${d.entryCount} ${d.summary.rotating?'entries':'teams'}</span><span>· ${d.matchCount} matches</span>${d.venue?`<span>· ${esc(d.venue)}</span>`:''}<span>· ${esc(d.status)}</span></div></div>${podium||`<div class="results-section"><h4>${esc(d.status)}</h4><div class="small soft">Championship pending. No champion is declared until a final result is saved.</div></div>`}${journeys}${standings}${d.highlights.length?`<div class="results-section"><h4>Event highlights</h4><div class="highlight-list">${d.highlights.map(h=>`<div class="highlight-item">${esc(h.text)}</div>`).join('')}</div></div>`:''}${details}<div class="results-footer">COURT · NIGHT COURT UNDER STADIUM LIGHTS</div></div>`;
 }
 function drawEventResultsCard(canvas, d){
-  const W=1080, rowH=64, podH=d.podiums.length?110+d.podiums.length*150:0;
-  const stRows=Math.min(d.standings.length, 8);
-  const H=Math.max(900, 360+podH+(stRows?120+stRows*rowH:0)+150);
+  const W=1080,rowH=62,compact=d.mode==='compact',stRows=Math.min(d.standings.length,compact?5:32),journeyRows=compact?0:d.podiums.reduce((n,p)=>n+p.journey.length,0),highlightRows=compact?0:d.highlights.length;
+  const H=Math.min(7800,Math.max(compact?900:1100,390+d.podiums.length*180+journeyRows*58+(stRows?90+stRows*rowH:0)+highlightRows*54+170));
   canvas.width=W; canvas.height=H;
   const ctx=canvas.getContext('2d'); if(!ctx) return;
   const F=(w,s)=>`${w} ${s}px system-ui, sans-serif`;
@@ -4094,25 +4203,26 @@ function drawEventResultsCard(canvas, d){
   ctx.fillStyle=glow; ctx.fillRect(0,0,W,900);
   const pad=64; let y=130;
   ctx.textAlign='left'; ctx.textBaseline='alphabetic';
-  ctx.fillStyle='#f2c66d'; ctx.font=F(850,30);
-  ctx.fillText('E V E N T   R E S U L T S', pad, y); y+=74;
+  const fit=(value,max=34)=>String(value||'').length>max?String(value).slice(0,max-1)+'…':String(value||'');
+  ctx.fillStyle='#f2c66d'; ctx.font=F(850,30);ctx.fillText(compact?'C O M P A C T   R E S U L T S':'C O U R T   ·   E V E N T   R E C A P', pad, y); y+=74;
   ctx.fillStyle='#eef3ff'; ctx.font=F(850,64);
-  ctx.fillText(d.name.length>26?d.name.slice(0,25)+'…':d.name, pad, y); y+=52;
+  ctx.fillText(fit(d.name,28), pad, y); y+=52;
   ctx.fillStyle='#8ea2c9'; ctx.font=F(600,30);
-  ctx.fillText(`${d.date} · ${d.sub}`, pad, y); y+=56;
+  ctx.fillText(`${d.date} · ${d.format} · ${d.entryCount} ${d.summary.rotating?'entries':'teams'} · ${d.matchCount} matches`, pad, y); y+=56;
   d.podiums.forEach(p=>{
     rrect(pad,y,W-2*pad,124,26);
     const g=ctx.createLinearGradient(pad,y,W-pad,y+124); g.addColorStop(0,'#2a2338'); g.addColorStop(1,'#15203a');
     ctx.fillStyle=g; ctx.fill(); ctx.lineWidth=2; ctx.strokeStyle='rgba(242,198,109,0.45)'; ctx.stroke();
     ctx.fillStyle='#f2c66d'; ctx.font=F(850,26);
-    ctx.fillText((p.bracket.toUpperCase())+'  ·  CHAMPION', pad+36, y+48);
+    ctx.fillText((p.division.toUpperCase())+'  ·  CHAMPION', pad+36, y+48);
     ctx.fillStyle='#ffe9bd'; ctx.font=F(850,46);
-    ctx.fillText(p.champ.length>30?p.champ.slice(0,29)+'…':p.champ, pad+36, y+100);
-    if(p.disp){ ctx.textAlign='right'; ctx.fillStyle='#9cc6ff'; ctx.font=F(800,34); ctx.fillText(p.disp, W-pad-36, y+100); ctx.textAlign='left'; }
+    ctx.fillText(fit(p.champion,30), pad+36, y+100);
+    if(p.score){ ctx.textAlign='right'; ctx.fillStyle='#9cc6ff'; ctx.font=F(800,34); ctx.fillText(p.score, W-pad-36, y+100); ctx.textAlign='left'; }
     y+=124;
-    if(p.runner){ ctx.fillStyle='#8ea2c9'; ctx.font=F(650,30); ctx.fillText(`2nd place · ${p.runner}`, pad+36, y+40); y+=64; }
+    if(p.runner){ ctx.fillStyle='#8ea2c9'; ctx.font=F(650,30); ctx.fillText(`Runner-up · ${fit(p.runner,36)}`, pad+36, y+40); y+=64; }
     y+=26;
   });
+  if(!compact&&journeyRows){ctx.fillStyle='#8ea2c9';ctx.font=F(850,26);ctx.fillText('CHAMPION JOURNEY',pad,y);y+=30;d.podiums.forEach(p=>p.journey.forEach(step=>{ctx.fillStyle='#eef3ff';ctx.font=F(750,28);ctx.fillText(`${step.round} · ${step.bye?'Bye':`defeated ${fit(step.opponent,24)}`}`,pad+24,y+35);ctx.textAlign='right';ctx.fillStyle='#f2c66d';ctx.fillText(step.score||'BYE',W-pad-24,y+35);ctx.textAlign='left';y+=58;}));y+=20;}
   if(stRows){
     y+=26; ctx.fillStyle='#8ea2c9'; ctx.font=F(850,26);
     ctx.fillText(d.standingsTitle.toUpperCase(), pad, y); y+=20;
@@ -4123,36 +4233,33 @@ function drawEventResultsCard(canvas, d){
       ctx.fillStyle=i===0?'#f2c66d':'#5d719c'; ctx.font=F(850,30);
       ctx.fillText(String(i+1), pad+30, y+38);
       ctx.fillStyle='#eef3ff'; ctx.font=F(750,32);
-      ctx.fillText(r.name.length>28?r.name.slice(0,27)+'…':r.name, pad+90, y+38);
+      ctx.fillText(fit(r.name,28), pad+90, y+38);
       ctx.textAlign='right'; ctx.fillStyle='#8ea2c9'; ctx.font=F(600,26);
       ctx.fillText(r.line, W-pad-28, y+38); ctx.textAlign='left';
       y+=rowH;
     }
-    if(d.standings.length>stRows){ ctx.fillStyle='#5d719c'; ctx.font=F(600,26); ctx.fillText(`+ ${d.standings.length-stRows} more`, pad, y+30); y+=44; }
+    if(d.standings.length>stRows){ ctx.fillStyle='#5d719c'; ctx.font=F(600,26); ctx.fillText(`+ ${d.standings.length-stRows} additional finishers in Court`, pad, y+30); y+=44; }
   }
+  if(!compact&&highlightRows){y+=18;ctx.fillStyle='#8ea2c9';ctx.font=F(850,26);ctx.fillText('EVENT HIGHLIGHTS',pad,y);y+=28;d.highlights.forEach(h=>{ctx.fillStyle='#eef3ff';ctx.font=F(650,25);ctx.fillText('• '+fit(h.text,68),pad+12,y+32);y+=54;});}
   ctx.fillStyle='rgba(255,255,255,0.10)'; ctx.fillRect(pad,H-104,W-2*pad,2);
   ctx.fillStyle='#f2c66d'; ctx.font=F(850,28); ctx.fillText('C O U R T', pad, H-52);
   ctx.textAlign='right'; ctx.fillStyle='#5d719c'; ctx.font=F(600,24);
   ctx.fillText('night court under stadium lights', W-pad, H-52); ctx.textAlign='left';
 }
 window.openEventResults=(evId)=>{
-  const ev=evById(evId); if(!ev) return;
-  openSheet(`<h3>Results card</h3>
-    <canvas id="resultsCanvas" style="width:100%;border-radius:16px;display:block;background:#070a12"></canvas>
-    <div class="tiny faint" style="margin-top:8px;text-align:center">Champions come straight from the brackets — correcting a game updates the card.</div>
-    <button class="btn primary block" style="margin-top:12px" onclick="shareEventResults('${ev.id}')">Save / share image</button>
-    ${sheetCloseBtn('Done')}`);
-  const c=document.getElementById('resultsCanvas');
-  if(c&&c.getContext) drawEventResultsCard(c, eventResultsData(ev));
+  const ev=evById(evId);if(!ev)return;const mode=window._eventResultsMode||'recap',d=eventResultsData(ev,mode);
+  openSheet(`<h3>Full event results</h3><div class="seg" style="margin-bottom:12px"><button class="${mode==='recap'?'on':''}" onclick="setEventResultsMode('${ev.id}','recap')">Event recap</button><button class="${mode==='compact'?'on':''}" onclick="setEventResultsMode('${ev.id}','compact')">Compact results</button></div>${eventResultsHtml(ev,d)}<canvas id="resultsCanvas" aria-hidden="true" style="position:absolute;left:-100000px;width:1px;height:1px"></canvas><div class="tiny faint" style="margin-top:8px;text-align:center">Results are rebuilt from saved games whenever this view opens.</div><button class="btn primary block" style="margin-top:12px" onclick="shareEventResults('${ev.id}')">Save / share ${mode==='compact'?'compact results':'event recap'}</button>${sheetCloseBtn('Close')}`);
+  const canvas=document.getElementById('resultsCanvas');if(canvas?.getContext)drawEventResultsCard(canvas,d);
 };
+window.setEventResultsMode=(evId,mode)=>{window._eventResultsMode=mode==='compact'?'compact':'recap';openEventResults(evId);};
 window.shareEventResults=(evId)=>{
-  const c=document.getElementById('resultsCanvas'); if(!c||!c.toBlob) return;
+  const ev=evById(evId);if(!ev)return;let c=document.getElementById('resultsCanvas');if(!c){c=document.createElement('canvas');drawEventResultsCard(c,eventResultsData(ev,window._eventResultsMode||'recap'));}if(!c.toBlob)return;
   c.toBlob(async blob=>{
     if(!blob){ toast('Could not render the card'); return; }
-    const nm=((evById(evId)||{}).name||'event').replace(/[^\w-]+/g,'_');
-    const file=new File([blob], `${nm}_results.png`, {type:'image/png'});
+    const nm=(ev.name||'event').replace(/[^\w-]+/g,'_'),mode=window._eventResultsMode==='compact'?'compact_results':'event_recap';
+    const file=new File([blob], `${nm}_${mode}.png`, {type:'image/png'});
     if(navigator.canShare && navigator.canShare({files:[file]}) && navigator.share){
-      try{ await navigator.share({files:[file], title:`${nm} \u00b7 Court`}); return; }
+      try{ await navigator.share({files:[file],title:`${ev.name||'Event'} · Court results`}); return; }
       catch(e){ if(e && e.name==='AbortError') return; }
     }
     const a=document.createElement('a');
@@ -4162,40 +4269,94 @@ window.shareEventResults=(evId)=>{
     toast('Results image saved');
   }, 'image/png');
 };
+function playoffContext(evId,brId,roundIndex,matchIndex){
+  const ev=evById(evId),br=ev&&(ev.brackets||[]).find(item=>item.id===brId),state=br&&bracketState(ev,br);
+  return ev&&br&&state?{ev,br,state,roundIndex:Number(roundIndex),matchIndex:Number(matchIndex),status:getPlayoffMatchState(ev,br,state,Number(roundIndex),Number(matchIndex))}:null;
+}
+function teamMemberNames(team){return (team?.players||[]).map(id=>pById(id)?.name).filter(Boolean);}
+function playoffMatchAria(ev,br,state,ri,mi){
+  const s=getPlayoffMatchState(ev,br,state,ri,mi),name=id=>evTeamById(ev,id)?.name||'TBD';if(!s)return 'Playoff matchup';
+  if(s.key==='bye')return `${s.roundName}: ${name(s.match.winner)} advances with a bye.`;
+  if(s.key==='waiting')return `${s.roundName}: waiting for teams.`;
+  if(s.key==='invalidated')return `Invalidated ${s.roundName} result. Upstream teams changed.`;
+  if(s.match.winner){const loser=s.match.winner===s.match.a?s.match.b:s.match.a;return `Open completed ${s.roundName}: ${name(s.match.winner)} defeated ${name(loser)}, ${s.match.res?.disp||'final'}.`;}
+  return `Open ${br.name||'playoff'} ${s.roundName}: seed ${state.seedNum[s.match.a]} ${name(s.match.a)} versus seed ${state.seedNum[s.match.b]} ${name(s.match.b)}.`;
+}
+window.openPlayoffMatch=(evId,brId,roundIndex,matchIndex)=>{
+  const ctx=playoffContext(evId,brId,roundIndex,matchIndex);if(!ctx||!ctx.status)return;
+  const {ev,br,state,status}=ctx,match=status.match,label=bracketMatchLabel(br,state.size,ctx.roundIndex,ctx.matchIndex,state.rounds[ctx.roundIndex].length);
+  if(status.key==='completed'||status.key==='championshipCompleted'||status.key==='invalidated'){openPlayoffMatchDetails(evId,brId,ctx.roundIndex,ctx.matchIndex);return;}
+  if(status.key==='ready'&&!ev.done){openEventGame(ev.id,match.a,match.b,label,'bo3',playoffMatchId(br,ctx.roundIndex,ctx.matchIndex));return;}
+  toast(status.key==='bye'?'A bye advances automatically.':status.key==='invalidated'?'This result no longer matches the advanced teams. Edit or delete it from its saved game.':ev.done?'Reopen the event to log this matchup.':'This matchup is waiting for both teams.');
+};
+window.openPlayoffMatchDetails=(evId,brId,roundIndex,matchIndex)=>{
+  const ctx=playoffContext(evId,brId,roundIndex,matchIndex);if(!ctx||!ctx.status)return;
+  const {ev,br,state,status}=ctx,match=status.match,sets=status.games,savedA=status.key==='invalidated'?sets[0]?.evA:match.a,savedB=status.key==='invalidated'?sets[0]?.evB:match.b,result=playoffResultFromGames(sets,savedA,savedB),team=id=>evTeamById(ev,id),a=team(savedA),b=team(savedB),winner=team(result?.winner),loser=team(result?.winner===savedA?savedB:savedA),latest=Math.max(0,...sets.map(g=>Number(g.date)||0)),court=sets.map(g=>g.court||g.courtLabel).find(Boolean);
+  const seedLine=(id,t)=>`<span class="tiny faint">Seed ${state.seedNum[id]||'\u2014'}${teamMemberNames(t).length?` · ${teamMemberNames(t).map(esc).join(', ')}`:''}</span>`;
+  const setRows=(result?.scores||[]).map((score,i)=>`<div class="match-set"><span>${esc(a?.name||'?')} <b class="num">${score.a}</b></span><span class="tiny faint">Set ${i+1}</span><span><b class="num">${score.b}</b> ${esc(b?.name||'?')}</span></div>`).join('');
+  openSheet(`<h3>Match details</h3>
+    <p class="small muted" style="margin:-8px 0 12px">${esc(br.name||'Playoffs')} · ${esc(status.roundName)} · ${esc(status.label)}</p>
+    <div class="match-detail-score"><span><b>${esc(a?.name||'TBD')}</b>${seedLine(savedA,a)}</span><span class="num">${esc(result?.disp||'\u2014')}</span><span><b>${esc(b?.name||'TBD')}</b>${seedLine(savedB,b)}</span></div>
+    ${status.key==='invalidated'?`<div class="unkline" style="margin-top:10px">An upstream result changed, so this saved matchup is no longer possible. Delete it before replaying this round.</div>`:winner?`<div class="row spread" style="margin-top:11px"><span class="small"><b style="color:var(--gold)">${icons.trophy} ${esc(winner.name)}</b> defeated ${esc(loser?.name||'runner-up')}</span><span class="pill good">Final</span></div>`:''}
+    ${setRows?`<div class="match-sets">${setRows}</div>`:''}
+    <div class="tiny faint" style="margin-top:10px">${latest?new Date(latest).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}):'Saved time unavailable'}${court?` · ${esc(String(court))}`:''}</div>
+    ${sets[0]?`<button class="btn ghost block" style="margin-top:13px" onclick="viewGame('${sets[0].id}')">View canonical saved game</button>`:''}
+    ${sets.length&&status.key!=='invalidated'?`<button class="btn primary block" style="margin-top:8px" onclick="openPlayoffMatchEdit('${ev.id}','${br.id}',${ctx.roundIndex},${ctx.matchIndex})">Edit result</button>`:''}${sets.length?`<button class="btn danger block" style="margin-top:8px" onclick="deletePlayoffMatchResult('${ev.id}','${br.id}',${ctx.roundIndex},${ctx.matchIndex})">Delete result</button>`:''}
+    ${sheetCloseBtn('Close')}`);
+};
+window.openPlayoffMatchEdit=(evId,brId,roundIndex,matchIndex)=>{
+  const ctx=playoffContext(evId,brId,roundIndex,matchIndex);if(!ctx||!ctx.status?.games.length)return;
+  const {status}=ctx,match=status.match,result=playoffResultFromGames(status.games,match.a,match.b),scores=result?.scores||[];
+  const value=index=>scores[index]==null?['','']:[String(scores[index].a),String(scores[index].b)],s1=value(0),s2=value(1),s3=value(2);
+  window._evGameDraft={evId,evMatchId:playoffMatchId(ctx.br,ctx.roundIndex,ctx.matchIndex),a:match.a,b:match.b,mode:scores.length>1?'bo3':'set',sA:s1[0],sB:s1[1],s1A:s1[0],s1B:s1[1],s2A:s2[0],s2B:s2[1],s3A:s3[0],s3B:s3[1],label:bracketMatchLabel(ctx.br,ctx.state.size,ctx.roundIndex,ctx.matchIndex,ctx.state.rounds[ctx.roundIndex].length),editPlayoff:{brId,roundIndex:ctx.roundIndex,matchIndex:ctx.matchIndex,gameIds:status.games.map(g=>g.id),oldWinner:match.winner}};
+  renderEventGameSheet();
+};
+async function markGamesDeleted(records){
+  const unique=[...new Map((records||[]).map(game=>[game.id,game])).values()];if(!unique.length)return;
+  await Sync.markDeletedMany({games:unique});const ids=new Set(unique.map(g=>g.id));games=games.filter(g=>!ids.has(g.id));
+}
+window.deletePlayoffMatchResult=async(evId,brId,roundIndex,matchIndex)=>{
+  const ctx=playoffContext(evId,brId,roundIndex,matchIndex);if(!ctx||!ctx.status?.games.length)return;
+  const later=getDownstreamPlayoffDependencies(ctx.ev,ctx.br,ctx.roundIndex,ctx.matchIndex),laterGroups=new Set(later.map(g=>g.evMatchId||g.matchId||g.id)).size;
+  const msg=later.length?`Delete this ${ctx.status.roundName} result? ${laterGroups} later playoff result${laterGroups===1?'':'s'} depend${laterGroups===1?'s':''} on it and will also be removed. Ratings and the bracket will be recalculated.`:`Delete this ${ctx.status.roundName} result? The winner will be un-advanced and ratings will be recalculated.`;
+  if(!(await askConfirm(msg,'Delete result')))return;
+  await markGamesDeleted([...ctx.status.games,...later]);await commit();closeSheet();toast(later.length?'Result deleted · dependent playoff results removed':'Result deleted · bracket updated');render({scroll:'anchor',anchorId:'playoffs'});
+};
 function bracketCardsHtml(ev){
   let html='';
   (ev.brackets||[]).forEach(br=>{
     const bs=bracketState(ev, br); if(!bs) return;
-    const names=bracketRoundNames(bs.size);
+    const names=bracketRoundNames(bs.size),progress=getDivisionProgress(ev,br,bs);
     const teamName=id=>{ const t=id&&evTeamById(ev,id); return t?t.name:null; };
     const cols=bs.rounds.map((round,ri)=>{
       const slots=round.map((m,i)=>{
-        const label=bracketMatchLabel(br,bs.size,ri,i,round.length);
-        const canLog=!ev.done && m.a && m.b && !m.winner;
+        const status=getPlayoffMatchState(ev,br,bs,ri,i),clickable=(status.key==='ready'&&!ev.done)||status.key==='completed'||status.key==='championshipCompleted'||status.key==='invalidated',championship=status.championship;
         const row=(id,isBye)=>{
-          if(isBye) return `<div class="br-team tbd"><span class="sd"></span><span>bye</span></div>`;
+          if(isBye) return `<div class="br-team tbd"><span class="sd"></span><span class="br-team-name">Bye · advances</span><span></span></div>`;
           const nm=teamName(id);
-          if(!nm) return `<div class="br-team tbd"><span class="sd"></span><span>TBD</span></div>`;
+          if(!nm) return `<div class="br-team tbd"><span class="sd"></span><span class="br-team-name">TBD</span><span></span></div>`;
           const cls=m.winner?(m.winner===id?'win':'lose'):'';
-          const right=(m.winner===id&&m.res)?`<span class="tiny num" style="font-weight:700">${m.res.disp}</span>`:'';
-          return `<div class="br-team ${cls}"><span class="sd">${bs.seedNum[id]||''}</span><span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(nm)}</span>${right}</div>`;
+          const right=(m.winner===id&&m.res)?`<span class="tiny num" style="font-weight:800">${m.res.disp}</span>`:'<span></span>';
+          return `<div class="br-team ${cls}"><span class="sd">${bs.seedNum[id]||''}</span><span class="br-team-name">${esc(nm)}</span>${right}</div>`;
         };
         const inner=m.bye ? row(m.a||m.b,false)+row(null,true) : row(m.a,false)+row(m.b,false);
-        return canLog
-          ? `<button class="br-match open" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${esc(label)}','bo3')">${inner}</button>`
-          : `<div class="br-match">${inner}</div>`;
+        const foot=`<span>${esc(status.label)}</span><span>${clickable?(m.winner?'View ›':'Log ›'):status.key==='invalidated'?'Review':'\u2014'}</span>`,classes=`${status.key==='ready'?'ready':m.winner?'complete':status.key==='invalidated'?'invalid':'waiting'}${championship?' championship':''}`;
+        return clickable
+          ? `<button class="br-match ${classes}" aria-label="${esc(playoffMatchAria(ev,br,bs,ri,i))}" onclick="openPlayoffMatch('${ev.id}','${br.id}',${ri},${i})">${inner}<span class="br-match-foot">${foot}</span></button>`
+          : `<div class="br-match ${classes}" aria-label="${esc(playoffMatchAria(ev,br,bs,ri,i))}">${inner}<span class="br-match-foot">${foot}</span></div>`;
       }).join('');
       return `<div class="br-col"><div class="br-round">${names[ri]}</div><div class="br-slots">${slots}</div></div>`;
     }).join('');
     const champ=bs.rounds[bs.rounds.length-1][0].winner;
     const champTeam=champ?evTeamById(ev,champ):null;
     const champCol=`<div class="br-col" style="min-width:112px"><div class="br-round">Champion</div><div class="br-slots"><div class="br-champ">${champTeam?`<b>${esc(champTeam.name)}</b>`:`<span class="tiny faint">TBD</span>`}</div></div></div>`;
-    html += `<div class="card" style="margin-top:12px">
-      <div class="row spread" style="margin-bottom:8px"><div class="stat-title" style="margin:0;color:var(--gold)">${esc(br.name||'Bracket')}</div>
-        ${ev.done?'':`<button class="btn sm ghost" onclick="resetBracket('${ev.id}','${br.id}')">Remove</button>`}</div>
+    const progressText=progress.complete?`${progress.completed} of ${progress.total} matches complete · Champion: ${teamName(progress.champion)}`:`${progress.completed} of ${progress.total} matches complete · ${progress.ready?`${progress.ready} ${progress.currentRound.toLowerCase()}${progress.ready===1?'':'s'} ready`:progress.currentRound}`;
+    html += `<div class="card bracket-card">
+      <div class="bracket-summary"><div><h3>${esc(br.name||'Bracket')}</h3><div class="bracket-summary-line">${esc(progressText)} · ${br.seeds.length} teams</div></div>
+        ${ev.done?'':`<details class="bracket-menu"><summary aria-label="${esc(br.name||'Bracket')} options">•••</summary><div class="bracket-menu-pop"><button class="btn sm danger" onclick="resetBracket('${ev.id}','${br.id}')">Remove division</button></div></details>`}</div>
       <div class="bracket-scroll"><div class="bracket">${cols}${champCol}</div></div>
       ${bs.byes?`<div class="tiny faint" style="margin-top:6px">${bs.byes===1?'Top seed has':'Top '+bs.byes+' seeds have'} a first-round bye.</div>`:''}
-      ${ev.done?'':`<div class="tiny faint" style="margin-top:6px">Tap an open matchup to log it. Winners advance automatically — and un-advance if a game is deleted or corrected.</div>`}
+      <div class="row spread" style="gap:8px;margin-top:7px"><span class="tiny faint">${progress.complete?'Completed matchups remain available for review.':'Tap a ready matchup to log it; tap a completed matchup to review or correct it.'}</span>${progress.complete?`<button class="btn sm ghost" onclick="openEventResults('${ev.id}')">View results</button>`:''}</div>
     </div>`;
   });
   return html;
@@ -5350,11 +5511,12 @@ function evGameCapture(){
 window.evGameMode=(m)=>{ const d=evGameCapture(); d.mode=m; renderEventGameSheet(); };
 function renderEventGameSheet(){
   const d=window._evGameDraft; const ev=evById(d.evId); if(!ev) return;
+  const editing=!!d.editPlayoff;
   const teamsAZ=(ev.teams||[]).slice().sort((a,b)=>a.name.localeCompare(b.name));
   const pick=(side)=> teamsAZ.map(t=>{
     const on = d[side]===t.id;
     const taken = d[side==='a'?'b':'a']===t.id;
-    return `<button class="chip ${on?'on':''}" ${taken?'disabled style="opacity:.35"':''} onclick="evPickTeam('${side}','${t.id}')">${esc(t.name)}</button>`;
+    return `<button class="chip ${on?'on':''}" ${(taken||editing)?'disabled':''} ${taken&&!editing?'style="opacity:.35"':''} onclick="evPickTeam('${side}','${t.id}')">${esc(t.name)}</button>`;
   }).join('');
   const ready = d.a&&d.b;
   const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b);
@@ -5373,7 +5535,9 @@ function renderEventGameSheet(){
       <div style="flex:1"><label class="small" style="color:var(--teamB);font-weight:700;display:block;margin-bottom:6px">${esc(nB)}</label>
         <input id="evsB" type="number" inputmode="numeric" min="0" placeholder="0" value="${esc(d.sB||'')}"></div>
     </div>`;
-  openSheet(`<h3>Log a game · ${esc(ev.name)}</h3>
+  const editCtx=editing?playoffContext(ev.id,d.editPlayoff.brId,d.editPlayoff.roundIndex,d.editPlayoff.matchIndex):null,dependencies=editCtx?getDownstreamPlayoffDependencies(ev,editCtx.br,editCtx.roundIndex,editCtx.matchIndex):[];
+  openSheet(`<h3>${editing?'Edit playoff result':'Log a game'} · ${esc(ev.name)}</h3>
+    ${editing?`<p class="small muted" style="margin:-8px 0 13px">${esc(editCtx?.br.name||'Playoffs')} · ${esc(editCtx?.status.roundName||'Match')}. This updates the saved game instead of creating a duplicate.</p>`:''}
     <div class="field"><label style="color:var(--teamA)">Team A</label><div class="chips">${pick('a')}</div></div>
     <div class="field"><label style="color:var(--teamB)">Team B</label><div class="chips">${pick('b')}</div></div>
     <div class="seg" style="margin-bottom:14px">
@@ -5382,10 +5546,11 @@ function renderEventGameSheet(){
     </div>
     ${scoreBody}
     <div class="field"><label>Label <span class="faint" style="font-weight:500">· optional</span></label>
-      <input id="evLabel" value="${esc(d.label||'')}" placeholder="e.g. Pool A · Semifinal · Final"></div>
-    <button class="btn primary block" ${ready?'':'disabled'} onclick="saveEventGame()">Save result</button>
-    <button class="btn ghost block" style="margin-top:8px" ${ready?'':'disabled'} onclick="trackEventGame()">Track live with events ▸</button>
-    <p class="tiny faint" style="margin-top:8px">Score-only is the fast path — ratings still move on the result. Track live only when you have a free thumb.</p>
+      <input id="evLabel" value="${esc(d.label||'')}" ${editing?'readonly':''} placeholder="e.g. Pool A · Semifinal · Final"></div>
+    ${editing&&dependencies.length?`<div class="unkline">Changing the winner will update the bracket and remove ${new Set(dependencies.map(g=>g.evMatchId||g.matchId||g.id)).size} dependent later-round result${dependencies.length===1?'':'s'} after confirmation.</div>`:''}
+    <button class="btn primary block" ${ready?'':'disabled'} onclick="saveEventGame()">${editing?'Update result':'Save result'}</button>
+    ${editing?'':`<button class="btn ghost block" style="margin-top:8px" ${ready?'':'disabled'} onclick="trackEventGame()">Track live with events ▸</button>`}
+    <p class="tiny faint" style="margin-top:8px">${editing?'Ratings replay from the original match time after the correction.':'Score-only is the fast path — ratings still move on the result. Track live only when you have a free thumb.'}</p>
     ${sheetCloseBtn()}`);
 }
 window.evPickTeam=(side,tid)=>{
@@ -5398,14 +5563,17 @@ window.saveEventGame=async()=>{
   const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b); if(!tA||!tB) return;
   const label=(d.label||'').trim();
   const num=v=>Math.max(0, Math.round(Number(v)||0));
-  const pA=tA.players.filter(id=>pById(id)), pB=tB.players.filter(id=>pById(id));
+  const pA=tA.players.filter(id=>pById(id)), pB=tB.players.filter(id=>pById(id)),editing=!!d.editPlayoff;
+  const oldGames=editing?(d.editPlayoff.gameIds||[]).map(id=>games.find(g=>g.id===id)).filter(Boolean).sort((a,b)=>a.date-b.date):[];
   /* Playerless (guest) sides save as untracked slots — the engine's existing
      partial-game model then guarantees: guest vs guest moves no ratings;
      rostered vs guest counts the win/loss without result-based rating moves. */
-  const mk=(a,b,extra)=>({ id:uid(), date:Date.now(),
-    teamA:pA, teamB:pB, unkA:pA.length?0:1, unkB:pB.length?0:1,
-    scoreA:a, scoreB:b, winner:a>b?'A':(b>a?'B':null), log:{},
-    evId:ev.id, evA:tA.id, evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}), ...extra });
+  const baseDate=oldGames[0]?.date||Date.now();
+  const mk=(a,b,extra,old,index)=>{const record={...(old||{}),id:old?.id||uid(),date:old?.date||(baseDate+index),
+    teamA:pA,teamB:pB,unkA:pA.length?0:1,unkB:pB.length?0:1,scoreA:a,scoreB:b,winner:a>b?'A':(b>a?'B':null),log:old?.log||{},
+    evId:ev.id,evA:tA.id,evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}),...extra};
+    if(!extra.matchId)delete record.matchId;return record;};
+  let specs=[],winnerId=null,resultLabel='';
   if(d.mode==='bo3'){
     const sets=[];
     ['1','2','3'].forEach(n=>{
@@ -5417,20 +5585,28 @@ window.saveEventGame=async()=>{
     let wa=0, wb=0;
     sets.forEach(([a,b])=>{ if(a>b)wa++; else if(b>a)wb++; });
     if(wa===wb && !(await askConfirm('Set wins are even, so no match winner is recorded in standings. Save anyway?','Save anyway',false))) return;
-    const matchId=uid();
-    sets.forEach(([a,b,n])=>{
-      games.push(mk(a,b,{ matchId, label:(label?label+' · ':'')+'Set '+n }));
-    });
-    await commit(); closeSheet();
-    toast(wa===wb?'Match saved · drawn on sets':`${esc(wa>wb?tA.name:tB.name)} wins the match ${Math.max(wa,wb)}-${Math.min(wa,wb)}`);
+    const matchId=oldGames[0]?.matchId||uid();winnerId=wa===wb?null:(wa>wb?tA.id:tB.id);resultLabel=wa===wb?'Match saved · drawn on sets':`${wa>wb?tA.name:tB.name} wins the match ${Math.max(wa,wb)}-${Math.min(wa,wb)}`;
+    specs=sets.map(([a,b,n])=>({a,b,extra:{matchId,label:(label?label+' · ':'')+'Set '+n}}));
   } else {
     const a=num(d.sA), b=num(d.sB);
     if(a===b && !(await askConfirm('Tied score — it shows in standings points but won\u2019t count as a win, loss, or rating change. Save anyway?','Save anyway',false))) return;
-    games.push(mk(a,b, label?{label}:{}));
-    await commit(); closeSheet();
-    toast(a===b?'Tie saved · points counted':`${esc(a>b?tA.name:tB.name)} wins · standings updated`);
+    winnerId=a===b?null:(a>b?tA.id:tB.id);resultLabel=a===b?'Tie saved · points counted':`${a>b?tA.name:tB.name} wins · standings updated`;specs=[{a,b,extra:label?{label}:{}}];
   }
-  render();
+  let dependencies=[];
+  if(editing&&winnerId!==d.editPlayoff.oldWinner){
+    const ctx=playoffContext(ev.id,d.editPlayoff.brId,d.editPlayoff.roundIndex,d.editPlayoff.matchIndex);dependencies=ctx?getDownstreamPlayoffDependencies(ev,ctx.br,ctx.roundIndex,ctx.matchIndex):[];
+    const groups=new Set(dependencies.map(g=>g.evMatchId||g.matchId||g.id)).size;
+    const warning=groups?`Changing this result changes the advancing team. ${groups} later playoff result${groups===1?'':'s'} involving the previous winner will be removed and must be re-entered.`:'Changing this result will update the advancing team and rebuild the bracket.';
+    if(!(await askConfirm(warning,'Update bracket')))return;
+  }
+  if(dependencies.length)await markGamesDeleted(dependencies);
+  if(editing){
+    const oldIds=new Set(oldGames.map(g=>g.id));games=games.filter(g=>!oldIds.has(g.id));
+    if(oldGames.length>specs.length)await markGamesDeleted(oldGames.slice(specs.length));
+  }
+  specs.forEach((spec,index)=>games.push(mk(spec.a,spec.b,spec.extra,oldGames[index],index)));
+  await commit();closeSheet();toast(editing?(dependencies.length?'Result updated · dependent playoff results removed':'Result updated · bracket recalculated'):resultLabel);
+  render({scroll:editing?'anchor':'preserve',anchorId:editing?'playoffs':undefined});
 };
 window.backToEvent=()=>{
   /* bail out of a live-tracking handoff: nothing was saved, so just clear

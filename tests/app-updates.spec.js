@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const CURRENT_BUILD = '20260716.8';
+const CURRENT_BUILD = '20260716.9';
 
 async function routeBuildChecks(page, getBuild) {
   await page.route('**/*', async route => {
@@ -47,18 +47,18 @@ test('update checks issue a no-store request and the same build stays quiet', as
 });
 
 test('different builds prompt, dismissal is build-specific, and a later build prompts again', async ({ page }) => {
-  let deployedBuild = '20260716.9';
+  let deployedBuild = '20260716.10';
   await routeBuildChecks(page, () => deployedBuild);
   await page.goto('/');
   await page.evaluate(() => AppUpdates.check({ force: true }));
   await expect(page.locator('#appUpdateNotice')).toBeVisible();
-  await expect(page.locator('#appUpdateCopy')).toContainText(`Running build ${CURRENT_BUILD} · available build 20260716.9`);
+  await expect(page.locator('#appUpdateCopy')).toContainText(`Running build ${CURRENT_BUILD} · available build 20260716.10`);
 
   await page.getByRole('button', { name: 'Later', exact: true }).click();
   await expect(page.locator('#appUpdateNotice')).toBeHidden();
   await page.evaluate(() => AppUpdates.check({ force: true }));
   await expect(page.locator('#appUpdateNotice')).toBeHidden();
-  expect(await page.evaluate(() => sessionStorage.getItem('court:update-dismissed-build'))).toBe('20260716.9');
+  expect(await page.evaluate(() => sessionStorage.getItem('court:update-dismissed-build'))).toBe('20260716.10');
 
   deployedBuild = '20260717.1';
   await page.evaluate(() => AppUpdates.check({ force: true }));
