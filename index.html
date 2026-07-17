@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260716.5">
+<meta name="court-build" content="20260716.6">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -759,9 +759,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.7.0',
-  build: '20260716.5',
-  releaseNotes: 'Added public schedule links with update-in-place URLs, participant-specific publishing, and disable-link controls.'
+  version: '0.7.1',
+  build: '20260716.6',
+  releaseNotes: 'Public schedule share titles now identify the full, team, rotating-entry, or participant scope.'
 });
 
 function appVersionLabel(){
@@ -3705,8 +3705,17 @@ function scheduleDocumentStyles(){return `
     .participant-games{display:block}.participant-round-card{margin-top:9px}
     .schedule-preview-foot{break-before:avoid-page;page-break-before:avoid}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}
   }`}
+function scheduleTitleSubject(model){
+  if(model?.scope!=='participant')return 'Full';
+  const members=(model.subjectMembers||[]).map(name=>String(name??'').trim()).filter(Boolean);
+  if(model.formatKind==='rotating'&&model.exportTitle==='Participant Schedule')return members[0]||String(model.subjectName||'').trim()||'Participant';
+  return String(model.subjectName||'').trim()||members.join(' + ')||(model.formatKind==='fixed'?'Team':'Entry');
+}
+function scheduleShareTitle(model){
+  return `${String(model?.eventName||'Event').trim()||'Event'} · ${scheduleTitleSubject(model)} schedule`;
+}
 function renderScheduleDocument(model){
-  const title=`${scheduleHtmlEscape(model.eventName)} · Court schedule`;
+  const title=scheduleHtmlEscape(scheduleShareTitle(model));
   const body=model.scope==='participant'?participantScheduleBodyHtml(model):scheduleExportBodyHtml(model);
   return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${title}</title><style>${scheduleDocumentStyles()}</style></head><body>${body}</body></html>`;
 }
@@ -3728,7 +3737,7 @@ function schedulePublicationScope(subjectType='',subjectId=''){
   if(!subjectType)return 'full';
   return ['team','entry','player'].includes(subjectType)&&subjectId?`${subjectType}:${subjectId}`:null;
 }
-function schedulePublicationTitle(model){return `${model.eventName} · Court schedule`;}
+function schedulePublicationTitle(model){return scheduleShareTitle(model);}
 function schedulePublicationTimestamp(value){
   const d=new Date(Number(value));if(!Number.isFinite(d.getTime()))return '';
   return `${d.toLocaleDateString([],{month:'short',day:'numeric'})} at ${d.toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`;
@@ -3878,7 +3887,7 @@ const SchedulePublications=(()=>{
   }
   async function share(evId,subjectType='',subjectId=''){
     const pub=activeFor(evId,subjectType,subjectId),ev=evById(evId);if(!pub)return;
-    if(navigator.share){try{await navigator.share({title:pub.title||`${ev?.name||'Event'} schedule · Court`,text:`Open the ${ev?.name||'event'} schedule in your browser.`,url:pub.publicUrl});toast('Public schedule link shared');return;}catch(error){if(error?.name==='AbortError')return;}}
+    if(navigator.share){try{await navigator.share({title:pub.title||scheduleShareTitle(modelFor(ev,subjectType,subjectId)),text:`Open the ${ev?.name||'event'} schedule in your browser.`,url:pub.publicUrl});toast('Public schedule link shared');return;}catch(error){if(error?.name==='AbortError')return;}}
     await copy(evId,subjectType,subjectId);
   }
   function open(evId,subjectType='',subjectId=''){const pub=activeFor(evId,subjectType,subjectId);if(!pub)return;const link=document.createElement('a');link.href=pub.publicUrl;link.target='_blank';link.rel='noopener noreferrer';document.body.appendChild(link);try{link.click();}finally{link.remove();}}
@@ -3910,7 +3919,7 @@ window.shareSchedule=async (evId,subjectType='',subjectId='')=>{
   try{
     const file=createScheduleHtmlFile(model),files=[file];let native=false;
     try{native=!!(navigator.share&&navigator.canShare&&navigator.canShare({files}));}catch(_){native=false;}
-    if(native){try{await navigator.share({files,title:`${model.eventName} schedule · Court`});toast('Schedule shared');return;}catch(error){if(error?.name==='AbortError')return;toast('Could not share the schedule. Use Download Schedule instead.');return;}}
+    if(native){try{await navigator.share({files,title:scheduleShareTitle(model)});toast('Schedule shared');return;}catch(error){if(error?.name==='AbortError')return;toast('Could not share the schedule. Use Download Schedule instead.');return;}}
     downloadScheduleFile(file);toast('Schedule downloaded as one HTML file');
   }catch(error){toast(error?.message||'Could not create the schedule document');}
   finally{if(button&&button.isConnected){button.disabled=false;button.textContent='Share Schedule';}}

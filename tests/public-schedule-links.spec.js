@@ -101,6 +101,8 @@ test('full publication lifecycle reuses exact renderer output, detects staleness
   const first = state.requests.find(request => request.method === 'POST');
   expect(Object.keys(first.body).sort()).toEqual(['contentHash', 'html', 'scope', 'title']);
   expect(first.body.html).toBe(expectedHtml);
+  expect(first.body.title).toBe('Public Link Cup · Full schedule');
+  expect(first.body.html).toContain(`<title>${first.body.title}</title>`);
   expect(first.body.scope).toBe('full');
   expect(first.headers['x-court-room']).toBe('private-room-secret');
   expect(JSON.stringify(first.body)).not.toContain('private-room-secret');
@@ -122,6 +124,8 @@ test('full publication lifecycle reuses exact renderer output, detects staleness
   const update = state.requests.find(request => request.method === 'PUT');
   expect(Object.keys(update.body).sort()).toEqual(['contentHash', 'html', 'title']);
   expect(update.body.html).toContain('Public Link Cup Updated');
+  expect(update.body.title).toBe('Public Link Cup Updated · Full schedule');
+  expect(update.body.html).toContain(`<title>${update.body.title}</title>`);
   expect(update.headers).not.toHaveProperty('x-court-room');
 
   await panel.getByRole('button', { name: 'Disable Link', exact: true }).click();
@@ -153,6 +157,8 @@ test('full, team, and rotating participant publications are independent and cont
 
   const creates = state.requests.filter(request => request.method === 'POST');
   expect(creates.map(request => request.body.scope)).toEqual(['full', 'team:t0', 'entry:e0']);
+  expect(creates.map(request => request.body.title)).toEqual(['Public Link Cup · Full schedule', 'Public Link Cup · Team 1 schedule', 'Public Rotation · Player 1 schedule']);
+  for (const request of creates) expect(request.body.html).toContain(`<title>${request.body.title}</title>`);
   expect(creates[0].body.html).toContain('<body><article class="schedule-document">');expect(creates[0].body.html).not.toContain('<body><article class="schedule-document participant-document">');
   expect(creates[1].body.html).toContain('<body><article class="schedule-document participant-document">');expect(creates[1].body.html).toContain('Your Team');expect(creates[1].body.html).not.toContain('<section class="schedule-round"');
   expect(creates[2].body.html).toContain('<body><article class="schedule-document participant-document">');expect(creates[2].body.html).toContain('Participant Schedule');expect(creates[2].body.html).toContain('Your Entry');
@@ -193,7 +199,7 @@ test('Share Link sends a URL, cancellation is silent, clipboard fallback works, 
   });
   await panel.getByRole('button', { name: 'Share Link', exact: true }).click();
   const shared=await page.evaluate(() => window.__urlShares[0]);
-  expect(shared.url).toMatch(/\/s\//);expect(shared).not.toHaveProperty('files');expect(shared.title).toContain('Court schedule');
+  expect(shared.url).toMatch(/\/s\//);expect(shared).not.toHaveProperty('files');expect(shared.title).toBe('Public Link Cup · Full schedule');
   await page.evaluate(() => {document.querySelector('#toast').classList.remove('show');Object.defineProperty(navigator,'share',{configurable:true,value:async()=>{throw new DOMException('cancel','AbortError');}});});
   await panel.getByRole('button', { name: 'Share Link', exact: true }).click();await page.waitForTimeout(100);await expect(page.locator('#toast')).not.toHaveClass(/show/);
   await page.evaluate(() => Object.defineProperty(navigator,'share',{configurable:true,value:undefined}));

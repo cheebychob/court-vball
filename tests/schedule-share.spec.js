@@ -182,6 +182,67 @@ test('rotating participant export handles different entry/team sizes, names, res
   expect(result.same).toBe(true);
 });
 
+test('schedule titles identify full, fixed-team, named rotating-entry, unnamed rotating-entry, and individual scopes', async ({ page }) => {
+  await seed(page, { playerCount: 24 }); await page.goto('/');
+  const result = await page.evaluate(() => {
+    const eventName = 'Bde Rotating Sand 4s Tournament';
+    const fixed = {
+      id: 'title-fixed', name: eventName, format: 'fixedTeams', teams: Array.from({ length: 4 }, (_, i) => ({ id: `ft${i}`, name: i === 0 ? 'Sand Stars' : `Team ${i + 1}`, pool: 'A', players: [`p${i}`] })),
+      sched: { start: '10:00', courts: 2, courtStyle: 'num', setMin: 20, matchMin: 45, breakMin: 10, seed: 'title-fixed-seed', revision: 1 }, brackets: []
+    };
+    const rotating = {
+      id: 'title-rotating', name: eventName, format: 'rotatingGroups', teams: [], brackets: [],
+      entries: Array.from({ length: 8 }, (_, i) => ({ id: `re${i}`, name: i === 0 ? 'Pair B' : i === 1 ? '   ' : `Pair ${i + 1}`, players: [`p${i * 2}`, `p${i * 2 + 1}`], manualSeed: i + 1 })),
+      rotation: { entrySize: 2, teamSize: 4, rounds: 3, courts: 2, seedMode: 'manual', start: '09:00', setMin: 20, seed: 'title-rotating-seed', revision: 1 }
+    };
+    rotating.rotationSchedule = generateRotationScheduleData(rotating).matches;
+    const individual = {
+      id: 'title-individual', name: eventName, format: 'rotatingGroups', teams: [], brackets: [],
+      entries: Array.from({ length: 8 }, (_, i) => ({ id: `ie${i}`, name: `Entry ${i + 1}`, players: [`p${i}`], manualSeed: i + 1 })),
+      rotation: { entrySize: 1, teamSize: 2, rounds: 3, courts: 2, seedMode: 'manual', start: '09:00', setMin: 20, seed: 'title-individual-seed', revision: 1 }
+    };
+    individual.rotationSchedule = generateRotationScheduleData(individual).matches;
+    const models = {
+      full: deriveFullScheduleExportModel(fixed),
+      fixedTeam: deriveParticipantScheduleExportModel(fixed, 'team', 'ft0'),
+      namedRotating: deriveParticipantScheduleExportModel(rotating, 'entry', 're0'),
+      unnamedRotating: deriveParticipantScheduleExportModel(rotating, 'entry', 're1'),
+      individual: deriveParticipantScheduleExportModel(individual, 'entry', 'ie0')
+    };
+    return Object.fromEntries(Object.entries(models).map(([scope, model]) => [scope, {
+      shared: scheduleShareTitle(model),
+      published: schedulePublicationTitle(model),
+      document: new DOMParser().parseFromString(renderScheduleDocument(model), 'text/html').title
+    }]));
+  });
+  const expected = {
+    full: 'Bde Rotating Sand 4s Tournament · Full schedule',
+    fixedTeam: 'Bde Rotating Sand 4s Tournament · Sand Stars schedule',
+    namedRotating: 'Bde Rotating Sand 4s Tournament · Pair B schedule',
+    unnamedRotating: 'Bde Rotating Sand 4s Tournament · Player 03 + Player 04 schedule',
+    individual: 'Bde Rotating Sand 4s Tournament · Player 01 schedule'
+  };
+  for (const [scope, title] of Object.entries(expected)) expect(result[scope]).toEqual({ shared: title, published: title, document: title });
+});
+
+test('participant file sharing sends the scope-specific title and a matching document title to navigator.share', async ({ page }) => {
+  const event = rotatingEvent({ entries: 8, rounds: 3, courts: 2, name: 'Pair Share Cup' });
+  event.entries[0].name = 'Pair B';
+  await seed(page, { events: [event], playerCount: 24 }); await page.goto('/');
+  await page.evaluate(async () => { const ev = evts[0]; ev.rotationSchedule = generateRotationScheduleData(ev).matches; await saveEvents(); openParticipantScheduleShare(ev.id, 'entry', 'e0'); });
+  await page.evaluate(() => {
+    window.__participantShare = null;
+    Object.defineProperty(navigator, 'canShare', { configurable: true, value: data => data.files.length === 1 });
+    Object.defineProperty(navigator, 'share', { configurable: true, value: async data => {
+      const html = await data.files[0].text();
+      window.__participantShare = { title: data.title, documentTitle: new DOMParser().parseFromString(html, 'text/html').title };
+    } });
+  });
+  await page.locator('.sheet').getByRole('button', { name: 'Share Schedule', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => window.__participantShare)).not.toBeNull();
+  expect(await page.evaluate(() => window.__participantShare)).toEqual({ title: 'Pair Share Cup · Pair B schedule', documentTitle: 'Pair Share Cup · Pair B schedule' });
+});
+
 test('team and entry modals expose participant sharing and unavailable exports show a clear toast', async ({ page }) => {
   const fixed = fixedEvent({ name: 'Modal Fixed' }), rotating = rotatingEvent({ entries: 8, rounds: 3, courts: 2, name: 'Modal Rotating' });
   rotating.entries.forEach((entry, i) => { entry.name = `Long Entry Badge ${i + 1} With Extra Words`; });

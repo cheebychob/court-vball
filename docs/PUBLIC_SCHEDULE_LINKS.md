@@ -119,7 +119,7 @@ The Worker rejects malformed JSON, unsupported fields, non-HTML payloads, invali
 ```json
 {
   "html": "<!DOCTYPE html>...",
-  "title": "Event name · Court schedule",
+  "title": "Event name · Full schedule",
   "contentHash": "<sha-256 hex>",
   "scope": "full",
   "managementTokenHash": "<sha-256 hex>",
@@ -150,7 +150,7 @@ Court stores one event-root map keyed independently by scope:
       "status": "active",
       "subjectType": "full",
       "subjectId": null,
-      "title": "Event name · Court schedule"
+      "title": "Event name · Full schedule"
     }
   }
 }
