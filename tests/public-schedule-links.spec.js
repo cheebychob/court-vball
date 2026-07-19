@@ -145,6 +145,38 @@ test('full publication lifecycle reuses exact renderer output, detects staleness
   expect(state.records.get(firstUrl.split('/').pop()).disabledAt).toBeTruthy();
 });
 
+test('event recap links publish standalone results HTML, detect changes, and keep image saving available', async ({ page }) => {
+  const state=publicWorkerState();await seed(page);await mockPublicWorker(page,state);await page.goto('/');
+  await page.evaluate(() => shareEventResults('fixed-public'));
+  const options=page.locator('[data-results-share-options]');
+  await expect(options.getByRole('button',{name:'Share public link',exact:true})).toBeVisible();
+  await expect(options.getByRole('button',{name:'Save image',exact:true})).toBeVisible();
+  const expectedHtml=await page.evaluate(()=>renderResultsDocument(deriveResultsPublicationModel(evById('fixed-public'))));
+  await options.getByRole('button',{name:'Share public link',exact:true}).click();
+  await expect(options.getByLabel('Public recap URL')).toBeVisible();
+  const create=state.requests.find(request=>request.method==='POST');
+  expect(create.body.scope).toBe('results');expect(create.body.html).toBe(expectedHtml);expect(create.body.html).toContain('<!DOCTYPE html>');expect(create.body.html).toContain('<title>Public Link Cup · July 16, 2026 · Event recap</title>');
+  expect(create.headers['x-court-room']).toBe('private-room-secret');
+  const stored=await page.evaluate(()=>evById('fixed-public').schedulePublications.results);
+  expect(stored).toMatchObject({scope:'results',subjectType:'results',status:'active'});expect(stored).not.toHaveProperty('html');
+  await page.evaluate(async()=>{evById('fixed-public').name='Updated Recap Cup';await saveEvents();shareEventResults('fixed-public');});
+  await expect(page.locator('[data-results-share-options]').getByRole('button',{name:'Update Published Link',exact:true})).toBeVisible();
+  await page.locator('[data-results-share-options]').getByRole('button',{name:'Update Published Link',exact:true}).click();
+  await expect(page.locator('[data-results-share-options]')).toContainText('Up to date');
+  const update=state.requests.find(request=>request.method==='PUT');expect(update.body.html).toContain('Updated Recap Cup');
+});
+
+test('recap sharing without Sync offers only image saving and setup guidance', async ({ page }) => {
+  await seed(page,{sync:false});await page.goto('/');await page.evaluate(()=>shareEventResults('fixed-public'));
+  const options=page.locator('[data-results-share-options]');await expect(options).toContainText('Set up Sync in Settings');await expect(options.getByRole('button',{name:'Save image',exact:true})).toBeVisible();
+  await expect(options.getByRole('button',{name:'Share public link',exact:true})).toHaveCount(0);await expect(options.getByRole('button',{name:'Copy link',exact:true})).toHaveCount(0);await expect(options.getByRole('button',{name:'Open link',exact:true})).toHaveCount(0);await expect(options.getByRole('button',{name:'Disable link',exact:true})).toHaveCount(0);
+});
+
+test('a Worker rejection for results leaves recap image saving usable', async ({ page }) => {
+  const state=publicWorkerState();await seed(page);await mockPublicWorker(page,state);await page.route(WORKER_ROUTE,async route=>{const request=route.request(),url=new URL(request.url());if(url.pathname==='/api/public-schedules'&&request.method()==='POST'&&JSON.parse(request.postData()||'{}').scope==='results'){await route.fulfill({status:400,contentType:'application/json',body:JSON.stringify({error:'Results publication was rejected'})});return;}await route.fallback();});await page.goto('/');await page.evaluate(()=>shareEventResults('fixed-public'));
+  const options=page.locator('[data-results-share-options]');await options.getByRole('button',{name:'Share public link',exact:true}).click();await expect(page.locator('#toast')).toHaveText('Results publication was rejected');await expect(options.getByRole('button',{name:'Share public link',exact:true})).toBeEnabled();await expect(options.getByRole('button',{name:'Save image',exact:true})).toBeEnabled();expect(await page.evaluate(()=>evById('fixed-public').schedulePublications?.results||null)).toBeNull();
+});
+
 test('full, team, and rotating participant publications are independent and contain only their existing export scope', async ({ page }) => {
   const state = publicWorkerState();await seed(page, { events: [fixedEvent(), rotatingEvent()] });await mockPublicWorker(page, state);await page.goto('/');
   await page.evaluate(async () => { const ev=evById('rotating-public');ev.rotationSchedule=generateRotationScheduleData(ev).matches;await saveEvents(); });
