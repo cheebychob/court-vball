@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260717.3">
+<meta name="court-build" content="20260719.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -816,9 +816,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.9.2',
-  build: '20260717.3',
-  releaseNotes: 'Published event search now works under the live Worker security policy, and public pages omit Print and Share controls.'
+  version: '0.10.0',
+  build: '20260719.1',
+  releaseNotes: 'Ratings now use terminal events only, attempt tracking is optional, and serve and reception rates require saved per-game evidence.'
 });
 
 function appVersionLabel(){
@@ -935,31 +935,35 @@ const SKILL_DEFS = [
   ['passing','Passing / receive',25], ['serving','Serving',15], ['setting','Setting',15],
   ['hitting','Hitting / block',20], ['defense','Defense / move',15], ['iq','IQ / comms',10],
 ];
-// event types: k=key, l=label, w=weight, c=color class, common=quick view,
-// grade=part of serve/pass grading trio, detail=only shown in Detailed grading mode
+// Event weights below are the preserved rating-v1 values. Rating v2 admits
+// only TERMINAL_EVENT_KEYS; denominator events remain available for rate stats.
 const EVENTS = [
-  {k:'ace',     l:'Ace',    w:3,    c:'g', common:true, grade:true},
-  {k:'sin',     l:'In',     w:0.5,  c:'g', detail:true, grade:true},
-  {k:'serr',    l:'Srv err',w:-2,   c:'b', grade:true},
-  {k:'goodPass',l:'Pass',   w:1,    c:'g', grade:true},
-  {k:'pget',    l:'Get',    w:0.4,  c:'g', detail:true, grade:true},
-  {k:'perr',    l:'Pass err',w:-1.5,c:'b', common:true, grade:true},
-  {k:'kill',    l:'Kill',   w:2,    c:'g', common:true},
+  {k:'ace',     l:'Ace',    w:3,    c:'g'},
+  {k:'sin',     l:'In',     w:0.5,  c:'g'},
+  {k:'serr',    l:'Srv err',w:-2,   c:'b'},
+  {k:'goodPass',l:'Pass',   w:1,    c:'g'},
+  {k:'pget',    l:'Get',    w:0.4,  c:'g'},
+  {k:'perr',    l:'Pass err',w:-1.5,c:'b'},
+  {k:'kill',    l:'Kill',   w:2,    c:'g'},
   {k:'kerr',    l:'Hit err',w:-1.5, c:'b'},
-  {k:'dig',     l:'Dig',    w:1.5,  c:'g', common:true},
-  {k:'block',   l:'Block',  w:2,    c:'g'},
+  {k:'dig',     l:'Dig',    w:1.5,  c:'g'},
+  {k:'block',   l:'Stuff',  w:2,    c:'g'},
   {k:'assist',  l:'Set',    w:1,    c:'g'},
   {k:'fault',   l:'Fault',  w:-1,   c:'b'},
 ];
 const EV_MAP = Object.fromEntries(EVENTS.map(e=>[e.k,e]));
-// how events cluster in the live tracker, each group ordered great -> gettable -> error
-const EVENT_GROUPS = [
-  {g:'Serve',   keys:['ace','sin','serr']},
-  {g:'Receive', keys:['goodPass','pget','perr']},
-  {g:'Attack',  keys:['kill','kerr']},
-  {g:'Defense', keys:['dig','block']},
-  {g:'Other',   keys:['assist','fault']},
-];
+const TERMINAL_EVENT_KEYS = Object.freeze(['ace','serr','kill','kerr','block','perr','fault']);
+const NON_TERMINAL_EVENT_KEYS = Object.freeze(['sin','pget','goodPass','assist','dig']);
+const COLLAPSED_EVENT_KEYS = Object.freeze(['ace','serr','kill','kerr']);
+const EVENT_FAMILY_KEYS = Object.freeze({
+  serve:['ace','serr','sin'],
+  reception:['perr','pget','goodPass'],
+  attack:['kill','kerr'],
+  block:['block'],
+  other:['fault'],
+  setting:['assist'],
+  defense:['dig'],
+});
 const PLAYER_STAT_GROUPS = [
   {g:'Serve', keys:['ace','sin','serr']},
   {g:'Receive', keys:['goodPass','pget','perr']},
@@ -978,7 +982,7 @@ const PLAYER_STAT_LABELS = {
   kill:'Kills',
   kerr:'Hit errors',
   dig:'Digs',
-  block:'Blocks',
+  block:'Stuff blocks',
   assist:'Sets / assists',
   fault:'Faults',
 };
@@ -986,7 +990,7 @@ const PLAYER_STAT_ERRORS = new Set(['serr','perr','kerr','fault']);
 
 const DEFAULT_SETTINGS = {
   numTeams:2, hideRatings:false, detailed:false, playerSort:'az',
-  eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12,
+  eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12, ratingVersion:2,
 };
 
 let players = [];      // see makePlayer()
@@ -1183,6 +1187,36 @@ function hitEff(n,d){
   if(Math.abs(v)<1) return `${v<0?'-':''}${abs.replace(/^0/,'')}`;
   return `${v<0?'-':''}${abs}`;
 }
+const RATE_STAT_EMPTY_HELP = 'No qualifying games. Turn on attempt tracking and log at least one attempt for this stat.';
+function evidenceGatedRateStats(playerId){
+  const serve={games:0,ace:0,sin:0,serr:0};
+  const reception={games:0,goodPass:0,pget:0,perr:0};
+  games.forEach(g=>{
+    if(g.detailed!==true) return;
+    const c=(g.log&&g.log[playerId])||{};
+    const sin=Number(c.sin)||0,serr=Number(c.serr)||0;
+    if(sin>0||serr>0){
+      serve.games++;serve.ace+=Number(c.ace)||0;serve.sin+=sin;serve.serr+=serr;
+    }
+    const goodPass=Number(c.goodPass)||0,pget=Number(c.pget)||0;
+    if(goodPass>0||pget>0){
+      reception.games++;reception.goodPass+=goodPass;reception.pget+=pget;reception.perr+=Number(c.perr)||0;
+    }
+  });
+  const serveDen=serve.ace+serve.sin+serve.serr,receptionDen=reception.goodPass+reception.pget+reception.perr;
+  return {
+    serve:{...serve,den:serveDen,serveIn:serve.games?pct(serve.ace+serve.sin,serveDen):DASH,aceRate:serve.games?pct(serve.ace,serveDen):DASH},
+    reception:{...reception,den:receptionDen,passErr:reception.games?pct(reception.perr,receptionDen):DASH,
+      passerRating:reception.games?(3*reception.goodPass+reception.pget)/receptionDen:null},
+  };
+}
+function qualifyingGameLabel(n){ return `${n} game${n===1?'':'s'}`; }
+function evidenceRateHtml(value,qualifyingGames){
+  return qualifyingGames>0
+    ? `${esc(value)} <span class="tiny faint">(${qualifyingGameLabel(qualifyingGames)})</span>`
+    : `<span title="${esc(RATE_STAT_EMPTY_HELP)}" aria-label="${esc(RATE_STAT_EMPTY_HELP)}">${DASH}</span>`;
+}
+function evidenceRateText(value,qualifyingGames){ return qualifyingGames>0?`${value} (${qualifyingGameLabel(qualifyingGames)})`:DASH; }
 function sampleLabel(count, lowThreshold, trustedThreshold){
   const n=Number(count)||0;
   if(n<lowThreshold) return 'low sample';
@@ -1207,10 +1241,8 @@ function statConfidence(p){
   return {label:sampleLabel(total,12,40), count:total};
 }
 function playerInsights(p){
-  const ace=evCount(p,'ace'), sin=evCount(p,'sin'), serr=evCount(p,'serr');
-  const goodPass=evCount(p,'goodPass'), pget=evCount(p,'pget'), perr=evCount(p,'perr');
   const kill=evCount(p,'kill'), kerr=evCount(p,'kerr'), dig=evCount(p,'dig'), block=evCount(p,'block');
-  const serveDen=ace+sin+serr, passDen=goodPass+pget+perr, hitDen=kill+kerr;
+  const hitDen=kill+kerr,evidence=evidenceGatedRateStats(p.id);
   const overall={label:sampleLabel(p.trackedGames||0, Math.ceil(settings.confGames/3), settings.confGames), count:p.trackedGames||0};
   const stat=statConfidence(p);
   const a=analyze(p);
@@ -1227,12 +1259,13 @@ function playerInsights(p){
     overallConfidence:overall,
     statConfidence:stat,
     rates:{
-      serveIn:pct(ace+sin,serveDen),
-      aceRate:pct(ace,serveDen),
-      passErr:pct(perr,passDen),
+      serveIn:evidence.serve.serveIn,
+      aceRate:evidence.serve.aceRate,
+      passErr:evidence.reception.passErr,
       hitEff:hitEff(kill-kerr,hitDen),
       defense:rateOrDash(dig+block,p.gamesPlayed,1,'/game')
     },
+    rateGames:{serve:evidence.serve.games,reception:evidence.reception.games},
     notes
   };
 }
@@ -1250,11 +1283,11 @@ function insightCard(p){
     ? `<div class="tiny faint" style="margin-top:5px">Low sample stats can swing quickly; do not overread them yet.</div>`
     : '';
   const metrics=[
-    ['Serve in',ins.rates.serveIn,''],
-    ['Ace rate',ins.rates.aceRate,''],
-    ['Pass err %',ins.rates.passErr,''],
-    ['Hit eff.',ins.rates.hitEff,''],
-    ['Defense',ins.rates.defense,'wide'],
+    ['Serve in',ins.rates.serveIn,'',ins.rateGames.serve],
+    ['Ace rate',ins.rates.aceRate,'',ins.rateGames.serve],
+    ['Pass err %',ins.rates.passErr,'',ins.rateGames.reception],
+    ['Hit eff.',ins.rates.hitEff,'',null],
+    ['Defense',ins.rates.defense,'wide',null],
   ];
   return `<div class="card insight-card" style="background:var(--surface2)">
     <div class="row spread">
@@ -1267,9 +1300,9 @@ function insightCard(p){
       ${lowNote}
     </div>
     <div class="insight-grid">
-      ${metrics.map(([label,value,wide])=>`<div class="insight-metric ${wide}">
+      ${metrics.map(([label,value,wide,qualifyingGames])=>`<div class="insight-metric ${wide}">
         <div class="insight-label">${esc(label)}</div>
-        <div class="insight-value num">${esc(value)}</div>
+        <div class="insight-value num">${qualifyingGames==null?esc(value):evidenceRateHtml(value,qualifyingGames)}</div>
       </div>`).join('')}
     </div>
     <div class="tiny faint" style="margin-top:7px">Hit eff. (kills - errors) / logged attacks. Ratings still use saved results + event weights.</div>
@@ -1296,9 +1329,8 @@ const CARD_AXES=[
 ];
 function passerRating(p){
   // Standard volleyball 3-point passer rating: perfect=3, playable=1, error=0.
-  const g=evCount(p,'goodPass'), t=evCount(p,'pget'), e=evCount(p,'perr');
-  const den=g+t+e;
-  return den>0 ? {value:(3*g+t)/den, n:den} : {value:null, n:0};
+  const reception=evidenceGatedRateStats(p&&p.id).reception;
+  return {value:reception.passerRating,n:reception.den,games:reception.games};
 }
 function axisSample(p,ax){ return ax.pos.concat(ax.neg).reduce((s,[k])=>s+evCount(p,k),0); }
 function axisNetRate(p,ax){
@@ -1348,10 +1380,10 @@ function profileCardData(p){
     strengths:a&&a.strength?capFirst(a.strength):null,
     workOn:a&&a.weakness?capFirst(a.weakness):null,
     stats:[
-      ['Passer rating', pr.value==null?DASH:pr.value.toFixed(2)],
+      ['Passer rating', evidenceRateText(pr.value==null?DASH:pr.value.toFixed(2),pr.games)],
       ['Hit efficiency', ins.rates.hitEff],
-      ['Serve in', ins.rates.serveIn],
-      ['Ace rate', ins.rates.aceRate],
+      ['Serve in', evidenceRateText(ins.rates.serveIn,ins.rateGames.serve)],
+      ['Ace rate', evidenceRateText(ins.rates.aceRate,ins.rateGames.serve)],
       ['Digs / game', gp&&dig?(dig/gp).toFixed(1):DASH],
       ['Blocks / game', gp&&block?(block/gp).toFixed(1):DASH],
     ],
@@ -1562,8 +1594,42 @@ function clearPlayerRuntimeState(id){
   if(window._soloPick===id) window._soloPick=null;
   if(window._teams) window._teams=null;
 }
-function rawPerf(counts){ let s=0; for(const k in counts) s += (EV_MAP[k]?.w||0)*counts[k]; return s; }
-function hasLoggedEvents(log){ return Object.values(log||{}).some(v=>v>0); }
+function normalizedRatingVersion(value){ return Number(value)>=2?2:1; }
+function gameRatingVersion(g){ return g&&g.ratingVersion!=null?normalizedRatingVersion(g.ratingVersion):1; }
+let replayRatingVersion=2;
+function ratingVersionForCounts(counts){
+  for(const g of games){
+    if(Object.values(g.log||{}).some(saved=>saved===counts)){
+      replayRatingVersion=gameRatingVersion(g);
+      return replayRatingVersion;
+    }
+  }
+  // applyGame's one-sided baseline is a lifetime object. The preceding
+  // per-game rawPerf call establishes which saved rating policy is replaying.
+  if(players.some(p=>p.lifetime===counts)) return replayRatingVersion;
+  return normalizedRatingVersion(settings.ratingVersion);
+}
+function rawPerf(counts){
+  const version=ratingVersionForCounts(counts);
+  if(version===1){ let s=0; for(const k in counts) s += (EV_MAP[k]?.w||0)*counts[k]; return s; }
+  let s=0; for(const k in counts) if(TERMINAL_EVENT_KEYS.includes(k)) s += (EV_MAP[k]?.w||0)*counts[k]; return s;
+}
+function hasLoggedEvents(log){
+  if(ratingVersionForCounts(log)>=2) return TERMINAL_EVENT_KEYS.some(k=>(Number(log&&log[k])||0)>0);
+  return Object.values(log||{}).some(v=>v>0);
+}
+
+function trackingEventFamilies(attemptsEnabled){
+  const available=new Set(TERMINAL_EVENT_KEYS.concat(attemptsEnabled?NON_TERMINAL_EVENT_KEYS:[]));
+  return Object.fromEntries(Object.entries(EVENT_FAMILY_KEYS).map(([family,keys])=>[family,keys.filter(k=>available.has(k))]).filter(([,keys])=>keys.length));
+}
+function gameSaveMeta(trackedEvents=false, attemptsEnabled=settings.detailed===true){
+  return {
+    ratingVersion:normalizedRatingVersion(settings.ratingVersion),
+    detailed:attemptsEnabled===true,
+    eventFamilies:trackedEvents?trackingEventFamilies(attemptsEnabled):{},
+  };
+}
 
 /* Untracked fill slots are stored as COUNTS on the game (g.unkA / g.unkB),
    never as roster players — so autofilled games can't pollute the roster,
@@ -2118,24 +2184,10 @@ function trackCard(p){
   const v = Math.round(rawPerf(live.log[p.id]||{})*10)/10;
   const cls = v>0?'good':(v<0?'bad':'');
   const exp = live.expanded[p.id];
-  const vis = e=>{
-    if(e.detail && !settings.detailed) return false;
-    if(exp) return true;
-    return settings.detailed ? (e.common||e.grade) : e.common;
-  };
-  const grouped = settings.detailed || exp;
   const btn = k=>{ const e=EV_MAP[k]; const c=(live.log[p.id]||{})[k]||0;
     return `<button class="${e.c}" onclick="logEv('${p.id}','${k}')">${e.l}${c?`<span class="cnt">${c}</span>`:''}</button>`; };
-  let evHtml;
-  if(grouped){
-    evHtml = EVENT_GROUPS.map(grp=>{
-      const ks = grp.keys.filter(k=>vis(EV_MAP[k]));
-      if(!ks.length) return '';
-      return `<div class="evrow"><span class="evlbl">${grp.g}</span><div class="ev">${ks.map(btn).join('')}</div></div>`;
-    }).join('');
-  } else {
-    evHtml = `<div class="ev">${EVENTS.filter(vis).map(e=>btn(e.k)).join('')}</div>`;
-  }
+  const terminalKeys=exp?TERMINAL_EVENT_KEYS:COLLAPSED_EVENT_KEYS;
+  const evHtml=`<div class="ev">${terminalKeys.map(btn).join('')}</div>${exp&&settings.detailed?`<div class="evrow"><span class="evlbl">Attempts</span><div class="ev">${NON_TERMINAL_EVENT_KEYS.map(btn).join('')}</div></div>`:''}${exp?`<div class="tiny faint" style="margin-top:6px">Stuff = a point-ending block. Do not log a touch that stays in play.</div>`:''}`;
   const meta = `${settings.hideRatings?'':esc(volleyballLevelOf(p.rating).label)}${p.gamesPlayed?`${settings.hideRatings?'':' · '}${p.wins}-${p.losses}`:''}`;
   return `<div class="tcard">
     <div class="thead">
@@ -2368,7 +2420,7 @@ window.setSoloResult=(r)=>{ live.result=r; renderTrack(); };
 window.finishSolo=async()=>{
   const winner = live.result==='W'?'A':live.result==='L'?'B':null;
   const gid=uid();
-  games.push({ id:gid, date:Date.now(), solo:true, teamA:[live.player], teamB:[], scoreA:0, scoreB:0, winner, log:live.log });
+  games.push({ id:gid, date:Date.now(), solo:true, teamA:[live.player], teamB:[], scoreA:0, scoreB:0, winner, log:live.log, ...gameSaveMeta(true) });
   await commit();
   live=null;
   showRecap(gid);
@@ -2426,7 +2478,7 @@ window.saveQuickResult=async()=>{
   const gid=uid();
   games.push({ id:gid, date:Date.now(), teamA:[...s.A], teamB:[...s.B],
     unkA, unkB, fmt, scoreA:a, scoreB:b, winner:a>b?'A':(b>a?'B':null), log:{},
-    ...(window._evtPending||{}) });
+    ...gameSaveMeta(false), ...(window._evtPending||{}) });
   window._evtPending=null;
   await commit();
   window._sel={A:new Set(),B:new Set()};
@@ -2457,7 +2509,7 @@ window.finishGame=async()=>{
   const gid=uid();
   games.push({ id:gid, date:Date.now(), teamA:live.teamA, teamB:live.teamB,
     unkA:live.unkA||0, unkB:live.unkB||0, fmt:live.fmt||null,
-    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log, ...(live.evt||{}) });
+    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log, ...gameSaveMeta(true), ...(live.evt||{}) });
   await commit();
   live=null; window._sel={A:new Set(),B:new Set()};
   showRecap(gid);
@@ -4851,7 +4903,7 @@ window.saveRotationScore=async(evId,matchId)=>{
   if(!valid.valid){toast(valid.error);return;}
   const d=rsCapture()||{mode:'set'};
   const num=v=>Math.max(0,Math.round(Number(v)||0));
-  const base=extra=>({id:uid(),date:Date.now(),teamA:valid.A,teamB:valid.B,log:{},evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',...extra});
+  const base=extra=>({id:uid(),date:Date.now(),teamA:valid.A,teamB:valid.B,log:{},...gameSaveMeta(false),evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',...extra});
   if(d.mode==='bo3'){
     const sets=[];
     ['1','2','3'].forEach(n=>{ const ra=(d['s'+n+'A']||'').trim(), rb=(d['s'+n+'B']||'').trim(); if(ra===''&&rb==='') return; sets.push([num(ra),num(rb),n]); });
@@ -5970,7 +6022,7 @@ window.saveEventGame=async()=>{
      partial-game model then guarantees: guest vs guest moves no ratings;
      rostered vs guest counts the win/loss without result-based rating moves. */
   const baseDate=oldGames[0]?.date||Date.now();
-  const mk=(a,b,extra,old,index)=>{const record={...(old||{}),id:old?.id||uid(),date:old?.date||(baseDate+index),
+  const mk=(a,b,extra,old,index)=>{const record={...(old?{}:gameSaveMeta(false)),...(old||{}),id:old?.id||uid(),date:old?.date||(baseDate+index),
     teamA:pA,teamB:pB,unkA:pA.length?0:1,unkB:pB.length?0:1,scoreA:a,scoreB:b,winner:a>b?'A':(b>a?'B':null),log:old?.log||{},
     evId:ev.id,evA:tA.id,evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}),...extra};
     if(!extra.matchId)delete record.matchId;return record;};
@@ -6044,7 +6096,7 @@ function renderMore(){
     <section id="settings-tracking" class="settings-section"><div class="section-head"><h3>Tracking</h3></div>
     <div class="card toggle-line">
       <span class="mode-icon">${icons.track}</span>
-      <span class="copy"><b>Detailed grading</b><span>Adds In / Get tiers for serving & passing. Off = faster taps.</span></span>
+      <span class="copy"><b>Track attempts (enables serve %, passer rating)</b><span>Adds In, Get, Pass, Set, and Dig buttons for rate-stat denominators. Ratings always use terminal events only.</span></span>
       <button class="btn sm ${settings.detailed?'primary':'ghost'}" onclick="toggleDetailed()">${settings.detailed?'On':'Off'}</button>
     </div></section>
     <section id="settings-rating" class="settings-section"><div class="section-head"><h3>Rating behavior</h3></div>
@@ -6260,13 +6312,13 @@ function buildDemo(){
       const winS=25, loseS=12+Math.floor(Math.random()*11);
       const scoreA=aWins?winS:loseS, scoreB=aWins?loseS:winS;
       const log={}; A.concat(B).forEach(p=>log[p.id]=demoEvents(p));
-      games.push({id:uid(),date:t0+gi*3600*1000,teamA:A.map(p=>p.id),teamB:B.map(p=>p.id),scoreA,scoreB,winner:scoreA>scoreB?'A':'B',log});
+      games.push({id:uid(),date:t0+gi*3600*1000,teamA:A.map(p=>p.id),teamB:B.map(p=>p.id),scoreA,scoreB,winner:scoreA>scoreB?'A':'B',log,...gameSaveMeta(true,true)});
       gi++;
     }
   }
   for(let i=0;i<3;i++){
     const p=players[Math.floor(Math.random()*players.length)];
-    games.push({id:uid(),date:t0+gi*3600*1000,solo:true,teamA:[p.id],teamB:[],scoreA:0,scoreB:0,winner:Math.random()<0.5?'A':'B',log:{[p.id]:demoEvents(p)}});
+    games.push({id:uid(),date:t0+gi*3600*1000,solo:true,teamA:[p.id],teamB:[],scoreA:0,scoreB:0,winner:Math.random()<0.5?'A':'B',log:{[p.id]:demoEvents(p)},...gameSaveMeta(true,true)});
     gi++;
   }
 }
@@ -6294,6 +6346,58 @@ function runSelfTest(){
     games.push({id:'g1',date:1,teamA:[P[5].id,P[3].id,P[1].id],teamB:[P[4].id,P[2].id,P[0].id],scoreA:25,scoreB:20,winner:'A',log:{[P[5].id]:{kill:3,ace:1},[P[0].id]:{kerr:2}}});
     games.push({id:'g2',date:2,solo:true,teamA:[P[2].id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[P[2].id]:{kill:4,dig:2}}});
     recomputeAll();
+
+    /* --- terminal-only scoring, tracker visibility, and evidence-gated rates. --- */
+    const scoringPlayers=players,scoringGames=games,scoringSettings=settings,scoringLive=live;
+    settings={...DEFAULT_SETTINGS,ratingVersion:2};players=[];games=[];
+    const nonTerminalWeights=Object.fromEntries(NON_TERMINAL_EVENT_KEYS.map(k=>[k,rawPerf({[k]:1})]));
+    const nonTerminalResult=eventKey=>{
+      const subject=makePlayer('Denominator '+eventKey,50),peer=makePlayer('Peer '+eventKey,50);players=[subject,peer];
+      games=[
+        {id:'peer-'+eventKey,date:1,solo:true,teamA:[peer.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[peer.id]:{ace:1}},ratingVersion:2,detailed:false,eventFamilies:trackingEventFamilies(false)},
+        {id:'denominator-'+eventKey,date:2,solo:true,teamA:[subject.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[subject.id]:{[eventKey]:1}},ratingVersion:2,detailed:true,eventFamilies:trackingEventFamilies(true)},
+      ];
+      recomputeAll();return {delta:subject.rating-subject.seedRating,trackedGames:subject.trackedGames};
+    };
+    const nonTerminalResults=Object.fromEntries(NON_TERMINAL_EVENT_KEYS.map(k=>[k,nonTerminalResult(k)]));
+    ck('Every non-terminal event has zero rating-v2 weight',NON_TERMINAL_EVENT_KEYS.every(k=>nonTerminalWeights[k]===0&&nonTerminalResults[k].delta===0&&nonTerminalResults[k].trackedGames===0),JSON.stringify({nonTerminalWeights,nonTerminalResults}));
+    const soloDelta=(eventKey,detailed=false)=>{
+      const p=makePlayer('Direction '+eventKey,50);players=[p];
+      games=[{id:'direction-'+eventKey,date:1,solo:true,teamA:[p.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[p.id]:{[eventKey]:1}},ratingVersion:2,detailed,eventFamilies:trackingEventFamilies(detailed)}];
+      recomputeAll();return p.rating-p.seedRating;
+    };
+    const terminalDirections=Object.fromEntries(TERMINAL_EVENT_KEYS.map(k=>[k,soloDelta(k)]));
+    ck('Every terminal event moves rating in the expected direction',
+      ['ace','kill','block'].every(k=>terminalDirections[k]>0)&&['serr','kerr','perr','fault'].every(k=>terminalDirections[k]<0),JSON.stringify(terminalDirections));
+    const legacyRatingP=makePlayer('Legacy rating',50);players=[legacyRatingP];games=[{id:'legacy-rating',date:1,solo:true,teamA:[legacyRatingP.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[legacyRatingP.id]:{sin:1}}}];recomputeAll();
+    ck('A legacy game without ratingVersion keeps rating-v1 event weights',legacyRatingP.rating>legacyRatingP.seedRating,String(legacyRatingP.rating-legacyRatingP.seedRating));
+    const trackP=makePlayer('Tracker',50);players=[trackP];games=[];live={log:{[trackP.id]:{}},expanded:{[trackP.id]:false},quick:false};settings={...DEFAULT_SETTINGS,detailed:false,ratingVersion:2};
+    const trackerLabels=()=>{const el=document.createElement('div');el.innerHTML=trackCard(trackP);return [...el.querySelectorAll('.ev button')].map(b=>b.textContent.trim());};
+    const collapsedLabels=trackerLabels();
+    ck('Collapsed tracking row is Ace, Srv err, Kill, Hit err',collapsedLabels.join('|')==='Ace|Srv err|Kill|Hit err',collapsedLabels.join('|'));
+    live.expanded[trackP.id]=true;
+    const expandedWithoutAttempts=trackerLabels();settings.detailed=true;const expandedWithAttempts=trackerLabels();
+    ck('Expanded tracking shows terminal seven first and attempts only when enabled',
+      expandedWithoutAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Stuff|Pass err|Fault'&&
+      expandedWithAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Stuff|Pass err|Fault|In|Get|Pass|Set|Dig',expandedWithAttempts.join('|'));
+    const savedMeta=gameSaveMeta(true,true);
+    ck('New tracked games snapshot rating version, attempts capability, and available families',savedMeta.ratingVersion===2&&savedMeta.detailed===true&&savedMeta.eventFamilies.serve.join('|')==='ace|serr|sin'&&savedMeta.eventFamilies.defense.join('|')==='dig');
+    const evidenceP=makePlayer('Evidence rates',50);players=[evidenceP];settings={...DEFAULT_SETTINGS,ratingVersion:2};
+    const rateGame=(id,detailed,log)=>({id,date:1,solo:true,teamA:[evidenceP.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[evidenceP.id]:log},ratingVersion:2,...(detailed===undefined?{}:{detailed}),eventFamilies:detailed?trackingEventFamilies(true):{}});
+    games=[rateGame('no-capability',false,{ace:1,sin:3})];
+    ck('A detailed-false game is excluded from serve rate despite evidence',evidenceGatedRateStats(evidenceP.id).serve.games===0);
+    games=[rateGame('aces-only',true,{ace:2})];
+    ck('A detailed-true game with only aces is excluded from serve rate',evidenceGatedRateStats(evidenceP.id).serve.games===0);
+    games=[rateGame('serve-evidence',true,{ace:1,sin:3,serr:1})];
+    const qualifiedServe=evidenceGatedRateStats(evidenceP.id).serve;
+    ck('A detailed-true game with serve evidence is included with the correct rate',qualifiedServe.games===1&&qualifiedServe.serveIn==='80%'&&evidenceRateHtml(qualifiedServe.serveIn,qualifiedServe.games).includes('(1 game)')&&evidenceRateHtml(DASH,0).includes('title='),JSON.stringify(qualifiedServe));
+    const rateBefore=JSON.stringify(evidenceGatedRateStats(evidenceP.id));settings.detailed=false;const rateAfter=JSON.stringify(evidenceGatedRateStats(evidenceP.id));
+    ck('Changing the live attempts setting does not reclassify saved games',rateBefore===rateAfter);
+    games=[rateGame('legacy',undefined,{ace:1,sin:3})];
+    ck('A legacy game without detailed is excluded from rates without throwing',evidenceGatedRateStats(evidenceP.id).serve.games===0);
+    const ratingDetailedOff=soloDelta('ace',false),ratingDetailedOn=soloDelta('ace',true);
+    ck('Ratings are identical for the same terminal events regardless of detailed',Math.abs(ratingDetailedOff-ratingDetailedOn)<1e-12,`${ratingDetailedOff} vs ${ratingDetailedOn}`);
+    players=scoringPlayers;games=scoringGames;settings=scoringSettings;live=scoringLive;recomputeAll();
 
     /* --- rotation schedule generator: variety, fairness, determinism.
        Regression guards for the stuck-pods bug where the same foursome
@@ -6355,6 +6459,7 @@ function runSelfTest(){
     const rateP=makePlayer('Rates',50);
     rateP.gamesPlayed=4;
     rateP.lifetime={...zeroEvents(), ace:2, sin:6, serr:2, goodPass:7, pget:1, perr:2, kill:7, kerr:2, dig:5, block:3};
+    games.push({id:'rate-summary',date:8,solo:true,teamA:[rateP.id],teamB:[],winner:'A',scoreA:0,scoreB:0,detailed:true,ratingVersion:2,eventFamilies:trackingEventFamilies(true),log:{[rateP.id]:{ace:2,sin:6,serr:2,goodPass:7,pget:1,perr:2}}});
     const rateIns=playerInsights(rateP);
     ck('Serve in % is calculated correctly', rateIns.rates.serveIn==='80%', rateIns.rates.serveIn);
     ck('Ace rate is calculated correctly', rateIns.rates.aceRate==='20%', rateIns.rates.aceRate);
@@ -6367,8 +6472,9 @@ function runSelfTest(){
     const cardP=makePlayer('Card',60);
     cardP.gamesPlayed=6;
     cardP.lifetime={...zeroEvents(), goodPass:6, pget:2, perr:2, ace:2, sin:6, serr:2, kill:8, kerr:2, dig:6, block:2, assist:4};
+    games.push({id:'card-summary',date:9,solo:true,teamA:[cardP.id],teamB:[],winner:'A',scoreA:0,scoreB:0,detailed:true,ratingVersion:2,eventFamilies:trackingEventFamilies(true),log:{[cardP.id]:{goodPass:6,pget:2,perr:2,ace:2,sin:6,serr:2}}});
     const prTest=passerRating(cardP);
-    ck('Passer rating uses the standard 3-point scale', Math.abs(prTest.value-2.0)<1e-9 && prTest.n===10, String(prTest.value));
+    ck('Passer rating uses the standard 3-point scale', Math.abs(prTest.value-2.0)<1e-9 && prTest.n===10 && prTest.games===1, String(prTest.value));
     ck('Passer rating dashes with no graded passes', passerRating(makePlayer('NoPass',50)).value===null);
     const cardAxes=radarAxes(cardP, players.concat([cardP]));
     ck('Radar has six axes matching the card layout', cardAxes.length===6 && cardAxes[0].label==='Serve' && cardAxes[3].label==='Attack' && cardAxes[5].label==='IQ');
@@ -6383,9 +6489,10 @@ function runSelfTest(){
     ck('Seed skills shape the prior radar (pass high, serve low)', shapedPass>60 && shapedServe<60 && shapedPass>shapedServe);
     const cardData=profileCardData(cardP);
     ck('Card stats include passer rating, digs and blocks per game',
-      cardData.stats.some(s=>s[0]==='Passer rating'&&s[1]==='2.00') &&
+      cardData.stats.some(s=>s[0]==='Passer rating'&&s[1]==='2.00 (1 game)') &&
       cardData.stats.some(s=>s[0]==='Digs / game'&&s[1]==='1.0') &&
       cardData.stats.some(s=>s[0]==='Blocks / game'&&s[1]==='0.3'));
+    games=games.filter(g=>g.id!=='rate-summary'&&g.id!=='card-summary');
     ck('Card never leaks raw rating numbers', !JSON.stringify([cardData.subtitle,cardData.level,cardData.stats,cardData.footer]).includes('"60"'));
     settings.hideRatings=true;
     ck('Hidden-ratings mode drops the level badge from the card', profileCardData(cardP).level===null);
