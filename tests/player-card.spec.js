@@ -31,6 +31,8 @@ const cardGames = [
     scoreA: 25,
     scoreB: 20,
     winner: 'A',
+    detailed: true,
+    ratingVersion: 2,
     log: {
       'card-stats': { goodPass: 3, pget: 1, perr: 1, ace: 1, sin: 3, serr: 1, kill: 3, dig: 2, block: 1 },
       'card-peer-a': { goodPass: 2, perr: 1, dig: 2 }
@@ -44,6 +46,8 @@ const cardGames = [
     scoreA: 25,
     scoreB: 18,
     winner: 'A',
+    detailed: true,
+    ratingVersion: 2,
     log: {
       'card-stats': { goodPass: 3, pget: 1, perr: 1, ace: 1, sin: 3, serr: 1, kill: 2, kerr: 1, dig: 4, block: 1 },
       'card-peer-b': { sin: 3, serr: 1, dig: 1 }
@@ -57,6 +61,8 @@ const cardGames = [
     scoreA: 21,
     scoreB: 25,
     winner: 'B',
+    detailed: true,
+    ratingVersion: 2,
     log: {
       'card-peer-a': { sin: 2, serr: 1, dig: 1 },
       'card-peer-b': { goodPass: 2, pget: 1, dig: 2 }
@@ -154,10 +160,10 @@ test('profile data reports real stats and honest empty-state values', async ({ p
   });
 
   expect(data.stats).toMatchObject({
-    'Passer rating': '2.00',
+    'Passer rating': '2.00 (2 games)',
     'Hit efficiency': '.667',
-    'Serve in': '80%',
-    'Ace rate': '20%',
+    'Serve in': '80% (2 games)',
+    'Ace rate': '20% (2 games)',
     'Digs / game': '3.0',
     'Blocks / game': '1.0'
   });
@@ -180,8 +186,8 @@ test('radar axes and passer rating preserve their invariants', async ({ page }) 
       axes,
       freshRating: fresh.rating,
       freshAxes,
-      passer: passerRating({ lifetime: { goodPass: 6, pget: 2, perr: 2 } }),
-      noPasses: passerRating({ lifetime: {} })
+      passer: passerRating(player),
+      noPasses: passerRating(fresh)
     };
   });
 
@@ -190,8 +196,8 @@ test('radar axes and passer rating preserve their invariants', async ({ page }) 
   expect(result.axes.find(axis => axis.key === 'iq').w).toBe(0);
   expect(result.freshAxes).toHaveLength(6);
   expect(result.freshAxes.every(axis => axis.value === result.freshRating)).toBe(true);
-  expect(result.passer).toEqual({ value: 2, n: 10 });
-  expect(result.noPasses).toEqual({ value: null, n: 0 });
+  expect(result.passer).toEqual({ value: 2, n: 10, games: 2 });
+  expect(result.noPasses).toEqual({ value: null, n: 0, games: 0 });
 });
 
 test('hidden ratings remove the level and raw rating from card JSON', async ({ page }) => {
@@ -257,7 +263,7 @@ test('correcting and deleting games updates the next derived card', async ({ pag
   await openProfileCard(page);
   const corrected = await page.evaluate(() => profileCardData(pById('card-stats')));
   expect(corrected).not.toEqual(initial);
-  expect(Object.fromEntries(corrected.stats)['Passer rating']).toBe('1.57');
+  expect(Object.fromEntries(corrected.stats)['Passer rating']).toBe('1.57 (2 games)');
 
   await page.locator('.sheet').getByRole('button', { name: 'Back', exact: true }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
