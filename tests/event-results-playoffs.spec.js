@@ -132,6 +132,44 @@ test('ready and completed matchup cards stay interactive, expose details, set sc
   await expect(page.locator('.sheet').getByRole('button', { name: 'Cancel' })).toBeVisible();
 });
 
+test('a 1-1 playoff save is in progress, reopens prefilled, and a fresh save replaces rather than duplicates it', async ({ page }) => {
+  const roster = teams(['Alpha', 'Bravo']);
+  const event = { id: 'progress', name: 'Progress Final', eventDate: '2026-07-18', created: 1, done: false, teams: roster,
+    brackets: [{ id: 'champ', name: 'Championship', created: 100, seeds: roster.map(t => t.id) }] };
+  const partial = matchSets({ evId: 'progress', brId: 'champ', a: 't1', b: 't2', scores: [[25, 27], [25, 14]], start: 200, prefix: 'partial' });
+  await seed(page, { events: [event], games: partial }); await openEvent(page);
+
+  const status = await page.evaluate(() => { const ev=evts[0],br=ev.brackets[0],state=bracketState(ev,br);return getPlayoffMatchState(ev,br,state,0,0); });
+  expect(status).toMatchObject({ key: 'inProgress', label: 'In progress · 1-1' });
+  await page.getByRole('button', { name: /Open in-progress Final: Alpha versus Bravo, 1-1 on sets/i }).click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Edit playoff result' })).toBeVisible();
+  await expect(page.locator('#evs1A')).toHaveValue('25'); await expect(page.locator('#evs1B')).toHaveValue('27');
+  await expect(page.locator('#evs2A')).toHaveValue('25'); await expect(page.locator('#evs2B')).toHaveValue('14');
+  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  await page.evaluate(() => openEventGame('progress','t1','t2','Championship · Final','bo3','playoff:champ:r1:m1'));
+  await page.locator('#evs1A').fill('25');await page.locator('#evs1B').fill('20');await page.locator('#evs2A').fill('25');await page.locator('#evs2B').fill('18');
+  await page.getByRole('button', { name: 'Save result', exact: true }).click();
+  const confirm = page.getByRole('alertdialog');await expect(confirm).toContainText('A saved result already exists for this match');await confirm.getByRole('button', { name: 'Replace result' }).click();
+  const saved = await page.evaluate(() => { const exact=games.filter(g=>g.evMatchId==='playoff:champ:r1:m1'),tomb=Sync.deletionState().games;return {count:exact.length,groups:new Set(exact.map(g=>g.matchId||g.id)).size,matchId:exact[0]?.matchId,date:exact[0]?.date,oldDeleted:['partial-s1','partial-s2'].every(id=>tomb[id]>0)}; });
+  expect(saved).toEqual({ count: 2, groups: 1, matchId: 'partial-group', date: 200, oldDeleted: true });
+});
+
+test('duplicate playoff batches canonicalize to the latest result and cleanup tombstones only the stale batch', async ({ page }) => {
+  const roster = teams(['Alpha', 'Bravo']);
+  const event = { id: 'duplicate', name: 'Duplicate Final', eventDate: '2026-07-18', created: 1, done: true, teams: roster,
+    brackets: [{ id: 'champ', name: 'Championship', created: 100, seeds: roster.map(t => t.id) }] };
+  const older = matchSets({ evId: 'duplicate', brId: 'champ', a: 't1', b: 't2', scores: [[25, 27], [25, 14]], start: 200, prefix: 'older' });
+  const newer = matchSets({ evId: 'duplicate', brId: 'champ', a: 't1', b: 't2', scores: [[25, 27], [25, 14], [16, 14]], start: 300, prefix: 'newer' });
+  await seed(page, { events: [event], games: [...older, ...newer] });await page.goto('/');
+  const canonical = await page.evaluate(() => { const ev=evts[0],br=ev.brackets[0],state=bracketState(ev,br),match=state.rounds[0][0],sets=getPlayoffMatchGames(ev,br,match,0,0);return {winner:match.winner,disp:match.res?.disp,sets:sets.length,groups:eventMatchGroups(ev).length,matchCount:getEventResultSummary(ev).matchCount}; });
+  expect(canonical).toEqual({ winner: 't1', disp: '2-1', sets: 3, groups: 1, matchCount: 1 });
+  await page.evaluate(() => openPlayoffMatchDetails('duplicate','champ',0,0));
+  const sheet=page.locator('.sheet');await expect(sheet.locator('.match-set')).toHaveCount(3);await expect(sheet).toContainText('Duplicate saved sets detected from an earlier partial save');
+  await sheet.getByRole('button', { name: 'Remove 2 stale sets' }).click();await page.getByRole('alertdialog').getByRole('button', { name: 'Remove stale sets' }).click();
+  expect(await page.evaluate(() => { const exact=games.filter(g=>g.evMatchId==='playoff:champ:r1:m1'),tomb=Sync.deletionState().games;return {ids:exact.map(g=>g.id),staleDeleted:['older-s1','older-s2'].every(id=>tomb[id]>0),newKept:['newer-s1','newer-s2','newer-s3'].every(id=>!tomb[id])}; })).toEqual({ ids:['newer-s1','newer-s2','newer-s3'],staleDeleted:true,newKept:true });
+});
+
 test('editing an upstream winner reuses saved game IDs and tombstones impossible downstream results without duplicates', async ({ page }) => {
   const { event, games } = completeFourTeamEvent();
   const originalSemiIds = games.filter(g => g.id.startsWith('semi-a')).map(g => g.id);
