@@ -19,7 +19,7 @@ const PRIVATE_HEADERS = "Content-Type, X-Court-Room, X-Management-Token";
 const MAX_HTML_BYTES = 10 * 1024 * 1024;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{22,128}$/;
 const HASH_PATTERN = /^[a-f0-9]{64}$/i;
-const SCOPE_PATTERN = /^(full|(?:team|entry|player):[A-Za-z0-9._~-]{1,120})$/;
+const SCOPE_PATTERN = /^(full|results|(?:team|entry|player):[A-Za-z0-9._~-]{1,120})$/;
 const PUBLIC_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "X-Content-Type-Options": "nosniff",

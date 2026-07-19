@@ -168,6 +168,32 @@ test('create stores only supplied document metadata under PUBLIC_SCHEDULES', asy
   }
 });
 
+test('create accepts results and existing scopes, stores results, and rejects other scope forms', async () => {
+  const resultsBindings = env();
+  const resultsHtml = scheduleHtml('Summer Cup Results');
+  const resultsResponse = await worker.fetch(request('/api/public-schedules', createInit(resultsHtml, {
+    body: { title: 'Summer Cup Results · Court event recap', scope: 'results' }
+  })), resultsBindings);
+  assert.equal(resultsResponse.status, 201);
+  const resultsBody = await resultsResponse.json();
+  assert.match(resultsBody.token, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(resultsBody.managementToken, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(resultsBody.url, `https://court-sync.example/s/${resultsBody.token}`);
+  const resultsRecord = JSON.parse(resultsBindings.PUBLIC_SCHEDULES.values.get(`schedule:${resultsBody.token}`));
+  assert.equal(resultsRecord.scope, 'results');
+
+  for (const scope of ['full', 'team:x', 'entry:x', 'player:x']) {
+    const response = await worker.fetch(request('/api/public-schedules', createInit(undefined, { body: { scope } })), env());
+    assert.equal(response.status, 201, `expected scope ${scope} to be accepted`);
+  }
+
+  for (const scope of ['recap', 'results:extra']) {
+    const response = await worker.fetch(request('/api/public-schedules', createInit(undefined, { body: { scope } })), env());
+    assert.equal(response.status, 400, `expected scope ${scope} to be rejected`);
+    assert.deepEqual(await response.json(), { ok: false, error: 'scope is invalid' });
+  }
+});
+
 test('public GET returns the exact stored HTML with security headers and never reads COURT', async () => {
   const bindings = env();
   const html = scheduleHtml('Exact bytes: café & volleyball');
