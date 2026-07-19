@@ -808,6 +808,50 @@ test('solo discard confirm cancel keeps live solo stats', async ({ page }) => {
   expect(await gameCounts(page)).toEqual({ memory: 0, stored: 0 });
 });
 
+test('event chips correct counts independently without bubbling and support keyboard decrement', async ({ page }) => {
+  await seedCourt(page, {
+    players: trackingRoster.map(p => ({ ...p })),
+    settings: { hideRatings: false, detailed: true }
+  });
+  await startSoloTracking(page);
+  const playerRow = trackCard(page, 'Solo Alpha');
+  const aceChip = playerRow.locator('[data-event-key="ace"]');
+  const aceAdd = aceChip.getByRole('button', { name: 'Ace', exact: true });
+  const zeroBox = await aceChip.boundingBox();
+
+  await expect(aceChip.locator('.cnt')).toHaveCount(0);
+  await expect(aceChip.locator('.evminus')).toHaveCount(0);
+  await aceAdd.click();
+  await aceAdd.click();
+  await playerRow.getByRole('button', { name: 'Kill', exact: true }).click();
+
+  expect(await aceChip.boundingBox()).toEqual(zeroBox);
+  const aceMinus = aceChip.getByRole('button', { name: 'Decrease Ace', exact: true });
+  const minusBox = await aceMinus.boundingBox();
+  expect(minusBox.width).toBeGreaterThanOrEqual(44);
+  expect(minusBox.height).toBeGreaterThanOrEqual(44);
+  await aceMinus.click();
+
+  await expect(aceChip.locator('.cnt')).toHaveText('1');
+  await expect(playerRow.locator('[data-event-key="kill"] .cnt')).toHaveText('1');
+  expect(await currentLive(page)).toMatchObject({
+    log: { 'solo-alpha': { ace: 1, kill: 1 } },
+    undo: [{ playerId: 'solo-alpha', eventKey: 'ace', delta: 1 }, { playerId: 'solo-alpha', eventKey: 'ace', delta: 1 }, { playerId: 'solo-alpha', eventKey: 'kill', delta: 1 }, { playerId: 'solo-alpha', eventKey: 'ace', delta: -1 }]
+  });
+
+  await page.getByRole('button', { name: '↶ Undo', exact: true }).click();
+  await expect(aceChip.locator('.cnt')).toHaveText('2');
+  await aceChip.getByRole('button', { name: 'Decrease Ace', exact: true }).press('Enter');
+  await expect(aceChip.locator('.cnt')).toHaveText('1');
+  await aceChip.getByRole('button', { name: 'Decrease Ace', exact: true }).press('Space');
+  await expect(aceChip.locator('.cnt')).toHaveCount(0);
+  await expect(aceChip.locator('.evminus')).toHaveCount(0);
+
+  await playerRow.getByRole('button', { name: '+ more events', exact: true }).click();
+  await expect(playerRow.getByRole('button', { name: 'Block', exact: true })).toBeVisible();
+  await expect(playerRow.getByText("Attempts don't affect rating — they're the denominators for serve % and passer rating.", { exact: true })).toBeVisible();
+});
+
 test('solo discard confirm discard exits without saving', async ({ page }) => {
   await seedTrackingRoster(page);
   await startSoloTracking(page);

@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260719.1">
+<meta name="court-build" content="20260719.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -397,17 +397,38 @@
   .perf.good{color:var(--mint)} .perf.bad{color:var(--coral)}
 
   .ev{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
-  .ev button{flex:1 1 auto;min-width:56px;min-height:44px;padding:9px 5px;border-radius:12px;
-    font-size:12px;font-weight:800;background:#ffffff0c;border:1px solid #ffffff17;color:var(--muted);
-    position:relative;transition:transform .1s ease,background .12s ease;}
-  .ev button:active{transform:scale(.93);background:var(--tap)}
-  .ev button.g{color:var(--mint);border-color:#5fe3ae2c}
-  .ev button.b{color:var(--coral);border-color:#ff7d722c}
-  .ev .cnt{font-size:10px;opacity:.75;margin-left:4px;color:var(--text)}
+  .evchip{flex:1 1 118px;min-width:118px;min-height:48px;position:relative;border-radius:12px;
+    background:#ffffff0c;border:1px solid #ffffff17;color:var(--muted);overflow:visible}
+  .evadd{width:100%;min-height:48px;padding:9px 44px;border-radius:11px;color:inherit;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800;
+    position:relative;transition:transform .1s ease,background .12s ease}
+  .evadd:active{transform:scale(.96);background:var(--tap)}
+  .evadd:focus-visible,.evminus:focus-visible{outline:2px solid var(--gold);outline-offset:2px}
+  .evchip.g{color:var(--mint);border-color:#5fe3ae2c}
+  .evchip.b{color:var(--coral);border-color:#ff7d722c}
+  .evlabel{min-width:0;white-space:nowrap}
+  .ev .cnt{position:absolute;right:9px;top:50%;transform:translateY(-50%);min-width:28px;height:28px;
+    padding:0 7px;border-radius:999px;display:grid;place-items:center;background:var(--text);color:var(--bg);
+    box-shadow:0 0 0 1px #ffffff2e;font-size:15px;line-height:1;font-weight:950;font-variant-numeric:tabular-nums}
+  .evminus{position:absolute;z-index:2;left:0;top:50%;transform:translateY(-50%);width:44px;height:44px;
+    display:grid;place-items:center;color:var(--text);transition:opacity .12s ease,transform .1s ease}
+  .evminus::before{content:"";position:absolute;width:27px;height:27px;border-radius:9px;
+    background:#ffffff12;border:1px solid #ffffff29}
+  .evminus span{position:relative;font-size:20px;line-height:1;font-weight:900}
+  .evminus:active{transform:translateY(-50%) scale(.9)}
+  @media(hover:hover) and (pointer:fine){
+    .evminus{opacity:.62}
+    .evchip:hover .evminus,.evminus:focus-visible{opacity:1}
+  }
   .evrow{display:flex;align-items:center;gap:9px;margin-top:8px}
   .evrow .evlbl{flex:0 0 50px;font-size:10px;color:var(--faint);text-transform:uppercase;letter-spacing:.06em;font-weight:800}
   .evrow .ev{flex:1;margin-top:0}
+  .attempts-help{margin:6px 2px 0 59px;color:var(--faint);font-size:10.5px;line-height:1.35}
   .expand{display:inline-block;font-size:12px;color:var(--soft);margin-top:9px;padding:4px 2px;font-weight:650}
+
+  @media(max-width:520px){
+    .attempts-help{margin-left:2px}
+  }
 
   /* ---------- teams ---------- */
   .team-results{display:grid;gap:11px;margin-top:4px}
@@ -816,9 +837,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.10.0',
-  build: '20260719.1',
-  releaseNotes: 'Ratings now use terminal events only, attempt tracking is optional, and serve and reception rates require saved per-game evidence.'
+  version: '0.11.0',
+  build: '20260719.2',
+  releaseNotes: 'Event chips now support independent corrections, clearer count badges, and more explicit tracking guidance.'
 });
 
 function appVersionLabel(){
@@ -947,7 +968,7 @@ const EVENTS = [
   {k:'kill',    l:'Kill',   w:2,    c:'g'},
   {k:'kerr',    l:'Hit err',w:-1.5, c:'b'},
   {k:'dig',     l:'Dig',    w:1.5,  c:'g'},
-  {k:'block',   l:'Stuff',  w:2,    c:'g'},
+  {k:'block',   l:'Block',  w:2,    c:'g'},
   {k:'assist',  l:'Set',    w:1,    c:'g'},
   {k:'fault',   l:'Fault',  w:-1,   c:'b'},
 ];
@@ -982,7 +1003,7 @@ const PLAYER_STAT_LABELS = {
   kill:'Kills',
   kerr:'Hit errors',
   dig:'Digs',
-  block:'Stuff blocks',
+  block:'Blocks',
   assist:'Sets / assists',
   fault:'Faults',
 };
@@ -2185,9 +2206,13 @@ function trackCard(p){
   const cls = v>0?'good':(v<0?'bad':'');
   const exp = live.expanded[p.id];
   const btn = k=>{ const e=EV_MAP[k]; const c=(live.log[p.id]||{})[k]||0;
-    return `<button class="${e.c}" onclick="logEv('${p.id}','${k}')">${e.l}${c?`<span class="cnt">${c}</span>`:''}</button>`; };
+    return `<div class="evchip ${e.c}" data-event-key="${k}" data-count="${c}">
+      ${c?`<button type="button" class="evminus" aria-label="Decrease ${e.l}" onclick="adjustTrackedEvent(event,'${p.id}','${k}',-1)"><span aria-hidden="true">−</span></button>`:''}
+      <button type="button" class="evadd" aria-label="${e.l}" onclick="adjustTrackedEvent(event,'${p.id}','${k}',1)"><span class="evlabel">${e.l}</span>${c?`<span class="cnt" aria-hidden="true">${c}</span>`:''}</button>
+    </div>`; };
   const terminalKeys=exp?TERMINAL_EVENT_KEYS:COLLAPSED_EVENT_KEYS;
-  const evHtml=`<div class="ev">${terminalKeys.map(btn).join('')}</div>${exp&&settings.detailed?`<div class="evrow"><span class="evlbl">Attempts</span><div class="ev">${NON_TERMINAL_EVENT_KEYS.map(btn).join('')}</div></div>`:''}${exp?`<div class="tiny faint" style="margin-top:6px">Stuff = a point-ending block. Do not log a touch that stays in play.</div>`:''}`;
+  const attempts=exp&&settings.detailed?`<div class="evrow"><span class="evlbl">Attempts</span><div class="ev">${NON_TERMINAL_EVENT_KEYS.map(btn).join('')}</div></div><div class="attempts-help">Attempts don't affect rating — they're the denominators for serve % and passer rating.</div>`:'';
+  const evHtml=`<div class="ev">${terminalKeys.map(btn).join('')}</div>${attempts}${exp?`<div class="tiny faint" style="margin-top:6px">Block = a point-ending block. Do not log a touch that stays in play.</div>`:''}`;
   const meta = `${settings.hideRatings?'':esc(volleyballLevelOf(p.rating).label)}${p.gamesPlayed?`${settings.hideRatings?'':' · '}${p.wins}-${p.losses}`:''}`;
   return `<div class="tcard">
     <div class="thead">
@@ -2420,7 +2445,7 @@ window.setSoloResult=(r)=>{ live.result=r; renderTrack(); };
 window.finishSolo=async()=>{
   const winner = live.result==='W'?'A':live.result==='L'?'B':null;
   const gid=uid();
-  games.push({ id:gid, date:Date.now(), solo:true, teamA:[live.player], teamB:[], scoreA:0, scoreB:0, winner, log:live.log, ...gameSaveMeta(true) });
+  games.push({ id:gid, date:Date.now(), solo:true, teamA:[live.player], teamB:[], scoreA:0, scoreB:0, winner, log:liveGameLog(), ...gameSaveMeta(true) });
   await commit();
   live=null;
   showRecap(gid);
@@ -2453,6 +2478,32 @@ window.startGame=()=>{
   if(window._evtPending){ live.evt=window._evtPending; window._evtPending=null; }
   render();
 };
+function applyLiveEventDelta(pid,k,delta){
+  if(!live||!live.log||!EV_MAP[k]) return 0;
+  const step=delta>0?1:(delta<0?-1:0); if(!step) return 0;
+  const counts=live.log[pid]||{};
+  const before=Math.max(0,Number(counts[k])||0),after=Math.max(0,before+step);
+  const applied=after-before; if(!applied) return 0;
+  if(after){ if(!live.log[pid]) live.log[pid]=counts; counts[k]=after; }
+  else{
+    delete counts[k];
+    if(!Object.keys(counts).length) delete live.log[pid];
+  }
+  return applied;
+}
+function recordLiveEventAdjustment(pid,k,delta){
+  const applied=applyLiveEventDelta(pid,k,delta); if(!applied) return 0;
+  if(!Array.isArray(live.undo)) live.undo=[];
+  live.undo.push({playerId:pid,eventKey:k,delta:applied});
+  return applied;
+}
+function undoLiveEventAdjustment(){
+  if(!live||!Array.isArray(live.undo)) return false;
+  const last=live.undo.pop(); if(!last) return false;
+  applyLiveEventDelta(last.playerId,last.eventKey,-last.delta);
+  return true;
+}
+function liveGameLog(){ return JSON.parse(JSON.stringify((live&&live.log)||{})); }
 // Quick result: save a final score for the selected teams with no live tracking.
 window.openQuickResult=()=>{
   const {s,unkA,unkB,ok}=setupSlots(); if(!ok) return;
@@ -2486,16 +2537,15 @@ window.saveQuickResult=async()=>{
   showRecap(gid);
 };
 window.score=(t,d)=>{ live['score'+t]=Math.max(0, live['score'+t]+d); renderTrackLocal(); };
-window.logEv=(pid,k)=>{
-  if(!live.log[pid]) live.log[pid]={};
-  live.log[pid][k]=(live.log[pid][k]||0)+1;
-  live.undo.push([pid,k]);
+window.adjustTrackedEvent=(ev,pid,k,delta)=>{
+  if(ev&&typeof ev.stopPropagation==='function') ev.stopPropagation();
+  if(!recordLiveEventAdjustment(pid,k,delta)) return;
   if(navigator.vibrate) navigator.vibrate(8);
   renderTrackLocal();
 };
+window.logEv=(pid,k)=>adjustTrackedEvent(null,pid,k,1);
 window.undoEv=()=>{
-  const last=live.undo.pop(); if(!last) return;
-  const [pid,k]=last; live.log[pid][k]--; if(live.log[pid][k]<=0) delete live.log[pid][k];
+  if(!undoLiveEventAdjustment()) return;
   renderTrackLocal();
 };
 window.toggleExpand=(pid)=>{ live.expanded[pid]=!live.expanded[pid]; renderTrackLocal(); };
@@ -2509,7 +2559,7 @@ window.finishGame=async()=>{
   const gid=uid();
   games.push({ id:gid, date:Date.now(), teamA:live.teamA, teamB:live.teamB,
     unkA:live.unkA||0, unkB:live.unkB||0, fmt:live.fmt||null,
-    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:live.log, ...gameSaveMeta(true), ...(live.evt||{}) });
+    scoreA:live.scoreA, scoreB:live.scoreB, winner, log:liveGameLog(), ...gameSaveMeta(true), ...(live.evt||{}) });
   await commit();
   live=null; window._sel={A:new Set(),B:new Set()};
   showRecap(gid);
@@ -6371,15 +6421,59 @@ function runSelfTest(){
       ['ace','kill','block'].every(k=>terminalDirections[k]>0)&&['serr','kerr','perr','fault'].every(k=>terminalDirections[k]<0),JSON.stringify(terminalDirections));
     const legacyRatingP=makePlayer('Legacy rating',50);players=[legacyRatingP];games=[{id:'legacy-rating',date:1,solo:true,teamA:[legacyRatingP.id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[legacyRatingP.id]:{sin:1}}}];recomputeAll();
     ck('A legacy game without ratingVersion keeps rating-v1 event weights',legacyRatingP.rating>legacyRatingP.seedRating,String(legacyRatingP.rating-legacyRatingP.seedRating));
-    const trackP=makePlayer('Tracker',50);players=[trackP];games=[];live={log:{[trackP.id]:{}},expanded:{[trackP.id]:false},quick:false};settings={...DEFAULT_SETTINGS,detailed:false,ratingVersion:2};
-    const trackerLabels=()=>{const el=document.createElement('div');el.innerHTML=trackCard(trackP);return [...el.querySelectorAll('.ev button')].map(b=>b.textContent.trim());};
+    const trackP=makePlayer('Tracker',50);players=[trackP];games=[];live={log:{},undo:[],expanded:{[trackP.id]:false},quick:false};settings={...DEFAULT_SETTINGS,detailed:false,ratingVersion:2};
+    const trackerDom=()=>{const el=document.createElement('div');el.innerHTML=trackCard(trackP);return el;};
+    const trackerLabels=()=>[...trackerDom().querySelectorAll('.evadd')].map(b=>b.textContent.trim());
     const collapsedLabels=trackerLabels();
     ck('Collapsed tracking row is Ace, Srv err, Kill, Hit err',collapsedLabels.join('|')==='Ace|Srv err|Kill|Hit err',collapsedLabels.join('|'));
     live.expanded[trackP.id]=true;
     const expandedWithoutAttempts=trackerLabels();settings.detailed=true;const expandedWithAttempts=trackerLabels();
     ck('Expanded tracking shows terminal seven first and attempts only when enabled',
-      expandedWithoutAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Stuff|Pass err|Fault'&&
-      expandedWithAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Stuff|Pass err|Fault|In|Get|Pass|Set|Dig',expandedWithAttempts.join('|'));
+      expandedWithoutAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Block|Pass err|Fault'&&
+      expandedWithAttempts.join('|')==='Ace|Srv err|Kill|Hit err|Block|Pass err|Fault|In|Get|Pass|Set|Dig',expandedWithAttempts.join('|'));
+
+    /* --- independent live-event corrections and adjustment history. --- */
+    const resetTrackLog=(log={})=>{live={log:JSON.parse(JSON.stringify(log)),undo:[],expanded:{[trackP.id]:true},quick:false};};
+    const countSnapshot=()=>JSON.stringify(Object.fromEntries(Object.entries(live.log).sort(([a],[b])=>a.localeCompare(b)).map(([pid,counts])=>[pid,Object.fromEntries(Object.entries(counts).sort(([a],[b])=>a.localeCompare(b)))])));
+    const otherCounts=(key)=>JSON.stringify(Object.fromEntries(Object.entries(live.log[trackP.id]||{}).filter(([k])=>k!==key)));
+
+    resetTrackLog({[trackP.id]:{kill:2,serr:1}});const incOthers=otherCounts('ace');recordLiveEventAdjustment(trackP.id,'ace',1);
+    ck('Incrementing event A does not change any other event',live.log[trackP.id].ace===1&&otherCounts('ace')===incOthers,JSON.stringify(live.log));
+
+    resetTrackLog({[trackP.id]:{ace:2,kill:2,serr:1}});const decOthers=otherCounts('ace');recordLiveEventAdjustment(trackP.id,'ace',-1);
+    ck('Decrementing event A does not change any other event',live.log[trackP.id].ace===1&&otherCounts('ace')===decOthers,JSON.stringify(live.log));
+
+    resetTrackLog();const floorApplied=recordLiveEventAdjustment(trackP.id,'ace',-1);
+    ck('Event decrement is floored at zero',floorApplied===0&&!live.log[trackP.id]&&live.undo.length===0,JSON.stringify(live));
+
+    resetTrackLog({[trackP.id]:{kill:2}});const priorCounts=countSnapshot();recordLiveEventAdjustment(trackP.id,'ace',1);recordLiveEventAdjustment(trackP.id,'ace',-1);
+    ck('Increment then decrement restores the prior event counts exactly',countSnapshot()===priorCounts,`${priorCounts} vs ${countSnapshot()}`);
+
+    resetTrackLog();recordLiveEventAdjustment(trackP.id,'ace',1);recordLiveEventAdjustment(trackP.id,'kill',1);recordLiveEventAdjustment(trackP.id,'block',1);recordLiveEventAdjustment(trackP.id,'ace',-1);
+    ck('Decrementing an earlier event leaves later events intact',!live.log[trackP.id].ace&&live.log[trackP.id].kill===1&&live.log[trackP.id].block===1,JSON.stringify(live.log));
+
+    resetTrackLog({[trackP.id]:{ace:2}});recordLiveEventAdjustment(trackP.id,'ace',-1);const undidDecrement=undoLiveEventAdjustment();
+    ck('Undo reverses a decrement',undidDecrement&&live.log[trackP.id].ace===2,JSON.stringify(live));
+
+    resetTrackLog();const mixedStates=[countSnapshot()];[['ace',1],['kill',1],['ace',-1],['block',1],['kill',-1]].forEach(([k,d])=>{recordLiveEventAdjustment(trackP.id,k,d);mixedStates.push(countSnapshot());});
+    let mixedUndoExact=true;for(let i=mixedStates.length-2;i>=0;i--){mixedUndoExact=undoLiveEventAdjustment()&&countSnapshot()===mixedStates[i]&&mixedUndoExact;}
+    ck('Mixed adjustment Undo restores each exact prior state',mixedUndoExact&&live.undo.length===0,JSON.stringify(live));
+
+    resetTrackLog({[trackP.id]:{kill:2}});const perfBefore=trackerDom().querySelector('.perf').textContent.trim();recordLiveEventAdjustment(trackP.id,'kill',-1);const perfAfter=trackerDom().querySelector('.perf').textContent.trim();
+    ck('Perf readout recomputes after a decrement',perfBefore==='+4'&&perfAfter==='+2',`${perfBefore} → ${perfAfter}`);
+
+    resetTrackLog({[trackP.id]:{ace:2,kill:1}});recordLiveEventAdjustment(trackP.id,'ace',-1);const correctedSaveLog=liveGameLog();recordLiveEventAdjustment(trackP.id,'ace',1);
+    ck('Saving after a decrement uses corrected counts',correctedSaveLog[trackP.id].ace===1&&correctedSaveLog[trackP.id].kill===1&&live.log[trackP.id].ace===2,JSON.stringify(correctedSaveLog));
+
+    resetTrackLog();const zeroCountDom=trackerDom();recordLiveEventAdjustment(trackP.id,'ace',1);const nonzeroCountDom=trackerDom();
+    ck('Count badge is absent at zero and present above zero',!zeroCountDom.querySelector('[data-event-key="ace"] .cnt')&&nonzeroCountDom.querySelector('[data-event-key="ace"] .cnt')?.textContent==='1');
+
+    const nonzeroMinus=nonzeroCountDom.querySelector('[data-event-key="ace"] .evminus');
+    ck('Decrement control is absent at zero and enabled above zero',!zeroCountDom.querySelector('[data-event-key="ace"] .evminus')&&!!nonzeroMinus&&!nonzeroMinus.disabled);
+
+    resetTrackLog();
+    ck('Block chip renders with the label Block',trackerDom().querySelector('[data-event-key="block"] .evadd')?.textContent.trim()==='Block');
+
     const savedMeta=gameSaveMeta(true,true);
     ck('New tracked games snapshot rating version, attempts capability, and available families',savedMeta.ratingVersion===2&&savedMeta.detailed===true&&savedMeta.eventFamilies.serve.join('|')==='ace|serr|sin'&&savedMeta.eventFamilies.defense.join('|')==='dig');
     const evidenceP=makePlayer('Evidence rates',50);players=[evidenceP];settings={...DEFAULT_SETTINGS,ratingVersion:2};
