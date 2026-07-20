@@ -574,7 +574,7 @@ test('archival and ordinary status changes do not create deletion markers', asyn
     recomputeAll();const before=Object.fromEntries(players.map(p=>[p.id,p.rating]));
     window.askConfirm=async()=>true;editId='historical';await deletePlayer();
     await toggleEventDone('status-event');
-    openPlayer('status');toggleActive();await savePlayer();
+    openPlayer('status','edit');toggleActive();await savePlayer();
     recomputeAll();
     return {
       before,after:Object.fromEntries(players.map(p=>[p.id,p.rating])),

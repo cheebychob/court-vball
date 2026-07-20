@@ -562,13 +562,16 @@ test('visibility opt-in and opt-out rewrite only metadata and immediately gate p
   assert.equal(publicGet.headers.get('content-disposition'), 'inline');
   assert.equal(publicGet.headers.get('x-content-type-options'), 'nosniff');
   assert.equal(publicGet.headers.get('referrer-policy'), 'no-referrer');
-  assert.equal(publicGet.headers.get('cross-origin-resource-policy'), 'same-origin');
+  assert.equal(publicGet.headers.get('access-control-allow-origin'), '*');
+  assert.equal(publicGet.headers.get('cross-origin-resource-policy'), 'cross-origin');
   assert.match(publicGet.headers.get('cache-control'), /immutable/);
   assert.equal(publicGet.headers.get('x-amz-meta-roomhash'), null);
   assert.equal(publicGet.headers.get('roomHash'), null);
 
   const publicHead = await worker.fetch(request(`/media/player-photos/${token}`, { method: 'HEAD' }), bindings);
   assert.equal(publicHead.status, 200);
+  assert.equal(publicHead.headers.get('access-control-allow-origin'), '*');
+  assert.equal(publicHead.headers.get('cross-origin-resource-policy'), 'cross-origin');
   assert.equal((await publicHead.arrayBuffer()).byteLength, 0);
   const disabled = await worker.fetch(request(apiPath, {
     method: 'PATCH', headers: { 'Content-Type': 'application/json', 'X-Court-Room': 'test-room', Origin: ORIGIN }, body: JSON.stringify({ public: false })
