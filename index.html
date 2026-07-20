@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260719.3">
+<meta name="court-build" content="20260720.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -227,10 +227,24 @@
 
   .avatar{width:40px;height:40px;flex:none;display:grid;place-items:center;border-radius:14px;
     background:linear-gradient(150deg,#274563,#151c2e);border:1px solid #ffffff22;
-    color:var(--text);font-weight:850;font-size:14px;box-shadow:inset 0 1px 0 #ffffff1c;position:relative;}
+    color:var(--text);font-weight:850;font-size:14px;box-shadow:inset 0 1px 0 #ffffff1c;position:relative;overflow:hidden;}
   .avatar.sm{width:34px;height:34px;border-radius:12px;font-size:12px}
+  .avatar.lg{width:72px;height:72px;border-radius:22px;font-size:20px}
+  .avatar img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}
+  .avatar img[hidden]{display:none}
+  .avatar.photo-unavailable{border-style:dashed}
   .avatar .off-dot{position:absolute;right:-3px;top:-3px;width:11px;height:11px;border-radius:999px;
-    background:var(--soft);border:2px solid var(--bg)}
+    background:var(--soft);border:2px solid var(--bg);z-index:2}
+  .photo-editor{display:grid;grid-template-columns:auto minmax(0,1fr);gap:12px;align-items:center;padding:12px;border:1px solid var(--line);border-radius:16px;background:#ffffff07}
+  .photo-editor-actions{min-width:0}.photo-editor-actions .row{flex-wrap:wrap;gap:7px}
+  .photo-unavailable-note{display:block;margin-top:5px;color:var(--soft);font-size:10.5px}
+  .photo-public-line{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+  .photo-public-copy{min-width:0}.photo-public-copy b{display:block;font-size:12.5px}.photo-public-copy span{display:block;margin-top:4px;color:var(--soft);font-size:10.5px;line-height:1.4}
+  .photo-crop-wrap{width:min(100%,512px);margin:0 auto;touch-action:none;overflow:hidden;border-radius:18px;border:1px solid var(--line);background:#05070d}
+  .photo-crop-wrap canvas{display:block;width:100%;height:auto;aspect-ratio:1}
+  .photo-crop-controls{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;margin:14px 0}
+  .photo-crop-controls input{min-width:0;padding:8px 0}
+  .profile-photo-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}.profile-photo-head>div:last-child{min-width:0}.profile-photo-head b{display:block;font-size:18px}.profile-photo-head span{display:block;margin-top:3px;color:var(--soft);font-size:11px}
 
   /* ---------- segmented controls ---------- */
   .seg{display:flex;gap:7px;flex-wrap:wrap}
@@ -576,6 +590,7 @@
   .schedule-side>strong{display:block;color:#526079;font-size:10px;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px}
   .schedule-entry{padding:5px 0;border-top:1px solid #e1e6ef;overflow-wrap:anywhere}.schedule-entry:first-of-type{border-top:0;padding-top:0}
   .schedule-entry b{display:block;color:#172033;font-size:12px}.schedule-entry span{display:block;color:#66738a;font-size:10.5px;line-height:1.35;margin-top:2px}
+  .public-player-photos{display:inline-flex!important;align-items:center;gap:4px;margin-top:6px!important}.public-player-photo{position:relative;display:grid!important;width:30px;height:30px;place-items:center;border-radius:10px;border:1px solid #cfd8e5;background:#e8edf4;color:#526079;font-size:10px;font-weight:850;overflow:hidden}.public-player-photo>span{display:block!important;margin:0!important}.public-player-photo img{position:absolute;inset:0;width:100%;height:100%;display:block;border:0;border-radius:inherit;object-fit:cover;background:transparent;color:transparent;font-size:0}
   .schedule-match-label{margin-top:7px;color:#66738a;font-size:10px;line-height:1.4}
   .schedule-preview-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #dce3ef;color:#9a6c16;font-size:10px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}
   .schedule-file-note{text-align:center;color:var(--faint);font-size:11px;line-height:1.45;margin:9px 0 0}
@@ -838,9 +853,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.12.0',
-  build: '20260719.3',
-  releaseNotes: 'Playoff partial saves now resume safely, duplicate finals self-correct, and event recaps can be published as public links.'
+  version: '0.13.0',
+  build: '20260720.1',
+  releaseNotes: 'Optional secure player photos now support private room sync, consent-based public sharing, mobile cropping, and initials fallback.'
 });
 
 function appVersionLabel(){
@@ -1093,6 +1108,24 @@ function makePlayer(name, seed){
     roles:{}, skills:null, lifetime:zeroEvents(),
     history:[{i:0,r:seed}], notes:'', active:true, archived:false };
 }
+const PLAYER_PHOTO_TOKEN_PATTERN=/^[A-Za-z0-9_-]{43}$/;
+const PLAYER_PHOTO_REVISION_PATTERN=/^[A-Za-z0-9._~-]{1,128}$/;
+const PLAYER_PHOTO_TYPES=new Set(['image/webp','image/jpeg']);
+const PLAYER_PHOTO_MAX_BYTES=750*1024;
+function normalizePlayerPhoto(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const token=typeof value.token==='string'?value.token:'',revision=typeof value.revision==='string'?value.revision:'',contentType=value.contentType;
+  const width=Number(value.width),height=Number(value.height),bytes=Number(value.bytes),updatedAt=Number(value.updatedAt);
+  if(!PLAYER_PHOTO_TOKEN_PATTERN.test(token)||!PLAYER_PHOTO_REVISION_PATTERN.test(revision)||!PLAYER_PHOTO_TYPES.has(contentType)
+    ||!Number.isInteger(width)||width<1||width>1024||!Number.isInteger(height)||height<1||height>1024
+    ||!Number.isInteger(bytes)||bytes<1||bytes>PLAYER_PHOTO_MAX_BYTES||typeof value.public!=='boolean'
+    ||!Number.isInteger(updatedAt)||updatedAt<1)return null;
+  return {token,revision,contentType,width,height,bytes,public:value.public,updatedAt};
+}
+function publicPlayerPhoto(player){
+  const photo=normalizePlayerPhoto(player?.photo);
+  return photo?.public?{name:String(player.name||'Player'),url:`/media/player-photos/${encodeURIComponent(photo.token)}?v=${encodeURIComponent(photo.revision)}`} : null;
+}
 
 /* ============================================================
    LOAD / SAVE
@@ -1125,7 +1158,8 @@ function migratePlayers(){
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
     if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
     if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false;
-    if(pl.trackedGames === undefined) pl.trackedGames = pl.gamesPlayed || 0; });
+    if(pl.trackedGames === undefined) pl.trackedGames = pl.gamesPlayed || 0;
+    const photo=normalizePlayerPhoto(pl.photo);if(photo)pl.photo=photo;else delete pl.photo; });
 }
 async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
@@ -1518,10 +1552,12 @@ window.openPlayerCard=(id)=>{
   if(editId) captureInputs();
   const back = editId ? 'renderPlayerSheet()' : 'closeSheet()';
   openSheet(`<h3>Player card</h3>
+    <div class="profile-photo-head">${playerAvatarHtml(p,{size:'lg'})}<div><b>${esc(p.name)}</b><span>${esc(volleyballLevelOf(p.rating).label)} · ${p.wins}-${p.losses}</span></div></div>
     <canvas id="cardCanvas" style="width:100%;border-radius:16px;display:block;background:#070a12"></canvas>
     <div class="tiny faint" style="margin-top:8px;text-align:center">Bright radar points are backed by logged events; faded ones lean on the starting skill ratings until more games are tracked.</div>
     <button class="btn primary block" style="margin-top:12px" onclick="sharePlayerCard('${p.id}')">Save / share image</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="${back}">Back</button>`);
+  if(draft)setPlayerEditorCloseGuard();
   const c=document.getElementById('cardCanvas');
   if(c && c.getContext) drawPlayerCard(c, profileCardData(p));
 };
@@ -1976,6 +2012,10 @@ function ago(ts){
   const mo=Math.floor(days/30); return mo===1?'a month ago':mo+' months ago';
 }
 function initials(name){ return (name||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
+function playerAvatarHtml(player,{size='',showInactive=false,unavailableNotice=false}={}){
+  const photo=normalizePlayerPhoto(player?.photo),name=String(player?.name||'Player'),attrs=photo?` data-player-photo-token="${esc(photo.token)}" data-player-photo-revision="${esc(photo.revision)}"`:'';
+  return `<span class="avatar${size?` ${size}`:''}"${attrs}><span class="avatar-initials">${initials(name)}</span>${photo?`<img alt="Photo of ${esc(name)}" loading="lazy" hidden>`:''}${showInactive&&player?.active===false?'<i class="off-dot"></i>':''}</span>${unavailableNotice&&photo?'<span class="photo-unavailable-note" data-photo-unavailable-note hidden>Photo unavailable · showing initials</span>':''}`;
+}
 function screenHead(eyebrow, title, sub){
   return `<div class="screen-head"><div class="eyebrow">${eyebrow}</div><h2>${title}</h2>${sub?`<p class="subcopy">${sub}</p>`:''}</div>`;
 }
@@ -2007,6 +2047,7 @@ function render(options={}){
   else if(tab==='games') renderGames();
   else if(tab==='events') renderEvents();
   else renderMore();
+  window.PlayerPhotos?.hydrate(main);
   if(policy==='top') requestAnimationFrame(()=>window.scrollTo({top:0,behavior:'auto'}));
   else if(policy==='anchor'&&options.anchorId) requestAnimationFrame(()=>scrollToEventSection(options.anchorId));
   else if(position) restoreRenderPosition(position);
@@ -2108,7 +2149,7 @@ function renderHome(){
       if(movers.length){
         html += movers.map(({p,d})=>`
           <div class="mover">
-            <div class="avatar sm">${initials(p.name)}</div>
+            ${playerAvatarHtml(p,{size:'sm'})}
             <div class="who"><b>${esc(p.name)}</b><span>${esc(volleyballLevelOf(p.rating).label)} · ${p.wins}-${p.losses}</span></div>
             <span class="num ${d>0?'delta-up':'delta-down'}">${d>0?'▲ +':'▼ '}${Math.abs(d)}</span>
           </div>`).join('');
@@ -2189,7 +2230,7 @@ function playerCard(p){
   const status = isArchived(p)?'archived':p.active?'active':'away';
   return `<button class="player-card pressable ${p.active&&!isArchived(p)?'':'inactive'}" data-name="${esc(p.name.toLowerCase())}" data-status="${status}" onclick="openPlayer('${p.id}')">
     <span class="player-top">
-      <span class="avatar">${initials(p.name)}${p.active?'':'<i class="off-dot"></i>'}</span>
+      ${playerAvatarHtml(p,{showInactive:true})}
       <span class="player-meta">
         <b>${esc(p.name)}</b>
         <span class="player-sub">${sub}${isArchived(p)?' · archived':p.active?'':' · away'}</span>
@@ -2675,6 +2716,7 @@ function renderTeams(){
           <div class="team-avg num">${showRate(avg)}<span>avg rating</span></div>
         </div>
         ${t.slice().sort((a,b)=>b.rating-a.rating).map(p=>`<div class="member" data-scroll-key="team-player-${p.id}">
+          ${playerAvatarHtml(p,{size:'sm'})}
           <span class="nm">${esc(p.name)}</span>
           ${ROLE_DEFS.filter(([k])=>p.roles[k]).slice(0,2).map(([k,l])=>`<span class="pill">${l}</span>`).join('')}
           <span class="mrate num">${showRate(p.rating)}</span>
@@ -4125,7 +4167,7 @@ function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now
     const schedule=rotationSchedule(ev);if(!schedule.length)return null;
     const s=rotationSettings(ev),tl=rotationTimeline(ev,gameList,now),allEntries=rotatingEntries(ev),standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m));
     const roundNumbers=[...new Set(standard.map(m=>m.round))].sort((a,b)=>a-b);
-    const entryData=id=>{const entry=entryById(ev,id);return {name:entry?.name||'Missing entry',players:(entry?.players||[]).map(playerName)};};
+    const entryData=id=>{const entry=entryById(ev,id),ids=entry?.players||[];return {name:entry?.name||'Missing entry',players:ids.map(playerName),playerPhotos:publicPhotoItems(ids,playerList)};};
     const rounds=roundNumbers.map(number=>{
       const matches=standard.filter(m=>m.round===number).slice().sort((a,b)=>a.court-b.court),playing=new Set(matches.flatMap(m=>[...m.sideAEntryIds,...m.sideBEntryIds]));
       const time=tl?.roundEst[number]?fmtScheduleTime(ev,tl.roundEst[number]):null;
@@ -4141,13 +4183,14 @@ function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now
   return {scope:'full',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched.start,now),intervalMinutes:positiveInt(ev.sched.setMin,25),courts:sc.requestedCourts,roundCount:sc.plannedSlots.length,makeupMatchCount:(sc.makeupSlots||[]).flat().length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.',rounds};
 }
 const deriveScheduleExportModel=deriveFullScheduleExportModel;
+function publicPhotoItems(ids,playerList){return (ids||[]).map(id=>playerList.find(player=>player.id===id)).filter(Boolean).map(publicPlayerPhoto).filter(Boolean);}
 function participantEntryData(ev,id,playerList){
-  const entry=entryById(ev,id);
-  return {name:entry?.name||'Missing entry',players:(entry?.players||[]).map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player')};
+  const entry=entryById(ev,id),ids=entry?.players||[];
+  return {name:entry?.name||'Missing entry',players:ids.map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player'),playerPhotos:publicPhotoItems(ids,playerList)};
 }
 function participantTeamData(ev,id,playerList){
-  const team=evTeamById(ev,id);
-  return {name:team?.name||'Missing team',players:(team?.players||[]).map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player')};
+  const team=evTeamById(ev,id),ids=team?.players||[];
+  return {name:team?.name||'Missing team',players:ids.map(pid=>playerList.find(p=>p.id===pid)?.name||'Historical player'),playerPhotos:publicPhotoItems(ids,playerList)};
 }
 function participantResultFromSets(sets,onA){
   if(!sets.length)return null;
@@ -4193,7 +4236,7 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
     if(eventFormat(ev)!=='fixedTeams')return null;
     const team=evTeamById(ev,subjectId);if(!team)return null;
     const data=deriveFixedParticipantSchedule(ev,team,{gameList,playerList,now});if(!data.rows.length)return null;
-    return {scope:'participant',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched?.start,now),exportTitle:'Team Schedule',subjectLabel:'Your Team',subjectName:team.name,subjectMembers:(team.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player'),rows:data.rows,note:data.note,hasResults:data.rows.some(r=>r.result)};
+    return {scope:'participant',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched?.start,now),exportTitle:'Team Schedule',subjectLabel:'Your Team',subjectName:team.name,subjectMembers:(team.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player'),subjectPhotos:publicPhotoItems(team.players||[],playerList),rows:data.rows,note:data.note,hasResults:data.rows.some(r=>r.result)};
   }
   if(subjectType!=='entry'||eventFormat(ev)!=='rotatingGroups')return null;
   const entry=entryById(ev,subjectId),schedule=rotationSchedule(ev);if(!entry||!schedule.length)return null;
@@ -4208,14 +4251,15 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
   });
   extras.filter(m=>m.sideAEntryIds.includes(subjectId)||m.sideBEntryIds.includes(subjectId)).sort((a,b)=>positiveInt(a.makeupBlock,1)-positiveInt(b.makeupBlock,1)||a.court-b.court).forEach(match=>{const onA=match.sideAEntryIds.includes(subjectId),mine=onA?match.sideAEntryIds:match.sideBEntryIds,other=onA?match.sideBEntryIds:match.sideAEntryIds,sets=gameList.filter(g=>g.evId===ev.id&&g.evMatchId===match.id),block=positiveInt(match.makeupBlock,1);rows.push({type:'match',isBye:false,isMakeup:true,round:null,time:tl?.makeupEst?.[block]?fmtScheduleTime(ev,tl.makeupEst[block]):null,court:`Court ${match.court}`,teammateEntries:mine.filter(id=>id!==subjectId).map(id=>participantEntryData(ev,id,playerList)),opponentEntries:other.map(id=>participantEntryData(ev,id,playerList)),result:participantResultFromSets(sets,onA),label:(sets[0]?.label||match.label||'Balances games played').replace(/ · Set \d+$/,'')});});
   const subjectMembers=(entry.players||[]).map(id=>playerList.find(p=>p.id===id)?.name||'Historical player');
-  return {scope:'participant',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),exportTitle:s.entrySize===1?'Participant Schedule':'Group Schedule',subjectLabel:s.teamSize===s.entrySize?'Your Team':s.entrySize===1?'Your Entry':'Your Group',subjectName:entry.name,subjectMembers,rows,note:s.start?null:'Game times have not been assigned yet.',hasResults:rows.some(r=>r.result)};
+  return {scope:'participant',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(s.start,now),exportTitle:s.entrySize===1?'Participant Schedule':'Group Schedule',subjectLabel:s.teamSize===s.entrySize?'Your Team':s.entrySize===1?'Your Entry':'Your Group',subjectName:entry.name,subjectMembers,subjectPhotos:publicPhotoItems(entry.players||[],playerList),rows,note:s.start?null:'Game times have not been assigned yet.',hasResults:rows.some(r=>r.result)};
 }
 function scheduleHtmlEscape(value){
   return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 function scheduleExportBodyHtml(model,{preview=false}={}){
   const e=scheduleHtmlEscape;
-  const entry=item=>`<div class="schedule-entry"><b>${e(item.name)}</b>${item.players.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}</div>`;
+  const photos=items=>(items||[]).length?`<span class="public-player-photos">${items.map(item=>`<span class="public-player-photo"><span aria-hidden="true">${e(initials(item.name))}</span><img src="${e(item.url)}" alt="Photo of ${e(item.name)}" loading="lazy"></span>`).join('')}</span>`:'';
+  const entry=item=>`<div class="schedule-entry"><b>${e(item.name)}</b>${item.players.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}${photos(item.playerPhotos)}</div>`;
   const matchHtml=match=>`<article class="schedule-match"><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides"><span>${e(match.sideA[0].name)}</span><b class="schedule-vs">VS</b><span>${e(match.sideB[0].name)}</span></div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}</article>`;
   const rounds=model.rounds.map(round=>`<section class="schedule-round${round.isMakeup?' schedule-makeup':''}"><div class="schedule-round-lead"><div class="schedule-round-head"><b>${round.isMakeup?'Makeup matches':`Round ${e(round.number)}`}</b><span>${round.time?e(round.time):''}</span></div>${round.isMakeup?`<div class="schedule-byes"><b>Balances games played.</b> Only the listed participants play.</div>`:round.byes.length?`<div class="schedule-byes"><b>Byes / sit-outs:</b> ${round.byes.map(e).join(' · ')}</div>`:''}</div><div class="schedule-match-list">${round.matches.map(matchHtml).join('')}</div></section>`).join('');
   const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null,model.intervalMinutes?`${model.intervalMinutes}-minute rounds`:null,`${model.courts} court${model.courts===1?'':'s'}`,`${model.roundCount} standard round${model.roundCount===1?'':'s'}`,model.makeupMatchCount?`${model.makeupMatchCount} makeup match${model.makeupMatchCount===1?'':'es'}`:null].filter(Boolean);
@@ -4223,19 +4267,20 @@ function scheduleExportBodyHtml(model,{preview=false}={}){
 }
 function participantScheduleBodyHtml(model,{preview=false}={}){
   const e=scheduleHtmlEscape;
-  const entryHtml=item=>`<div class="participant-entry-row">${item.players?.length&&item.name?`<span class="participant-entry-badge" aria-label="Entry ${e(item.name)}">${e(item.name)}</span>`:''}<strong>${e(item.players?.length?item.players.join(' + '):item.name)}</strong></div>`;
+  const photos=items=>(items||[]).length?`<span class="public-player-photos">${items.map(item=>`<span class="public-player-photo"><span aria-hidden="true">${e(initials(item.name))}</span><img src="${e(item.url)}" alt="Photo of ${e(item.name)}" loading="lazy"></span>`).join('')}</span>`:'';
+  const entryHtml=item=>`<div class="participant-entry-row">${item.players?.length&&item.name?`<span class="participant-entry-badge" aria-label="Entry ${e(item.name)}">${e(item.name)}</span>`:''}<strong>${e(item.players?.length?item.players.join(' + '):item.name)}</strong>${photos(item.playerPhotos)}</div>`;
   const rows=model.rows.map(row=>{
     const where=[row.time||'Time TBD',row.court].filter(Boolean).join(' · '),result=row.result?`<span class="participant-result ${row.result.outcome==='W'?'win':row.result.outcome==='L'?'loss':'tie'}">${e(row.result.outcome)} · ${e(row.result.score)}</span>`:'';
     const head=`<div class="participant-round-head"><b>${row.isMakeup?'Makeup match':row.round?`Round ${e(row.round)}`:'Scheduled match'}</b><span>${e(where)}</span></div>`;
     if(row.isBye||row.type==='bye')return `<article class="participant-round-card participant-game participant-bye"><div class="participant-round-head"><b>Round ${e(row.round)}</b><span>${e(row.time||'Time TBD')}</span></div><div class="participant-bye-box"><strong>Bye / Sit-out</strong><span>No match this round</span></div></article>`;
     const body=model.formatKind==='fixed'
-      ? `<div class="participant-opponent-box"><span class="participant-block-label">Opponent</span><strong class="participant-opponent-name">${e(row.opponent.name)}</strong>${row.opponent.players.length?`<span class="participant-opponent-players">${row.opponent.players.map(e).join(' + ')}</span>`:''}</div>`
+      ? `<div class="participant-opponent-box"><span class="participant-block-label">Opponent</span><strong class="participant-opponent-name">${e(row.opponent.name)}</strong>${row.opponent.players.length?`<span class="participant-opponent-players">${row.opponent.players.map(e).join(' + ')}</span>`:''}${photos(row.opponent.playerPhotos)}</div>`
       : `<div class="participant-match-block"><section class="participant-with-box" aria-label="Playing with"><span class="participant-block-label">Playing With</span>${row.teammateEntries.length?row.teammateEntries.map(entryHtml).join(''):'<span class="participant-group-only">Your group only</span>'}</section><div class="participant-vs-divider" aria-label="versus">VS</div><section class="participant-against-box" aria-label="Against"><span class="participant-block-label">Against</span>${row.opponentEntries.length?row.opponentEntries.map(entryHtml).join(''):'<span class="participant-group-only">Opponent not listed</span>'}</section></div>`;
     const details=[row.pool?`Pool ${e(row.pool)}`:null,row.label?e(row.label):null].filter(Boolean);
     return `<article class="participant-round-card participant-game">${head}${body}${details.length||result?`<div class="participant-round-meta">${details.length?`<span>${details.join(' · ')}</span>`:'<span></span>'}${result}</div>`:''}</article>`;
   }).join('');
   const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null].filter(Boolean);
-  const subject=model.formatKind==='fixed'?`<strong>${e(model.subjectName)}</strong>${model.subjectMembers.length?`<span class="participant-subject-members">${model.subjectMembers.map(e).join(' · ')}</span>`:''}`:`<div class="participant-subject-main"><span class="participant-entry-badge">${e(model.subjectName)}</span><strong>${e(model.subjectMembers.length?model.subjectMembers.join(' + '):model.subjectName)}</strong></div>`;
+  const subject=model.formatKind==='fixed'?`<strong>${e(model.subjectName)}</strong>${model.subjectMembers.length?`<span class="participant-subject-members">${model.subjectMembers.map(e).join(' · ')}</span>`:''}${photos(model.subjectPhotos)}`:`<div class="participant-subject-main"><span class="participant-entry-badge">${e(model.subjectName)}</span><strong>${e(model.subjectMembers.length?model.subjectMembers.join(' + '):model.subjectName)}</strong>${photos(model.subjectPhotos)}</div>`;
   return `<article class="${preview?'schedule-preview ':''}schedule-document participant-document"${preview?' data-participant-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · ${e(model.exportTitle)}</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div><div class="participant-subject"><span class="participant-subject-label">${e(model.subjectLabel)}</span>${subject}</div>${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header><div class="participant-games">${rows}</div>${model.note?`<p class="participant-note">${e(model.note)}</p>`:''}<footer class="schedule-preview-foot">Court</footer></article>`;
 }
 function scheduleExportPreviewHtml(model){return model.scope==='participant'?participantScheduleBodyHtml(model,{preview:true}):scheduleExportBodyHtml(model,{preview:true});}
@@ -4269,6 +4314,7 @@ function scheduleDocumentStyles(){return `
   .schedule-side>strong{display:block;margin-bottom:7px;color:#526079;font-size:10px;letter-spacing:.09em;text-transform:uppercase}
   .schedule-entry{padding:7px 0;border-top:1px solid #dfe5ee;overflow-wrap:anywhere}.schedule-entry:first-of-type{padding-top:0;border-top:0}
   .schedule-entry b{display:block;font-size:14px}.schedule-entry span{display:block;margin-top:3px;color:#5f6d82;font-size:12px;line-height:1.4}
+  .public-player-photos{display:inline-flex!important;align-items:center;gap:4px;margin-top:6px!important}.public-player-photo{position:relative;display:grid!important;width:30px;height:30px;place-items:center;border-radius:10px;border:1px solid #cfd8e5;background:#e8edf4;color:#526079;font-size:10px;font-weight:850;overflow:hidden}.public-player-photo>span{display:block!important;margin:0!important}.public-player-photo img{position:absolute;inset:0;width:100%;height:100%;display:block;border:0;border-radius:inherit;object-fit:cover;background:transparent;color:transparent;font-size:0}
   .schedule-match-label{margin-top:8px;color:#66738a;font-size:11px;line-height:1.4}
   .participant-document{max-width:720px}
   .participant-subject{margin-top:15px;padding:14px;border-radius:12px;background:#17243b;color:#fff}
@@ -6465,6 +6511,15 @@ async function runSelfTest(){
     games.push({id:'g2',date:2,solo:true,teamA:[P[2].id],teamB:[],scoreA:0,scoreB:0,winner:'A',log:{[P[2].id]:{kill:4,dig:2}}});
     recomputeAll();
 
+    const validPhoto={token:'P'.repeat(43),revision:'revision-1',contentType:'image/webp',width:512,height:512,bytes:12345,public:false,updatedAt:1721147120000};
+    ck('Player photo metadata normalizes without binary fields',JSON.stringify(normalizePlayerPhoto(validPhoto))===JSON.stringify(validPhoto)&&!/[Dd]ata:|blob:|base64/.test(JSON.stringify(normalizePlayerPhoto(validPhoto))));
+    ck('Malformed player photo metadata is rejected',normalizePlayerPhoto({...validPhoto,token:'bad'})===null&&normalizePlayerPhoto({...validPhoto,bytes:Infinity})===null&&normalizePlayerPhoto({...validPhoto,contentType:'image/svg+xml'})===null);
+    ck('Private photos never produce public media URLs',publicPlayerPhoto({...P[0],photo:validPhoto})===null);
+    const publicDescriptor=publicPlayerPhoto({...P[0],photo:{...validPhoto,public:true}});
+    ck('Opted-in photos use only a safe relative public media URL',publicDescriptor?.url===`/media/player-photos/${validPhoto.token}?v=${validPhoto.revision}`&&!/room|roomHash|player-photos\//.test(JSON.stringify(publicDescriptor).replace('/media/player-photos/','')));
+    const photoRatingBefore=JSON.stringify(P.map(p=>({seedRating:p.seedRating,rating:p.rating,history:p.history,gamesPlayed:p.gamesPlayed,wins:p.wins,losses:p.losses})));P[0].photo=validPhoto;recomputeAll();const photoRatingAfter=JSON.stringify(P.map(p=>({seedRating:p.seedRating,rating:p.rating,history:p.history,gamesPlayed:p.gamesPlayed,wins:p.wins,losses:p.losses})));delete P[0].photo;
+    ck('Photo metadata never changes ratings, records, or history',photoRatingBefore===photoRatingAfter);
+
     /* --- terminal-only scoring, tracker visibility, and evidence-gated rates. --- */
     const scoringPlayers=players,scoringGames=games,scoringSettings=settings,scoringLive=live;
     settings={...DEFAULT_SETTINGS,ratingVersion:2};players=[];games=[];
@@ -7399,15 +7454,37 @@ window.runTests=async()=>{
 /* ============================================================
    PLAYER EDITOR (sheet)
    ============================================================ */
-let editId=null, draft=null;
+let editId=null, draft=null,photoPrepared=null,photoCrop=null,photoDecodeUrl='',photoDraftPublic=false,photoBusy=false,photoSession='';
+function cleanupPreparedPhoto(){if(photoPrepared?.previewUrl)URL.revokeObjectURL(photoPrepared.previewUrl);photoPrepared=null;}
+function cleanupPhotoCrop(){if(photoCrop?.sourceUrl)URL.revokeObjectURL(photoCrop.sourceUrl);if(photoDecodeUrl)URL.revokeObjectURL(photoDecodeUrl);photoDecodeUrl='';photoCrop=null;}
+function playerEditorCloseGuard(){cleanupPhotoCrop();cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true);return false;}
+function setPlayerEditorCloseGuard(){window._sheetBeforeClose=playerEditorCloseGuard;}
 window.openPlayer=(id)=>{
+  cleanupPhotoCrop();cleanupPreparedPhoto();
   editId=id||null;
   const p = id?pById(id):null;
   draft = p ? JSON.parse(JSON.stringify(p)) : { name:'', seedRating:48, roles:{}, skills:null };
   if(!draft.roles) draft.roles={};
+  photoDraftPublic=normalizePlayerPhoto(draft.photo)?.public||false;photoBusy=false;photoSession=uid();
   window._seedMode = draft.skills ? 'skills' : 'tier';
   renderPlayerSheet();
+  const session=photoSession;void PlayerPhotos.capability().then(()=>{if(draft&&photoSession===session){captureInputs();renderPlayerSheet();}});
 };
+function playerPhotoEditorHtml(p){
+  const existing=normalizePlayerPhoto(p?.photo),prepared=photoPrepared,status=PlayerPhotos.state(),configured=PlayerPhotos.configured(),available=status.available;
+  const disabled=photoBusy||!available?'disabled':'',hasPreview=!!(prepared||existing),name=draft?.name||p?.name||'Player';
+  const preview=prepared
+    ? `<span class="avatar lg"><span class="avatar-initials">${initials(name)}</span><img src="${esc(prepared.previewUrl)}" alt="Photo preview for ${esc(name)}"></span>`
+    : existing?playerAvatarHtml({...p,name},{size:'lg'}):playerAvatarHtml({name},{size:'lg'});
+  const actionLabel=hasPreview?'Change photo':'Add photo';
+  const setup=!configured?'Set up device sync to add photos.':status.status==='checking'||status.status==='idle'?'Checking secure photo storage…':!available?esc(status.message||'Player photo storage is unavailable.'):'Photos are resized before secure upload.';
+  const remove=prepared?`<button type="button" class="btn sm ghost" onclick="discardPreparedPlayerPhoto()" ${photoBusy?'disabled':''}>Discard change</button>`:existing?`<button type="button" class="btn sm danger" onclick="removePlayerPhoto()" ${disabled}>Remove photo</button>`:'';
+  const toggleDisabled=photoBusy||(!prepared&&(!existing||!available))?'disabled':'';
+  return `<div class="field"><label>Player photo <span class="faint" style="font-weight:500">· optional</span></label>
+    <div class="photo-editor">${preview}<div class="photo-editor-actions"><div class="row"><input id="pPhotoInput" type="file" accept="image/*" aria-label="Choose player photo" hidden onchange="choosePlayerPhoto(this.files&&this.files[0]);this.value=''"/><button type="button" class="btn sm" onclick="document.getElementById('pPhotoInput').click()" ${disabled}>${photoBusy?'Working…':actionLabel}</button>${remove}</div><span class="photo-unavailable-note">${setup}</span><span class="photo-unavailable-note" data-photo-unavailable-note hidden>Photo unavailable · showing initials</span></div></div>
+    <div class="photo-public-line"><div class="photo-public-copy"><b>Show this photo on shared pages</b><span>${photoDraftPublic?'This photo can appear on Court public pages.':'Off keeps the photo inside your synced Court room. Turn it on only with the player’s permission.'}</span></div><button type="button" class="btn sm ${photoDraftPublic?'primary':'ghost'}" aria-pressed="${photoDraftPublic}" onclick="togglePlayerPhotoPublic()" ${toggleDisabled}>${photoDraftPublic?'On':'Off'}</button></div>
+  </div>`;
+}
 function renderPlayerSheet(){
   const p = editId?pById(editId):null;
   const mode = window._seedMode;
@@ -7449,6 +7526,7 @@ function renderPlayerSheet(){
     </div>
     <div class="field"><label>Notes</label>
       <input id="pNotes" value="${esc(draft.notes||'')}" placeholder="e.g. great serve receive"></div>`;
+  body += playerPhotoEditorHtml(p);
 
   if(p){
     const rel=reliability(p);
@@ -7476,13 +7554,13 @@ function renderPlayerSheet(){
       ${trendChart(p.history)}
     </div>`}`;
   }
-  body += `<button class="btn primary block" onclick="savePlayer()">${editId?'Save changes':'Add player'}</button>
+  body += `<button class="btn primary block" onclick="savePlayer()" ${photoBusy?'disabled':''}>${photoBusy?'Saving…':editId?'Save changes':'Add player'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="cancelPlayerEdit()">Cancel</button>`;
   if(editId){
-    body += `<button class="btn ghost block" style="margin-top:8px" onclick="toggleActive()">${draft.active===false?'Mark active':'Set as away / inactive'}</button>
+    body += `${draft.archived?`<button class="btn ghost block" style="margin-top:8px" onclick="restoreArchivedPlayer()">Restore player</button>`:`<button class="btn ghost block" style="margin-top:8px" onclick="toggleActive()">${draft.active===false?'Mark active':'Set as away / inactive'}</button>`}
       <button class="btn danger block" style="margin-top:8px" onclick="deletePlayer()">Delete player</button>`;
   }
-  openSheet(body);
+  openSheet(body);setPlayerEditorCloseGuard();
 }
 function lifetimeStatsSection(p){
   const groups = PLAYER_STAT_GROUPS.map(grp=>{
@@ -7510,12 +7588,73 @@ function captureInputs(){
   const n=$('#pName'); if(n) draft.name=n.value;
   const no=$('#pNotes'); if(no) draft.notes=no.value;
 }
+window.choosePlayerPhoto=async file=>{
+  if(!file)return;if(!/^image\//i.test(file.type||'')){toast('Choose an image file');return;}if(file.size>15*1024*1024){toast('Choose an image smaller than 15 MB');return;}
+  if(!(await PlayerPhotos.capability())){toast(PlayerPhotos.state().message||'Player photo storage is unavailable');return;}
+  captureInputs();cleanupPhotoCrop();const sourceUrl=URL.createObjectURL(file),image=new Image();photoDecodeUrl=sourceUrl;
+  image.onload=()=>{if(photoDecodeUrl!==sourceUrl)return;photoDecodeUrl='';if(!image.naturalWidth||!image.naturalHeight){URL.revokeObjectURL(sourceUrl);toast('Could not decode that image');return;}photoCrop={sourceUrl,image,centerX:image.naturalWidth/2,centerY:image.naturalHeight/2,zoom:1,encoding:false};renderPlayerPhotoCrop();};
+  image.onerror=()=>{if(photoDecodeUrl!==sourceUrl)return;photoDecodeUrl='';URL.revokeObjectURL(sourceUrl);toast(/hei[cf]/i.test(`${file.type} ${file.name}`)?'This browser cannot decode HEIC/HEIF. Choose a JPEG or WebP image.':'Could not decode that image. Choose a JPEG or WebP image.');};
+  image.src=sourceUrl;
+};
+function cropGeometry(){
+  if(!photoCrop)return null;const size=512,base=Math.max(size/photoCrop.image.naturalWidth,size/photoCrop.image.naturalHeight),scale=base*photoCrop.zoom,half=size/(2*scale);
+  photoCrop.centerX=clamp(photoCrop.centerX,half,Math.max(half,photoCrop.image.naturalWidth-half));photoCrop.centerY=clamp(photoCrop.centerY,half,Math.max(half,photoCrop.image.naturalHeight-half));
+  return {size,scale,sourceSize:size/scale,sx:photoCrop.centerX-half,sy:photoCrop.centerY-half};
+}
+function drawPlayerPhotoCrop(){
+  const canvas=$('#photoCropCanvas'),geometry=cropGeometry();if(!canvas||!geometry)return;const ctx=canvas.getContext('2d');ctx.clearRect(0,0,512,512);ctx.drawImage(photoCrop.image,geometry.sx,geometry.sy,geometry.sourceSize,geometry.sourceSize,0,0,512,512);
+}
+function renderPlayerPhotoCrop(){
+  if(!photoCrop)return;
+  openSheet(`<h3>Crop player photo</h3><p class="small muted" style="margin:-7px 0 12px">Drag to reposition the square crop. Use zoom only when needed.</p><div class="photo-crop-wrap"><canvas id="photoCropCanvas" width="512" height="512" aria-label="Square player photo crop preview"></canvas></div><div class="photo-crop-controls"><label for="photoCropZoom" class="small">Zoom</label><input id="photoCropZoom" type="range" min="1" max="3" step="0.01" value="${photoCrop.zoom}" oninput="updatePlayerPhotoZoom(this.value)"></div><button class="btn primary block" onclick="usePlayerPhotoCrop()" ${photoCrop.encoding?'disabled':''}>${photoCrop.encoding?'Preparing photo…':'Use photo'}</button><button class="btn ghost block" style="margin-top:8px" onclick="cancelPlayerPhotoCrop()" ${photoCrop.encoding?'disabled':''}>Cancel</button>`);
+  const canvas=$('#photoCropCanvas');let pointer=null;
+  canvas?.addEventListener('pointerdown',event=>{if(photoCrop?.encoding)return;pointer={id:event.pointerId,x:event.clientX,y:event.clientY};canvas.setPointerCapture(event.pointerId);});
+  canvas?.addEventListener('pointermove',event=>{if(!pointer||pointer.id!==event.pointerId||!photoCrop)return;const rect=canvas.getBoundingClientRect(),geometry=cropGeometry(),factor=512/Math.max(1,rect.width);photoCrop.centerX-=(event.clientX-pointer.x)*factor/geometry.scale;photoCrop.centerY-=(event.clientY-pointer.y)*factor/geometry.scale;pointer.x=event.clientX;pointer.y=event.clientY;drawPlayerPhotoCrop();});
+  canvas?.addEventListener('pointerup',()=>pointer=null);canvas?.addEventListener('pointercancel',()=>pointer=null);
+  window._sheetBeforeClose=()=>{cancelPlayerPhotoCrop();return false;};requestAnimationFrame(drawPlayerPhotoCrop);
+}
+window.updatePlayerPhotoZoom=value=>{if(!photoCrop||photoCrop.encoding)return;photoCrop.zoom=clamp(Number(value)||1,1,3);drawPlayerPhotoCrop();};
+function cropOutputCanvas(dimension){const geometry=cropGeometry(),canvas=document.createElement('canvas');canvas.width=canvas.height=dimension;canvas.getContext('2d').drawImage(photoCrop.image,geometry.sx,geometry.sy,geometry.sourceSize,geometry.sourceSize,0,0,dimension,dimension);return canvas;}
+function canvasBlob(canvas,type,quality){return new Promise(resolve=>canvas.toBlob(resolve,type,quality));}
+async function encodePlayerPhoto(){
+  for(const dimension of [512,448,384,320]){
+    const canvas=cropOutputCanvas(dimension);
+    for(const quality of [.82,.72,.62,.52]){const blob=await canvasBlob(canvas,'image/webp',quality);if(blob?.type==='image/webp'&&blob.size&&blob.size<=PLAYER_PHOTO_MAX_BYTES)return {blob,width:dimension,height:dimension,contentType:'image/webp'};}
+    for(const quality of [.86,.76,.66,.56,.46]){const blob=await canvasBlob(canvas,'image/jpeg',quality);if(blob?.type==='image/jpeg'&&blob.size&&blob.size<=PLAYER_PHOTO_MAX_BYTES)return {blob,width:dimension,height:dimension,contentType:'image/jpeg'};}
+  }
+  throw new Error('Could not compress this image below 750 KB. Try a simpler or smaller photo.');
+}
+window.usePlayerPhotoCrop=async()=>{
+  if(!photoCrop||photoCrop.encoding)return;photoCrop.encoding=true;renderPlayerPhotoCrop();
+  try{const prepared=await encodePlayerPhoto();cleanupPreparedPhoto();prepared.previewUrl=URL.createObjectURL(prepared.blob);photoPrepared=prepared;cleanupPhotoCrop();renderPlayerSheet();}
+  catch(error){if(photoCrop)photoCrop.encoding=false;toast(error.message||'Could not prepare that photo');if(photoCrop)renderPlayerPhotoCrop();}
+};
+window.cancelPlayerPhotoCrop=()=>{cleanupPhotoCrop();renderPlayerSheet();};
+window.discardPreparedPlayerPhoto=()=>{captureInputs();cleanupPreparedPhoto();photoDraftPublic=normalizePlayerPhoto(draft?.photo)?.public||false;renderPlayerSheet();};
+async function persistPhotoChange(){await savePlayers();Sync.touch();}
+window.togglePlayerPhotoPublic=async()=>{
+  captureInputs();const p=editId?pById(editId):null,existing=normalizePlayerPhoto(p?.photo);
+  if(photoPrepared||!existing){if(photoPrepared){photoDraftPublic=!photoDraftPublic;renderPlayerSheet();}return;}
+  if(photoBusy)return;const previous=existing;photoBusy=true;renderPlayerSheet();
+  try{const next=await PlayerPhotos.setPublic(previous,!previous.public);if(!pById(p.id)){throw new Error('The player no longer exists.');}p.photo=next;draft.photo={...next};photoDraftPublic=next.public;PlayerPhotos.invalidate(previous);await persistPhotoChange();toast(next.public?'Photo enabled on shared pages':'Photo removed from shared pages');}
+  catch(error){photoDraftPublic=previous.public;toast(error.message||'Could not change photo sharing');}
+  finally{photoBusy=false;if(draft)renderPlayerSheet();}
+};
+window.removePlayerPhoto=async()=>{
+  captureInputs();const p=editId?pById(editId):null,existing=normalizePlayerPhoto(p?.photo);if(!p||!existing||photoBusy)return;
+  if(!(await askConfirm('Remove this player photo? The player, games, rating, and history will stay unchanged.','Remove photo')))return;
+  photoBusy=true;renderPlayerSheet();
+  try{await PlayerPhotos.remove(existing);if(!pById(p.id))throw new Error('The player no longer exists.');delete p.photo;delete draft.photo;photoDraftPublic=false;cleanupPreparedPhoto();PlayerPhotos.invalidate(existing);await persistPhotoChange();toast('Photo removed');}
+  catch(error){toast(error.message||'Could not remove the photo');}
+  finally{photoBusy=false;if(draft)renderPlayerSheet();}
+};
 window.seedMode=(m)=>{ captureInputs(); window._seedMode=m; if(m==='tier') draft.skills=null; renderPlayerSheet(); };
 window.setSeed=(v)=>{ captureInputs(); draft.seedRating=v; renderPlayerSheet(); };
 window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=computeSkillSeed(); renderPlayerSheet(); };
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
-window.cancelPlayerEdit=()=>{ editId=null; draft=null; closeSheet(); };
+window.restoreArchivedPlayer=()=>{captureInputs();draft.archived=false;draft.active=true;renderPlayerSheet();};
+window.cancelPlayerEdit=()=>{ cleanupPhotoCrop();cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true); };
 
 window.openLevelGuide=()=>{
   captureInputs();
@@ -7535,6 +7674,7 @@ window.openLevelGuide=()=>{
     <p class="small muted" style="margin:-8px 0 14px">Court Level is a practical estimate, not an official universal certification. Different leagues, gyms, and tournaments may define these labels differently, so pick the closest fit and let the rating self-correct as they play.</p>
     ${rows}
     <button class="btn primary block" onclick="renderPlayerSheet()">Back to player</button>`);
+  setPlayerEditorCloseGuard();
 };
 
 const RUBRIC = [
@@ -7584,12 +7724,15 @@ window.openRubric=()=>{
     <p class="small muted" style="margin:-8px 0 14px">Anchor to your group: <b style="color:var(--text)">3</b> = solid regular, <b style="color:var(--text)">5</b> = best in your gym, <b style="color:var(--text)">1</b> = brand new. 2 and 4 sit between. Don't overthink it, the game tracking corrects the rest over a few nights.</p>
     ${rows}
     <button class="btn primary block" onclick="renderPlayerSheet()">Back to player</button>`);
+  setPlayerEditorCloseGuard();
 };
 window.savePlayer=async()=>{
+  if(photoBusy)return;
   const name=$('#pName').value.trim();
   if(!name){ toast('Enter a name'); return; }
   const notes=$('#pNotes')?$('#pNotes').value:'';
   if(window._seedMode==='skills') draft.seedRating=computeSkillSeed();
+  const wasEdit=!!editId;let target;
   if(editId){
     const p=pById(editId);
     const seedChanged = Number(p.seedRating) !== Number(draft.seedRating);
@@ -7598,14 +7741,23 @@ window.savePlayer=async()=>{
       return;
     }
     p.name=name; p.notes=notes; p.roles=draft.roles; p.skills=draft.skills;
-    p.seedRating=draft.seedRating; if(draft.active!==undefined)p.active=draft.active;
+    p.seedRating=draft.seedRating; if(draft.active!==undefined)p.active=draft.active;if(draft.archived!==undefined)p.archived=draft.archived;
+    target=p;
   } else {
     const np=makePlayer(name, draft.seedRating);
     np.roles=draft.roles; np.skills=draft.skills; np.notes=notes;
-    players.push(np);
+    players.push(np);target=np;
   }
+  photoBusy=true;renderPlayerSheet();
   await commit();  // reseat ratings if seed changed
-  closeSheet(); toast(editId?'Saved':'Player added'); render();
+  let photoError='';
+  if(photoPrepared){
+    const existing=normalizePlayerPhoto(target.photo);
+    try{const next=await PlayerPhotos.upload(target.id,photoPrepared,existing,photoDraftPublic);target.photo=next;PlayerPhotos.invalidate(existing);await persistPhotoChange();}
+    catch(error){photoError=`Player saved, but the photo was not changed. ${error.message||'Try the photo again later.'}`;}
+  }
+  photoBusy=false;cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true);render();
+  toast(photoError||(wasEdit?'Saved':'Player added'));
 };
 window.deletePlayer=async()=>{
   const p=pById(editId); if(!p) return;
@@ -7616,8 +7768,11 @@ window.deletePlayer=async()=>{
   if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
   clearPlayerRuntimeState(editId);
   if(historical){ p.archived=true; p.active=false; }
-  else{ await Sync.markDeleted('players',editId); players=players.filter(p=>p.id!==editId); }
-  await commit(); closeSheet(); toast(historical?'Archived':'Deleted'); render();
+  else{
+    const photo=normalizePlayerPhoto(p.photo);if(photo){try{await PlayerPhotos.remove(photo);PlayerPhotos.invalidate(photo);}catch(_){/* Permanent player deletion remains usable if photo storage is temporarily unavailable. */}}
+    await Sync.markDeleted('players',editId); players=players.filter(p=>p.id!==editId);
+  }
+  cleanupPreparedPhoto();await commit();editId=null;draft=null;photoSession='';closeSheet(true); toast(historical?'Archived':'Deleted'); render();
 };
 
 /* ============================================================
@@ -7691,6 +7846,7 @@ function renderEval(){
       <button class="btn ghost block" style="margin-top:8px" onclick="evalBack()">◂ Back</button>
     `);
   }
+  setPlayerEditorCloseGuard();
 }
 window.evalTap=(idx,l)=>{ evalState.order[idx].push(l); if(navigator.vibrate)navigator.vibrate(6);
   if(evalState.order[idx].length>=EVAL[idx].n) evalState.i++;
@@ -7756,6 +7912,7 @@ function renderRoleGuide(){
       <span class="tiny faint" style="margin-left:auto">Now: ${cur?'tagged':'not tagged'}</span>
     </div>
   `);
+  setPlayerEditorCloseGuard();
 }
 window.roleGuideAns=(v)=>{ draft.roles[ROLE_GUIDE[roleGuideI].k]=v; roleGuideI++; renderRoleGuide(); };
 window.roleGuideBack=()=>{ if(roleGuideI>0) roleGuideI--; renderRoleGuide(); };
@@ -7782,6 +7939,7 @@ function openSheet(html){
   s.addEventListener('keydown',e=>{ if(e.key==='Escape'){ e.preventDefault(); requestCloseSheet(); }else if(e.key==='Tab')trapDialogTab(dialog,e); });
   document.body.classList.add('modal-open');
   document.body.appendChild(s);
+  window.PlayerPhotos?.hydrate(dialog);
   requestAnimationFrame(()=>{
     if(sheetState){ dialog.scrollTop=sheetState.top; const same=sheetState.key&&dialog.querySelector(`[data-focus-key="${CSS.escape(sheetState.key)}"]`); if(same){ same.focus({preventScroll:true}); if(Number.isFinite(sheetState.start)&&same.setSelectionRange) same.setSelectionRange(sheetState.start,sheetState.end); return; } }
     const target=dialog.querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]):not(.sheet-x)') || dialog.querySelector('.sheet-x'); target?.focus();
@@ -8100,7 +8258,7 @@ const Sync=(()=>{
     persistLocalState:()=>Promise.all([saveDeletions(),saveTs()]),
     get cfg(){return cfg;},
     async connect(url,code){
-      cfg.url=(url||'').trim()||SYNC_DEFAULT_URL;cfg.code=code.trim();cfg.on=false;stopPoll();await saveCfg();updateStatus();
+      cfg.url=(url||'').trim()||SYNC_DEFAULT_URL;cfg.code=code.trim();cfg.on=false;stopPoll();window.PlayerPhotos?.resetCapability();await saveCfg();updateStatus();
       try{
         const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
         if(!r.ok)throw new Error('http '+r.status);
@@ -8114,6 +8272,91 @@ const Sync=(()=>{
     async setOn(on){cfg.on=on;await saveCfg();if(on){await pull({});startPoll();bindVis();}else stopPoll();updateStatus();}
   };
 })();
+
+const PlayerPhotos=(()=>{
+  const cache=new Map(),pending=new Map();
+  let capabilityKey='',capabilityStatus='idle',capabilityMessage='';
+  const workerUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
+  const configured=()=>Sync.configured();
+  const cacheKey=photo=>`${photo.token}|${photo.revision}`;
+  const state=()=>({status:capabilityStatus,message:capabilityMessage,available:capabilityStatus==='available'});
+  function revokeEntry(key){const entry=cache.get(key);if(entry?.url)URL.revokeObjectURL(entry.url);cache.delete(key);}
+  function invalidate(photo){
+    const normalized=normalizePlayerPhoto(photo);if(!normalized)return;
+    for(const key of [...cache.keys()])if(key.startsWith(normalized.token+'|'))revokeEntry(key);
+  }
+  function prune(){
+    const live=new Set(players.map(player=>normalizePlayerPhoto(player.photo)).filter(Boolean).map(cacheKey));
+    for(const key of [...cache.keys()])if(!live.has(key))revokeEntry(key);
+  }
+  async function responseData(response){try{return await response.json();}catch(_){return {};}}
+  function failure(response,data,fallback){
+    const error=new Error(data?.error||fallback);error.status=response.status;return error;
+  }
+  async function capability(){
+    if(!configured()){capabilityStatus='unconfigured';capabilityMessage='Set up device sync to add player photos.';return false;}
+    const key=Sync.cfg.url.replace(/\/+$/,'');
+    if(capabilityKey===key&&capabilityStatus==='available')return true;
+    if(capabilityKey===key&&capabilityStatus==='unavailable')return false;
+    capabilityKey=key;capabilityStatus='checking';capabilityMessage='Checking photo storage…';
+    try{
+      const response=await fetch(workerUrl('/api/player-photos/status'),{method:'GET',cache:'no-store'}),data=await responseData(response);
+      if(response.ok&&data.available===true){capabilityStatus='available';capabilityMessage='';return true;}
+      capabilityStatus='unavailable';capabilityMessage=data.available===false?'Player photo storage is not set up on this sync service.':'Player photos are not available on this sync service.';return false;
+    }catch(_){capabilityStatus='unavailable';capabilityMessage='Photo storage could not be reached. You can keep using Court and retry later.';return false;}
+  }
+  async function getUrl(photo){
+    const normalized=normalizePlayerPhoto(photo);if(!normalized||!configured())throw new Error('photo unavailable');
+    const key=cacheKey(normalized);if(cache.has(key)){const entry=cache.get(key);if(entry.url)return entry.url;throw new Error('photo unavailable');}if(pending.has(key))return pending.get(key);
+    const operation=(async()=>{
+      const response=await fetch(workerUrl(`/api/player-photos/${encodeURIComponent(normalized.token)}`),{method:'GET',cache:'no-cache',headers:{'X-Court-Room':Sync.cfg.code}});
+      if(!response.ok)throw new Error('photo unavailable');
+      const blob=await response.blob();if(!PLAYER_PHOTO_TYPES.has(blob.type)||!blob.size)throw new Error('photo unavailable');
+      const url=URL.createObjectURL(blob);cache.set(key,{url});return url;
+    })().catch(error=>{cache.set(key,{url:'',failed:true});throw error;});
+    pending.set(key,operation);try{return await operation;}finally{pending.delete(key);}
+  }
+  function unavailable(element){
+    element.classList.add('photo-unavailable');const image=element.querySelector('img');if(image){image.hidden=true;image.removeAttribute('src');}
+    const note=element.parentElement?.querySelector('[data-photo-unavailable-note]');if(note)note.hidden=false;
+  }
+  function hydrate(root=document){
+    prune();
+    root.querySelectorAll?.('[data-player-photo-token][data-player-photo-revision]').forEach(element=>{
+      const photo={token:element.dataset.playerPhotoToken,revision:element.dataset.playerPhotoRevision,contentType:'image/webp',width:1,height:1,bytes:1,public:false,updatedAt:1};
+      const key=`${photo.token}|${photo.revision}`;if(element.dataset.photoCacheKey===key)return;element.dataset.photoCacheKey=key;
+      getUrl(players.find(player=>player.photo?.token===photo.token&&player.photo?.revision===photo.revision)?.photo).then(url=>{
+        if(!element.isConnected||element.dataset.photoCacheKey!==key)return;const image=element.querySelector('img');if(!image)return;
+        image.src=url;image.hidden=false;element.classList.remove('photo-unavailable');const note=element.parentElement?.querySelector('[data-photo-unavailable-note]');if(note)note.hidden=true;
+      }).catch(()=>{if(element.isConnected&&element.dataset.photoCacheKey===key)unavailable(element);});
+    });
+  }
+  async function ensureAvailable(){if(await capability())return;throw new Error(capabilityMessage||'Player photo storage is unavailable.');}
+  async function upload(playerId,prepared,existing,makePublic){
+    await ensureAvailable();
+    const headers={'Content-Type':prepared.contentType,'X-Court-Room':Sync.cfg.code,'X-Photo-Width':String(prepared.width),'X-Photo-Height':String(prepared.height),'X-Photo-Public':makePublic?'1':'0'};
+    const prior=normalizePlayerPhoto(existing);if(prior)headers['X-Photo-Token']=prior.token;
+    let response;try{response=await fetch(workerUrl(`/api/player-photos/${encodeURIComponent(playerId)}`),{method:'PUT',headers,body:prepared.blob});}catch(_){throw new Error('Photo upload failed while offline. The player was saved without changing the photo.');}
+    const data=await responseData(response);if(!response.ok)throw failure(response,data,'Photo upload failed. The player was saved without changing the photo.');
+    const photo=normalizePlayerPhoto(data.photo);if(!photo||(prior&&photo.token!==prior.token))throw new Error('The photo service returned invalid metadata. The existing photo was kept.');
+    return photo;
+  }
+  async function setPublic(photo,value){
+    await ensureAvailable();const normalized=normalizePlayerPhoto(photo);if(!normalized)throw new Error('Photo metadata is invalid.');
+    let response;try{response=await fetch(workerUrl(`/api/player-photos/${encodeURIComponent(normalized.token)}`),{method:'PATCH',headers:{'Content-Type':'application/json','X-Court-Room':Sync.cfg.code},body:JSON.stringify({public:!!value})});}catch(_){throw new Error('Could not change photo sharing while offline.');}
+    const data=await responseData(response);if(!response.ok)throw failure(response,data,'Could not change photo sharing.');
+    const next=normalizePlayerPhoto(data.photo);if(!next||next.token!==normalized.token||next.public!==!!value)throw new Error('The photo service returned invalid metadata.');return next;
+  }
+  async function remove(photo){
+    await ensureAvailable();const normalized=normalizePlayerPhoto(photo);if(!normalized)return;
+    let response;try{response=await fetch(workerUrl(`/api/player-photos/${encodeURIComponent(normalized.token)}`),{method:'DELETE',headers:{'X-Court-Room':Sync.cfg.code}});}catch(_){throw new Error('Could not remove the photo while offline.');}
+    if(response.status===404)return;const data=await responseData(response);if(!response.ok)throw failure(response,data,'Could not remove the photo.');
+  }
+  function resetCapability(){capabilityKey='';capabilityStatus='idle';capabilityMessage='';}
+  window.addEventListener('beforeunload',()=>{for(const key of [...cache.keys()])revokeEntry(key);});
+  return {capability,state,getUrl,hydrate,invalidate,upload,setPublic,remove,resetCapability,configured,_debug:()=>({cache:cache.size,pending:pending.size})};
+})();
+window.PlayerPhotos=PlayerPhotos;
 
 const AppUpdates=(()=>{
   const DISMISSED_KEY='court:update-dismissed-build';
