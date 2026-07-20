@@ -21,8 +21,16 @@ The photo implementation extends these paths rather than adding parallel persist
 - R2 custom metadata contains only the SHA-256 room hash, validated permanent player ID, public flag, width, and height. The plaintext room code is never R2 metadata.
 - Player records contain only normalized photo metadata: token, revision, content type, dimensions, byte count, public flag, and update time.
 - Private photos are fetched by the app through `/api/player-photos/<token>` with `X-Court-Room`, converted to temporary object URLs, and cached only in memory.
-- Shared pages receive a relative `/media/player-photos/<token>?v=<revision>` URL only after the player explicitly opts in. Private photo tokens are omitted from shared markup.
+- Shared pages receive a photo URL only after the player explicitly opts in. Worker-hosted publications use `/media/player-photos/<token>?v=<revision>`. The GitHub Pages in-app preview, print window, and downloaded HTML use the same path resolved against the configured sync Worker origin. Private photo tokens are omitted from shared markup in every context.
 - Initials remain the universal fallback. Missing R2 objects, a restored token from another room, offline use, or an unavailable binding never blocks Court data or rating behavior.
+
+## Player profile and editor behavior
+
+- Tapping an existing roster card opens its read-only Player Profile. `Edit profile` switches the same sheet into edit mode; Add Player still opens the form directly.
+- The photo identity block is first in add/edit mode. An existing or newly prepared photo opens the large accessible viewer, while `Change photo` remains a separate action. A no-photo avatar opens the picker.
+- Photo visibility and removal are draft changes. They reach the Worker only when the player form is saved. A Worker failure leaves the editor open with the complete draft intact.
+- The large viewer reuses the private `PlayerPhotos.getUrl` cache entry. It does not fetch a second copy or revoke the cache-owned Blob URL when closed.
+- The privacy control follows Notes and is labeled “Show this photo on shared pages.” Off keeps the photo inside the synced Court room; users must opt in only with the player’s permission.
 
 ## Worker routes
 
@@ -34,6 +42,8 @@ The photo implementation extends these paths rather than adding parallel persist
 - `GET` or `HEAD /media/player-photos/:photoToken` serves only opted-in objects and returns 404 for invalid, absent, private, or unauthorized tokens.
 
 All private routes use the existing approved-origin allowlist, require `X-Court-Room`, confirm that the room exists in `COURT`, and compare its SHA-256 hash with R2 metadata. The media route never accepts writes or exposes custom metadata. These routes are ordered before the unchanged legacy root sync handler.
+
+The public media GET/HEAD response alone sends `Access-Control-Allow-Origin: *` and `Cross-Origin-Resource-Policy: cross-origin`, allowing a public opted-in image to render in the GitHub Pages preview and remain usable by a future cross-origin canvas export. Private `/api/player-photos/*` responses retain reflected allowlisted CORS and never use wildcard access.
 
 ## Cloudflare dashboard setup
 
@@ -61,7 +71,8 @@ The app remains usable if steps 1–2 are delayed: photo controls explain that s
 - Add a JPEG or WebP photo, reposition/zoom the square crop, save, and verify it appears on both devices.
 - Replace the photo and verify the old image remains until the upload succeeds, then both devices show the new revision.
 - Simulate offline/R2 failure and verify player edits, games, ratings, events, sync, and backups still work.
-- Toggle “Show this photo on shared pages” on, update a public schedule, and verify its relative media URL loads.
+- Toggle “Show this photo on shared pages” on, then verify the in-app preview uses the configured Worker origin, the downloaded/print HTML uses the configured Worker origin, and the published Worker page uses a root-relative media URL.
+- Load each output with one deliberately missing public image and verify the reserved avatar falls back to initials without a broken-image icon or layout shift.
 - Toggle the option off and verify the public media URL immediately returns 404 and newly generated HTML omits the token.
 - Remove the photo, verify initials return, and confirm rating/history/records are unchanged.
 - Archive and restore a player and verify their photo metadata remains.

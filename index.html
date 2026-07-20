@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260720.1">
+<meta name="court-build" content="20260720.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -245,6 +245,82 @@
   .photo-crop-controls{display:grid;grid-template-columns:auto minmax(0,1fr);gap:10px;align-items:center;margin:14px 0}
   .photo-crop-controls input{min-width:0;padding:8px 0}
   .profile-photo-head{display:flex;align-items:center;gap:12px;margin-bottom:12px}.profile-photo-head>div:last-child{min-width:0}.profile-photo-head b{display:block;font-size:18px}.profile-photo-head span{display:block;margin-top:3px;color:var(--soft);font-size:11px}
+
+  /* ---------- sports showcase player profile ---------- */
+  .player-profile-sheet{max-width:860px;padding:10px 14px calc(22px + env(safe-area-inset-bottom));animation:profileEnter .2s var(--ease)}
+  @keyframes profileEnter{from{opacity:.35;transform:translateY(12px)}to{opacity:1;transform:none}}
+  .player-profile{clear:both;display:grid;gap:13px;min-width:0}
+  .player-profile-hero{position:relative;isolation:isolate;overflow:hidden;padding:18px;border:1px solid #f2c66d38;border-radius:24px;background:linear-gradient(138deg,#18385e 0%,#10223d 48%,#171b2c 72%,#302712 100%);box-shadow:0 20px 52px #0008,inset 0 1px 0 #ffffff25}
+  .player-profile-hero::before{content:"";position:absolute;z-index:-2;inset:10px;border:1px solid #ffffff12;border-radius:17px;background:linear-gradient(90deg,transparent 0 49.75%,#ffffff12 49.75% 50.25%,transparent 50.25%),linear-gradient(0deg,transparent 0 49.7%,#ffffff0d 49.7% 50.3%,transparent 50.3%);pointer-events:none}
+  .player-profile-hero::after{content:"";position:absolute;z-index:-1;width:250px;height:250px;right:-96px;top:-120px;border-radius:50%;border:1px solid #f2c66d24;box-shadow:0 0 72px #f2c66d1f,inset 0 0 42px #ffffff08;pointer-events:none}
+  .player-profile-main{display:grid;grid-template-columns:auto minmax(0,1fr);gap:17px;align-items:center}
+  .player-profile-photo-button,.player-editor-photo-button{display:grid;place-items:center;flex:none;border-radius:32px}
+  .player-profile-photo{width:132px;height:132px;border-radius:32px;border:2px solid #f2c66d9c;box-shadow:0 0 0 4px #f2c66d13,0 16px 38px #0007;font-size:34px;background:linear-gradient(145deg,#315c84,#121b31)}
+  .player-profile-photo-button:active,.player-editor-photo-button:active{transform:scale(.98)}
+  .player-profile-photo-button .player-profile-photo{cursor:zoom-in}
+  .player-profile-identity{min-width:0}
+  .player-profile-kicker{display:flex;align-items:center;flex-wrap:wrap;gap:7px;color:#dce7f7;font-size:10px;font-weight:850;letter-spacing:.13em;text-transform:uppercase}
+  .player-profile-name{margin:7px 0 5px;font-size:clamp(27px,6vw,46px);line-height:1.02;letter-spacing:-.035em;overflow-wrap:anywhere}
+  .player-profile-level{color:#d6e4f5;font-size:13px;font-weight:750;line-height:1.4}
+  .player-profile-level span{display:block;margin-top:2px;color:#9fb0c8;font-weight:550}
+  .player-profile-rating-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px 20px;margin-top:12px}
+  .player-profile-rating b{display:block;color:var(--gold);font-size:44px;line-height:.86;font-weight:900;letter-spacing:-.04em;text-shadow:0 5px 28px #d99e3745}
+  .player-profile-rating span,.player-profile-rank span,.player-profile-direction span{display:block;margin-top:7px;color:#aebbd0;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
+  .player-profile-rank b{display:block;color:#f2f6fc;font-size:22px;line-height:1;font-weight:850}
+  .player-profile-direction b{display:block;color:#f2f6fc;font-size:18px;line-height:1;font-weight:850}
+  .player-profile-hidden-rating{max-width:250px;padding:9px 11px;border:1px solid #ffffff1d;border-radius:12px;background:#06111f66;color:#c1ccdc;font-size:11px;line-height:1.4}
+  .player-profile-edit{position:absolute;z-index:2;right:14px;top:14px;min-height:44px;background:#0a1628d9;border-color:#f2c66d62;color:var(--gold);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
+  .profile-status-badge{display:inline-flex;align-items:center;min-height:25px;padding:4px 9px;border:1px solid #ffd36d54;border-radius:999px;background:#ffd36d12;color:#ffe09a;font-size:10px;font-weight:850;letter-spacing:.06em}
+  .profile-status-badge.away{border-color:#a9b4c84f;background:#a9b4c812;color:#ced7e5}
+  .player-profile-roles{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+  .player-profile-roles .pill{color:#e3eaf5;background:#ffffff10}
+  .player-profile-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:17px}
+  .player-profile-metric{min-width:0;padding:11px;border:1px solid #ffffff18;border-radius:14px;background:#07152670;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  .player-profile-metric b{display:block;font-size:20px;line-height:1;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-profile-metric span{display:block;margin-top:6px;color:#9fadc3;font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  .player-profile-grid{display:grid;gap:13px;min-width:0}
+  .profile-panel{min-width:0;margin:0;padding:15px;border:1px solid var(--line);border-radius:19px;background:linear-gradient(145deg,#ffffff0c,#ffffff06);box-shadow:inset 0 1px 0 #ffffff0d}
+  .profile-panel h4{margin:0;color:var(--text);font-size:13px;letter-spacing:.1em;text-transform:uppercase}
+  .profile-panel-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:12px}
+  .profile-panel-head span{color:var(--soft);font-size:10.5px}
+  .profile-form{display:flex;gap:7px;flex-wrap:wrap}
+  .profile-form-result{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;border:1px solid #ffffff20;background:#ffffff0a;font-size:13px;font-weight:900}
+  .profile-form-result.win{color:var(--mint);border-color:#5fe3ae55;background:#5fe3ae10}.profile-form-result.loss{color:#ff9c93;border-color:#ff7d7250;background:#ff7d720e}.profile-form-result.tie{color:#ffe09a;border-color:#ffd36d50;background:#ffd36d0e}
+  .profile-trend{height:106px;width:100%;display:block;overflow:visible}
+  .profile-trend-line{fill:none;stroke:var(--gold);stroke-width:3;stroke-linecap:round;stroke-linejoin:round;vector-effect:non-scaling-stroke}
+  .profile-trend-area{fill:url(#profileTrendFill);opacity:.22}
+  .profile-trend-grid{stroke:#ffffff13;stroke-width:1;vector-effect:non-scaling-stroke}
+  .profile-trend-labels{display:flex;justify-content:space-between;gap:10px;margin-top:5px;color:var(--soft);font-size:10.5px}
+  .profile-impact-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .profile-impact{min-width:0;padding:11px;border:1px solid #ffffff13;border-radius:13px;background:#02091335}
+  .profile-impact b{display:block;color:var(--gold);font-size:21px}.profile-impact span{display:block;margin-top:4px;color:var(--muted);font-size:10px;line-height:1.25}
+  .profile-game-list{display:grid;gap:7px}
+  .profile-game-row{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:10px;border:1px solid #ffffff12;border-radius:13px;background:#0209132b}
+  .profile-game-result{display:grid;place-items:center;width:31px;height:31px;border-radius:10px;font-size:11px;font-weight:900}.profile-game-result.win{color:var(--mint);background:#5fe3ae12}.profile-game-result.loss{color:#ff9c93;background:#ff7d7211}.profile-game-result.tie{color:#ffe09a;background:#ffd36d11}
+  .profile-game-copy{min-width:0}.profile-game-copy b{display:block;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.profile-game-copy span{display:block;margin-top:3px;color:var(--soft);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .profile-game-score{text-align:right}.profile-game-score b{display:block;font-size:13px}.profile-game-score span{display:block;margin-top:3px;color:var(--soft);font-size:9.5px}
+  .profile-notes{color:#d5dfed;font-size:13px;line-height:1.55;white-space:normal;overflow-wrap:anywhere}
+  .profile-empty{padding:7px 0;color:var(--soft);font-size:12px;line-height:1.5}
+  .player-profile-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+  .player-editor-sheet{max-width:700px}
+  .player-editor-identity{margin:0 0 16px;padding:14px;border:1px solid #f2c66d31;border-radius:18px;background:linear-gradient(135deg,#142a46,#111a2b 60%,#2b2414)}
+  .player-editor-identity .photo-editor{padding:0;border:0;background:transparent}
+  .player-editor-photo{width:96px;height:96px;border-radius:25px;border:2px solid #f2c66d80;box-shadow:0 0 0 3px #f2c66d10;font-size:24px}
+  .player-editor-photo-button .player-editor-photo{cursor:zoom-in}
+  .player-editor-heading{margin-bottom:4px}.player-editor-heading span{display:block;margin-top:3px;color:var(--soft);font-size:11px;line-height:1.4}
+  .photo-viewer-scrim{position:fixed;inset:0;z-index:95;display:grid;place-items:center;padding:calc(18px + env(safe-area-inset-top)) 16px calc(18px + env(safe-area-inset-bottom));background:#03060de8;backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);animation:viewerFade .18s ease-out}
+  @keyframes viewerFade{from{opacity:0}to{opacity:1}}@keyframes viewerScale{from{transform:scale(.98)}to{transform:none}}
+  .photo-viewer-dialog{position:relative;display:grid;place-items:center;width:min(92vw,720px);max-height:88vh;padding:54px 12px 12px;border:1px solid #ffffff26;border-radius:22px;background:#070b14;box-shadow:0 26px 80px #000;animation:viewerScale .18s ease-out}
+  .photo-viewer-dialog h3{position:absolute;left:16px;right:64px;top:17px;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:14px}
+  .photo-viewer-close{position:absolute;right:10px;top:9px;width:44px;height:44px;display:grid;place-items:center;border:1px solid #ffffff24;border-radius:13px;background:#ffffff0d;color:var(--text);font-size:21px}
+  .photo-viewer-media{position:relative;display:grid;place-items:center;width:100%;height:min(72vh,720px);min-height:240px;overflow:hidden;border-radius:15px;background:linear-gradient(145deg,#172943,#0a101c);color:var(--text);font-size:42px;font-weight:900}
+  .photo-viewer-media img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;background:#050810}
+  .photo-viewer-status{position:absolute;left:12px;right:12px;bottom:12px;margin:0;padding:8px 10px;border-radius:10px;background:#050810d9;color:#c3cede;font-size:11px;text-align:center}
+  .photo-viewer-status[hidden]{display:none}
+
+  @media (max-width:559px){
+    .player-profile-hero{padding:62px 13px 14px}.player-profile-main{grid-template-columns:1fr;justify-items:center;text-align:center;gap:12px}.player-profile-photo{width:124px;height:124px}.player-profile-rating-row{justify-content:center}.player-profile-kicker,.player-profile-roles{justify-content:center}.player-profile-edit{right:12px;top:12px}.player-profile-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.player-profile-metric{padding:10px}.profile-impact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.player-profile-actions{display:grid;grid-template-columns:1fr}.player-editor-identity .photo-editor{grid-template-columns:1fr;text-align:center}.player-editor-identity .photo-editor-actions .row{justify-content:center}.player-editor-photo{width:96px;height:96px}.photo-viewer-dialog{padding-left:8px;padding-right:8px}.photo-viewer-media{height:min(70vh,620px)}}
+  @media (min-width:700px){.player-profile-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.profile-panel.wide{grid-column:1/-1}.player-profile-main{padding-right:138px}}
 
   /* ---------- segmented controls ---------- */
   .seg{display:flex;gap:7px;flex-wrap:wrap}
@@ -583,7 +659,7 @@
   .schedule-match-top{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#68758c}
   .schedule-match-top .final{color:#187653}.schedule-match-top .pending{color:#8a6419}
   .schedule-fixed-sides{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;color:#172033;font-size:13px;font-weight:800}
-  .schedule-fixed-sides span{min-width:0;overflow-wrap:anywhere}.schedule-fixed-sides span:last-child{text-align:right}
+  .schedule-fixed-team{min-width:0;overflow-wrap:anywhere}.schedule-fixed-team:last-child{text-align:right}.schedule-fixed-team>strong{display:block}.schedule-fixed-team>span{display:block;margin-top:3px;color:#66738a;font-size:10.5px;font-weight:550;line-height:1.35}.schedule-fixed-team:last-child .public-player-photos{justify-content:flex-end}
   .schedule-vs{color:#9a6c16;font-size:10px;font-weight:900;letter-spacing:.08em}
   .schedule-rotation-sides{display:grid;gap:9px}
   .schedule-side{min-width:0;padding:9px;border-radius:10px;background:#f5f7fb}
@@ -853,9 +929,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.13.0',
-  build: '20260720.1',
-  releaseNotes: 'Optional secure player photos now support private room sync, consent-based public sharing, mobile cropping, and initials fallback.'
+  version: '0.14.0',
+  build: '20260720.2',
+  releaseNotes: 'Player cards now open polished read-only sports profiles with explicit editing, a large accessible photo viewer, and reliable shared-schedule photos.'
 });
 
 function appVersionLabel(){
@@ -1122,9 +1198,23 @@ function normalizePlayerPhoto(value){
     ||!Number.isInteger(updatedAt)||updatedAt<1)return null;
   return {token,revision,contentType,width,height,bytes,public:value.public,updatedAt};
 }
+const PUBLIC_PHOTO_CONTEXTS=Object.freeze({worker:'worker',preview:'preview',download:'download',print:'print'});
+function publicPlayerPhotoPath(value){
+  const photo=normalizePlayerPhoto(value?.photo||value);
+  return photo?.public?`/media/player-photos/${encodeURIComponent(photo.token)}?v=${encodeURIComponent(photo.revision)}`:'';
+}
+function normalizedWorkerBaseUrl(value){
+  try{const url=new URL(String(value||'').trim());if(!['https:','http:'].includes(url.protocol))return '';url.username='';url.password='';url.search='';url.hash='';url.pathname=url.pathname.replace(/\/+$/,'');return url.toString().replace(/\/+$/,'');}catch(_){return '';}
+}
+function publicPlayerPhotoUrl(value,context=PUBLIC_PHOTO_CONTEXTS.worker,workerBase){
+  const path=publicPlayerPhotoPath(value);if(!path)return '';
+  if(context===PUBLIC_PHOTO_CONTEXTS.worker)return path;
+  const base=normalizedWorkerBaseUrl(workerBase===undefined?(typeof Sync!=='undefined'?Sync.cfg.url:''):workerBase);if(!base)return '';
+  try{return new URL(path,base+'/').toString();}catch(_){return '';}
+}
 function publicPlayerPhoto(player){
   const photo=normalizePlayerPhoto(player?.photo);
-  return photo?.public?{name:String(player.name||'Player'),url:`/media/player-photos/${encodeURIComponent(photo.token)}?v=${encodeURIComponent(photo.revision)}`} : null;
+  return photo?.public?{name:String(player.name||'Player'),photo}:null;
 }
 
 /* ============================================================
@@ -1889,7 +1979,7 @@ function spreadRole(teams, key){
    ============================================================ */
 const $ = (s,r=document)=>r.querySelector(s);
 const main = $('#main');
-function esc(s){ return (s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function normalizeSearchText(value){ return String(value||'').trim().toLocaleLowerCase().replace(/\s+/g,' '); }
 function filterPlayersForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(p=>normalizeSearchText(p.name).includes(q)) : list.slice(); }
 function filterTeamsForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(t=>normalizeSearchText(t.name).includes(q)) : list.slice(); }
@@ -2011,10 +2101,69 @@ function ago(ts){
   if(days<30) return days+' days ago';
   const mo=Math.floor(days/30); return mo===1?'a month ago':mo+' months ago';
 }
-function initials(name){ return (name||'?').trim().split(/\s+/).map(x=>x[0]).join('').slice(0,2).toUpperCase(); }
+function initials(name){
+  const words=String(name||'').match(/[\p{L}\p{N}]+/gu)||[];
+  return words.length?words.slice(0,2).map(word=>word[0]).join('').toLocaleUpperCase():'?';
+}
 function playerAvatarHtml(player,{size='',showInactive=false,unavailableNotice=false}={}){
   const photo=normalizePlayerPhoto(player?.photo),name=String(player?.name||'Player'),attrs=photo?` data-player-photo-token="${esc(photo.token)}" data-player-photo-revision="${esc(photo.revision)}"`:'';
   return `<span class="avatar${size?` ${size}`:''}"${attrs}><span class="avatar-initials">${initials(name)}</span>${photo?`<img alt="Photo of ${esc(name)}" loading="lazy" hidden>`:''}${showInactive&&player?.active===false?'<i class="off-dot"></i>':''}</span>${unavailableNotice&&photo?'<span class="photo-unavailable-note" data-photo-unavailable-note hidden>Photo unavailable · showing initials</span>':''}`;
+}
+function playerGameProfileRow(game,playerId,playerList=players){
+  const teamA=Array.isArray(game?.teamA)?game.teamA:[],teamB=Array.isArray(game?.teamB)?game.teamB:[],onA=teamA.includes(playerId),onB=teamB.includes(playerId);
+  if(!onA&&!onB)return null;
+  const mine=onA?teamA:teamB,opponents=onA?teamB:teamA,nameFor=id=>playerList.find(player=>player.id===id)?.name||'Historical player';
+  const outcome=!game.winner?'T':(onA&&game.winner==='A')||(onB&&game.winner==='B')?'W':'L';
+  const myScore=onA?Number(game.scoreA)||0:Number(game.scoreB)||0,theirScore=onA?Number(game.scoreB)||0:Number(game.scoreA)||0;
+  const savedDelta=game.deltas?.[playerId],ratingDelta=Number.isFinite(Number(savedDelta?.before))&&Number.isFinite(Number(savedDelta?.after))?Number(savedDelta.after)-Number(savedDelta.before):null;
+  const event=game.evId?evById(game.evId):null,teammates=mine.filter(id=>id!==playerId).map(nameFor),against=opponents.map(nameFor);
+  const opponentLabel=game.solo?'Solo scout':against.length?`vs ${against.slice(0,2).join(' + ')}${against.length>2?` +${against.length-2}`:''}`:'Opponent not recorded';
+  const teammateLabel=teammates.length?`with ${teammates.slice(0,2).join(' + ')}${teammates.length>2?` +${teammates.length-2}`:''}`:'';
+  return {id:String(game.id||''),date:Number(game.date)||0,outcome,score:game.solo?'Scout':`${myScore}–${theirScore}`,opponentLabel,teammateLabel,eventName:event?.name||'',label:String(game.label||''),ratingDelta};
+}
+function playerProfileViewModel(player,{gameList=games,playerList=players}={}){
+  if(!player)return null;
+  const related=gameList.map(game=>playerGameProfileRow(game,player.id,playerList)).filter(Boolean).sort((a,b)=>b.date-a.date),recentGames=related.slice(0,5),ties=related.filter(row=>row.outcome==='T').length;
+  const activeRanked=playerList.filter(item=>item.active!==false&&!isArchived(item)).slice().sort((a,b)=>b.rating-a.rating||a.name.localeCompare(b.name)),rankIndex=activeRanked.findIndex(item=>item.id===player.id);
+  const rank=!settings.hideRatings&&player.active!==false&&!isArchived(player)&&activeRanked.length>=2&&rankIndex>=0?{position:rankIndex+1,population:activeRanked.length}:null;
+  const history=(Array.isArray(player.history)?player.history:[]).filter(point=>Number.isFinite(Number(point?.r))).map(point=>({i:Number(point.i)||0,r:Number(point.r)})),trendPoints=history.slice(-32),trendGames=Math.min(5,Math.max(0,history.length-1)),trendDelta=trendGames?history.at(-1).r-history[history.length-1-trendGames].r:null;
+  const statItems=PLAYER_STAT_GROUPS.flatMap(group=>group.keys.map(key=>({key,label:PLAYER_STAT_LABELS[key],value:evCount(player,key),group:group.g,error:PLAYER_STAT_ERRORS.has(key)}))).filter(item=>item.value>0).slice(0,6);
+  const recordDenominator=(Number(player.wins)||0)+(Number(player.losses)||0),first=recentGames[0]?.outcome||'',streakCount=first?recentGames.findIndex(row=>row.outcome!==first):-1,currentStreak=first?`${first}${streakCount===-1?recentGames.length:streakCount}`:DASH;
+  const roles=ROLE_DEFS.filter(([key])=>player.roles?.[key]).map(([,label])=>label),level=volleyballLevelOf(player.rating),recentForm=recentGames.map((row,index)=>({...row,mostRecent:index===0}));
+  return {
+    id:player.id,name:String(player.name||'Player'),initials:initials(player.name),photo:normalizePlayerPhoto(player.photo),archived:isArchived(player),active:player.active!==false,roles,notes:String(player.notes||''),
+    rating:settings.hideRatings?null:Math.round(Number(player.rating)||0),ratingsHidden:!!settings.hideRatings,level:settings.hideRatings?null:{label:level.label,short:level.short,overall:level.overall},rank,
+    gamesPlayed:Number(player.gamesPlayed)||0,wins:Number(player.wins)||0,losses:Number(player.losses)||0,ties,winRate:recordDenominator?`${((Number(player.wins)||0)/recordDenominator*100).toFixed(1).replace(/\.0$/,'')}%`:null,currentStreak,
+    recentForm,recentGames,trendPoints:settings.hideRatings?[]:trendPoints,trendDelta:settings.hideRatings?null:trendDelta,trendGames:settings.hideRatings?0:trendGames,trackedGames:Number(player.trackedGames)||0,statItems
+  };
+}
+function profileTrendHtml(model){
+  const points=model.trendPoints||[];
+  if(model.ratingsHidden)return '<div class="profile-empty">Rating trend is hidden in stealth mode.</div>';
+  if(points.length<3)return '<div class="profile-empty">No rating trend yet. Play a few rated games to build the line.</div>';
+  const w=420,h=106,padX=7,padY=13,values=points.map(point=>point.r),min=Math.min(...values),max=Math.max(...values),range=max-min||1,x=index=>padX+(index/(points.length-1))*(w-padX*2),y=value=>h-padY-((value-min)/range)*(h-padY*2),line=points.map((point,index)=>`${x(index).toFixed(1)},${y(point.r).toFixed(1)}`).join(' '),area=`${padX},${h-padY} ${line} ${w-padX},${h-padY}`;
+  const summary=`Court Rating moved from ${Math.round(values[0])} to ${Math.round(values.at(-1))} across ${points.length-1} saved rating updates.`;
+  return `<div role="img" aria-label="${esc(summary)}"><svg class="profile-trend" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="profileTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2c66d"/><stop offset="1" stop-color="#f2c66d" stop-opacity="0"/></linearGradient></defs><line class="profile-trend-grid" x1="${padX}" y1="${padY}" x2="${w-padX}" y2="${padY}"/><line class="profile-trend-grid" x1="${padX}" y1="${h-padY}" x2="${w-padX}" y2="${h-padY}"/><polygon class="profile-trend-area" points="${area}"/><polyline class="profile-trend-line" points="${line}"/></svg><div class="profile-trend-labels"><span>Started ${Math.round(values[0])}</span><span>Current ${Math.round(values.at(-1))}</span></div></div>`;
+}
+function profileDateLabel(value){const date=new Date(Number(value));return Number.isFinite(date.getTime())?date.toLocaleDateString([],{month:'short',day:'numeric',year:date.getFullYear()!==new Date().getFullYear()?'numeric':undefined}):'Date unavailable';}
+function profileMetric(value,label){return `<div class="player-profile-metric"><b class="num">${esc(value)}</b><span>${esc(label)}</span></div>`;}
+function profilePhotoHtml(player,model){
+  const avatar=playerAvatarHtml(player,{size:'player-profile-photo',unavailableNotice:true});
+  return model.photo?`<button type="button" class="player-profile-photo-button" aria-label="View larger photo of ${esc(model.name)}" onclick="openPlayerPhotoViewer()">${avatar}</button>`:avatar;
+}
+function renderPlayerProfile(){
+  const player=editId?pById(editId):null,model=playerProfileViewModel(player);if(!player||!model){closeSheet(true);return;}
+  const status=model.archived?'<span class="profile-status-badge">Archived</span>':!model.active?'<span class="profile-status-badge away">Away</span>':'';
+  const roles=model.roles.length?`<div class="player-profile-roles" aria-label="Player roles">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div>`:'';
+  const trend=model.trendDelta==null?'No rating trend yet':`${model.trendDelta>0?'+':''}${Math.round(model.trendDelta)} over last ${model.trendGames} rated game${model.trendGames===1?'':'s'}`;
+  const form=model.recentForm.length?`<div class="profile-form">${model.recentForm.map(row=>`<span class="profile-form-result ${row.outcome==='W'?'win':row.outcome==='L'?'loss':'tie'}" aria-label="${row.outcome==='W'?'Win':row.outcome==='L'?'Loss':'Tie'}${row.mostRecent?', most recent game':''}">${row.outcome}</span>`).join('')}</div>`:'<div class="profile-empty">No saved games yet.</div>';
+  const impact=model.statItems.length?`<div class="profile-impact-grid">${model.statItems.map(item=>`<div class="profile-impact"><b class="num">${item.value}</b><span>${esc(item.label)}</span></div>`).join('')}</div><div class="tiny faint" style="margin-top:9px">Totals from ${model.trackedGames} tracked game${model.trackedGames===1?'':'s'}; untracked games are not treated as zeros.</div>`:'';
+  const recent=model.recentGames.length?`<div class="profile-game-list">${model.recentGames.slice(0,5).map(row=>{const delta=!model.ratingsHidden&&row.ratingDelta!=null?`${row.ratingDelta>0?'+':''}${row.ratingDelta}`:'';return `<div class="profile-game-row"><span class="profile-game-result ${row.outcome==='W'?'win':row.outcome==='L'?'loss':'tie'}" aria-label="${row.outcome==='W'?'Win':row.outcome==='L'?'Loss':'Tie'}">${row.outcome}</span><span class="profile-game-copy"><b>${esc(row.opponentLabel)}</b><span>${esc([row.teammateLabel,row.eventName||row.label,profileDateLabel(row.date)].filter(Boolean).join(' · '))}</span></span><span class="profile-game-score"><b class="num">${esc(row.score)}</b>${delta?`<span class="num">${esc(delta)} rating</span>`:''}</span></div>`;}).join('')}</div>`:'<div class="profile-empty">No recent games. Track a match to start this story.</div>';
+  const notes=model.notes?`<div class="profile-notes">${esc(model.notes).replace(/\n/g,'<br>')}</div>`:'<div class="profile-empty">No notes added.</div>',record=`${model.wins}–${model.losses}${model.ties?` · ${model.ties} T`:''}`;
+  const direction=!model.ratingsHidden&&model.trendDelta!=null?`<div class="player-profile-direction" aria-label="Court Rating ${model.trendDelta>0?'up':model.trendDelta<0?'down':'unchanged'} ${Math.abs(Math.round(model.trendDelta))} over the last ${model.trendGames} rated game${model.trendGames===1?'':'s'}"><b class="num">${model.trendDelta>0?'↑ +':model.trendDelta<0?'↓ ':'→ '}${Math.round(model.trendDelta)}</b><span>Last ${model.trendGames} rated game${model.trendGames===1?'':'s'}</span></div>`:'';
+  const rating=model.ratingsHidden?'<div class="player-profile-hidden-rating">Court Rating, active rank, deltas, and trend are hidden in stealth mode.</div>':`<div class="player-profile-rating"><b class="num">${model.rating}</b><span>Court Rating</span></div>${model.rank?`<div class="player-profile-rank"><b class="num">#${model.rank.position}</b><span>of ${model.rank.population} active players</span></div>`:''}${direction}`;
+  const html=`<article class="player-profile" data-player-window-mode="profile"><section class="player-profile-hero"><button type="button" class="btn sm player-profile-edit" data-focus-key="edit-profile" onclick="editPlayerProfile()">Edit profile</button><div class="player-profile-main">${profilePhotoHtml(player,model)}<div class="player-profile-identity"><div class="player-profile-kicker"><span>Court player profile</span>${status}</div><h3 class="player-profile-name">${esc(model.name)}</h3>${model.level?`<div class="player-profile-level">${esc(model.level.label)} · ${esc(model.level.short)} <span>Current Court level</span></div>`:'<div class="player-profile-level">Court level hidden</div>'}${roles}<div class="player-profile-rating-row">${rating}</div></div></div><div class="player-profile-metrics">${profileMetric(model.gamesPlayed,'Games')}${profileMetric(record,'Record')}${profileMetric(model.winRate||DASH,model.winRate?'Win rate':'No rated record')}${profileMetric(model.currentStreak,'Current form')}</div></section><div class="player-profile-grid"><section class="profile-panel"><div class="profile-panel-head"><h4>Recent form</h4><span>Latest first</span></div>${form}</section><section class="profile-panel"><div class="profile-panel-head"><h4>Rating trend</h4><span>${model.ratingsHidden?'Stealth mode':esc(trend)}</span></div>${profileTrendHtml(model)}</section>${impact?`<section class="profile-panel wide"><div class="profile-panel-head"><h4>Player impact</h4><span>Saved tracked events</span></div>${impact}</section>`:''}<section class="profile-panel wide"><div class="profile-panel-head"><h4>Recent games</h4><span>Latest ${Math.min(5,model.recentGames.length)}</span></div>${recent}</section>${model.roles.length?`<section class="profile-panel"><div class="profile-panel-head"><h4>Roles</h4><span>${model.roles.length}</span></div><div class="player-profile-roles" style="margin:0">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div></section>`:''}<section class="profile-panel ${model.roles.length?'':'wide'}"><div class="profile-panel-head"><h4>Notes</h4></div>${notes}</section></div><div class="player-profile-actions"><button class="btn ghost" onclick="openPlayerCard('${player.id}')">View &amp; share player card</button><button class="btn primary" onclick="editPlayerProfile()">Edit profile</button></div></article>`;
+  openSheet(html,{className:'player-profile-sheet',focus:'[data-focus-key="edit-profile"]'});window._sheetBeforeClose=null;
 }
 function screenHead(eyebrow, title, sub){
   return `<div class="screen-head"><div class="eyebrow">${eyebrow}</div><h2>${title}</h2>${sub?`<p class="subcopy">${sub}</p>`:''}</div>`;
@@ -3225,6 +3374,7 @@ function publicEventBehaviorScript(){return `(()=>{
       if(!hits.length){if(meta)meta.textContent='No results';updateButtons(query);return;}if(meta)meta.textContent=resultLabel(hits.length);updateButtons(query);activate(0);
     };
     input?.addEventListener('input',search);input?.addEventListener('keydown',event=>{if(event.key!=='Enter')return;event.preventDefault();if(hits.length)activate(activeIndex+(event.shiftKey?-1:1));});next?.addEventListener('click',()=>activate(activeIndex+1));previous?.addEventListener('click',()=>activate(activeIndex-1));clearButton?.addEventListener('click',()=>{if(input){input.value='';input.focus();}search();});
+    document.querySelectorAll('[data-public-player-photo] img').forEach(image=>{const finish=loaded=>{image.hidden=!loaded;if(!loaded)image.removeAttribute('src');};image.addEventListener('load',()=>finish(image.naturalWidth>0),{once:true});image.addEventListener('error',()=>finish(false),{once:true});if(image.complete)finish(image.naturalWidth>0);});
     document.querySelector('[data-public-print]')?.addEventListener('click',()=>window.print());document.querySelector('[data-public-share]')?.addEventListener('click',async()=>{const data={title:document.title,url:location.href};if(navigator.share){try{await navigator.share(data);return;}catch(error){if(error?.name==='AbortError')return;}}try{await navigator.clipboard.writeText(location.href);if(meta)meta.textContent='Link copied';}catch{if(meta)meta.textContent='Copy the address from your browser';}});
     if(meta)meta.textContent='No search active';updateButtons('');
   };
@@ -3237,7 +3387,7 @@ function publicEventStyles(){return `${scheduleDocumentStyles()}
   .rules-search-bar input{width:100%;min-width:0}.rules-search-bar button{min-height:40px}.rules-search-bar button:disabled{opacity:.45;cursor:not-allowed}.public-toc{max-width:100%;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}.public-toc a{flex:none}.rules-search-hit-active{outline:3px solid #d99e37;outline-offset:3px}
   @media print{.public-nav,.rules-search-bar,.rules-search-meta,.public-print-actions{display:none!important}.public-section{padding:18px 0}.public-event-head{padding:0 0 18px;background:#fff;color:#172033}.public-event-head h1{color:#172033}.public-event{max-width:none}.public-rules-body h2{break-after:avoid}.public-revision:not([open]){display:none}}`}
 function renderPublicEventDocument(ev){
-  const e=scheduleHtmlEscape,revision=publishedRulesRevision(ev),rules=eventRules(ev),scheduleModel=deriveFullScheduleExportModel(ev),schedule=scheduleModel?scheduleExportBodyHtml(scheduleModel):'<p class="public-empty">A public schedule has not been generated yet.</p>',toc=revision?publicRulesTocHtml(revision.document):[],afterNotice=revision?.afterStart?`<div class="public-update"><strong>Rules updated ${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}.</strong> ${e(revision.changeSummary||'The organizer published an event-day change.')}</div>`:'';
+  const e=scheduleHtmlEscape,revision=publishedRulesRevision(ev),rules=eventRules(ev),scheduleModel=deriveFullScheduleExportModel(ev),schedule=scheduleModel?scheduleExportBodyHtml(scheduleModel,{photoContext:PUBLIC_PHOTO_CONTEXTS.worker}):'<p class="public-empty">A public schedule has not been generated yet.</p>',toc=revision?publicRulesTocHtml(revision.document):[],afterNotice=revision?.afterStart?`<div class="public-update"><strong>Rules updated ${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}.</strong> ${e(revision.changeSummary||'The organizer published an event-day change.')}</div>`:'';
   const overview=`<div class="public-overview-grid"><div><b>${eventFormat(ev)==='rotatingGroups'?rotatingEntries(ev).length:(ev.teams||[]).length}</b><span>${eventFormat(ev)==='rotatingGroups'?'entries':'teams'}</span></div><div><b>${e(formatEventDate(eventLocalDate(ev),{month:'short',day:'numeric',year:'numeric'}))}</b><span>event date</span></div><div><b>${evGameCount(ev)}</b><span>saved games</span></div><div><b>${(ev.brackets||[]).length}</b><span>brackets</span></div></div>`;
   const rulesBody=revision?`${afterNotice}<div class="rules-search-bar" role="search" aria-label="Search published rules"><input type="search" data-rules-search aria-label="Search published rules" placeholder="Search rules"><button type="button" data-search-prev aria-label="Previous search result" disabled>Previous</button><button type="button" data-search-next aria-label="Next search result" disabled>Next</button><button type="button" data-search-clear aria-label="Clear rules search" disabled>Clear</button></div><div class="rules-search-meta" data-search-meta role="status" aria-live="polite">No search active</div><nav class="public-toc" aria-label="Rules table of contents">${toc.map(item=>`<a href="#${e(item.id)}">${e(item.label)}</a>`).join('')}</nav><h3>Quick Rules</h3>${publicQuickRulesHtml(ev,revision)}<div class="public-rules-body" data-rules-search-body>${rulesHtmlWithHeadingIds(revision.document)}</div><h3>Revision history</h3>${publicRulesHistoryHtml(ev,revision)}`:'<p class="public-empty">The organizer has not published event rules. Drafts are private and never appear here.</p>';
   const title=revision?`${String(ev.name||'Event').trim()} — Tournament Rules`:`${String(ev.name||'Event').trim()} — Event`,behavior=publicEventBehaviorScript();
@@ -4178,8 +4328,9 @@ function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now
   }
   if(!ev.sched)return null;
   const sc=buildSchedule(ev,gameList,now);if(!sc||!sc.plannedSlots?.length)return null;
-  const rounds=sc.plannedSlots.map((slot,index)=>{const playing=new Set(slot.flatMap(m=>[m.a,m.b]));return {number:index+1,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:(ev.teams||[]).filter(t=>!playing.has(t.id)).map(t=>t.name),matches:slot.slice().sort((a,b)=>a.court-b.court).map(m=>{const result=fixedScheduleResult(ev,m,gameList),a=evTeamById(ev,m.a),b=evTeamById(ev,m.b);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:[{name:a?.name||'Missing team',players:[]}],sideB:[{name:b?.name||'Missing team',players:[]}]};})};});
-  (sc.makeupSlots||[]).forEach(slot=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:[],matches:slot.map(m=>{const result=fixedScheduleResult(ev,m,gameList),a=evTeamById(ev,m.a),b=evTeamById(ev,m.b);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:[{name:a?.name||'Missing team',players:[]}],sideB:[{name:b?.name||'Missing team',players:[]}],isMakeup:true};})}));
+  const fixedTeamData=id=>{const team=evTeamById(ev,id),ids=team?.players||[];return {name:team?.name||'Missing team',players:ids.map(playerName),playerPhotos:publicPhotoItems(ids,playerList)};};
+  const rounds=sc.plannedSlots.map((slot,index)=>{const playing=new Set(slot.flatMap(m=>[m.a,m.b]));return {number:index+1,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:(ev.teams||[]).filter(t=>!playing.has(t.id)).map(t=>t.name),matches:slot.slice().sort((a,b)=>a.court-b.court).map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)]};})};});
+  (sc.makeupSlots||[]).forEach(slot=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:[],matches:slot.map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)],isMakeup:true};})}));
   return {scope:'full',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),startTime:scheduleTimeInputLabel(ev.sched.start,now),intervalMinutes:positiveInt(ev.sched.setMin,25),courts:sc.requestedCourts,roundCount:sc.plannedSlots.length,makeupMatchCount:(sc.makeupSlots||[]).flat().length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.',rounds};
 }
 const deriveScheduleExportModel=deriveFullScheduleExportModel;
@@ -4256,18 +4407,39 @@ function deriveParticipantScheduleExportModel(ev,subjectType,subjectId,{gameList
 function scheduleHtmlEscape(value){
   return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
-function scheduleExportBodyHtml(model,{preview=false}={}){
+function publicPlayerPhotoMarkup(items,{context=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
+  const e=scheduleHtmlEscape,rows=(items||[]).map(item=>{const url=publicPlayerPhotoUrl(item?.photo,context,workerBase),name=String(item?.name||'Player');return `<span class="public-player-photo" data-public-player-photo><span aria-hidden="true">${e(initials(name))}</span>${url?`<img crossorigin="anonymous" src="${e(url)}" alt="Photo of ${e(name)}" loading="${context===PUBLIC_PHOTO_CONTEXTS.preview?'eager':'lazy'}" hidden>`:''}</span>`;}).join('');
+  return rows?`<span class="public-player-photos">${rows}</span>`:'';
+}
+function hydratePublicPlayerPhotos(root=document){
+  const images=[...(root?.querySelectorAll?.('[data-public-player-photo] img')||[])];
+  return images.map(image=>{
+    if(image.dataset.photoSettled)return Promise.resolve(image.dataset.photoSettled==='loaded');
+    if(image._courtPublicPhotoPromise)return image._courtPublicPhotoPromise;
+    image._courtPublicPhotoPromise=new Promise(resolve=>{let settled=false;
+      const finish=loaded=>{if(settled)return;settled=true;image.dataset.photoSettled=loaded?'loaded':'failed';image.hidden=!loaded;if(!loaded)image.removeAttribute('src');resolve(loaded);};
+      image.addEventListener('load',()=>finish(image.naturalWidth>0),{once:true});image.addEventListener('error',()=>finish(false),{once:true});
+      if(image.complete)queueMicrotask(()=>finish(image.naturalWidth>0));
+    });return image._courtPublicPhotoPromise;
+  });
+}
+async function settlePublicPlayerPhotos(root=document,timeout=5000){
+  const pending=hydratePublicPlayerPhotos(root);if(!pending.length)return [];
+  return Promise.race([Promise.all(pending),new Promise(resolve=>setTimeout(()=>resolve(pending.map(()=>false)),timeout))]);
+}
+function scheduleExportBodyHtml(model,{preview=false,photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
   const e=scheduleHtmlEscape;
-  const photos=items=>(items||[]).length?`<span class="public-player-photos">${items.map(item=>`<span class="public-player-photo"><span aria-hidden="true">${e(initials(item.name))}</span><img src="${e(item.url)}" alt="Photo of ${e(item.name)}" loading="lazy"></span>`).join('')}</span>`:'';
+  const photos=items=>publicPlayerPhotoMarkup(items,{context:photoContext,workerBase});
   const entry=item=>`<div class="schedule-entry"><b>${e(item.name)}</b>${item.players.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}${photos(item.playerPhotos)}</div>`;
-  const matchHtml=match=>`<article class="schedule-match"><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides"><span>${e(match.sideA[0].name)}</span><b class="schedule-vs">VS</b><span>${e(match.sideB[0].name)}</span></div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}</article>`;
+  const fixedSide=item=>`<div class="schedule-fixed-team"><strong>${e(item.name)}</strong>${item.players?.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}${photos(item.playerPhotos)}</div>`;
+  const matchHtml=match=>`<article class="schedule-match"><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides">${fixedSide(match.sideA[0])}<b class="schedule-vs">VS</b>${fixedSide(match.sideB[0])}</div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}</article>`;
   const rounds=model.rounds.map(round=>`<section class="schedule-round${round.isMakeup?' schedule-makeup':''}"><div class="schedule-round-lead"><div class="schedule-round-head"><b>${round.isMakeup?'Makeup matches':`Round ${e(round.number)}`}</b><span>${round.time?e(round.time):''}</span></div>${round.isMakeup?`<div class="schedule-byes"><b>Balances games played.</b> Only the listed participants play.</div>`:round.byes.length?`<div class="schedule-byes"><b>Byes / sit-outs:</b> ${round.byes.map(e).join(' · ')}</div>`:''}</div><div class="schedule-match-list">${round.matches.map(matchHtml).join('')}</div></section>`).join('');
   const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null,model.intervalMinutes?`${model.intervalMinutes}-minute rounds`:null,`${model.courts} court${model.courts===1?'':'s'}`,`${model.roundCount} standard round${model.roundCount===1?'':'s'}`,model.makeupMatchCount?`${model.makeupMatchCount} makeup match${model.makeupMatchCount===1?'':'es'}`:null].filter(Boolean);
   return `<article class="${preview?'schedule-preview ':''}schedule-document"${preview?' data-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · event schedule</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div>${model.note?`<p class="schedule-timing-note">${e(model.note)}</p>`:''}${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header>${rounds}<footer class="schedule-preview-foot">Court</footer></article>`;
 }
-function participantScheduleBodyHtml(model,{preview=false}={}){
+function participantScheduleBodyHtml(model,{preview=false,photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
   const e=scheduleHtmlEscape;
-  const photos=items=>(items||[]).length?`<span class="public-player-photos">${items.map(item=>`<span class="public-player-photo"><span aria-hidden="true">${e(initials(item.name))}</span><img src="${e(item.url)}" alt="Photo of ${e(item.name)}" loading="lazy"></span>`).join('')}</span>`:'';
+  const photos=items=>publicPlayerPhotoMarkup(items,{context:photoContext,workerBase});
   const entryHtml=item=>`<div class="participant-entry-row">${item.players?.length&&item.name?`<span class="participant-entry-badge" aria-label="Entry ${e(item.name)}">${e(item.name)}</span>`:''}<strong>${e(item.players?.length?item.players.join(' + '):item.name)}</strong>${photos(item.playerPhotos)}</div>`;
   const rows=model.rows.map(row=>{
     const where=[row.time||'Time TBD',row.court].filter(Boolean).join(' · '),result=row.result?`<span class="participant-result ${row.result.outcome==='W'?'win':row.result.outcome==='L'?'loss':'tie'}">${e(row.result.outcome)} · ${e(row.result.score)}</span>`:'';
@@ -4283,7 +4455,7 @@ function participantScheduleBodyHtml(model,{preview=false}={}){
   const subject=model.formatKind==='fixed'?`<strong>${e(model.subjectName)}</strong>${model.subjectMembers.length?`<span class="participant-subject-members">${model.subjectMembers.map(e).join(' · ')}</span>`:''}${photos(model.subjectPhotos)}`:`<div class="participant-subject-main"><span class="participant-entry-badge">${e(model.subjectName)}</span><strong>${e(model.subjectMembers.length?model.subjectMembers.join(' + '):model.subjectName)}</strong>${photos(model.subjectPhotos)}</div>`;
   return `<article class="${preview?'schedule-preview ':''}schedule-document participant-document"${preview?' data-participant-schedule-preview':''}><header class="schedule-preview-head"><div class="schedule-preview-kicker">Court · ${e(model.exportTitle)}</div><h1>${e(model.eventName)}</h1><div class="schedule-preview-meta">${meta.map(item=>`<span>${e(item)}</span>`).join('')}</div><div class="participant-subject"><span class="participant-subject-label">${e(model.subjectLabel)}</span>${subject}</div>${preview?'':`<p class="schedule-screen-note">Use your browser’s Print command to print this schedule or save it as one PDF file.</p>`}</header><div class="participant-games">${rows}</div>${model.note?`<p class="participant-note">${e(model.note)}</p>`:''}<footer class="schedule-preview-foot">Court</footer></article>`;
 }
-function scheduleExportPreviewHtml(model){return model.scope==='participant'?participantScheduleBodyHtml(model,{preview:true}):scheduleExportBodyHtml(model,{preview:true});}
+function scheduleExportPreviewHtml(model){const options={preview:true,photoContext:PUBLIC_PHOTO_CONTEXTS.preview};return model.scope==='participant'?participantScheduleBodyHtml(model,options):scheduleExportBodyHtml(model,options);}
 function scheduleDocumentStyles(){return `
   :root{color-scheme:light;--ink:#172033;--muted:#5d6a80;--line:#d9e0eb;--gold:#9a6c16;--paper:#f7f9fd}
   *{box-sizing:border-box}
@@ -4306,7 +4478,7 @@ function scheduleDocumentStyles(){return `
   .schedule-match-top{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:10px;color:#68758c;font-size:11px;font-weight:850;letter-spacing:.055em;text-transform:uppercase}
   .schedule-match-top .final{color:#126a49}.schedule-match-top .pending{color:#795814}
   .schedule-fixed-sides{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:12px;font-size:16px;font-weight:800}
-  .schedule-fixed-sides span{min-width:0;overflow-wrap:anywhere}.schedule-fixed-sides span:last-child{text-align:right}
+  .schedule-fixed-team{min-width:0;overflow-wrap:anywhere}.schedule-fixed-team:last-child{text-align:right}.schedule-fixed-team>strong{display:block}.schedule-fixed-team>span{display:block;margin-top:3px;color:#5f6d82;font-size:12px;font-weight:550;line-height:1.4}.schedule-fixed-team:last-child .public-player-photos{justify-content:flex-end}
   .schedule-vs{color:var(--gold);font-size:11px;font-weight:900;letter-spacing:.09em}
   .schedule-rotation-sides{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:stretch;gap:11px}
   .schedule-rotation-sides>.schedule-vs{align-self:center}
@@ -4364,10 +4536,10 @@ function scheduleTitleSubject(model){
 function scheduleShareTitle(model){
   return `${String(model?.eventName||'Event').trim()||'Event'} · ${scheduleTitleSubject(model)} schedule`;
 }
-function renderScheduleDocument(model){
+function renderScheduleDocument(model,{photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
   const title=scheduleHtmlEscape(scheduleShareTitle(model));
-  const body=model.scope==='participant'?participantScheduleBodyHtml(model):scheduleExportBodyHtml(model);
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${title}</title><style>${scheduleDocumentStyles()}</style></head><body>${body}</body></html>`;
+  const options={photoContext,workerBase},body=model.scope==='participant'?participantScheduleBodyHtml(model,options):scheduleExportBodyHtml(model,options),behavior=body.includes('data-public-player-photo')?`<script>${publicEventBehaviorScript()}<${'/'}script>`:'';
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${title}</title><style>${scheduleDocumentStyles()}</style>${behavior}</head><body>${body}</body></html>`;
 }
 function safeScheduleFilename(value){
   let clean=String(value??'').trim();if(clean.normalize)clean=clean.normalize('NFKD');
@@ -4376,7 +4548,7 @@ function safeScheduleFilename(value){
 }
 function scheduleExportFilename(eventName){return `${safeScheduleFilename(eventName)}_schedule.html`;}
 function participantScheduleExportFilename(eventName,subjectName){return `${safeScheduleFilename(`${eventName}_${subjectName}`)}_schedule.html`;}
-function createScheduleHtmlFile(model){const name=model.scope==='participant'?participantScheduleExportFilename(model.eventName,model.subjectName):scheduleExportFilename(model.eventName);return new File([renderScheduleDocument(model)],name,{type:'text/html'});}
+function createScheduleHtmlFile(model){const name=model.scope==='participant'?participantScheduleExportFilename(model.eventName,model.subjectName):scheduleExportFilename(model.eventName);return new File([renderScheduleDocument(model,{photoContext:PUBLIC_PHOTO_CONTEXTS.download})],name,{type:'text/html'});}
 function resultsDocumentStyles(){return `
   :root{color-scheme:dark;--bg:#080d18;--surface:#111a2a;--surface2:#172238;--text:#eef3ff;--muted:#a6b3ca;--faint:#71809b;--gold:#f2c66d;--border:#ffffff1a;--good:#6ce0ad}
   *{box-sizing:border-box}html{background:var(--bg)}body{margin:0;padding:28px 14px 48px;background:radial-gradient(circle at 50% 0,#1d2942 0,transparent 520px),var(--bg);color:var(--text);font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}.results-view{width:min(100%,760px);margin:0 auto}.results-event-head{padding:22px;border:1px solid #f2c66d3a;border-radius:20px;background:linear-gradient(145deg,#1d2840,#101827)}.results-event-head h4{margin:6px 0 8px;font-size:30px;line-height:1.12;overflow-wrap:anywhere}.results-kicker,.results-footer{color:var(--gold);font-size:10px;font-weight:850;letter-spacing:.14em;text-transform:uppercase}.results-meta{display:flex;flex-wrap:wrap;gap:5px 8px;color:var(--muted);font-size:12px;line-height:1.45}.results-section{margin-top:14px;padding:16px;border:1px solid var(--border);border-radius:16px;background:#ffffff08}.results-section h4{margin:0 0 10px;font-size:16px}.results-spotlight{display:grid;grid-template-columns:1.1fr .9fr;gap:12px}.results-champ{padding:13px;border:1px solid #f2c66d3d;border-radius:14px;background:#f2c66d0d}.results-champ b{display:block;margin-top:4px;color:#fff;font-size:21px;overflow-wrap:anywhere}.tiny{font-size:11px}.small{font-size:13px}.faint{color:var(--faint)}.soft,.muted{color:var(--muted)}.num{font-variant-numeric:tabular-nums}.finale-score{margin-top:6px;color:var(--gold);font-size:22px;font-weight:850}.team-roster{display:block;margin-top:5px;color:var(--muted);font-size:11px;line-height:1.45;white-space:normal;overflow-wrap:anywhere}.team-roster summary{display:inline;list-style:none;cursor:pointer}.team-roster summary::-webkit-details-marker{display:none}.team-roster summary::after{content:attr(data-more-label);margin-left:4px;color:var(--gold);font-weight:800;text-decoration:underline;text-underline-offset:2px}.team-roster[open] summary::after{content:'Show less'}.team-roster[open] [data-roster-short]{display:none}.team-roster [data-roster-full]{display:block}.journey-row,.result-standing,.row{display:flex;align-items:center;gap:10px}.journey-row,.result-standing{padding:9px 0;border-bottom:1px solid var(--border)}.journey-row>span:nth-child(2),.result-standing>span:nth-child(2){min-width:0;flex:1}.journey-row>span:last-child,.result-standing>span:last-child{text-align:right}.podium-place{display:inline-grid;width:34px;flex:none;place-items:center;color:var(--gold);font-weight:850}.result-standing.champion b{color:var(--gold)}.result-standing.runner b{color:#cdd8ec}.highlight-list{display:grid;gap:8px}.highlight-item{padding:10px 12px;border-left:3px solid var(--gold);border-radius:8px;background:#f2c66d0b;font-size:13px;line-height:1.45}.results-detail summary{cursor:pointer;font-weight:800}.spread{justify-content:space-between}.results-footer{margin-top:24px;padding-top:16px;border-top:1px solid var(--border);text-align:center}[hidden]{display:none!important}
@@ -4456,7 +4628,7 @@ const SchedulePublications=(()=>{
     const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),model=modelFor(ev,subjectType,subjectId);
     const rules=ev&&eventRules(ev),unified=!subjectType&&rules&&(rules.publishedRevisionId||rules.revisions.length||rules.unpublishedAt);
     if(!ev||!scope||(!model&&!unified))throw schedulePublicationError('missing','This event publication is no longer available.');
-    const html=unified?renderPublicEventDocument(ev):subjectType==='results'?renderResultsDocument(model):renderScheduleDocument(model),title=unified?(publishedRulesRevision(ev)?`${ev.name} — Tournament Rules`:`${ev.name} — Event`):subjectType==='results'?`${model.data.name} · ${model.data.date} · Event recap`:schedulePublicationTitle(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title,scope};
+    const html=unified?renderPublicEventDocument(ev):subjectType==='results'?renderResultsDocument(model):renderScheduleDocument(model,{photoContext:PUBLIC_PHOTO_CONTEXTS.worker}),title=unified?(publishedRulesRevision(ev)?`${ev.name} — Tournament Rules`:`${ev.name} — Event`):subjectType==='results'?`${model.data.name} · ${model.data.date} · Event recap`:schedulePublicationTitle(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title,scope};
     views.set(key(evId,scope),{...(views.get(key(evId,scope))||{}),contentHash});renderPanel(evId,subjectType,subjectId);return prepared;
   }
   async function refresh(evId,subjectType='',subjectId=''){
@@ -4645,11 +4817,13 @@ function scheduleShareActionsHtml(evId,subjectType='',subjectId=''){
 window.openScheduleShare=(evId)=>{
   const ev=evById(evId),model=deriveFullScheduleExportModel(ev);if(!model){toast('Generate a usable schedule before sharing');return;}
   openSheet(`<h3>Save / Share Schedule</h3><p class="small muted" style="margin:-8px 0 12px">Review the complete participant schedule below. Exporting is read-only and creates one self-contained document.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Download one self-contained HTML file, or print and save the schedule as one PDF file.</div>${SchedulePublications.sectionHtml(ev.id)}${scheduleShareActionsHtml(ev.id)}${sheetCloseBtn('Close')}`);
+  window._schedulePreviewImagePromise=settlePublicPlayerPhotos($('#scrim'));
   void SchedulePublications.refresh(ev.id);
 };
 window.openParticipantScheduleShare=(evId,subjectType,subjectId)=>{
   const ev=evById(evId),model=deriveParticipantScheduleExportModel(ev,subjectType,subjectId);if(!model){toast('No participant schedule is available to share yet');return;}
   openSheet(`<h3>Save / Share ${model.exportTitle}</h3><p class="small muted" style="margin:-8px 0 12px">A compact, read-only schedule for ${esc(model.subjectName)}.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Download this self-contained schedule as HTML, or print and save it as one PDF file.</div>${SchedulePublications.sectionHtml(ev.id,subjectType,subjectId)}${scheduleShareActionsHtml(ev.id,subjectType,subjectId)}${sheetCloseBtn('Close')}`);
+  window._schedulePreviewImagePromise=settlePublicPlayerPhotos($('#scrim'));
   void SchedulePublications.refresh(ev.id,subjectType,subjectId);
 };
 window.openScheduleDownloadOptions=(evId,subjectType='',subjectId='')=>{
@@ -4657,8 +4831,8 @@ window.openScheduleDownloadOptions=(evId,subjectType='',subjectId='')=>{
   window._scheduleDownloadChoice={evId,subjectType,subjectId,returnFocus:document.activeElement instanceof HTMLElement?document.activeElement:null,busy:false};
   const layer=document.createElement('div'),titleId='download-options-title-'+Date.now();layer.className='download-options-scrim';layer.dataset.downloadChooser='';layer.setAttribute('role','presentation');
   layer.innerHTML=`<div class="download-options" role="dialog" aria-modal="true" aria-labelledby="${titleId}"><h4 id="${titleId}">Download Schedule</h4><p>Choose a self-contained HTML file or use the print view to save one PDF.</p><div class="download-options-actions"><button type="button" class="btn primary block" data-download-html onclick="runScheduleDownloadOption('html')">Download HTML</button><button type="button" class="btn ghost block" data-print-schedule onclick="runScheduleDownloadOption('print')">Print / Save as PDF</button><button type="button" class="btn ghost block" onclick="closeScheduleDownloadOptions()">Cancel</button></div></div>`;
-  layer.addEventListener('click',event=>{if(event.target===layer)closeScheduleDownloadOptions();});
-  layer.addEventListener('keydown',event=>{if(event.key!=='Tab')return;const buttons=[...layer.querySelectorAll('button:not([disabled])')];if(!buttons.length)return;const first=buttons[0],last=buttons[buttons.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}});
+  const dialog=layer.querySelector('.download-options');layer.addEventListener('click',event=>{if(event.target===layer)closeScheduleDownloadOptions();});
+  layer.addEventListener('keydown',event=>{if(event.key==='Tab'){trapDialogTab(dialog,event);event.stopPropagation();}});
   parent.appendChild(layer);requestAnimationFrame(()=>layer.querySelector('[data-download-html]')?.focus());
 };
 window.closeScheduleDownloadOptions=()=>{
@@ -4677,7 +4851,7 @@ window.downloadSchedule=(evId,subjectType='',subjectId='')=>{
   try{downloadScheduleFile(createScheduleHtmlFile(model));toast('Schedule downloaded as one HTML file');}catch(error){toast(error?.message||'Could not download the schedule document');}
 };
 function writeSchedulePrintWindow(target,html){
-  let started=false;const print=async()=>{if(started)return;started=true;try{await target.document.fonts?.ready;}catch(_){}target.focus?.();target.print();};
+  let started=false;const print=async()=>{if(started)return;started=true;try{await target.document.fonts?.ready;}catch(_){}try{await settlePublicPlayerPhotos(target.document,5000);}catch(_){}target.focus?.();target.print();};
   target.document.open();target.document.write(html);target.document.close();target.addEventListener?.('load',print,{once:true});setTimeout(print,60);
 }
 window.printSchedule=(evId,subjectType='',subjectId='')=>{
@@ -4686,7 +4860,7 @@ window.printSchedule=(evId,subjectType='',subjectId='')=>{
   try{
     const target=window.open('','_blank');if(!target){toast('Print view was blocked. Allow popups and try again.');return;}
     try{target.opener=null;}catch(_){}
-    writeSchedulePrintWindow(target,renderScheduleDocument(model));
+    writeSchedulePrintWindow(target,renderScheduleDocument(model,{photoContext:PUBLIC_PHOTO_CONTEXTS.print}));
   }catch(error){toast('Could not open the print view. Try Download Schedule instead.');}
   finally{if(button&&button.isConnected){button.disabled=false;button.textContent='Print / Save as PDF';}}
 };
@@ -6516,9 +6690,15 @@ async function runSelfTest(){
     ck('Malformed player photo metadata is rejected',normalizePlayerPhoto({...validPhoto,token:'bad'})===null&&normalizePlayerPhoto({...validPhoto,bytes:Infinity})===null&&normalizePlayerPhoto({...validPhoto,contentType:'image/svg+xml'})===null);
     ck('Private photos never produce public media URLs',publicPlayerPhoto({...P[0],photo:validPhoto})===null);
     const publicDescriptor=publicPlayerPhoto({...P[0],photo:{...validPhoto,public:true}});
-    ck('Opted-in photos use only a safe relative public media URL',publicDescriptor?.url===`/media/player-photos/${validPhoto.token}?v=${validPhoto.revision}`&&!/room|roomHash|player-photos\//.test(JSON.stringify(publicDescriptor).replace('/media/player-photos/','')));
+    const publicRelative=publicPlayerPhotoUrl(publicDescriptor?.photo,PUBLIC_PHOTO_CONTEXTS.worker),publicAbsolute=publicPlayerPhotoUrl(publicDescriptor?.photo,PUBLIC_PHOTO_CONTEXTS.preview,'https://photos.example.test///');
+    ck('Opted-in photos use a safe relative Worker media path',publicRelative===`/media/player-photos/${validPhoto.token}?v=${validPhoto.revision}`&&!/room|roomHash/.test(publicRelative));
+    ck('Preview and download photo contexts use the configured Worker origin',publicAbsolute===`https://photos.example.test/media/player-photos/${validPhoto.token}?v=${validPhoto.revision}`&&!publicAbsolute.includes('cheebychob.github.io'));
+    ck('Player initials are stable for empty and punctuation-only names',initials('  ')==='?'&&initials('---')==='?'&&initials('Josh Sv')==='JS');
     const photoRatingBefore=JSON.stringify(P.map(p=>({seedRating:p.seedRating,rating:p.rating,history:p.history,gamesPlayed:p.gamesPlayed,wins:p.wins,losses:p.losses})));P[0].photo=validPhoto;recomputeAll();const photoRatingAfter=JSON.stringify(P.map(p=>({seedRating:p.seedRating,rating:p.rating,history:p.history,gamesPlayed:p.gamesPlayed,wins:p.wins,losses:p.losses})));delete P[0].photo;
     ck('Photo metadata never changes ratings, records, or history',photoRatingBefore===photoRatingAfter);
+    const profileSourceBefore=JSON.stringify({player:P[0],games}),profileModel=playerProfileViewModel(P[0]),profileSourceAfter=JSON.stringify({player:P[0],games}),trendBefore=JSON.stringify(P[0].history);profileTrendHtml(profileModel);const trendAfter=JSON.stringify(P[0].history);
+    ck('Player profile view-model calculations do not mutate player or game data',profileSourceBefore===profileSourceAfter&&profileModel.recentGames.length<=5);
+    ck('Drawing the player rating trend leaves saved history unchanged',trendBefore===trendAfter);
 
     /* --- terminal-only scoring, tracker visibility, and evidence-gated rates. --- */
     const scoringPlayers=players,scoringGames=games,scoringSettings=settings,scoringLive=live;
@@ -7454,44 +7634,52 @@ window.runTests=async()=>{
 /* ============================================================
    PLAYER EDITOR (sheet)
    ============================================================ */
-let editId=null, draft=null,photoPrepared=null,photoCrop=null,photoDecodeUrl='',photoDraftPublic=false,photoBusy=false,photoSession='';
+let editId=null,draft=null,playerWindowMode=null,playerEditReturnMode='close',playerSavedDraft=null,photoPrepared=null,photoCrop=null,photoDecodeUrl='',photoDraftPublic=false,photoRemovePending=false,photoBusy=false,photoSession='';
 function cleanupPreparedPhoto(){if(photoPrepared?.previewUrl)URL.revokeObjectURL(photoPrepared.previewUrl);photoPrepared=null;}
 function cleanupPhotoCrop(){if(photoCrop?.sourceUrl)URL.revokeObjectURL(photoCrop.sourceUrl);if(photoDecodeUrl)URL.revokeObjectURL(photoDecodeUrl);photoDecodeUrl='';photoCrop=null;}
-function playerEditorCloseGuard(){cleanupPhotoCrop();cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true);return false;}
+function playerEditableState(value){const roles=Object.fromEntries(Object.entries(value?.roles||{}).filter(([,enabled])=>!!enabled).sort(([a],[b])=>a.localeCompare(b)));return {name:String(value?.name||''),seedRating:Number(value?.seedRating)||0,roles,skills:value?.skills?{...value.skills}:null,notes:String(value?.notes||''),photo:normalizePlayerPhoto(value?.photo),active:value?.active!==false,archived:!!value?.archived};}
+function playerDraftDirty(){if(!draft)return false;captureInputs();return !!photoPrepared||photoRemovePending||JSON.stringify(playerEditableState(draft))!==JSON.stringify(playerSavedDraft);}
+function discardPlayerDraft(){cleanupPhotoCrop();cleanupPreparedPhoto();draft=null;playerSavedDraft=null;photoDraftPublic=false;photoRemovePending=false;photoBusy=false;photoSession='';}
+async function playerEditorCloseGuard(){
+  if(playerWindowMode==='profile')return true;
+  const allowed=!playerDraftDirty()||await askConfirm(`Discard unsaved ${playerWindowMode==='add'?'player':'profile'} changes?`,'Discard changes');
+  if(allowed){discardPlayerDraft();editId=null;playerWindowMode=null;}return allowed;
+}
 function setPlayerEditorCloseGuard(){window._sheetBeforeClose=playerEditorCloseGuard;}
-window.openPlayer=(id)=>{
+function beginPlayerDraft(player,returnMode){
+  draft=player?JSON.parse(JSON.stringify(player)):{name:'',seedRating:48,roles:{},skills:null,notes:'',active:true,archived:false};if(!draft.roles)draft.roles={};
+  playerSavedDraft=playerEditableState(draft);photoDraftPublic=normalizePlayerPhoto(draft.photo)?.public||false;photoRemovePending=false;photoBusy=false;photoSession=uid();window._seedMode=draft.skills?'skills':'tier';playerEditReturnMode=returnMode;
+}
+window.openPlayer=(id,explicitMode)=>{
   cleanupPhotoCrop();cleanupPreparedPhoto();
   editId=id||null;
-  const p = id?pById(id):null;
-  draft = p ? JSON.parse(JSON.stringify(p)) : { name:'', seedRating:48, roles:{}, skills:null };
-  if(!draft.roles) draft.roles={};
-  photoDraftPublic=normalizePlayerPhoto(draft.photo)?.public||false;photoBusy=false;photoSession=uid();
-  window._seedMode = draft.skills ? 'skills' : 'tier';
+  const p=id?pById(id):null;if(id&&!p)return;
+  if(p&&explicitMode!=='edit'){discardPlayerDraft();playerWindowMode='profile';renderPlayerSheet();return;}
+  playerWindowMode=p?'edit':'add';beginPlayerDraft(p,p&&explicitMode==='edit'?'close':p?'profile':'close');
   renderPlayerSheet();
   const session=photoSession;void PlayerPhotos.capability().then(()=>{if(draft&&photoSession===session){captureInputs();renderPlayerSheet();}});
 };
+window.editPlayerProfile=()=>{const player=editId?pById(editId):null;if(!player)return;beginPlayerDraft(player,'profile');playerWindowMode='edit';renderPlayerSheet();const session=photoSession;void PlayerPhotos.capability().then(()=>{if(draft&&photoSession===session&&playerWindowMode==='edit'){captureInputs();renderPlayerSheet();}});};
 function playerPhotoEditorHtml(p){
-  const existing=normalizePlayerPhoto(p?.photo),prepared=photoPrepared,status=PlayerPhotos.state(),configured=PlayerPhotos.configured(),available=status.available;
+  const saved=normalizePlayerPhoto(p?.photo),existing=photoRemovePending?null:saved,prepared=photoPrepared,status=PlayerPhotos.state(),configured=PlayerPhotos.configured(),available=status.available;
   const disabled=photoBusy||!available?'disabled':'',hasPreview=!!(prepared||existing),name=draft?.name||p?.name||'Player';
-  const preview=prepared
-    ? `<span class="avatar lg"><span class="avatar-initials">${initials(name)}</span><img src="${esc(prepared.previewUrl)}" alt="Photo preview for ${esc(name)}"></span>`
-    : existing?playerAvatarHtml({...p,name},{size:'lg'}):playerAvatarHtml({name},{size:'lg'});
+  const avatar=prepared?`<span class="avatar player-editor-photo"><span class="avatar-initials">${initials(name)}</span><img src="${esc(prepared.previewUrl)}" alt="Photo preview for ${esc(name)}"></span>`:existing?playerAvatarHtml({...p,name},{size:'player-editor-photo'}):playerAvatarHtml({name},{size:'player-editor-photo'});
+  const preview=hasPreview?`<button type="button" class="player-editor-photo-button" aria-label="View larger photo of ${esc(name)}" onclick="openPlayerPhotoViewer()">${avatar}</button>`:`<button type="button" class="player-editor-photo-button" aria-label="Add photo for ${esc(name)}" onclick="document.getElementById('pPhotoInput').click()" ${disabled}>${avatar}</button>`;
   const actionLabel=hasPreview?'Change photo':'Add photo';
   const setup=!configured?'Set up device sync to add photos.':status.status==='checking'||status.status==='idle'?'Checking secure photo storage…':!available?esc(status.message||'Player photo storage is unavailable.'):'Photos are resized before secure upload.';
-  const remove=prepared?`<button type="button" class="btn sm ghost" onclick="discardPreparedPlayerPhoto()" ${photoBusy?'disabled':''}>Discard change</button>`:existing?`<button type="button" class="btn sm danger" onclick="removePlayerPhoto()" ${disabled}>Remove photo</button>`:'';
-  const toggleDisabled=photoBusy||(!prepared&&(!existing||!available))?'disabled':'';
-  return `<div class="field"><label>Player photo <span class="faint" style="font-weight:500">· optional</span></label>
-    <div class="photo-editor">${preview}<div class="photo-editor-actions"><div class="row"><input id="pPhotoInput" type="file" accept="image/*" aria-label="Choose player photo" hidden onchange="choosePlayerPhoto(this.files&&this.files[0]);this.value=''"/><button type="button" class="btn sm" onclick="document.getElementById('pPhotoInput').click()" ${disabled}>${photoBusy?'Working…':actionLabel}</button>${remove}</div><span class="photo-unavailable-note">${setup}</span><span class="photo-unavailable-note" data-photo-unavailable-note hidden>Photo unavailable · showing initials</span></div></div>
-    <div class="photo-public-line"><div class="photo-public-copy"><b>Show this photo on shared pages</b><span>${photoDraftPublic?'This photo can appear on Court public pages.':'Off keeps the photo inside your synced Court room. Turn it on only with the player’s permission.'}</span></div><button type="button" class="btn sm ${photoDraftPublic?'primary':'ghost'}" aria-pressed="${photoDraftPublic}" onclick="togglePlayerPhotoPublic()" ${toggleDisabled}>${photoDraftPublic?'On':'Off'}</button></div>
-  </div>`;
+  const remove=prepared?`<button type="button" class="btn sm ghost" onclick="discardPreparedPlayerPhoto()" ${photoBusy?'disabled':''}>Discard change</button>`:existing?`<button type="button" class="btn sm danger" onclick="removePlayerPhoto()" ${photoBusy?'disabled':''}>Remove photo</button>`:'';
+  return `<section class="player-editor-identity" aria-label="Player photo"><div class="photo-editor">${preview}<div class="photo-editor-actions"><div class="player-editor-heading"><b>${hasPreview?'Player photo':'Add a player photo'}</b><span>${hasPreview?'Tap the photo to view it larger.':'Initials remain the fallback everywhere in Court.'}</span></div><div class="row"><input id="pPhotoInput" type="file" accept="image/*" aria-label="Choose player photo" hidden onchange="choosePlayerPhoto(this.files&&this.files[0]);this.value=''"/><button type="button" class="btn sm" onclick="document.getElementById('pPhotoInput').click()" ${disabled}>${photoBusy?'Working…':actionLabel}</button>${remove}</div><span class="photo-unavailable-note">${setup}</span><span class="photo-unavailable-note" data-photo-unavailable-note hidden>Photo unavailable · showing initials</span></div></div></section>`;
 }
+function playerPhotoPrivacyHtml(p){const hasPhoto=!!(photoPrepared||(!photoRemovePending&&normalizePlayerPhoto(p?.photo))),disabled=photoBusy||!hasPhoto?'disabled':'';return `<div class="field"><div class="photo-public-line" style="margin-top:0;padding-top:0;border-top:0"><div class="photo-public-copy"><b>Show this photo on shared pages</b><span>Off keeps the photo inside your synced Court room. Turn it on only with the player’s permission.</span></div><button type="button" class="btn sm ${photoDraftPublic?'primary':'ghost'}" aria-label="Show this photo on shared pages: ${photoDraftPublic?'On':'Off'}" aria-pressed="${photoDraftPublic}" onclick="togglePlayerPhotoPublic()" ${disabled}>${photoDraftPublic?'On':'Off'}</button></div></div>`;}
 function renderPlayerSheet(){
+  if(playerWindowMode==='profile'){renderPlayerProfile();return;}
   const p = editId?pById(editId):null;
   const mode = window._seedMode;
   let body = `
-    <h3>${editId?'Edit player':'Add player'}</h3>
+    <div data-player-window-mode="${playerWindowMode}"><h3 tabindex="-1" data-player-editor-heading>${editId?'Edit player':'Add player'}</h3>
+    ${playerPhotoEditorHtml(p)}
     <div class="field"><label>Name</label>
-      <input id="pName" value="${esc(draft.name)}" placeholder="Player name" autocomplete="off"></div>
+      <input id="pName" data-focus-key="player-name" value="${esc(draft.name)}" placeholder="Player name" autocomplete="off" oninput="playerNameInputChanged(this.value)"></div>
     <div class="field">
       <div class="row spread" style="margin-bottom:7px">
         <label style="margin:0">Starting level</label>
@@ -7525,42 +7713,15 @@ function renderPlayerSheet(){
         <button class="opt ${draft.roles[k]?'on':''}" onclick="toggleRole('${k}')">${l}</button>`).join('')}</div>
     </div>
     <div class="field"><label>Notes</label>
-      <input id="pNotes" value="${esc(draft.notes||'')}" placeholder="e.g. great serve receive"></div>`;
-  body += playerPhotoEditorHtml(p);
-
-  if(p){
-    const rel=reliability(p);
-    const b=band(p);
-    const rd=recentDelta(p);
-    const rt=recentRatingTrend(p);
-    const rdTxt = settings.hideRatings ? rt.label : (rd>0?`▲ +${rd}`:rd<0?`▼ ${Math.abs(rd)}`:'flat');
-    const rdCol = settings.hideRatings ? rt.tone : (rd>0?'var(--good)':rd<0?'var(--bad)':'var(--faint)');
-    const level=volleyballLevelOf(p.rating);
-    body += `<div class="card" style="background:var(--surface2)">
-      <div class="row spread"><span class="muted small">Current rating</span><span class="rate num">${showRate(p.rating)}${settings.hideRatings?'':`<span style="font-size:13px;color:var(--faint);font-weight:600"> ±${b}</span>`}</span></div>
-      ${settings.hideRatings?'':`<div class="row spread" style="margin-top:6px"><span class="muted small">Court Level</span><span class="small" style="font-weight:700">${esc(level.label)}</span></div>
-      <div class="tiny faint" style="margin-top:4px">${esc(level.overall)}</div>`}
-      <div class="row spread" style="margin-top:6px"><span class="muted small">Record · games</span><span class="num">${p.wins}-${p.losses} · ${p.gamesPlayed}</span></div>
-      ${((p.partialGames||0)+(p.soloGames||0))?`<div class="row spread" style="margin-top:6px"><span class="muted small">Game mix</span><span class="small num">${p.fullGames||0} full · ${p.partialGames||0} partial · ${p.soloGames||0} solo</span></div>
-      <div class="tiny faint" style="margin-top:4px">Partial and solo games count toward the record, but move the rating more gently than fully tracked games.</div>`:''}
-      <div class="row spread" style="margin-top:6px"><span class="muted small">Rating confidence</span><span class="small" style="color:${rel.c};font-weight:700">${rel.k}</span></div>
-      ${p.gamesPlayed>=2?`<div class="row spread" style="margin-top:6px"><span class="muted small">Recent trend</span><span class="${settings.hideRatings?'':'num '}small" style="color:${rdCol};font-weight:700">${rdTxt}</span></div>`:''}
-    </div>
-    ${insightCard(p)}
-    <button class="btn block ghost" style="margin-top:2px" onclick="openPlayerCard('${p.id}')">Player card · view &amp; share ▸</button>
-    ${lifetimeStatsSection(p)}
-    ${settings.hideRatings?'':`<div class="card" style="background:var(--surface2)">
-      <div class="small muted" style="margin-bottom:4px">Rating over time</div>
-      ${trendChart(p.history)}
-    </div>`}`;
-  }
+      <textarea id="pNotes" rows="3" placeholder="e.g. great serve receive">${esc(draft.notes||'')}</textarea></div>
+    ${playerPhotoPrivacyHtml(p)}`;
   body += `<button class="btn primary block" onclick="savePlayer()" ${photoBusy?'disabled':''}>${photoBusy?'Saving…':editId?'Save changes':'Add player'}</button>
     <button class="btn ghost block" style="margin-top:8px" onclick="cancelPlayerEdit()">Cancel</button>`;
   if(editId){
     body += `${draft.archived?`<button class="btn ghost block" style="margin-top:8px" onclick="restoreArchivedPlayer()">Restore player</button>`:`<button class="btn ghost block" style="margin-top:8px" onclick="toggleActive()">${draft.active===false?'Mark active':'Set as away / inactive'}</button>`}
       <button class="btn danger block" style="margin-top:8px" onclick="deletePlayer()">Delete player</button>`;
   }
-  openSheet(body);setPlayerEditorCloseGuard();
+  body+='</div>';openSheet(body,{className:'player-editor-sheet',focus:'[data-player-editor-heading]'});setPlayerEditorCloseGuard();
 }
 function lifetimeStatsSection(p){
   const groups = PLAYER_STAT_GROUPS.map(grp=>{
@@ -7585,9 +7746,30 @@ function computeSkillSeed(){
   return Math.round(s);
 }
 function captureInputs(){
+  if(!draft)return;
   const n=$('#pName'); if(n) draft.name=n.value;
   const no=$('#pNotes'); if(no) draft.notes=no.value;
 }
+window.playerNameInputChanged=value=>{if(!draft)return;draft.name=value;document.querySelectorAll('#scrim .player-editor-identity .avatar-initials').forEach(element=>element.textContent=initials(value));document.querySelectorAll('#scrim .player-editor-photo-button').forEach(button=>button.setAttribute('aria-label',`${photoPrepared||(!photoRemovePending&&normalizePlayerPhoto(editId?pById(editId)?.photo:null))?'View larger photo of':'Add photo for'} ${String(value||'Player').trim()||'Player'}`));};
+let playerPhotoViewer=null;
+function closePlayerPhotoViewer(){
+  const state=playerPhotoViewer,layer=document.querySelector('[data-player-photo-viewer]');if(!state&&!layer)return;
+  layer?.remove();const sheet=$('#scrim .sheet');if(sheet){sheet.removeAttribute('inert');sheet.removeAttribute('aria-hidden');}
+  playerPhotoViewer=null;if(!document.querySelector('.scrim')&&!document.querySelector('[data-player-photo-viewer]'))document.body.classList.remove('modal-open');
+  if(state?.trigger?.isConnected)requestAnimationFrame(()=>state.trigger.focus({preventScroll:true}));
+}
+window.closePlayerPhotoViewer=closePlayerPhotoViewer;
+window.openPlayerPhotoViewer=()=>{
+  const player=editId?pById(editId):null,prepared=photoPrepared,photo=!photoRemovePending&&normalizePlayerPhoto(player?.photo),name=String(draft?.name||player?.name||'Player').trim()||'Player';
+  if(!prepared&&!photo){document.getElementById('pPhotoInput')?.click();return;}
+  closePlayerPhotoViewer();const trigger=document.activeElement instanceof HTMLElement?document.activeElement:null,sheet=$('#scrim .sheet');if(sheet){sheet.setAttribute('inert','');sheet.setAttribute('aria-hidden','true');}
+  const layer=document.createElement('div'),titleId='player-photo-viewer-title-'+Date.now();layer.className='photo-viewer-scrim';layer.dataset.playerPhotoViewer='';layer.setAttribute('role','presentation');layer.innerHTML=`<div class="photo-viewer-dialog" role="dialog" aria-modal="true" aria-labelledby="${titleId}"><h3 id="${titleId}">Photo of ${esc(name)}</h3><button type="button" class="photo-viewer-close" aria-label="Close photo viewer">×</button><div class="photo-viewer-media"><span aria-hidden="true">${initials(name)}</span><img alt="Large photo of ${esc(name)}" hidden><p class="photo-viewer-status">${prepared?'Opening photo…':'Loading photo…'}</p></div></div>`;
+  const dialog=layer.querySelector('.photo-viewer-dialog'),image=layer.querySelector('img'),status=layer.querySelector('.photo-viewer-status'),close=layer.querySelector('.photo-viewer-close');playerPhotoViewer={trigger,layer};
+  const show=url=>{if(playerPhotoViewer?.layer!==layer)return;image.onload=()=>{if(playerPhotoViewer?.layer!==layer)return;image.hidden=false;status.hidden=true;};image.onerror=()=>{if(playerPhotoViewer?.layer!==layer)return;image.hidden=true;image.removeAttribute('src');status.textContent='Photo unavailable';status.hidden=false;};image.src=url;if(image.complete&&image.naturalWidth){image.hidden=false;status.hidden=true;}};
+  const unavailable=()=>{if(playerPhotoViewer?.layer!==layer)return;image.hidden=true;image.removeAttribute('src');status.textContent='Photo unavailable';status.hidden=false;};
+  close.addEventListener('click',closePlayerPhotoViewer);layer.addEventListener('click',event=>{if(event.target===layer)closePlayerPhotoViewer();});layer.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();closePlayerPhotoViewer();}else if(event.key==='Tab')trapDialogTab(dialog,event);});
+  document.body.classList.add('modal-open');document.body.appendChild(layer);requestAnimationFrame(()=>close.focus());if(prepared)show(prepared.previewUrl);else PlayerPhotos.getUrl(photo).then(show).catch(unavailable);
+};
 window.choosePlayerPhoto=async file=>{
   if(!file)return;if(!/^image\//i.test(file.type||'')){toast('Choose an image file');return;}if(file.size>15*1024*1024){toast('Choose an image smaller than 15 MB');return;}
   if(!(await PlayerPhotos.capability())){toast(PlayerPhotos.state().message||'Player photo storage is unavailable');return;}
@@ -7626,27 +7808,17 @@ async function encodePlayerPhoto(){
 }
 window.usePlayerPhotoCrop=async()=>{
   if(!photoCrop||photoCrop.encoding)return;photoCrop.encoding=true;renderPlayerPhotoCrop();
-  try{const prepared=await encodePlayerPhoto();cleanupPreparedPhoto();prepared.previewUrl=URL.createObjectURL(prepared.blob);photoPrepared=prepared;cleanupPhotoCrop();renderPlayerSheet();}
+  try{const prepared=await encodePlayerPhoto();cleanupPreparedPhoto();prepared.previewUrl=URL.createObjectURL(prepared.blob);photoPrepared=prepared;photoRemovePending=false;cleanupPhotoCrop();renderPlayerSheet();}
   catch(error){if(photoCrop)photoCrop.encoding=false;toast(error.message||'Could not prepare that photo');if(photoCrop)renderPlayerPhotoCrop();}
 };
 window.cancelPlayerPhotoCrop=()=>{cleanupPhotoCrop();renderPlayerSheet();};
-window.discardPreparedPlayerPhoto=()=>{captureInputs();cleanupPreparedPhoto();photoDraftPublic=normalizePlayerPhoto(draft?.photo)?.public||false;renderPlayerSheet();};
+window.discardPreparedPlayerPhoto=()=>{captureInputs();cleanupPreparedPhoto();photoRemovePending=false;photoDraftPublic=normalizePlayerPhoto(editId?pById(editId)?.photo:draft?.photo)?.public||false;renderPlayerSheet();};
 async function persistPhotoChange(){await savePlayers();Sync.touch();}
-window.togglePlayerPhotoPublic=async()=>{
-  captureInputs();const p=editId?pById(editId):null,existing=normalizePlayerPhoto(p?.photo);
-  if(photoPrepared||!existing){if(photoPrepared){photoDraftPublic=!photoDraftPublic;renderPlayerSheet();}return;}
-  if(photoBusy)return;const previous=existing;photoBusy=true;renderPlayerSheet();
-  try{const next=await PlayerPhotos.setPublic(previous,!previous.public);if(!pById(p.id)){throw new Error('The player no longer exists.');}p.photo=next;draft.photo={...next};photoDraftPublic=next.public;PlayerPhotos.invalidate(previous);await persistPhotoChange();toast(next.public?'Photo enabled on shared pages':'Photo removed from shared pages');}
-  catch(error){photoDraftPublic=previous.public;toast(error.message||'Could not change photo sharing');}
-  finally{photoBusy=false;if(draft)renderPlayerSheet();}
-};
+window.togglePlayerPhotoPublic=()=>{if(photoBusy||!draft)return;const hasPhoto=!!(photoPrepared||(!photoRemovePending&&normalizePlayerPhoto(editId?pById(editId)?.photo:draft.photo)));if(!hasPhoto)return;captureInputs();photoDraftPublic=!photoDraftPublic;const normalized=normalizePlayerPhoto(draft.photo);if(normalized)draft.photo={...normalized,public:photoDraftPublic};renderPlayerSheet();};
 window.removePlayerPhoto=async()=>{
-  captureInputs();const p=editId?pById(editId):null,existing=normalizePlayerPhoto(p?.photo);if(!p||!existing||photoBusy)return;
+  captureInputs();const p=editId?pById(editId):null,existing=normalizePlayerPhoto(p?.photo);if(!existing||photoBusy)return;
   if(!(await askConfirm('Remove this player photo? The player, games, rating, and history will stay unchanged.','Remove photo')))return;
-  photoBusy=true;renderPlayerSheet();
-  try{await PlayerPhotos.remove(existing);if(!pById(p.id))throw new Error('The player no longer exists.');delete p.photo;delete draft.photo;photoDraftPublic=false;cleanupPreparedPhoto();PlayerPhotos.invalidate(existing);await persistPhotoChange();toast('Photo removed');}
-  catch(error){toast(error.message||'Could not remove the photo');}
-  finally{photoBusy=false;if(draft)renderPlayerSheet();}
+  cleanupPreparedPhoto();photoRemovePending=true;photoDraftPublic=false;delete draft.photo;renderPlayerSheet();
 };
 window.seedMode=(m)=>{ captureInputs(); window._seedMode=m; if(m==='tier') draft.skills=null; renderPlayerSheet(); };
 window.setSeed=(v)=>{ captureInputs(); draft.seedRating=v; renderPlayerSheet(); };
@@ -7654,7 +7826,7 @@ window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=co
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
 window.restoreArchivedPlayer=()=>{captureInputs();draft.archived=false;draft.active=true;renderPlayerSheet();};
-window.cancelPlayerEdit=()=>{ cleanupPhotoCrop();cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true); };
+window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId);discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);}};
 
 window.openLevelGuide=()=>{
   captureInputs();
@@ -7732,32 +7904,23 @@ window.savePlayer=async()=>{
   if(!name){ toast('Enter a name'); return; }
   const notes=$('#pNotes')?$('#pNotes').value:'';
   if(window._seedMode==='skills') draft.seedRating=computeSkillSeed();
-  const wasEdit=!!editId;let target;
-  if(editId){
-    const p=pById(editId);
-    const seedChanged = Number(p.seedRating) !== Number(draft.seedRating);
-    if(seedChanged && p.gamesPlayed>0 &&
-      !(await askConfirm("Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?", 'Continue'))){
-      return;
-    }
-    p.name=name; p.notes=notes; p.roles=draft.roles; p.skills=draft.skills;
-    p.seedRating=draft.seedRating; if(draft.active!==undefined)p.active=draft.active;if(draft.archived!==undefined)p.archived=draft.archived;
-    target=p;
-  } else {
-    const np=makePlayer(name, draft.seedRating);
-    np.roles=draft.roles; np.skills=draft.skills; np.notes=notes;
-    players.push(np);target=np;
-  }
+  captureInputs();const wasEdit=!!editId,current=wasEdit?pById(editId):null;if(wasEdit&&!current){toast('This player is no longer available');return;}
+  const seedChanged=!!current&&Number(current.seedRating)!==Number(draft.seedRating);
+  if(seedChanged&&current.gamesPlayed>0&&!(await askConfirm("Changing this starting level will recalculate this player's full rating history from their new baseline. Continue?",'Continue')))return;
+  const target=current||makePlayer(name,draft.seedRating),existing=normalizePlayerPhoto(current?.photo);let nextPhoto=existing,photoChanged=false;
   photoBusy=true;renderPlayerSheet();
-  await commit();  // reseat ratings if seed changed
-  let photoError='';
-  if(photoPrepared){
-    const existing=normalizePlayerPhoto(target.photo);
-    try{const next=await PlayerPhotos.upload(target.id,photoPrepared,existing,photoDraftPublic);target.photo=next;PlayerPhotos.invalidate(existing);await persistPhotoChange();}
-    catch(error){photoError=`Player saved, but the photo was not changed. ${error.message||'Try the photo again later.'}`;}
-  }
-  photoBusy=false;cleanupPreparedPhoto();editId=null;draft=null;photoSession='';closeSheet(true);render();
-  toast(photoError||(wasEdit?'Saved':'Player added'));
+  try{
+    if(photoRemovePending&&existing){await PlayerPhotos.remove(existing);nextPhoto=null;photoChanged=true;}
+    else if(photoPrepared){nextPhoto=await PlayerPhotos.upload(target.id,photoPrepared,existing,photoDraftPublic);photoChanged=true;}
+    else if(existing&&existing.public!==photoDraftPublic){nextPhoto=await PlayerPhotos.setPublic(existing,photoDraftPublic);photoChanged=true;}
+    target.name=name;target.notes=notes;target.roles={...(draft.roles||{})};target.skills=draft.skills?{...draft.skills}:null;target.seedRating=draft.seedRating;
+    if(draft.active!==undefined)target.active=draft.active;if(draft.archived!==undefined)target.archived=draft.archived;
+    if(nextPhoto)target.photo=nextPhoto;else delete target.photo;
+    if(!current)players.push(target);
+    if(seedChanged)await commit();else{await savePlayers();Sync.touch();}
+    if(photoChanged&&existing)PlayerPhotos.invalidate(existing);
+  }catch(error){photoBusy=false;renderPlayerSheet();toast(error?.message||'Could not save this player. Your changes are still here.');return;}
+  const savedId=target.id;discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();renderPlayerProfile();toast(wasEdit?'Saved':'Player added');
 };
 window.deletePlayer=async()=>{
   const p=pById(editId); if(!p) return;
@@ -7767,12 +7930,12 @@ window.deletePlayer=async()=>{
     : 'Delete this player? This cannot be undone.';
   if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
   clearPlayerRuntimeState(editId);
-  if(historical){ p.archived=true; p.active=false; }
+  if(historical){p.archived=true;p.active=false;await savePlayers();Sync.touch();discardPlayerDraft();playerWindowMode='profile';render();renderPlayerProfile();toast('Archived');return;}
   else{
     const photo=normalizePlayerPhoto(p.photo);if(photo){try{await PlayerPhotos.remove(photo);PlayerPhotos.invalidate(photo);}catch(_){/* Permanent player deletion remains usable if photo storage is temporarily unavailable. */}}
     await Sync.markDeleted('players',editId); players=players.filter(p=>p.id!==editId);
   }
-  cleanupPreparedPhoto();await commit();editId=null;draft=null;photoSession='';closeSheet(true); toast(historical?'Archived':'Deleted'); render();
+  await savePlayers();Sync.touch();discardPlayerDraft();editId=null;playerWindowMode=null;closeSheet(true);toast('Deleted');render();
 };
 
 /* ============================================================
@@ -7924,15 +8087,16 @@ window.roleGuideCancel=()=>{ roleGuideI=null; renderPlayerSheet(); };
 function sheetCloseBtn(label='Cancel'){
   return `<button class="btn ghost block sheet-close" style="margin-top:8px" onclick="closeSheet()">${label}</button>`;
 }
-function openSheet(html){
-  const prior=$('#scrim .sheet'), priorFocus=document.activeElement;
+function openSheet(html,options={}){
+  const priorScrim=$('#scrim'),prior=priorScrim?.querySelector('.sheet'),priorFocus=document.activeElement,returnFocus=prior?window._sheetReturnFocus:(priorFocus instanceof HTMLElement?priorFocus:null);
   const sheetState=prior?{top:prior.scrollTop,key:priorFocus?.dataset?.focusKey,start:priorFocus?.selectionStart,end:priorFocus?.selectionEnd}:null;
-  closeSheet(true);
-  window._sheetReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  if(priorScrim){priorScrim.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;}
+  window._sheetReturnFocus=returnFocus;
   const s=document.createElement('div'); s.className='scrim'; s.id='scrim';
   s.setAttribute('role','presentation');
   s.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Close dialog" onclick="requestCloseSheet()">×</button>${html}</div>`;
   const dialog=s.querySelector('.sheet'), heading=dialog.querySelector('h3');
+  if(options.className)String(options.className).split(/\s+/).filter(Boolean).forEach(name=>dialog.classList.add(name));
   if(heading){ heading.id='sheet-title-'+Date.now(); dialog.setAttribute('aria-labelledby',heading.id); }
   else dialog.setAttribute('aria-label','Court dialog');
   s.addEventListener('click',e=>{ if(e.target===s) e.preventDefault(); });
@@ -7940,14 +8104,15 @@ function openSheet(html){
   document.body.classList.add('modal-open');
   document.body.appendChild(s);
   window.PlayerPhotos?.hydrate(dialog);
+  hydratePublicPlayerPhotos(dialog);
   requestAnimationFrame(()=>{
     if(sheetState){ dialog.scrollTop=sheetState.top; const same=sheetState.key&&dialog.querySelector(`[data-focus-key="${CSS.escape(sheetState.key)}"]`); if(same){ same.focus({preventScroll:true}); if(Number.isFinite(sheetState.start)&&same.setSelectionRange) same.setSelectionRange(sheetState.start,sheetState.end); return; } }
-    const target=dialog.querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]):not(.sheet-x)') || dialog.querySelector('.sheet-x'); target?.focus();
+    const target=options.focus?dialog.querySelector(options.focus):dialog.querySelector('input:not([disabled]),select:not([disabled]),textarea:not([disabled]),button:not([disabled]):not(.sheet-x)');(target||dialog.querySelector('.sheet-x'))?.focus();
   });
 }
 function trapDialogTab(dialog,event){
   const focusable=[...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[contenteditable="true"],[tabindex]:not([tabindex="-1"])')].filter(element=>!element.hidden&&element.getClientRects().length);
-  if(!focusable.length){event.preventDefault();dialog.focus();return;}const first=focusable[0],last=focusable[focusable.length-1];if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
+  if(!focusable.length){event.preventDefault();dialog.focus();return;}const first=focusable[0],last=focusable[focusable.length-1];if(!dialog.contains(document.activeElement)){event.preventDefault();(event.shiftKey?last:first).focus();}else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus();}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus();}
 }
 function requestCloseSheet(){
   const guard=window._sheetBeforeClose;if(!guard){closeSheet(true);return;}
@@ -7993,8 +8158,19 @@ function askConfirm(msg, yesLabel='Confirm', danger=true){
 /* Capture Escape before editor inputs can consume it. Confirmation dialogs
    handle Escape themselves; ordinary sheets close and return focus. */
 document.addEventListener('keydown',e=>{
+  const viewerLayer=document.querySelector('[data-player-photo-viewer]');
+  if(viewerLayer){
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closePlayerPhotoViewer();}
+    else if(e.key==='Tab'&&!viewerLayer.querySelector('.photo-viewer-dialog')?.contains(document.activeElement))trapDialogTab(viewerLayer.querySelector('.photo-viewer-dialog'),e);
+    return;
+  }
+  const downloadLayer=document.querySelector('[data-download-chooser]');
+  if(downloadLayer){
+    if(e.key==='Escape'){e.preventDefault();e.stopPropagation();closeScheduleDownloadOptions();}
+    else if(e.key==='Tab'&&!downloadLayer.querySelector('.download-options')?.contains(document.activeElement))trapDialogTab(downloadLayer.querySelector('.download-options'),e);
+    return;
+  }
   if(e.key!=='Escape') return;
-  if(document.querySelector('[data-download-chooser]')){e.preventDefault();e.stopPropagation();closeScheduleDownloadOptions();return;}
   const layers=[...document.querySelectorAll('.scrim')];
   const top=layers[layers.length-1];
   if(top&&top.id==='scrim'){ e.preventDefault(); closeSheet(); }

@@ -96,7 +96,7 @@ An update replaces the stored document and hash while preserving the public toke
 - `Content-Type: text/html; charset=utf-8`
 - `X-Content-Type-Options: nosniff`
 - `Cache-Control: public, max-age=60`
-- `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
+- `Content-Security-Policy: default-src 'none'; style-src 'unsafe-inline'; script-src 'self' <exact public behavior-script hash>; img-src 'self' data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`
 - `Referrer-Policy: no-referrer`
 - `Permissions-Policy: camera=(), microphone=(), geolocation=()`
 
@@ -188,6 +188,23 @@ The capability and private publication-management API reflect only these approve
 
 Origins never include `/court-vball/`; an origin consists only of scheme, host, and optional port. Private preflight permits `Content-Type`, `X-Court-Room`, and `X-Management-Token`, with `GET`, `POST`, `PUT`, `DELETE`, and `OPTIONS` as needed by status and management routes. Public browser navigation at `/s/{token}` does not depend on private API CORS.
 
+### Public player-photo origin rules
+
+Schedule preview markup is inserted directly into the GitHub Pages app sheet. It is not rendered in an iframe, `srcdoc`, Blob document, or canvas. Before the profile upgrade, all renderers emitted `/media/player-photos/<token>?v=<revision>`. In the preview this resolved against GitHub Pages—for example, `https://cheebychob.github.io/media/player-photos/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA?v=revision-1`—instead of the configured Worker, so the request failed. The same root-relative reference had no usable origin in downloaded `file://` HTML. A published `/s/<token>` page worked because it already shared the Worker origin.
+
+Court now uses one validated path and an explicit context at every render call site:
+
+| Context | Photo URL |
+| --- | --- |
+| Published Worker schedule/event | Root-relative Worker path |
+| GitHub Pages in-app preview | Absolute configured Worker URL |
+| Downloaded/shared HTML file | Absolute configured Worker URL |
+| Print / Save as PDF window | Absolute configured Worker URL |
+
+Both fixed-team and rotating full schedules, plus participant/team/entry schedules, use the same public-only descriptors. Private or malformed photo metadata never produces a media URL. Image dimensions are reserved, initials sit behind the image, and load failure removes the unusable `src` so a broken icon does not remain. Print waits briefly for fonts and public images to settle before opening the print dialog.
+
+Only public `GET`/`HEAD /media/player-photos/<token>` responses use wildcard `Access-Control-Allow-Origin` and `Cross-Origin-Resource-Policy: cross-origin`. This is safe for already-public, opaque-token media and supports cross-origin preview rendering and canvas-safe reuse. Private photo APIs keep room authorization and reflected allowlisted CORS; their headers and access model are unchanged.
+
 ## Local testing
 
 From the repository root:
@@ -237,7 +254,7 @@ The Worker is deployed manually. Deployment is not performed by repository tests
 7. Publish a team or rotating-entry schedule and confirm it contains only that participant-facing document while the full link remains unchanged.
 8. Capture the create request and confirm its JSON has only `html`, `title`, `contentHash`, and `scope`; confirm the room code appears only in `X-Court-Room`.
 9. Disable one participant link and confirm it returns 410 while other scopes remain active.
-10. Confirm download, native HTML-file sharing, and Print / Save as PDF still work offline.
+10. Confirm download, native HTML-file sharing, and Print / Save as PDF still open offline; opted-in public photos fall back to initials until the Worker is reachable.
 
 ## Troubleshooting
 

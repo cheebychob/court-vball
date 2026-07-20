@@ -94,16 +94,16 @@ async function clickNav(page, name) {
     .click();
 }
 
-async function openPlayerEditor(page, name) {
+async function openPlayerProfile(page, name) {
   await clickNav(page, 'Players');
   await page.locator('.player-card').filter({ hasText: name }).first().click();
-  await expect(page.locator('.sheet').getByRole('heading', { name: 'Edit player', exact: true })).toBeVisible();
+  await expect(page.locator('.sheet').getByRole('heading', { name, exact: true })).toBeVisible();
 }
 
 async function openProfileCard(page) {
   await page
     .locator('.sheet')
-    .getByRole('button', { name: /Player card · view & share/i })
+    .getByRole('button', { name: /View & share player card/i })
     .click();
   await expect(page.locator('.sheet').getByRole('heading', { name: 'Player card', exact: true })).toBeVisible();
 }
@@ -221,7 +221,7 @@ test('share falls back to a download and shows a toast', async ({ page }) => {
   });
   await seedCardData(page);
   await page.goto('/');
-  await openPlayerEditor(page, 'Card Stats');
+  await openPlayerProfile(page, 'Card Stats');
   await openProfileCard(page);
 
   const downloadPromise = page.waitForEvent('download');
@@ -233,21 +233,19 @@ test('share falls back to a download and shows a toast', async ({ page }) => {
   await expect(page.locator('#toast')).toHaveClass(/show/);
 });
 
-test('Back preserves unsaved editor state across repeated card opens', async ({ page }) => {
+test('Back returns from the share card to the read-only profile across repeated opens', async ({ page }) => {
   await seedCardData(page);
   await page.goto('/');
-  await openPlayerEditor(page, 'Card Stats');
-  await page.getByPlaceholder('Player name').fill('Unsaved Card Name');
+  await openPlayerProfile(page, 'Card Stats');
 
   await openProfileCard(page);
   await page.locator('.sheet').getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.locator('.sheet').getByRole('heading', { name: 'Edit player', exact: true })).toBeVisible();
-  await expect(page.getByPlaceholder('Player name')).toHaveValue('Unsaved Card Name');
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Card Stats', exact: true })).toBeVisible();
 
   await openProfileCard(page);
-  expect(await page.evaluate(() => draft.name)).toBe('Unsaved Card Name');
+  expect(await page.evaluate(() => ({ mode: playerWindowMode, draft }))).toEqual({ mode: 'profile', draft: null });
   await page.locator('.sheet').getByRole('button', { name: 'Back', exact: true }).click();
-  await expect(page.getByPlaceholder('Player name')).toHaveValue('Unsaved Card Name');
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Card Stats', exact: true })).toBeVisible();
 });
 
 test('correcting and deleting games updates the next derived card', async ({ page }) => {
@@ -259,20 +257,20 @@ test('correcting and deleting games updates the next derived card', async ({ pag
     games.find(game => game.id === 'card-game-1').log['card-stats'].goodPass = 0;
     await commit();
   });
-  await openPlayerEditor(page, 'Card Stats');
+  await openPlayerProfile(page, 'Card Stats');
   await openProfileCard(page);
   const corrected = await page.evaluate(() => profileCardData(pById('card-stats')));
   expect(corrected).not.toEqual(initial);
   expect(Object.fromEntries(corrected.stats)['Passer rating']).toBe('1.57 (2 games)');
 
   await page.locator('.sheet').getByRole('button', { name: 'Back', exact: true }).click();
-  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'Close dialog', exact: true }).click();
   await clickNav(page, 'Games');
   await page.locator('.history-row').filter({ hasText: '25 – 18' }).first().click();
   await page.locator('.sheet').getByRole('button', { name: 'Delete game', exact: true }).click();
   await page.locator('.scrim').last().getByRole('button', { name: 'Delete game', exact: true }).click();
 
-  await openPlayerEditor(page, 'Card Stats');
+  await openPlayerProfile(page, 'Card Stats');
   await openProfileCard(page);
   const afterDelete = await page.evaluate(() => ({
     data: profileCardData(pById('card-stats')),
