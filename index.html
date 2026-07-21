@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260721.1">
+<meta name="court-build" content="20260721.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -253,31 +253,37 @@
   .player-profile-hero{position:relative;isolation:isolate;overflow:hidden;padding:18px;border:1px solid #f2c66d38;border-radius:24px;background:linear-gradient(138deg,#18385e 0%,#10223d 48%,#171b2c 72%,#302712 100%);box-shadow:0 20px 52px #0008,inset 0 1px 0 #ffffff25}
   .player-profile-hero::before{content:"";position:absolute;z-index:-2;inset:10px;border:1px solid #ffffff12;border-radius:17px;pointer-events:none}
   .player-profile-hero::after{content:"";position:absolute;z-index:-1;width:250px;height:250px;right:-96px;top:-120px;border-radius:50%;border:1px solid #f2c66d24;box-shadow:0 0 72px #f2c66d1f,inset 0 0 42px #ffffff08;pointer-events:none}
-  .player-profile-main{display:grid;grid-template-columns:auto minmax(0,1fr);gap:17px;align-items:center}
+  .player-profile-main{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:16px;align-items:center}
   .player-profile-photo-button,.player-editor-photo-button{display:grid;place-items:center;flex:none;border-radius:32px}
   .player-profile-photo{width:132px;height:132px;border-radius:32px;border:2px solid #f2c66d9c;box-shadow:0 0 0 4px #f2c66d13,0 16px 38px #0007;font-size:34px;background:linear-gradient(145deg,#315c84,#121b31)}
   .player-profile-photo-button:active,.player-editor-photo-button:active{transform:scale(.98)}
   .player-profile-photo-button .player-profile-photo{cursor:zoom-in}
   .player-profile-identity{min-width:0}
-  .player-profile-kicker{display:flex;align-items:center;flex-wrap:wrap;gap:7px;color:#dce7f7;font-size:10px;font-weight:850;letter-spacing:.13em;text-transform:uppercase}
-  .player-profile-name{margin:7px 0 5px;font-size:clamp(27px,6vw,46px);line-height:1.02;letter-spacing:-.035em;overflow-wrap:anywhere}
-  .player-profile-level{color:#d6e4f5;font-size:13px;font-weight:750;line-height:1.4}
-  .player-profile-level span{display:block;margin-top:2px;color:#9fb0c8;font-weight:550}
-  .player-profile-rating-row{display:flex;align-items:flex-end;flex-wrap:wrap;gap:12px 20px;margin-top:12px}
-  .player-profile-rating b{display:block;color:var(--gold);font-size:44px;line-height:.86;font-weight:900;letter-spacing:-.04em;text-shadow:0 5px 28px #d99e3745}
-  .player-profile-rating span,.player-profile-rank span,.player-profile-direction span{display:block;margin-top:7px;color:#aebbd0;font-size:10px;font-weight:800;letter-spacing:.09em;text-transform:uppercase}
-  .player-profile-rank b{display:block;color:#f2f6fc;font-size:22px;line-height:1;font-weight:850}
-  .player-profile-direction b{display:block;color:#f2f6fc;font-size:18px;line-height:1;font-weight:850}
+  .player-profile-kicker{display:flex;align-items:center;flex-wrap:wrap;gap:7px;color:#8fa2bd;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
+  .player-profile-name{margin:4px 0 9px;font-size:clamp(27px,6vw,44px);line-height:1.03;letter-spacing:-.035em;overflow-wrap:anywhere}
+  .player-profile-tags{display:flex;flex-wrap:wrap;gap:6px}
+  .player-profile-tags .pill{font-size:12px;font-weight:750}
+  .player-profile-tags .pill.level{border-color:#f2c66d52;background:#f2c66d1a;color:#ffe09a}
+  .player-profile-rating-row{display:flex;align-items:flex-end;justify-content:flex-end;flex-wrap:wrap;gap:10px 18px}
+  .player-profile-rating{text-align:right}
+  .player-profile-rating b{display:block;color:var(--gold);font-size:52px;line-height:.84;font-weight:900;letter-spacing:-.04em;text-shadow:0 5px 28px #d99e3745}
+  .player-profile-rating span{display:block;margin-top:8px;color:#8fa2bd;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase}
   .player-profile-hidden-rating{max-width:250px;padding:9px 11px;border:1px solid #ffffff1d;border-radius:12px;background:#06111f66;color:#c1ccdc;font-size:11px;line-height:1.4}
   .player-profile-edit{position:absolute;z-index:2;right:14px;top:14px;min-height:44px;background:#0a1628d9;border-color:#f2c66d62;color:var(--gold);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px)}
   .profile-status-badge{display:inline-flex;align-items:center;min-height:25px;padding:4px 9px;border:1px solid #ffd36d54;border-radius:999px;background:#ffd36d12;color:#ffe09a;font-size:10px;font-weight:850;letter-spacing:.06em}
   .profile-status-badge.away{border-color:#a9b4c84f;background:#a9b4c812;color:#ced7e5}
   .player-profile-roles{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
   .player-profile-roles .pill{color:#e3eaf5;background:#ffffff10}
-  .player-profile-metrics{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-top:17px}
-  .player-profile-metric{min-width:0;padding:11px;border:1px solid #ffffff18;border-radius:14px;background:#07152670;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
-  .player-profile-metric b{display:block;font-size:20px;line-height:1;font-weight:900;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .player-profile-metric span{display:block;margin-top:6px;color:#9fadc3;font-size:9.5px;font-weight:800;letter-spacing:.07em;text-transform:uppercase}
+  .player-profile-metrics{display:grid;grid-auto-flow:column;grid-auto-columns:minmax(0,1fr);margin-top:16px;padding-top:14px;border-top:1px solid #ffffff1f}
+  .player-profile-metric{min-width:0;min-height:44px;padding:0 12px}
+  .player-profile-metric+.player-profile-metric{border-left:1px solid #ffffff17}
+  .player-profile-metric:first-child{padding-left:0}
+  .player-profile-metric:last-child{padding-right:0}
+  .player-profile-metric span{display:block;margin-bottom:6px;color:#8fa2bd;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-profile-metric b{display:block;color:#f2f6fc;font-size:20px;line-height:1.1;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .player-profile-metric b i{font-style:normal;font-size:13px;font-weight:600;color:#8fa2bd}
+  .player-profile-metric.up b{color:#7ddba4}
+  .player-profile-metric.down b{color:#e79a9a}
   .player-profile-grid{display:grid;gap:13px;min-width:0}
   .profile-panel{min-width:0;margin:0;padding:15px;border:1px solid var(--line);border-radius:19px;background:linear-gradient(145deg,#ffffff0c,#ffffff06);box-shadow:inset 0 1px 0 #ffffff0d}
   .profile-panel h4{margin:0;color:var(--text);font-size:13px;letter-spacing:.1em;text-transform:uppercase}
@@ -329,7 +335,7 @@
   .photo-viewer-status[hidden]{display:none}
 
   @media (max-width:559px){
-    .player-profile-hero{padding:62px 13px 14px}.player-profile-main{grid-template-columns:1fr;justify-items:center;text-align:center;gap:12px}.player-profile-photo{width:124px;height:124px}.player-profile-rating-row{justify-content:center}.player-profile-kicker,.player-profile-roles{justify-content:center}.player-profile-edit{right:12px;top:12px}.player-profile-metrics{grid-template-columns:repeat(2,minmax(0,1fr));gap:7px}.player-profile-metric{padding:10px}.profile-impact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.profile-panel-head{align-items:flex-start}.profile-panel-actions{flex-wrap:wrap}.profile-panel-actions .btn{min-height:44px}.profile-trend{height:112px}.player-profile-actions{display:grid;grid-template-columns:1fr}.player-history-toolbar{align-items:flex-start;flex-direction:column;padding-right:50px}.player-history-count{white-space:normal}.player-editor-identity .photo-editor{grid-template-columns:1fr;text-align:center}.player-editor-identity .photo-editor-actions .row{justify-content:center}.player-editor-photo{width:96px;height:96px}.photo-viewer-dialog{padding-left:8px;padding-right:8px}.photo-viewer-media{height:min(70vh,620px)}}
+    .player-profile-hero{padding:58px 13px 14px}.player-profile-main{grid-template-columns:auto minmax(0,1fr);gap:13px}.player-profile-photo{width:86px;height:86px;border-radius:22px}.player-profile-name{margin:3px 0 8px}.player-profile-rating-row{grid-column:1/-1;justify-content:flex-start;margin-top:2px}.player-profile-rating{text-align:left}.player-profile-rating b{font-size:46px}.player-profile-roles{justify-content:center}.player-profile-edit{left:12px;right:auto;top:12px}.player-profile-metrics{grid-auto-flow:row;grid-template-columns:repeat(3,minmax(0,1fr));margin-top:14px}.player-profile-metric{padding:0 10px}.player-profile-metric:nth-child(3n+1){padding-left:0;border-left:0}.player-profile-metric:nth-child(n+4){margin-top:13px;padding-top:13px;border-top:1px solid #ffffff17}.profile-impact-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.profile-panel-head{align-items:flex-start}.profile-panel-actions{flex-wrap:wrap}.profile-panel-actions .btn{min-height:44px}.profile-trend{height:112px}.player-profile-actions{display:grid;grid-template-columns:1fr}.player-history-toolbar{align-items:flex-start;flex-direction:column;padding-right:50px}.player-history-count{white-space:normal}.player-editor-identity .photo-editor{grid-template-columns:1fr;text-align:center}.player-editor-identity .photo-editor-actions .row{justify-content:center}.player-editor-photo{width:96px;height:96px}.photo-viewer-dialog{padding-left:8px;padding-right:8px}.photo-viewer-media{height:min(70vh,620px)}}
   @media (min-width:700px){.player-profile-grid{grid-template-columns:minmax(0,1fr) minmax(0,1fr)}.profile-panel.wide{grid-column:1/-1}.player-profile-main{padding-right:138px}}
 
   /* ---------- segmented controls ---------- */
@@ -939,9 +945,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.15.0',
-  build: '20260721.1',
-  releaseNotes: 'Player profiles now offer a streamlined layout and complete, player-filtered game history with reliable Back navigation.'
+  version: '0.15.1',
+  build: '20260721.2',
+  releaseNotes: 'Player profile heroes now use a clear three-tier type scale, unified stat strip, and more compact mobile layout.'
 });
 
 function appVersionLabel(){
@@ -2191,7 +2197,7 @@ function profileTrendHtml(model){
   return `<div role="img" aria-label="${esc(summary)}"><svg class="profile-trend" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="profileTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2c66d"/><stop offset="1" stop-color="#f2c66d" stop-opacity="0"/></linearGradient></defs><line class="profile-trend-grid" x1="${padX}" y1="${padY}" x2="${w-padX}" y2="${padY}"/><line class="profile-trend-grid" x1="${padX}" y1="${h-padY}" x2="${w-padX}" y2="${h-padY}"/><polygon class="profile-trend-area" points="${area}"/><polyline class="profile-trend-line" points="${line}"/></svg><div class="profile-trend-labels"><span>Started ${Math.round(values[0])}</span><span>Current ${Math.round(values.at(-1))}</span></div></div>`;
 }
 function profileDateLabel(value){if(value==null||value==='')return 'Date unavailable';const date=new Date(Number(value));return Number.isFinite(date.getTime())?date.toLocaleDateString([],{month:'short',day:'numeric',year:date.getFullYear()!==new Date().getFullYear()?'numeric':undefined}):'Date unavailable';}
-function profileMetric(value,label){return `<div class="player-profile-metric"><b class="num">${esc(value)}</b><span>${esc(label)}</span></div>`;}
+function profileMetric(value,label,opts){const o=opts||{};return `<div class="player-profile-metric${o.tone?` ${o.tone}`:''}"${o.aria?` role="group" aria-label="${esc(o.aria)}"`:''}><span>${esc(label)}</span><b class="num">${esc(value)}${o.extra?`<i> ${esc(o.extra)}</i>`:''}</b></div>`;}
 function profilePhotoHtml(player,model){
   const avatar=playerAvatarHtml(player,{size:'player-profile-photo',unavailableNotice:true});
   return model.photo?`<button type="button" class="player-profile-photo-button" aria-label="View larger photo of ${esc(model.name)}" onclick="openPlayerPhotoViewer()">${avatar}</button>`:avatar;
@@ -2207,14 +2213,23 @@ function restorePlayerProfileSheetState(state){
 function renderPlayerProfile(){
   const player=editId?pById(editId):null,model=playerProfileViewModel(player);if(!player||!model){closeSheet(true);return;}
   const status=model.archived?'<span class="profile-status-badge">Archived</span>':!model.active?'<span class="profile-status-badge away">Away</span>':'';
-  const roles=model.roles.length?`<div class="player-profile-roles" aria-label="Player roles">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div>`:'';
+  const levelPill=model.level?`<span class="pill level">${esc(model.level.label)} · ${esc(model.level.short)}</span>`:'<span class="pill">Court level hidden</span>';
+  const tags=`<div class="player-profile-tags" aria-label="Court level and roles">${levelPill}${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div>`;
   const trend=model.trendDelta==null?'No rating trend yet':`${model.trendDelta>0?'+':''}${Math.round(model.trendDelta)} over last ${model.trendGames} rated game${model.trendGames===1?'':'s'}`;
   const impact=model.statItems.length?`<div class="profile-impact-grid">${model.statItems.map(item=>`<div class="profile-impact"><b class="num">${item.value}</b><span>${esc(item.label)}</span></div>`).join('')}</div><div class="tiny faint" style="margin-top:9px">Totals from ${model.trackedGames} tracked game${model.trackedGames===1?'':'s'}; untracked games are not treated as zeros.</div>`:'';
   const recent=model.recentGames.length?`<div class="profile-game-list">${model.recentGames.slice(0,5).map(row=>{const delta=!model.ratingsHidden&&row.ratingDelta!=null?`${row.ratingDelta>0?'+':''}${row.ratingDelta}`:'';return `<div class="profile-game-row"><span class="profile-game-result ${row.outcome==='W'?'win':row.outcome==='L'?'loss':'tie'}" aria-label="${row.outcome==='W'?'Win':row.outcome==='L'?'Loss':'Tie'}">${row.outcome}</span><span class="profile-game-copy"><b>${esc(row.opponentLabel)}</b><span>${esc([row.teammateLabel,row.eventName||row.label,profileDateLabel(row.date)].filter(Boolean).join(' · '))}</span></span><span class="profile-game-score"><b class="num">${esc(row.score)}</b>${delta?`<span class="num">${esc(delta)} rating</span>`:''}</span></div>`;}).join('')}</div>`:'<div class="profile-empty">No recent games. Track a match to start this story.</div>';
   const notes=model.notes?`<div class="profile-notes">${esc(model.notes).replace(/\n/g,'<br>')}</div>`:'<div class="profile-empty">No notes added.</div>',record=`${model.wins}–${model.losses}${model.ties?` · ${model.ties} T`:''}`;
-  const direction=!model.ratingsHidden&&model.trendDelta!=null?`<div class="player-profile-direction" aria-label="Court Rating ${model.trendDelta>0?'up':model.trendDelta<0?'down':'unchanged'} ${Math.abs(Math.round(model.trendDelta))} over the last ${model.trendGames} rated game${model.trendGames===1?'':'s'}"><b class="num">${model.trendDelta>0?'↑ +':model.trendDelta<0?'↓ ':'→ '}${Math.round(model.trendDelta)}</b><span>Last ${model.trendGames} rated game${model.trendGames===1?'':'s'}</span></div>`:'';
-  const rating=model.ratingsHidden?'<div class="player-profile-hidden-rating">Court Rating, active rank, deltas, and trend are hidden in stealth mode.</div>':`<div class="player-profile-rating"><b class="num">${model.rating}</b><span>Court Rating</span></div>${model.rank?`<div class="player-profile-rank"><b class="num">#${model.rank.position}</b><span>of ${model.rank.population} active players</span></div>`:''}${direction}`;
-  const html=`<article class="player-profile" data-player-window-mode="profile"><section class="player-profile-hero"><button type="button" class="btn sm player-profile-edit" data-focus-key="edit-profile" onclick="editPlayerProfile()">Edit profile</button><div class="player-profile-main">${profilePhotoHtml(player,model)}<div class="player-profile-identity"><div class="player-profile-kicker"><span>Court player profile</span>${status}</div><h3 class="player-profile-name">${esc(model.name)}</h3>${model.level?`<div class="player-profile-level">${esc(model.level.label)} · ${esc(model.level.short)} <span>Current Court level</span></div>`:'<div class="player-profile-level">Court level hidden</div>'}${roles}<div class="player-profile-rating-row">${rating}</div></div></div><div class="player-profile-metrics">${profileMetric(model.gamesPlayed,'Games')}${profileMetric(record,'Record')}${profileMetric(model.winRate||DASH,model.winRate?'Win rate':'No rated record')}${profileMetric(model.currentStreak,'Current form')}</div></section><div class="player-profile-grid"><section class="profile-panel wide profile-rating-trend-panel"><div class="profile-panel-head"><h4>Rating trend</h4><span>${model.ratingsHidden?'Stealth mode':esc(trend)}</span></div>${profileTrendHtml(model)}</section>${impact?`<section class="profile-panel wide"><div class="profile-panel-head"><h4>Player impact</h4><span>Saved tracked events</span></div>${impact}</section>`:''}<section class="profile-panel wide"><div class="profile-panel-head"><h4>Recent games</h4><div class="profile-panel-actions"><span>Latest ${Math.min(5,model.recentGames.length)}</span><button type="button" class="btn sm ghost" data-focus-key="view-all-games" aria-label="View all games for ${esc(model.name)}" onclick="openPlayerGameHistory()">View all games</button></div></div>${recent}</section>${model.roles.length?`<section class="profile-panel"><div class="profile-panel-head"><h4>Roles</h4><span>${model.roles.length}</span></div><div class="player-profile-roles" style="margin:0">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div></section>`:''}<section class="profile-panel ${model.roles.length?'':'wide'}"><div class="profile-panel-head"><h4>Notes</h4></div>${notes}</section></div><div class="player-profile-actions"><button class="btn ghost" onclick="openPlayerCard('${player.id}')">View &amp; share player card</button><button class="btn primary" onclick="editPlayerProfile()">Edit profile</button></div></article>`;
+  const streakMatch=/^([WLT])(\d+)$/.exec(String(model.currentStreak||'')),streakValue=streakMatch?`${streakMatch[2]} ${streakMatch[1]}`:model.currentStreak,streakTone=streakMatch?(streakMatch[1]==='W'?'up':streakMatch[1]==='L'?'down':''):'';
+  const showTrend=!model.ratingsHidden&&model.trendDelta!=null,trendRounded=showTrend?Math.round(model.trendDelta):0;
+  const metrics=[
+    !model.ratingsHidden&&model.rank?profileMetric(`#${model.rank.position}`,'Rank',{extra:`/ ${model.rank.population}`,aria:`Rank ${model.rank.position} of ${model.rank.population} active players`}):'',
+    profileMetric(model.gamesPlayed,'Games'),
+    profileMetric(record,'Record',{extra:model.winRate?`· ${model.winRate}`:'',aria:model.winRate?`Record ${record}, ${model.winRate} win rate`:`Record ${record}`}),
+    profileMetric(streakValue,'Streak',{tone:streakTone,aria:streakMatch?`Current streak ${streakMatch[2]} ${streakMatch[1]==='W'?'win':streakMatch[1]==='L'?'loss':'tie'}${Number(streakMatch[2])===1?'':'es'}`:'No current streak'}),
+    showTrend?profileMetric(`${trendRounded>0?'+':''}${trendRounded}`,`Last ${model.trendGames}`,{tone:trendRounded>0?'up':trendRounded<0?'down':'',aria:`Court Rating ${trendRounded>0?'up':trendRounded<0?'down':'unchanged'} ${Math.abs(trendRounded)} over the last ${model.trendGames} rated game${model.trendGames===1?'':'s'}`}):''
+  ].join('');
+  const rating=model.ratingsHidden?'<div class="player-profile-hidden-rating">Court Rating, active rank, deltas, and trend are hidden in stealth mode.</div>':`<div class="player-profile-rating"><b class="num">${model.rating}</b><span>Court Rating</span></div>`;
+  const html=`<article class="player-profile" data-player-window-mode="profile"><section class="player-profile-hero"><button type="button" class="btn sm player-profile-edit" data-focus-key="edit-profile" onclick="editPlayerProfile()">Edit profile</button><div class="player-profile-main">${profilePhotoHtml(player,model)}<div class="player-profile-identity"><div class="player-profile-kicker"><span>Court player profile</span>${status}</div><h3 class="player-profile-name">${esc(model.name)}</h3>${tags}</div><div class="player-profile-rating-row">${rating}</div></div><div class="player-profile-metrics">${metrics}</div></section><div class="player-profile-grid"><section class="profile-panel wide profile-rating-trend-panel"><div class="profile-panel-head"><h4>Rating trend</h4><span>${model.ratingsHidden?'Stealth mode':esc(trend)}</span></div>${profileTrendHtml(model)}</section>${impact?`<section class="profile-panel wide"><div class="profile-panel-head"><h4>Player impact</h4><span>Saved tracked events</span></div>${impact}</section>`:''}<section class="profile-panel wide"><div class="profile-panel-head"><h4>Recent games</h4><div class="profile-panel-actions"><span>Latest ${Math.min(5,model.recentGames.length)}</span><button type="button" class="btn sm ghost" data-focus-key="view-all-games" aria-label="View all games for ${esc(model.name)}" onclick="openPlayerGameHistory()">View all games</button></div></div>${recent}</section>${model.roles.length?`<section class="profile-panel"><div class="profile-panel-head"><h4>Roles</h4><span>${model.roles.length}</span></div><div class="player-profile-roles" style="margin:0">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div></section>`:''}<section class="profile-panel ${model.roles.length?'':'wide'}"><div class="profile-panel-head"><h4>Notes</h4></div>${notes}</section></div><div class="player-profile-actions"><button class="btn ghost" onclick="openPlayerCard('${player.id}')">View &amp; share player card</button><button class="btn primary" onclick="editPlayerProfile()">Edit profile</button></div></article>`;
   openSheet(html,{className:'player-profile-sheet',focus:'[data-focus-key="edit-profile"]'});window._sheetBeforeClose=null;
 }
 function renderPlayerGameHistory(){
@@ -6772,6 +6787,31 @@ async function runSelfTest(){
     const profileSourceBefore=JSON.stringify({player:P[0],games}),profileModel=playerProfileViewModel(P[0]),profileSourceAfter=JSON.stringify({player:P[0],games}),trendBefore=JSON.stringify(P[0].history);profileTrendHtml(profileModel);const trendAfter=JSON.stringify(P[0].history);
     ck('Player profile view-model calculations do not mutate player or game data',profileSourceBefore===profileSourceAfter&&profileModel.recentGames.length<=5);
     ck('Drawing the player rating trend leaves saved history unchanged',trendBefore===trendAfter);
+    const realProfileViewModel=playerProfileViewModel,profileEditId=editId,profileWindowMode=playerWindowMode;
+    const renderedProfileFixture=overrides=>{
+      playerProfileViewModel=()=>({...profileModel,rank:{position:1,population:6},trendDelta:2,trendGames:2,currentStreak:'W2',wins:2,losses:0,ties:0,winRate:'100%',ratingsHidden:false,rating:64,...overrides});
+      editId=P[0].id;playerWindowMode='profile';renderPlayerProfile();
+      const root=document.querySelector('.player-profile'),metrics=[...root.querySelectorAll('.player-profile-metric')],metric=label=>metrics.find(item=>item.querySelector('span')?.textContent===label),main=root.querySelector('.player-profile-main'),ratingRow=root.querySelector('.player-profile-rating-row'),streak=metric('Streak'),recordMetric=metric('Record');
+      return {count:metrics.length,directRating:ratingRow?.parentElement===main,identityRating:!!root.querySelector('.player-profile-identity>.player-profile-rating-row'),hidden:!!root.querySelector('.player-profile-hidden-rating'),streakText:streak?.querySelector('b')?.textContent.trim(),streakClass:streak?.className||'',recordExtra:recordMetric?.querySelector('i')?.textContent.trim()||'',hasRecordExtra:!!recordMetric?.querySelector('i')};
+    };
+    let normalProfile,stealthProfile,noRankProfile,lossProfile,emptyStreakProfile;
+    try{
+      normalProfile=renderedProfileFixture({currentStreak:'W2'});
+      stealthProfile=renderedProfileFixture({ratingsHidden:true,rating:null,rank:null,trendDelta:null,trendGames:0,trendPoints:[],level:null});
+      noRankProfile=renderedProfileFixture({rank:null,winRate:null});
+      lossProfile=renderedProfileFixture({currentStreak:'L3'});
+      emptyStreakProfile=renderedProfileFixture({currentStreak:DASH});
+    } finally {
+      playerProfileViewModel=realProfileViewModel;editId=profileEditId;playerWindowMode=profileWindowMode;closeSheet(true);
+    }
+    ck('Player profile rating is a direct child of the hero main grid',normalProfile.directRating&&!normalProfile.identityRating);
+    ck('Player profile normal mode renders five unified metric cells',normalProfile.count===5);
+    ck('Player profile stealth mode renders three metrics and keeps its hidden-rating notice',stealthProfile.count===3&&stealthProfile.hidden);
+    ck('Player profile without an active rank renders four metric cells',noRankProfile.count===4);
+    ck('Player profile streak values render display-only count-first tones',normalProfile.streakText==='2 W'&&normalProfile.streakClass.split(/\s+/).includes('up')&&lossProfile.streakText==='3 L'&&lossProfile.streakClass.split(/\s+/).includes('down')&&emptyStreakProfile.streakText===DASH&&!/\b(?:up|down)\b/.test(emptyStreakProfile.streakClass));
+    const streakPlayer={...P[0],id:'profile-streak-player',wins:2,losses:0},streakPeer={...P[1],id:'profile-streak-peer'},streakGames=[1,2].map(i=>({id:`profile-streak-${i}`,date:i,teamA:[streakPlayer.id],teamB:[streakPeer.id],scoreA:25,scoreB:20,winner:'A',log:{}})),streakModel=realProfileViewModel(streakPlayer,{gameList:streakGames,playerList:[streakPlayer,streakPeer],eventList:[]});
+    ck('Player profile view model keeps streaks in outcome-first W2 format',streakModel.currentStreak==='W2');
+    ck('Player profile record folds win rate into optional secondary text',normalProfile.hasRecordExtra&&normalProfile.recordExtra==='· 100%'&&!noRankProfile.hasRecordExtra);
 
     /* --- terminal-only scoring, tracker visibility, and evidence-gated rates. --- */
     const scoringPlayers=players,scoringGames=games,scoringSettings=settings,scoringLive=live;

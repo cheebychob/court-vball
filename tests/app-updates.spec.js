@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const CURRENT_BUILD = '20260721.1';
+const CURRENT_BUILD = '20260721.2';
 
 async function routeBuildChecks(page, getBuild) {
   await page.route('**/*', async route => {
@@ -47,28 +47,28 @@ test('update checks issue a no-store request and the same build stays quiet', as
 });
 
 test('different builds prompt, dismissal is build-specific, and a later build prompts again', async ({ page }) => {
-  let deployedBuild = '20260721.2';
+  let deployedBuild = '20260721.3';
   await routeBuildChecks(page, () => deployedBuild);
   await page.goto('/');
   await page.evaluate(() => AppUpdates.check({ force: true }));
   await expect(page.locator('#appUpdateNotice')).toBeVisible();
-  await expect(page.locator('#appUpdateCopy')).toContainText(`Running build ${CURRENT_BUILD} · available build 20260721.2`);
+  await expect(page.locator('#appUpdateCopy')).toContainText(`Running build ${CURRENT_BUILD} · available build 20260721.3`);
 
   await page.getByRole('button', { name: 'Later', exact: true }).click();
   await expect(page.locator('#appUpdateNotice')).toBeHidden();
   await page.evaluate(() => AppUpdates.check({ force: true }));
   await expect(page.locator('#appUpdateNotice')).toBeHidden();
-  expect(await page.evaluate(() => sessionStorage.getItem('court:update-dismissed-build'))).toBe('20260721.2');
+  expect(await page.evaluate(() => sessionStorage.getItem('court:update-dismissed-build'))).toBe('20260721.3');
 
-  deployedBuild = '20260721.3';
+  deployedBuild = '20260721.4';
   await page.evaluate(() => AppUpdates.check({ force: true }));
   await expect(page.locator('#appUpdateNotice')).toBeVisible();
   await page.evaluate(() => { tab = 'more'; render(); });
-  await expect(page.locator('#updateStatusLine')).toHaveText('Update available · build 20260721.3.');
+  await expect(page.locator('#updateStatusLine')).toHaveText('Update available · build 20260721.4.');
 });
 
 test('Update now is blocked during an in-progress game without navigating', async ({ page }) => {
-  await routeBuildChecks(page, () => '20260721.2');
+  await routeBuildChecks(page, () => '20260721.3');
   await page.goto('/');
   await page.evaluate(() => AppUpdates.check({ force: true }));
   const before = page.url();
@@ -86,7 +86,7 @@ test('network update reload preserves local data and cleans the cache-busting qu
     localStorage.setItem('vb:players', JSON.stringify([{ id: 'kept', name: 'Kept Player', seedRating: 50, active: true, archived: false }]));
     localStorage.setItem('court:unrelated', 'keep-this-too');
   });
-  await routeBuildChecks(page, () => '20260721.2');
+  await routeBuildChecks(page, () => '20260721.3');
   await page.goto('/');
   await page.evaluate(() => AppUpdates.check({ force: true }));
   const navigated = page.waitForEvent('framenavigated');
@@ -101,7 +101,7 @@ test('network update reload preserves local data and cleans the cache-busting qu
 
 test('temporary update query parameters are cleaned on ordinary boot', async ({ page }) => {
   await routeBuildChecks(page, () => CURRENT_BUILD);
-  await page.goto('/?source=home-screen&_court_build=20260721.1');
+  await page.goto('/?source=home-screen&_court_build=20260721.2');
   await expect.poll(() => page.evaluate(() => location.search)).toBe('?source=home-screen');
 });
 
