@@ -33,12 +33,13 @@ const gamesFixture = Array.from({ length: 7 }, (_, index) => {
   };
 });
 
-async function seed(page, { hideRatings = false, playerList = playersFixture, gameList = gamesFixture } = {}) {
-  await page.addInitScript(({ playerList, gameList, hideRatings }) => {
+async function seed(page, { hideRatings = false, playerList = playersFixture, gameList = gamesFixture, eventList = [] } = {}) {
+  await page.addInitScript(({ playerList, gameList, eventList, hideRatings }) => {
     localStorage.setItem('vb:players', JSON.stringify(playerList));
     localStorage.setItem('vb:games', JSON.stringify(gameList));
+    localStorage.setItem('vb:events', JSON.stringify(eventList));
     localStorage.setItem('vb:settings', JSON.stringify({ hideRatings }));
-  }, { playerList, gameList, hideRatings });
+  }, { playerList, gameList, eventList, hideRatings });
 }
 
 async function openPlayers(page) {
@@ -53,8 +54,9 @@ async function openProfile(page, name = 'Jordan Rivera') {
   return card;
 }
 
-test('player cards open a bounded read-only sports profile without mutating stored or runtime data', async ({ page }) => {
+test('player cards open a streamlined read-only sports profile without crosshairs or layout overflow', async ({ page }) => {
   await seed(page);
+  await page.setViewportSize({ width: 900, height: 900 });
   await page.goto('/');
   const before = await page.evaluate(() => ({
     players: JSON.stringify(players), games: JSON.stringify(games), storedPlayers: localStorage.getItem('vb:players'), storedGames: localStorage.getItem('vb:games')
@@ -68,7 +70,7 @@ test('player cards open a bounded read-only sports profile without mutating stor
   await expect(sheet.getByText(/#1/).first()).toBeVisible();
   await expect(sheet.locator('.player-profile-direction')).toBeVisible();
   await expect(sheet.locator('.player-profile-direction')).toHaveAttribute('aria-label', /Court Rating (up|down|unchanged).*rated game/);
-  await expect(sheet.getByText('Recent form', { exact: true })).toBeVisible();
+  await expect(sheet.getByText('Recent form', { exact: true })).toHaveCount(0);
   await expect(sheet.getByText('Rating trend', { exact: true })).toBeVisible();
   await expect(sheet.getByText('Player impact', { exact: true })).toBeVisible();
   await expect(sheet.getByText('Recent games', { exact: true })).toBeVisible();
@@ -76,6 +78,27 @@ test('player cards open a bounded read-only sports profile without mutating stor
   await expect(sheet.getByText('Defense', { exact: true }).first()).toBeVisible();
   await expect(sheet.getByText('Reads hitters early.')).toBeVisible();
   await expect(sheet.locator('.profile-game-row')).toHaveCount(5);
+  await expect(sheet.getByRole('button', { name: 'View all games for Jordan Rivera', exact: true })).toBeVisible();
+
+  const profileLayout = await page.evaluate(() => {
+    const hero = document.querySelector('.player-profile-hero');
+    const grid = document.querySelector('.player-profile-grid');
+    const trend = document.querySelector('.profile-rating-trend-panel');
+    const chart = trend.querySelector('.profile-trend');
+    const bounds = element => element.getBoundingClientRect();
+    return {
+      crosshairBackground: getComputedStyle(hero, '::before').backgroundImage,
+      innerBorder: getComputedStyle(hero, '::before').borderTopStyle,
+      gridWidth: bounds(grid).width,
+      trendWidth: bounds(trend).width,
+      chartOverflow: chart.scrollWidth - chart.clientWidth,
+      sheetOverflow: document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth
+    };
+  });
+  expect(profileLayout).toMatchObject({ crosshairBackground: 'none', innerBorder: 'solid' });
+  expect(profileLayout.trendWidth).toBeGreaterThanOrEqual(profileLayout.gridWidth - 2);
+  expect(profileLayout.chartOverflow).toBeLessThanOrEqual(0);
+  expect(profileLayout.sheetOverflow).toBeLessThanOrEqual(0);
 
   const model = await page.evaluate(() => {
     const beforeRuntime = JSON.stringify({ players, games });
@@ -107,14 +130,25 @@ test('profile layout stays inside narrow and wide viewports and reports archived
   await page.setViewportSize({ width: 320, height: 720 });
   await page.goto('/');
   await openProfile(page);
-  let layout = await page.evaluate(() => ({
-    viewport: document.documentElement.clientWidth,
-    document: document.documentElement.scrollWidth,
-    sheet: document.querySelector('.sheet').scrollWidth,
-    sheetClient: document.querySelector('.sheet').clientWidth
-  }));
+  let layout = await page.evaluate(() => {
+    const bounds = element => { const { left, right, width, height } = element.getBoundingClientRect(); return { left, right, width, height }; };
+    return {
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      sheet: document.querySelector('.sheet').scrollWidth,
+      sheetClient: document.querySelector('.sheet').clientWidth,
+      trend: bounds(document.querySelector('.profile-rating-trend-panel')),
+      chart: bounds(document.querySelector('.profile-trend')),
+      viewAll: bounds(document.querySelector('[data-focus-key="view-all-games"]'))
+    };
+  });
   expect(layout.document).toBeLessThanOrEqual(layout.viewport);
   expect(layout.sheet).toBeLessThanOrEqual(layout.sheetClient);
+  expect(layout.chart.left).toBeGreaterThanOrEqual(layout.trend.left);
+  expect(layout.chart.right).toBeLessThanOrEqual(layout.trend.right);
+  expect(layout.viewAll.left).toBeGreaterThanOrEqual(0);
+  expect(layout.viewAll.right).toBeLessThanOrEqual(layout.viewport);
+  expect(layout.viewAll.height).toBeGreaterThanOrEqual(44);
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }]) {
     await page.setViewportSize(viewport);
@@ -147,6 +181,161 @@ test('profile layout stays inside narrow and wide viewports and reports archived
   }));
   expect(layout.document).toBeLessThanOrEqual(layout.viewport);
   expect(layout.sheet).toBeLessThanOrEqual(layout.sheetClient);
+});
+
+test('player history filters every supported saved structure by stable ID and sorts newest first', async ({ page }) => {
+  const sameNamePlayer = { id: 'profile-same-name', name: 'Jordan Rivera', seedRating: 60, rating: 60, active: true, archived: false };
+  const fixedEvent = {
+    id: 'profile-fixed-event', name: 'Fixed Team Cup', eventDate: '2026-07-08', created: Date.UTC(2026, 6, 8), done: true,
+    teams: [
+      { id: 'fixed-main', name: 'Main Six', players: ['profile-main'] },
+      { id: 'fixed-opponent', name: 'Visitors', players: ['profile-two'] }
+    ],
+    brackets: [], sched: { start: '10:00', standardRounds: 1, courts: 1, setMin: 20, matchMin: 45, breakMin: 10, seed: 'fixed-profile', revision: 1 }
+  };
+  const rotatingEvent = {
+    id: 'profile-rotating-event', name: 'Rotating Pairs', format: 'rotatingPairs4s', eventDate: '2026-07-09', created: Date.UTC(2026, 6, 9), done: true,
+    teams: [], brackets: [],
+    pairs: [
+      { id: 'pair-main', name: 'Main Pair', players: ['profile-main'] },
+      { id: 'pair-opponent', name: 'Other Pair', players: ['profile-three'] }
+    ],
+    pairSettings: { entrySize: 1, teamSize: 2, rounds: 1, courts: 1, start: '11:00', setMin: 20 },
+    pairSchedule: [{ id: 'rotating-match', round: 1, court: 1, pairIdsA: ['pair-main'], pairIdsB: ['pair-opponent'] }]
+  };
+  const extraGames = [
+    {
+      id: 'fixed-legacy-game', teamA: [], teamB: [], scoreA: 25, scoreB: 21, winner: 'A', log: {},
+      evId: fixedEvent.id, evA: 'fixed-main', evB: 'fixed-opponent', evMatchId: 'fixed-match', label: 'Pool play'
+    },
+    {
+      id: 'rotating-legacy-tie', date: Date.UTC(2026, 6, 9, 11), teamA: [], teamB: [], scoreA: 21, scoreB: 21, winner: null, log: {},
+      evId: rotatingEvent.id, evMatchId: 'rotating-match', evPairIdsA: ['pair-main'], evPairIdsB: ['pair-opponent'], eventFormat: 'rotatingPairs4s'
+    },
+    {
+      id: 'unrated-solo', date: Date.UTC(2026, 6, 10, 12), solo: true, teamA: ['profile-main'], teamB: [], scoreA: 1, scoreB: 0, winner: 'A', log: {}
+    },
+    {
+      id: 'same-name-other-player', date: Date.UTC(2026, 6, 11, 12), teamA: ['profile-same-name'], teamB: ['profile-four'], scoreA: 25, scoreB: 20, winner: 'A', log: {}
+    },
+    {
+      id: 'unrelated-game', date: Date.UTC(2026, 6, 12, 12), teamA: ['profile-two'], teamB: ['profile-three'], scoreA: 25, scoreB: 20, winner: 'A', log: {}
+    }
+  ];
+  await seed(page, {
+    playerList: [...playersFixture, sameNamePlayer],
+    gameList: [...gamesFixture, ...extraGames],
+    eventList: [fixedEvent, rotatingEvent]
+  });
+  await page.goto('/');
+  await openProfile(page);
+
+  const selector = await page.evaluate(() => ({
+    ids: getGamesForPlayer('profile-main').map(game => game.id),
+    sameNameIds: getGamesForPlayer('profile-same-name').map(game => game.id),
+    preview: playerProfileViewModel(pById('profile-main')).recentGames.map(game => game.id),
+    pureBefore: JSON.stringify({ games, evts }),
+    pureAfter: (() => { getGamesForPlayer('profile-main'); return JSON.stringify({ games, evts }); })()
+  }));
+  expect(selector.ids).toEqual([
+    'unrated-solo', 'rotating-legacy-tie', 'fixed-legacy-game',
+    'profile-game-7', 'profile-game-6', 'profile-game-5', 'profile-game-4', 'profile-game-3', 'profile-game-2', 'profile-game-1'
+  ]);
+  expect(selector.sameNameIds).toEqual(['same-name-other-player']);
+  expect(selector.preview).toEqual(selector.ids.slice(0, 5));
+  expect(selector.pureAfter).toBe(selector.pureBefore);
+
+  await page.locator('.sheet').getByRole('button', { name: 'View all games for Jordan Rivera', exact: true }).click();
+  const history = page.locator('[data-player-history="profile-main"]');
+  await expect(history.getByRole('heading', { name: 'Games for Jordan Rivera', exact: true })).toBeVisible();
+  await expect(history).toContainText('10 saved games');
+  await expect(history.locator('.history-row')).toHaveCount(10);
+  await expect(history.locator('[data-focus-key="player-history-game-rotating-legacy-tie"]')).toContainText('tie · not rated');
+  await expect(history.locator('[data-focus-key="player-history-game-unrated-solo"]')).toContainText('solo scout');
+  await expect(history.locator('[data-focus-key="player-history-game-same-name-other-player"]')).toHaveCount(0);
+  await expect(history.locator('[data-focus-key="player-history-game-unrelated-game"]')).toHaveCount(0);
+  expect(await history.locator('.history-row').evaluateAll(rows => rows.map(row => row.dataset.focusKey))).toEqual(selector.ids.map(id => `player-history-game-${id}`));
+});
+
+test('profile history and game details use one modal, restore focus, and remain read-only', async ({ page }) => {
+  await seed(page);
+  await page.setViewportSize({ width: 360, height: 740 });
+  await page.goto('/');
+  const before = await page.evaluate(() => JSON.stringify({
+    players, games, events: evts, settings,
+    storage: Object.keys(localStorage).sort().map(key => [key, localStorage.getItem(key)])
+  }));
+  await openProfile(page);
+  const viewAll = page.locator('.sheet').getByRole('button', { name: 'View all games for Jordan Rivera', exact: true });
+  await viewAll.click();
+
+  const history = page.locator('[data-player-history="profile-main"]');
+  await expect(history.locator('.history-row')).toHaveCount(7);
+  await expect(page.locator('.scrim')).toHaveCount(1);
+  const mobileHistoryLayout = await page.evaluate(() => {
+    const back = document.querySelector('[data-focus-key="player-history-back"]').getBoundingClientRect();
+    return {
+      viewport: document.documentElement.clientWidth,
+      document: document.documentElement.scrollWidth,
+      sheetOverflow: document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth,
+      back: { left: back.left, right: back.right, height: back.height }
+    };
+  });
+  expect(mobileHistoryLayout.document).toBeLessThanOrEqual(mobileHistoryLayout.viewport);
+  expect(mobileHistoryLayout.sheetOverflow).toBeLessThanOrEqual(0);
+  expect(mobileHistoryLayout.back.left).toBeGreaterThanOrEqual(0);
+  expect(mobileHistoryLayout.back.right).toBeLessThanOrEqual(mobileHistoryLayout.viewport);
+  expect(mobileHistoryLayout.back.height).toBeGreaterThanOrEqual(44);
+
+  const opener = history.locator('[data-focus-key="player-history-game-profile-game-7"]');
+  await opener.evaluate(element => element.closest('.sheet').scrollTop = element.offsetTop);
+  await opener.click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: /Game ·/ })).toBeVisible();
+  await expect(page.locator('.sheet').getByRole('button', { name: 'Back to games for Jordan Rivera', exact: true })).toBeFocused();
+  await expect(page.locator('.sheet').getByRole('button', { name: 'Delete game', exact: true })).toHaveCount(0);
+  await expect(page.locator('.scrim')).toHaveCount(1);
+
+  await page.locator('.sheet').getByRole('button', { name: 'Back to games for Jordan Rivera', exact: true }).click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Games for Jordan Rivera', exact: true })).toBeVisible();
+  await expect(page.locator('[data-focus-key="player-history-game-profile-game-7"]')).toBeFocused();
+  await page.locator('.sheet').getByRole('button', { name: 'Back to Jordan Rivera profile', exact: true }).click();
+  await expect(page.locator('.sheet').getByRole('heading', { name: 'Jordan Rivera', exact: true })).toBeVisible();
+  await expect(page.locator('[data-focus-key="view-all-games"]')).toBeFocused();
+  await expect(page.locator('.scrim')).toHaveCount(1);
+
+  await page.locator('[data-focus-key="view-all-games"]').click();
+  await expect(page.locator('[data-player-history="profile-main"] .history-row')).toHaveCount(7);
+  await expect(page.locator('.scrim')).toHaveCount(1);
+  await page.locator('.sheet').getByRole('button', { name: 'Back to Jordan Rivera profile', exact: true }).click();
+
+  const after = await page.evaluate(() => JSON.stringify({
+    players, games, events: evts, settings,
+    storage: Object.keys(localStorage).sort().map(key => [key, localStorage.getItem(key)])
+  }));
+  expect(after).toBe(before);
+});
+
+test('archived players keep historical game access and players without games get an empty state', async ({ page }) => {
+  const archivedGame = {
+    id: 'archived-history', date: Date.UTC(2025, 2, 4, 19), teamA: ['profile-two'], teamB: ['profile-archived'],
+    scoreA: 18, scoreB: 25, winner: 'B', log: {}
+  };
+  await seed(page, { gameList: [archivedGame] });
+  await page.goto('/');
+  await openPlayers(page);
+  await page.getByRole('button', { name: /Archived · 1/ }).click();
+  await page.locator('.player-card').filter({ hasText: 'Archived Ace' }).click();
+  await page.locator('.sheet').getByRole('button', { name: 'View all games for Archived Ace', exact: true }).click();
+  await expect(page.locator('[data-player-history="profile-archived"] .history-row')).toHaveCount(1);
+  await expect(page.locator('[data-focus-key="player-history-game-archived-history"]')).toBeVisible();
+
+  await page.locator('.sheet').getByRole('button', { name: 'Close dialog', exact: true }).click();
+  await expect(page.locator('.sheet')).toHaveCount(0);
+  await page.getByRole('button', { name: /Archived · 1/ }).click();
+  await page.locator('.player-card').filter({ hasText: 'Archived Ace' }).click();
+  await page.evaluate(() => { games = []; });
+  await page.locator('.sheet').getByRole('button', { name: 'View all games for Archived Ace', exact: true }).click();
+  await expect(page.locator('[data-player-history="profile-archived"]')).toContainText('No games for this player');
 });
 
 test('edit Cancel returns to the same profile and a dirty close confirms before discarding', async ({ page }) => {

@@ -615,7 +615,7 @@ test('player profile shows tracked impact with readable labels and still saves t
   });
 });
 
-test('player profile renders recent performance and hides rating trend deltas', async ({ page }) => {
+test('player profile renders streamlined recent performance and hides rating trend deltas', async ({ page }) => {
   await page.goto('/');
   await goToMore(page);
   await page.getByRole('button', { name: 'Load demo season', exact: true }).click();
@@ -624,8 +624,9 @@ test('player profile renders recent performance and hides rating trend deltas', 
   await expectScreenLabel(page, 'Roster');
   await page.locator('.player-card').first().click();
 
-  await expect(page.locator('.sheet').getByText('Recent form', { exact: true })).toBeVisible();
+  await expect(page.locator('.sheet').getByText('Recent form', { exact: true })).toHaveCount(0);
   await expect(page.locator('.sheet').getByText('Rating trend', { exact: true })).toBeVisible();
+  await expect(page.locator('.sheet').getByRole('button', { name: /View all games for/ })).toBeVisible();
 
   await page.locator('.sheet').getByRole('button', { name: 'Close dialog', exact: true }).click();
   await goToMore(page);
