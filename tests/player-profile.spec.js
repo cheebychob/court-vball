@@ -68,8 +68,12 @@ test('player cards open a streamlined read-only sports profile without crosshair
   await expect(sheet.locator('input, textarea, select')).toHaveCount(0);
   await expect(sheet.getByText('Court Rating', { exact: true })).toBeVisible();
   await expect(sheet.getByText(/#1/).first()).toBeVisible();
-  await expect(sheet.locator('.player-profile-direction')).toBeVisible();
-  await expect(sheet.locator('.player-profile-direction')).toHaveAttribute('aria-label', /Court Rating (up|down|unchanged).*rated game/);
+  await expect(sheet.locator('.player-profile-main > .player-profile-rating-row')).toHaveCount(1);
+  await expect(sheet.locator('.player-profile-identity > .player-profile-rating-row')).toHaveCount(0);
+  await expect(sheet.locator('.player-profile-metric')).toHaveCount(5);
+  await expect(sheet.locator('.player-profile-metric[role="group"][aria-label^="Court Rating"]')).toHaveAttribute('aria-label', /Court Rating (up|down|unchanged).*rated game/);
+  await expect(sheet.locator('.player-profile-metric').filter({ hasText: 'Record' }).locator('i')).toContainText(/· \d+(?:\.\d+)?%/);
+  await expect(sheet.locator('.player-profile-metric.up').filter({ hasText: 'Streak' })).toContainText(/\d+ W/);
   await expect(sheet.getByText('Recent form', { exact: true })).toHaveCount(0);
   await expect(sheet.getByText('Rating trend', { exact: true })).toBeVisible();
   await expect(sheet.getByText('Player impact', { exact: true })).toBeVisible();
@@ -139,7 +143,8 @@ test('profile layout stays inside narrow and wide viewports and reports archived
       sheetClient: document.querySelector('.sheet').clientWidth,
       trend: bounds(document.querySelector('.profile-rating-trend-panel')),
       chart: bounds(document.querySelector('.profile-trend')),
-      viewAll: bounds(document.querySelector('[data-focus-key="view-all-games"]'))
+      viewAll: bounds(document.querySelector('[data-focus-key="view-all-games"]')),
+      metricHeights: [...document.querySelectorAll('.player-profile-metric')].map(metric => bounds(metric).height)
     };
   });
   expect(layout.document).toBeLessThanOrEqual(layout.viewport);
@@ -149,6 +154,7 @@ test('profile layout stays inside narrow and wide viewports and reports archived
   expect(layout.viewAll.left).toBeGreaterThanOrEqual(0);
   expect(layout.viewAll.right).toBeLessThanOrEqual(layout.viewport);
   expect(layout.viewAll.height).toBeGreaterThanOrEqual(44);
+  expect(layout.metricHeights.every(height => height >= 44)).toBe(true);
 
   for (const viewport of [{ width: 390, height: 844 }, { width: 768, height: 1024 }]) {
     await page.setViewportSize(viewport);
@@ -416,7 +422,8 @@ test('stealth mode removes rating, rank, trend values, and recent-game deltas fr
   await expect(sheet).toContainText('Court Rating, active rank, deltas, and trend are hidden in stealth mode.');
   await expect(sheet).toContainText('Rating trend is hidden in stealth mode.');
   await expect(sheet.getByText('Court Rating', { exact: true })).toHaveCount(0);
-  await expect(sheet.locator('.player-profile-rank')).toHaveCount(0);
+  await expect(sheet.locator('.player-profile-metric')).toHaveCount(3);
+  await expect(sheet.locator('.player-profile-metric').getByText('Rank', { exact: true })).toHaveCount(0);
   await expect(sheet.locator('.profile-game-score').getByText(/rating/i)).toHaveCount(0);
   const model = await page.evaluate(() => playerProfileViewModel(pById('profile-main')));
   expect(model).toMatchObject({ ratingsHidden: true, rating: null, level: null, rank: null, trendPoints: [], trendDelta: null });
