@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260721.2">
+<meta name="court-build" content="20260721.3">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -282,6 +282,8 @@
   .player-profile-metric span{display:block;margin-bottom:6px;color:#8fa2bd;font-size:11px;font-weight:800;letter-spacing:.1em;text-transform:uppercase;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .player-profile-metric b{display:block;color:#f2f6fc;font-size:20px;line-height:1.1;font-weight:850;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
   .player-profile-metric b i{font-style:normal;font-size:13px;font-weight:600;color:#8fa2bd}
+  .player-profile-metric.stacked b{overflow:visible;text-overflow:clip}
+  .player-profile-metric.stacked b i{display:block;margin-top:3px;line-height:1.1;white-space:nowrap}
   .player-profile-metric.up b{color:#7ddba4}
   .player-profile-metric.down b{color:#e79a9a}
   .player-profile-grid{display:grid;gap:13px;min-width:0}
@@ -945,9 +947,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.15.1',
-  build: '20260721.2',
-  releaseNotes: 'Player profile heroes now use a clear three-tier type scale, unified stat strip, and more compact mobile layout.'
+  version: '0.15.2',
+  build: '20260721.3',
+  releaseNotes: 'Player profile record cells now keep the complete win-rate percentage visible on desktop and mobile.'
 });
 
 function appVersionLabel(){
@@ -2197,7 +2199,7 @@ function profileTrendHtml(model){
   return `<div role="img" aria-label="${esc(summary)}"><svg class="profile-trend" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" aria-hidden="true"><defs><linearGradient id="profileTrendFill" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f2c66d"/><stop offset="1" stop-color="#f2c66d" stop-opacity="0"/></linearGradient></defs><line class="profile-trend-grid" x1="${padX}" y1="${padY}" x2="${w-padX}" y2="${padY}"/><line class="profile-trend-grid" x1="${padX}" y1="${h-padY}" x2="${w-padX}" y2="${h-padY}"/><polygon class="profile-trend-area" points="${area}"/><polyline class="profile-trend-line" points="${line}"/></svg><div class="profile-trend-labels"><span>Started ${Math.round(values[0])}</span><span>Current ${Math.round(values.at(-1))}</span></div></div>`;
 }
 function profileDateLabel(value){if(value==null||value==='')return 'Date unavailable';const date=new Date(Number(value));return Number.isFinite(date.getTime())?date.toLocaleDateString([],{month:'short',day:'numeric',year:date.getFullYear()!==new Date().getFullYear()?'numeric':undefined}):'Date unavailable';}
-function profileMetric(value,label,opts){const o=opts||{};return `<div class="player-profile-metric${o.tone?` ${o.tone}`:''}"${o.aria?` role="group" aria-label="${esc(o.aria)}"`:''}><span>${esc(label)}</span><b class="num">${esc(value)}${o.extra?`<i> ${esc(o.extra)}</i>`:''}</b></div>`;}
+function profileMetric(value,label,opts){const o=opts||{};return `<div class="player-profile-metric${o.tone?` ${o.tone}`:''}${o.stacked?' stacked':''}"${o.aria?` role="group" aria-label="${esc(o.aria)}"`:''}><span>${esc(label)}</span><b class="num">${esc(value)}${o.extra?`<i> ${esc(o.extra)}</i>`:''}</b></div>`;}
 function profilePhotoHtml(player,model){
   const avatar=playerAvatarHtml(player,{size:'player-profile-photo',unavailableNotice:true});
   return model.photo?`<button type="button" class="player-profile-photo-button" aria-label="View larger photo of ${esc(model.name)}" onclick="openPlayerPhotoViewer()">${avatar}</button>`:avatar;
@@ -2224,7 +2226,7 @@ function renderPlayerProfile(){
   const metrics=[
     !model.ratingsHidden&&model.rank?profileMetric(`#${model.rank.position}`,'Rank',{extra:`/ ${model.rank.population}`,aria:`Rank ${model.rank.position} of ${model.rank.population} active players`}):'',
     profileMetric(model.gamesPlayed,'Games'),
-    profileMetric(record,'Record',{extra:model.winRate?`· ${model.winRate}`:'',aria:model.winRate?`Record ${record}, ${model.winRate} win rate`:`Record ${record}`}),
+    profileMetric(record,'Record',{extra:model.winRate||'',stacked:!!model.winRate,aria:model.winRate?`Record ${record}, ${model.winRate} win rate`:`Record ${record}`}),
     profileMetric(streakValue,'Streak',{tone:streakTone,aria:streakMatch?`Current streak ${streakMatch[2]} ${streakMatch[1]==='W'?'win':streakMatch[1]==='L'?'loss':'tie'}${Number(streakMatch[2])===1?'':'es'}`:'No current streak'}),
     showTrend?profileMetric(`${trendRounded>0?'+':''}${trendRounded}`,`Last ${model.trendGames}`,{tone:trendRounded>0?'up':trendRounded<0?'down':'',aria:`Court Rating ${trendRounded>0?'up':trendRounded<0?'down':'unchanged'} ${Math.abs(trendRounded)} over the last ${model.trendGames} rated game${model.trendGames===1?'':'s'}`}):''
   ].join('');
@@ -6811,7 +6813,7 @@ async function runSelfTest(){
     ck('Player profile streak values render display-only count-first tones',normalProfile.streakText==='2 W'&&normalProfile.streakClass.split(/\s+/).includes('up')&&lossProfile.streakText==='3 L'&&lossProfile.streakClass.split(/\s+/).includes('down')&&emptyStreakProfile.streakText===DASH&&!/\b(?:up|down)\b/.test(emptyStreakProfile.streakClass));
     const streakPlayer={...P[0],id:'profile-streak-player',wins:2,losses:0},streakPeer={...P[1],id:'profile-streak-peer'},streakGames=[1,2].map(i=>({id:`profile-streak-${i}`,date:i,teamA:[streakPlayer.id],teamB:[streakPeer.id],scoreA:25,scoreB:20,winner:'A',log:{}})),streakModel=realProfileViewModel(streakPlayer,{gameList:streakGames,playerList:[streakPlayer,streakPeer],eventList:[]});
     ck('Player profile view model keeps streaks in outcome-first W2 format',streakModel.currentStreak==='W2');
-    ck('Player profile record folds win rate into optional secondary text',normalProfile.hasRecordExtra&&normalProfile.recordExtra==='· 100%'&&!noRankProfile.hasRecordExtra);
+    ck('Player profile record folds win rate into optional secondary text',normalProfile.hasRecordExtra&&normalProfile.recordExtra==='100%'&&!noRankProfile.hasRecordExtra);
 
     /* --- terminal-only scoring, tracker visibility, and evidence-gated rates. --- */
     const scoringPlayers=players,scoringGames=games,scoringSettings=settings,scoringLive=live;

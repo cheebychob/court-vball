@@ -72,7 +72,7 @@ test('player cards open a streamlined read-only sports profile without crosshair
   await expect(sheet.locator('.player-profile-identity > .player-profile-rating-row')).toHaveCount(0);
   await expect(sheet.locator('.player-profile-metric')).toHaveCount(5);
   await expect(sheet.locator('.player-profile-metric[role="group"][aria-label^="Court Rating"]')).toHaveAttribute('aria-label', /Court Rating (up|down|unchanged).*rated game/);
-  await expect(sheet.locator('.player-profile-metric').filter({ hasText: 'Record' }).locator('i')).toContainText(/· \d+(?:\.\d+)?%/);
+  await expect(sheet.locator('.player-profile-metric.stacked').filter({ hasText: 'Record' }).locator('i')).toHaveText(/\d+(?:\.\d+)?%/);
   await expect(sheet.locator('.player-profile-metric.up').filter({ hasText: 'Streak' })).toContainText(/\d+ W/);
   await expect(sheet.getByText('Recent form', { exact: true })).toHaveCount(0);
   await expect(sheet.getByText('Rating trend', { exact: true })).toBeVisible();
@@ -127,6 +127,27 @@ test('player cards open a streamlined read-only sports profile without crosshair
     players: JSON.stringify(players), games: JSON.stringify(games), storedPlayers: localStorage.getItem('vb:players'), storedGames: localStorage.getItem('vb:games')
   }));
   expect(after).toEqual(before);
+});
+
+test('record win rate stays fully visible on iPhone and desktop widths', async ({ page }) => {
+  await seed(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/');
+  await openProfile(page);
+
+  for (const viewport of [{ width: 390, height: 844 }, { width: 900, height: 900 }]) {
+    await page.setViewportSize(viewport);
+    const record = await page.evaluate(() => {
+      const metric = [...document.querySelectorAll('.player-profile-metric')].find(item => item.querySelector('span')?.textContent === 'Record');
+      const extra = metric?.querySelector('i'),metricBox = metric?.getBoundingClientRect(),extraBox = extra?.getBoundingClientRect();
+      return {text:extra?.textContent.trim(),className:metric?.className,metricLeft:metricBox?.left,metricRight:metricBox?.right,extraLeft:extraBox?.left,extraRight:extraBox?.right,extraOverflow:(extra?.scrollWidth||0)-(extra?.clientWidth||0)};
+    });
+    expect(record.text, `${viewport.width}px win rate`).toMatch(/^\d+(?:\.\d+)?%$/);
+    expect(record.className).toContain('stacked');
+    expect(record.extraLeft).toBeGreaterThanOrEqual(record.metricLeft);
+    expect(record.extraRight).toBeLessThanOrEqual(record.metricRight);
+    expect(record.extraOverflow).toBeLessThanOrEqual(0);
+  }
 });
 
 test('profile layout stays inside narrow and wide viewports and reports archived status honestly', async ({ page }) => {
