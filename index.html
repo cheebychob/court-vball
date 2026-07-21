@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260721.3">
+<meta name="court-build" content="20260721.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -947,9 +947,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.15.2',
-  build: '20260721.3',
-  releaseNotes: 'Player profile record cells now keep the complete win-rate percentage visible on desktop and mobile.'
+  version: '0.15.3',
+  build: '20260721.4',
+  releaseNotes: 'Player search now resets reliably, and event roster selections keep their scroll position on iPhone.'
 });
 
 function appVersionLabel(){
@@ -2003,7 +2003,7 @@ function filterPlayersForQuery(list, query){ const q=normalizeSearchText(query);
 function filterTeamsForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(t=>normalizeSearchText(t.name).includes(q)) : list.slice(); }
 function selectorSearch(key, label, query, count, total){
   return `<div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="search-${esc(key)}" type="search" aria-label="${esc(label)}" placeholder="${esc(label)}" value="${esc(query||'')}" oninput="selectorQuery('${esc(key)}',this.value)"></div>
-    <div class="selector-meta"><span class="tiny faint"><span data-result-count>${count}</span> of ${total}</span>${query?`<button class="selector-clear" onclick="clearSelectorQuery('${esc(key)}')">Clear search</button>`:''}</div>`;
+    <div class="selector-meta"><span class="tiny faint"><span data-result-count>${count}</span> of ${total}</span>${query?`<button type="button" class="selector-clear" onclick="clearSelectorQuery('${esc(key)}')">Clear search</button>`:''}</div>`;
 }
 const SELECTOR_QUERY_MAP={track:'_trackQuery',solo:'_soloQuery',teams:'_teamQuery',eventTeam:'_evTeamQuery',entry:'_entryQuery'};
 window.selectorQuery=(key,value)=>{
@@ -2018,6 +2018,12 @@ window.clearSelectorQuery=(key)=>{
   const prop=SELECTOR_QUERY_MAP[key]; if(!prop) return; window[prop]='';
   const input=document.querySelector(`[data-focus-key="search-${key}"]`); if(input){ input.value=''; selectorQuery(key,''); input.focus({preventScroll:true}); }
 };
+function updatePlayerPickerChoice(key,playerId,selected){
+  const choice=document.querySelector(`[data-selector="${CSS.escape(key)}"] [data-player-choice="${CSS.escape(playerId)}"]`);
+  if(!choice)return;
+  choice.classList.toggle('on',selected);
+  choice.setAttribute('aria-pressed',String(selected));
+}
 function captureRenderPosition(focusKey){
   const active=document.activeElement;
   const key=focusKey || active?.dataset?.focusKey || active?.closest?.('[data-scroll-key]')?.dataset.scrollKey;
@@ -2412,18 +2418,21 @@ function renderHome(){
 }
 
 /* ---------- PLAYERS ---------- */
-function renderPlayers(){
+function derivePlayerRosterView(){
   if(!window._playerFilter) window._playerFilter='all';
   if(window._playerQuery===undefined) window._playerQuery='';
-  const roster = players.filter(p=>!isArchived(p));
-  const archived = players.filter(isArchived);
-  const source = window._playerFilter==='archived' ? archived : roster.filter(p=>
+  const roster=players.filter(p=>!isArchived(p));
+  const archived=players.filter(isArchived);
+  const source=window._playerFilter==='archived' ? archived : roster.filter(p=>
     window._playerFilter==='active' ? p.active : window._playerFilter==='away' ? !p.active : true);
-  const q=window._playerQuery.trim().toLowerCase();
-  const sorted = sortPlayers(source).filter(p=>!q||p.name.toLowerCase().includes(q));
+  const query=normalizeSearchText(window._playerQuery);
+  return {roster,archived,source,query,visible:sortPlayers(filterPlayersForQuery(source,query))};
+}
+function renderPlayers(){
+  const {roster,archived,visible}=derivePlayerRosterView();
   let html = screenHead('Roster', roster.length?`${roster.length} current player${roster.length===1?'':'s'}`:'Build your roster','Search, sort, and scan status without opening every profile.');
   html += `<div class="page-toolbar">
-    <div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input type="search" aria-label="Search players" placeholder="Search players" value="${esc(window._playerQuery)}" oninput="filterPlayerRows(this.value)"></div>
+    <div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="player-search" type="search" aria-label="Search players" placeholder="Search players" value="${esc(window._playerQuery)}" oninput="filterPlayerRows(this)"></div>
     <button class="btn primary" onclick="openPlayer()">${icons.plus} Add player</button>
     ${roster.length?`<button class="btn ghost" onclick="togglePlayerSort()">${settings.playerSort==='rating'?'Rating ↓':'A–Z'}</button>`:''}
   </div>
@@ -2434,7 +2443,7 @@ function renderPlayers(){
     html += `<div class="empty"><b>No players yet</b>Add everyone in your group, then track games or build balanced teams. Seed each person with a rough level \u2014 the ratings self-correct as they play.</div>`;
   } else {
     if(!settings.hideRatings){
-      const movers = window._playerFilter==='all' ? roster.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d) : [];
+      const movers = window._playerFilter==='all' ? visible.filter(p=>p.gamesPlayed>=3).map(p=>({p,d:recentDelta(p)})).filter(x=>x.d>=2).sort((a,b)=>b.d-a.d) : [];
       if(movers.length){
         html += `<div class="card" style="margin-top:12px;border-color:#5fe3ae33">
           <div class="small" style="font-weight:800;color:var(--mint)">▲ Most improved</div>
@@ -2442,17 +2451,23 @@ function renderPlayers(){
         </div>`;
       }
     }
-    html += sorted.length
-      ? `<div class="player-list" id="playerList">${sorted.map(playerCard).join('')}</div>`
+    html += visible.length
+      ? `<div class="player-list" id="playerList">${visible.map(playerCard).join('')}</div>`
       : `<div class="empty"><b>No matching players</b>Try another search or status filter.</div>`;
   }
   main.innerHTML = html;
 }
 window.setPlayerFilter=(f)=>{ window._playerFilter=f; renderPlayers(); };
-window.filterPlayerRows=(value)=>{
+window.filterPlayerRows=(input)=>{
+  const value=typeof input==='string'?input:(input?.value||'');
+  const restoreFocus=input===document.activeElement,start=input?.selectionStart,end=input?.selectionEnd;
   window._playerQuery=value;
-  const q=value.trim().toLowerCase();
-  document.querySelectorAll('#playerList .player-card').forEach(row=>{ row.hidden=!!q && !(row.dataset.name||'').includes(q); });
+  renderPlayers();
+  if(restoreFocus){
+    const next=document.querySelector('[data-focus-key="player-search"]');
+    next?.focus({preventScroll:true});
+    if(Number.isFinite(start)&&next?.setSelectionRange) next.setSelectionRange(start,end);
+  }
 };
 function playerCard(p){
   const rel = reliability(p);
@@ -5287,8 +5302,27 @@ function renderRotatingEventDetail(ev){
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
 function entryDraftCapture(){const d=window._entryDraft,n=$('#entryName'),seed=$('#entryManualSeed');if(n)d.name=n.value;if(seed)d.manualSeed=positiveInt(seed.value,d.manualSeed);return d;}
 function defaultEntryName(ids){const names=ids.map(pById).filter(Boolean).map(p=>p.name);return names.length<=3?names.join(' + '):names.slice(0,3).join(' + ')+' + '+(names.length-3)+' more';}
-function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(players.filter(p=>p.active&&!isArchived(p))),shown=filterPlayersForQuery(roster,window._entryQuery),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),selected=[...d.players].map(pById).filter(Boolean),type=rotatingEntryLabel(s.entrySize),strength=selected.length===s.entrySize?Math.round(entrySeedStrength({players:[...d.players]})):`choose ${s.entrySize} players`,strengthCopy=settings.hideRatings?'Rating seed strength is hidden. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.':`Rating seed strength: ${strength}. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.`;openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div class="small muted" style="margin:9px 0">${selected.length} of ${s.entrySize} selected${selected.length?` · ${selected.map(p=>esc(p.name)).join(' + ')}`:''}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._entryQuery));return `<span data-search-text="${esc(p.name)}" ${hidden&&!on?'hidden':''}><button data-focus-key="entry-${p.id}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(p.name)}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p class="tiny faint">${strengthCopy}</p><button class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
-window.entryToggle=id=>{const d=entryDraftCapture(),s=rotationSettings(evById(d.evId));if(d.players.has(id))d.players.delete(id);else if(d.players.size<s.entrySize)d.players.add(id);else{toast(`An entry has exactly ${s.entrySize} player${s.entrySize===1?'':'s'}`);return;}if(!d.name&&d.players.size===s.entrySize)d.name=defaultEntryName([...d.players]);renderEntryEditor();};
+function entryStrengthCopy(d,s){
+  if(settings.hideRatings)return 'Rating seed strength is hidden. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.';
+  const strength=d.players.size===s.entrySize?Math.round(entrySeedStrength({players:[...d.players]})):`choose ${s.entrySize} players`;
+  return `Rating seed strength: ${strength}. Used to project the entry’s initial seed when Schedule seeding is Rating. It never affects standings.`;
+}
+function entrySelectionSummary(d,s){
+  const selected=[...d.players].map(pById).filter(Boolean);
+  return `${selected.length} of ${s.entrySize} selected${selected.length?` · ${selected.map(p=>p.name).join(' + ')}`:''}`;
+}
+function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(players.filter(p=>p.active&&!isArchived(p))),shown=filterPlayersForQuery(roster,window._entryQuery),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),type=rotatingEntryLabel(s.entrySize);openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button type="button" class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div data-player-selection-summary class="small muted" style="margin:9px 0">${esc(entrySelectionSummary(d,s))}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._entryQuery));return `<span data-search-text="${esc(p.name)}" ${hidden&&!on?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="entry-${p.id}" aria-pressed="${on}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(p.name)}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p data-entry-strength class="tiny faint">${esc(entryStrengthCopy(d,s))}</p><button type="button" data-save-entry class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button type="button" class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
+window.entryToggle=id=>{
+  const d=entryDraftCapture(),s=rotationSettings(evById(d.evId));
+  if(d.players.has(id))d.players.delete(id);
+  else if(d.players.size<s.entrySize)d.players.add(id);
+  else{toast(`An entry has exactly ${s.entrySize} player${s.entrySize===1?'':'s'}`);return;}
+  if(!d.name&&d.players.size===s.entrySize){d.name=defaultEntryName([...d.players]);const name=$('#entryName');if(name)name.value=d.name;}
+  updatePlayerPickerChoice('entry',id,d.players.has(id));
+  const summary=document.querySelector('#scrim [data-player-selection-summary]');if(summary)summary.textContent=entrySelectionSummary(d,s);
+  const strength=document.querySelector('#scrim [data-entry-strength]');if(strength)strength.textContent=entryStrengthCopy(d,s);
+  const save=document.querySelector('#scrim [data-save-entry]');if(save)save.disabled=d.players.size!==s.entrySize;
+};
 window.saveEntry=async()=>{const d=entryDraftCapture(),ev=evById(d.evId),s=rotationSettings(ev);if(!ev||d.players.size!==s.entrySize)return;const duplicate=rotatingEntries(ev).some(e=>e.id!==d.entryId&&(e.players||[]).some(id=>d.players.has(id)));if(duplicate){toast('A player is already assigned to another entry');return;}const hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId),hasSchedule=rotationSchedule(ev).length>0;if(d.entryId&&hasResults&&!(await askConfirm('Saved results exist. This change affects future matches only; saved games keep their original players. Continue?','Change entry')))return;materializeRotation(ev);const name=(d.name||defaultEntryName([...d.players])).trim();if(d.entryId){const e=entryById(ev,d.entryId);e.name=name;e.players=[...d.players];e.manualSeed=d.manualSeed;}else ev.entries.push({id:uid(),name,players:[...d.players],manualSeed:d.manualSeed,created:Date.now()});if(hasSchedule)markScheduleNeedsReview(ev);await saveEvents();closeSheet();toast(hasSchedule?'Entry saved · schedule needs review':'Entry saved');render();};
 window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev||!d.entryId)return;if(games.some(g=>g.evId===ev.id&&gameEntryIds(g,'A').concat(gameEntryIds(g,'B')).includes(d.entryId))){toast('Remove linked results before deleting this entry');return;}const hasSchedule=rotationSchedule(ev).some(m=>m.sideAEntryIds.includes(d.entryId)||m.sideBEntryIds.includes(d.entryId));if(hasSchedule&&!(await askConfirm('The saved schedule will be kept for review and may show this as a missing entry. Continue?','Delete entry')))return;await Sync.markDeleted('eventEntries',d.entryId);materializeRotation(ev);ev.entries=ev.entries.filter(e=>e.id!==d.entryId);if(hasSchedule)markScheduleNeedsReview(ev);await saveEvents();closeSheet();toast(hasSchedule?'Entry deleted · schedule needs review':'Entry deleted');render();};
 window.openRotationSettings=evId=>{const ev=evById(evId);if(!ev)return;window._evsDraft=null;window._rotationSettingsEvId=evId;const s=rotationSettings(ev);window._rotationFairnessPolicy=hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)?s.fairnessPolicy:'';openSheet(`<h3>Rotating Groups settings</h3><div class="field"><label>Players who stay together</label><input id="rotationEntrySize" aria-label="Players who stay together" type="number" min="1" value="${s.entrySize}" oninput="updateRotationSummary()"><div class="tiny faint">This many players remain together for the whole tournament and earn standings results as one entry.</div></div><div class="field"><label>Players per side</label><input id="rotationTeamSize" aria-label="Players per side" type="number" min="2" value="${s.teamSize}" oninput="updateRotationSummary()"><div class="tiny faint">Each temporary team contains this many total players.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Standard rounds</label><input id="rotationRounds" aria-label="Rounds" type="number" min="1" value="${s.rounds}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Courts</label><input id="rotationCourts" aria-label="Courts" type="number" min="1" value="${s.courts}" oninput="updateRotationSummary()"></div></div><div class="field"><label>Schedule fairness</label><div id="rotationSummary"></div></div><div class="field"><label>Schedule seeding</label><select id="rotationSeedMode" aria-label="Schedule seeding"><option value="rating" ${s.seedMode==='rating'?'selected':''}>Rating</option><option value="manual" ${s.seedMode==='manual'?'selected':''}>Manual</option><option value="random" ${s.seedMode==='random'?'selected':''}>Random</option></select><div class="tiny faint">Rating = strongest entries are initially seeded first. Manual = organizer controls initial order. Random = initial order is randomized.</div></div><div class="field"><label>Start time <span class="faint" style="font-weight:500">· optional</span></label><input id="rotationStart" aria-label="Start time" type="time" value="${s.start||''}" oninput="updateRotationSummary()"><div class="tiny faint">Leave empty for no times. Planned times stay anchored to the event date and this start time.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Game min</label><input id="rotationSetMin" aria-label="Minutes per game" type="number" min="5" value="${s.setMin}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Playoff match min</label><input id="rotationMatchMin" aria-label="Minutes per playoff match" type="number" min="5" value="${s.matchMin}"></div><div class="field" style="flex:1"><label>Break min</label><input id="rotationBreakMin" aria-label="Break before playoffs" type="number" min="0" value="${s.breakMin}"></div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Win points</label><input id="rotationWinPoints" aria-label="Win points" type="number" step=".5" value="${s.winPoints}"></div><div class="field" style="flex:1"><label>Tie points</label><input id="rotationTiePoints" aria-label="Tie points" type="number" step=".5" value="${s.tiePoints}"></div><div class="field" style="flex:1"><label>Loss points</label><input id="rotationLossPoints" aria-label="Loss points" type="number" step=".5" value="${s.lossPoints}"></div></div><p class="tiny faint">Initial seeding helps construct the schedule and never directly changes standings.</p><button class="btn primary block" onclick="saveRotationSettings('${evId}')">Save settings</button>${scheduleSettingsAdditionalActionsHtml(ev)}${sheetCloseBtn()}`);updateRotationSummary();};
@@ -5777,7 +5811,7 @@ function renderEventTeamSheet(){
   const chips=roster.map(p=>{
     const mine=d.players.has(p.id);
     const other=!mine && (ev.teams||[]).some(t=>t.id!==d.tid && t.players.includes(p.id));
-    return `<span data-search-text="${esc(p.name)}" ${normalizeSearchText(window._evTeamQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._evTeamQuery))?'hidden':''}><button data-focus-key="event-team-${p.id}" class="chip ${mine?'on':''}" ${other?'disabled style="opacity:.35" title="Already assigned to another team"':''} onclick="evTeamToggle('${p.id}')">${esc(p.name)}${other?' <span class="tiny faint">· taken</span>':''}</button></span>`;
+    return `<span data-search-text="${esc(p.name)}" ${normalizeSearchText(window._evTeamQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._evTeamQuery))?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="event-team-${p.id}" aria-pressed="${mine}" class="chip ${mine?'on':''}" ${other?'disabled style="opacity:.35" title="Already assigned to another team"':''} onclick="evTeamToggle('${p.id}')">${esc(p.name)}${other?' <span class="tiny faint">· taken</span>':''}</button></span>`;
   }).join('');
   const poolChoices=eventPoolChoices(ev,d.pool);
   const customPool=d.pool && !poolChoices.includes(d.pool) ? d.pool : '';
@@ -5790,7 +5824,7 @@ function renderEventTeamSheet(){
         <button class="btn sm ghost" onclick="evTeamPoolCustom()">Use</button>
       </div>
     </div>
-    <div class="field"><label>Roster · ${d.players.size?d.players.size+' picked':'none — guest team'}</label>
+    <div class="field"><label>Roster · <span data-player-selection-summary>${d.players.size?d.players.size+' picked':'none — guest team'}</span></label>
       ${selectorSearch('eventTeam','Search roster',window._evTeamQuery,shown.length,roster.length)}
       <div class="chips" data-selector="eventTeam" style="margin-top:9px">${chips}</div>
       ${!shown.length?`<div class="stat-empty">No players match “${esc(window._evTeamQuery)}”.</div>`:''}
@@ -5803,7 +5837,8 @@ function renderEventTeamSheet(){
 window.evTeamToggle=(pid)=>{
   const d=evTeamCaptureDraft();
   d.players.has(pid)?d.players.delete(pid):d.players.add(pid);
-  renderEventTeamSheet();
+  updatePlayerPickerChoice('eventTeam',pid,d.players.has(pid));
+  const summary=document.querySelector('#scrim [data-player-selection-summary]');if(summary)summary.textContent=d.players.size?`${d.players.size} picked`:'none — guest team';
 };
 window.evTeamPool=(p)=>{
   const d=evTeamCaptureDraft();

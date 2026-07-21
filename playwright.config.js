@@ -1,4 +1,4 @@
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './tests',
@@ -8,6 +8,18 @@ export default defineConfig({
     baseURL: 'http://127.0.0.1:5173',
     viewport: { width: 390, height: 844 }
   },
+  projects: [
+    {
+      name: 'chromium',
+      testIgnore: '**/*.webkit.spec.js',
+      use: { browserName: 'chromium' }
+    },
+    {
+      name: 'mobile-webkit',
+      testMatch: '**/*.webkit.spec.js',
+      use: { ...devices['iPhone 13'] }
+    }
+  ],
   webServer: {
     command: 'npm run dev',
     url: 'http://127.0.0.1:5173',

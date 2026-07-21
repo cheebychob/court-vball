@@ -79,3 +79,16 @@ Run on a narrow phone viewport and desktop:
 15. Duplicate the event. Confirm Rules are a private draft, public IDs/URLs are absent, and event name/date/venue references are flagged for review.
 16. Back up and restore. Confirm draft/revisions/publication metadata survive without an automatic Worker republish.
 17. Delete the event, sync both devices, and confirm it does not return. Verify historical games and ratings remain unchanged.
+
+## iPhone player-picker regression checklist
+
+1. Test in iPhone Safari.
+2. Test from the Home Screen-installed app if supported.
+3. Open Add Pair with a large roster.
+4. Scroll near the middle or bottom.
+5. Select and deselect several players; confirm the picker does not jump.
+6. Repeat after using roster search.
+7. Repeat in another team/player selection workflow.
+8. Rotate portrait to landscape and back, then retest.
+9. Confirm the modal remains open and the selected summary and save validation update.
+10. Close the modal and confirm the underlying page returns to the correct scroll position.
