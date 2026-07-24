@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.1">
+<meta name="court-build" content="20260724.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -215,6 +215,7 @@
   .spread{justify-content:space-between}
   .muted{color:var(--muted)} .faint{color:var(--faint)} .soft{color:var(--soft)}
   .small{font-size:12.5px} .tiny{font-size:11px}
+  .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
 
   .rate{font-weight:850;font-size:22px;line-height:1;color:var(--gold)}
   .rate.big{font-size:34px}
@@ -442,6 +443,51 @@
   [id^="event-"]{scroll-margin-top:calc(var(--event-sticky-offset) + env(safe-area-inset-top))}
   .selector-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 2px 0}
   .selector-clear{border:0;background:none;color:var(--gold);font-size:12px;padding:4px 2px}
+  .attendance-screen{padding-bottom:calc(154px + env(safe-area-inset-bottom))}
+  .attendance-card{padding:0;overflow:visible}
+  .attendance-top{padding:14px 14px 0}
+  .attendance-last{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid #f2c66d45;border-radius:14px;background:#f2c66d10;color:var(--text);text-align:left}
+  .attendance-last b{display:block;font-size:13px}.attendance-last span{color:var(--gold);font-size:12px;white-space:nowrap}
+  .attendance-selected{margin-top:12px;padding:11px;border:1px solid #ffffff15;border-radius:15px;background:#080d182e}
+  .attendance-selected-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+  .attendance-selected-head b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .attendance-selected-head span{font-size:11px;color:var(--soft)}
+  .attendance-selected-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:88px;overflow:hidden}
+  .attendance-selected.expanded .attendance-selected-chips{max-height:210px;overflow:auto;overscroll-behavior:contain}
+  .attendance-selected-chip{min-height:36px;padding:7px 10px;border-radius:999px;border:1px solid #5fe3ae48;background:#5fe3ae12;color:var(--mint);font-size:12px;font-weight:750}
+  .attendance-selected-chip::after{content:" ×";color:var(--muted)}
+  .attendance-tray-toggle{border:0;background:none;color:var(--gold);font-size:11px;font-weight:750;padding:5px}
+  .attendance-tools{display:grid;gap:10px;padding:12px 14px 0}
+  .attendance-scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+  .attendance-scopes button{min-height:40px;padding:7px 5px;border-radius:12px;border:1px solid #ffffff17;background:#ffffff08;color:var(--muted);font-size:12px;font-weight:750}
+  .attendance-scopes button.on{color:var(--gold);border-color:#f2c66d55;background:#f2c66d14}
+  .attendance-options{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+  .attendance-options .row{gap:6px}
+  .attendance-results{display:grid;gap:7px;max-height:min(48vh,470px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:10px 14px 16px;scrollbar-gutter:stable}
+  .attendance-player{width:100%;min-height:50px;border-radius:14px;justify-content:flex-start;text-align:left;padding:7px 10px}
+  .attendance-player .avatar{width:34px;height:34px;border-radius:11px;font-size:11px}
+  .attendance-player-copy{display:block;min-width:0}.attendance-player-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attendance-player-copy small{display:block;margin-top:2px;color:var(--soft);font-size:10.5px}
+  .attendance-check{margin-left:auto;flex:none;min-width:22px;color:var(--soft);font-size:15px;text-align:center}
+  .attendance-player.on .attendance-check{color:var(--mint)}
+  .attendance-player.best{outline:2px solid var(--gold);outline-offset:-2px}
+  .attendance-empty{padding:18px 10px;text-align:center;color:var(--soft);font-size:12.5px;line-height:1.45}
+  .attendance-notice{margin:10px 14px 0;padding:8px 10px;border-radius:11px;background:#74d7ff0d;border:1px solid #74d7ff2c;color:var(--muted);font-size:11px;line-height:1.4}
+  .attendance-actions{position:fixed;z-index:35;left:12px;right:12px;bottom:calc(78px + env(safe-area-inset-bottom));max-width:740px;margin:0 auto;padding:9px;border:1px solid #ffffff24;border-radius:18px;background:#111a2cf2;box-shadow:0 14px 42px #000b;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+  .attendance-action-row{display:grid;grid-template-columns:auto minmax(72px,auto) minmax(150px,1fr);gap:7px;align-items:center}
+  .attendance-count{text-align:center;color:var(--muted);font-size:11px;line-height:1.2}.attendance-count b{display:block;color:var(--text);font-size:14px}
+  .attendance-undo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px;padding:7px 9px;border-radius:11px;background:#74d7ff12;border:1px solid #74d7ff38;color:var(--muted);font-size:11px}
+  .attendance-undo button{min-height:34px;padding:5px 10px}
+  .attendance-validation{margin-top:6px;color:var(--gold);font-size:10.5px;text-align:center}
+  @media (min-width:1060px){
+    .attendance-actions{left:calc(var(--sidebar-w) + 20px);bottom:18px}
+    .attendance-screen{padding-bottom:130px}
+  }
+  @media (max-width:420px){
+    .attendance-action-row{grid-template-columns:auto 58px minmax(0,1fr)}
+    .attendance-actions .btn{padding-left:10px;padding-right:10px}
+    .attendance-results{max-height:43vh}
+  }
   .entry-table{overflow-x:auto}.entry-table .stand-row{min-width:570px;grid-template-columns:34px minmax(145px,1fr) 48px 70px 64px 76px 72px}
   .rotation-match{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px;margin-top:8px}.rotation-match>div:last-child{text-align:right}.versus{align-self:center;color:var(--faint);font-size:11px}.rotation-side{display:grid;gap:6px;margin-top:5px}.rotation-side>div,.rotation-side>button{display:block;width:100%;text-align:inherit;padding:7px;border-radius:10px;background:#ffffff08;border:1px solid #ffffff10;color:inherit;font:inherit}.rotation-side>button:active{background:var(--tap);border-color:#f2c66d44}.rotation-side b,.rotation-side span{display:block;overflow-wrap:anywhere}.rotation-side span{margin-top:2px;color:var(--soft);font-size:10px;font-weight:500}
   .name-link{color:var(--text);font:inherit;font-weight:700;padding:2px 0;text-align:inherit}
@@ -947,9 +993,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.16.0',
-  build: '20260724.1',
-  releaseNotes: 'Pickup attendance now excludes event-only players, aliases are editable and searchable, duplicate choices are distinct, and players without saved games display as Unrated.'
+  version: '0.17.0',
+  build: '20260724.2',
+  releaseNotes: 'Attendance now supports last-session recall, regular and recent views, rapid alias search, a selected-player tray, Clear Undo, and durable session snapshots.'
 });
 
 function appVersionLabel(){
@@ -1121,16 +1167,20 @@ const PLAYER_STAT_ERRORS = new Set(['serr','perr','kerr','fault']);
 
 const DEFAULT_SETTINGS = {
   numTeams:2, hideRatings:false, detailed:false, playerSort:'az',
-  eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12, ratingVersion:2,
+  attendanceScope:'regulars', attendanceSort:'recent', eloK:5, eloD:20, eventK:0.6, maxElo:6, maxEvent:5, confGames:12, ratingVersion:2,
 };
 
 let players = [];      // see makePlayer()
 let games = [];        // see makeGame()
 let evts = [];         // events/tournaments: {id,name,eventDate,created,done,teams:[{id,name,players:[ids]}]}
+let attendanceSessions = []; // pickup attendance snapshots; player IDs only
 let settings = {...DEFAULT_SETTINGS};
 let live = null;       // in-progress game state
 let tab = 'players';
 const RECENT_PLAYER_DAYS = 30;
+const REGULAR_MIN_GAMES = 2;
+const REGULAR_MAX_COUNT = 40;
+const ATTENDANCE_UNDO_MS = 9000;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function hash32(value){
@@ -1171,6 +1221,35 @@ function normalizeEventDate(value,fallback=null){
 function localDateFromTimestamp(value){
   if(value==null||value==='')return null;
   const n=Number(value);return Number.isFinite(n)?localDateString(n):null;
+}
+function attendanceDateTimestamp(value){
+  const parts=localDateParts(value);return parts?new Date(parts.year,parts.month-1,parts.day,12,0,0,0).getTime():null;
+}
+function normalizeAttendanceSession(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const date=normalizeEventDate(value.date);if(!date)return null;
+  const seen=new Set(),playerIds=[];
+  (Array.isArray(value.playerIds)?value.playerIds:[]).forEach(id=>{
+    if(id==null)return;const clean=String(id).trim();if(!clean||seen.has(clean))return;seen.add(clean);playerIds.push(clean);
+  });
+  const fallback=attendanceDateTimestamp(date)||Date.now();
+  const createdCandidate=Number(value.createdAt),updatedCandidate=Number(value.updatedAt);
+  const createdAt=Number.isFinite(createdCandidate)&&createdCandidate>0?createdCandidate:
+    Number.isFinite(updatedCandidate)&&updatedCandidate>0?updatedCandidate:fallback;
+  const updatedAt=Number.isFinite(updatedCandidate)&&updatedCandidate>0?Math.max(updatedCandidate,createdAt):createdAt;
+  const source=typeof value.source==='string'&&value.source.trim()?value.source.trim().slice(0,40):'team-builder';
+  const suppliedId=typeof value.id==='string'?value.id.trim():'';
+  const id=suppliedId||`attendance-${date}-${hash32(`${date}|${createdAt}|${playerIds.join('|')}`).toString(36)}`;
+  return {id,date,playerIds,createdAt,updatedAt,source};
+}
+function normalizeAttendanceSessions(value){
+  const byId=new Map();
+  (Array.isArray(value)?value:[]).forEach(item=>{
+    const session=normalizeAttendanceSession(item);if(!session)return;
+    const current=byId.get(session.id);
+    if(!current||session.updatedAt>current.updatedAt)byId.set(session.id,session);
+  });
+  return [...byId.values()].sort((a,b)=>a.date.localeCompare(b.date)||a.createdAt-b.createdAt||a.id.localeCompare(b.id));
 }
 function eventLocalDate(ev){
   return normalizeEventDate(ev?.eventDate)||localDateFromTimestamp(ev?.created)||todayLocalDate();
@@ -1315,6 +1394,8 @@ async function load(){
   const g = await Store.get('vb:games');   if(g) games = JSON.parse(g);
   const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
   const e = await Store.get('vb:events');  if(e) evts = JSON.parse(e);
+  const a = await Store.get('vb:attendanceSessions');if(a) attendanceSessions=JSON.parse(a);
+  attendanceSessions=normalizeAttendanceSessions(attendanceSessions);
   migrateEvents();
   // migrate any missing fields
   migratePlayers();
@@ -1345,6 +1426,7 @@ function migratePlayers(){
 async function savePlayers(){ await Store.set('vb:players', JSON.stringify(players)); }
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
 async function saveEvents(){ await Store.set('vb:events', JSON.stringify(evts)); }
+async function saveAttendanceSessions(){ await Store.set('vb:attendanceSessions', JSON.stringify(attendanceSessions)); }
 async function saveSettings(){ await Store.set('vb:settings', JSON.stringify(settings)); }
 
 /* ============================================================
@@ -2116,6 +2198,86 @@ function playerDisplayIdentityWarning(player,playerList=players){
   const key=normalizeSearchText(player?.name),matches=(Array.isArray(playerList)?playerList:[]).filter(other=>other?.id!==player?.id&&normalizeSearchText(other?.name)===key);
   return key&&matches.length?'Another player has this same display name. Add a last initial or other distinguishing name so organizers can identify them confidently.':'';
 }
+function attendancePlayerComparator(a,b,{participationIndex,displayLabels,sort='recent'}={}){
+  const labelFor=player=>String(displayLabels?.get(player.id)||player.name||'Player');
+  if(sort==='az')return labelFor(a).localeCompare(labelFor(b),undefined,{sensitivity:'base'})||String(a.id).localeCompare(String(b.id));
+  const A=participationIndex?.get(String(a.id))||{},B=participationIndex?.get(String(b.id))||{};
+  const aRecent=Number.isFinite(A.lastPlayedAt)?A.lastPlayedAt:Number.NEGATIVE_INFINITY;
+  const bRecent=Number.isFinite(B.lastPlayedAt)?B.lastPlayedAt:Number.NEGATIVE_INFINITY;
+  return bRecent-aRecent||(Number(B.gamesPlayed)||0)-(Number(A.gamesPlayed)||0)||
+    labelFor(a).localeCompare(labelFor(b),undefined,{sensitivity:'base'})||String(a.id).localeCompare(String(b.id));
+}
+function attendanceScopes({playerList=players,gameList=games,eventList=evts,now=Date.now()}={}){
+  const pickupGames=(Array.isArray(gameList)?gameList:[]).filter(game=>!game?.evId);
+  const eligible=getSelectablePlayers({context:'pickupAttendance',playerList}),participationIndex=buildPlayerParticipationIndex(playerList,pickupGames,eventList,now);
+  const recent=eligible.filter(player=>participationIndex.get(String(player.id))?.participationCategory==='recent');
+  const recentIds=new Set(recent.map(player=>String(player.id)));
+  const frequent=eligible.filter(player=>{
+    const meta=participationIndex.get(String(player.id));return !recentIds.has(String(player.id))&&(Number(meta?.gamesPlayed)||0)>=REGULAR_MIN_GAMES;
+  }).sort((a,b)=>{
+    const A=participationIndex.get(String(a.id))||{},B=participationIndex.get(String(b.id))||{};
+    return (Number(B.gamesPlayed)||0)-(Number(A.gamesPlayed)||0)||(Number(B.lastPlayedAt)||0)-(Number(A.lastPlayedAt)||0)||String(a.id).localeCompare(String(b.id));
+  }).slice(0,Math.max(0,REGULAR_MAX_COUNT-recent.length));
+  const regulars=[...recent,...frequent],regularIds=new Set(regulars.map(player=>String(player.id)));
+  return {all:eligible,recent,regulars,regularIds,participationIndex,regularsFallback:regulars.length===0&&eligible.length>0};
+}
+function attendanceSearchRank(player,query){
+  const q=normalizeSearchText(query),primary=normalizeSearchText(player?.name),aliases=normalizePlayerAliases(player?.aliases,player?.name).map(normalizeSearchText);
+  if(!q)return null;
+  if(primary===q)return {rank:0,aliasMatch:null};
+  const exactAlias=aliases.find(alias=>alias===q);if(exactAlias)return {rank:1,aliasMatch:normalizePlayerAliases(player.aliases,player.name)[aliases.indexOf(exactAlias)]};
+  if(primary.startsWith(q))return {rank:2,aliasMatch:null};
+  const prefixIndex=aliases.findIndex(alias=>alias.startsWith(q));if(prefixIndex>=0)return {rank:3,aliasMatch:normalizePlayerAliases(player.aliases,player.name)[prefixIndex]};
+  if(primary.includes(q))return {rank:4,aliasMatch:null};
+  const substringIndex=aliases.findIndex(alias=>alias.includes(q));if(substringIndex>=0)return {rank:5,aliasMatch:normalizePlayerAliases(player.aliases,player.name)[substringIndex]};
+  return null;
+}
+function rankAttendanceSearch(query,playerList,{participationIndex,displayLabels}={}){
+  return (Array.isArray(playerList)?playerList:[]).map(player=>{const match=attendanceSearchRank(player,query);return match?{player,...match}:null;}).filter(Boolean).sort((a,b)=>
+    a.rank-b.rank||attendancePlayerComparator(a.player,b.player,{participationIndex,displayLabels,sort:'recent'})
+  );
+}
+function mergeAttendanceSessionsById(local,remote,preferRemote=true){
+  const merged=new Map();
+  normalizeAttendanceSessions(local).forEach(session=>merged.set(session.id,session));
+  normalizeAttendanceSessions(remote).forEach(incoming=>{
+    const current=merged.get(incoming.id);
+    if(!current||incoming.updatedAt>current.updatedAt||(preferRemote&&incoming.updatedAt===current.updatedAt))merged.set(incoming.id,incoming);
+  });
+  const byDate=new Map();
+  normalizeAttendanceSessions([...merged.values()]).forEach(session=>{
+    const current=byDate.get(session.date);
+    if(!current||session.updatedAt>current.updatedAt||(preferRemote&&session.updatedAt===current.updatedAt))byDate.set(session.date,session);
+  });
+  return normalizeAttendanceSessions([...byDate.values()]);
+}
+function getPreviousAttendanceSelection({attendanceSessions:sessionList=[],games:gameList=[],players:playerList=[],events:eventList=[],beforeDate=todayLocalDate()}={}){
+  const eligible=getSelectablePlayers({context:'pickupAttendance',playerList}),eligibleIds=new Set(eligible.map(player=>String(player.id)));
+  const applyIds=(date,ids,source)=>{
+    const unique=[...new Set((ids||[]).filter(id=>id!=null).map(String))],playerIds=unique.filter(id=>eligibleIds.has(id));
+    return {date,playerIds,unavailableCount:unique.length-playerIds.length,source};
+  };
+  const previous=normalizeAttendanceSessions(sessionList).filter(session=>session.date<beforeDate&&session.playerIds.length).sort((a,b)=>b.date.localeCompare(a.date)||b.updatedAt-a.updatedAt||b.id.localeCompare(a.id))[0];
+  if(previous)return applyIds(previous.date,previous.playerIds,'attendance-session');
+  const pickupGames=(Array.isArray(gameList)?gameList:[]).filter(game=>!game?.evId).map(game=>({game,date:localDateFromTimestamp(gameChronologyTimestamp(game,{eventList}))})).filter(row=>row.date&&row.date<beforeDate);
+  if(!pickupGames.length)return null;
+  const date=pickupGames.map(row=>row.date).sort((a,b)=>b.localeCompare(a))[0],ids=[];
+  pickupGames.filter(row=>row.date===date).forEach(({game})=>{const sides=gamePlayerSides(game,{eventList});ids.push(...(sides.A||[]),...(sides.B||[]));});
+  return applyIds(date,ids,'game-history');
+}
+async function saveAttendanceSnapshot(playerIds,{date=todayLocalDate(),now=Date.now(),source='team-builder'}={}){
+  const cleanIds=[...new Set((playerIds||[]).filter(id=>id!=null).map(String))];if(!normalizeEventDate(date))return null;
+  attendanceSessions=normalizeAttendanceSessions(attendanceSessions);
+  const sameDate=attendanceSessions.filter(session=>session.date===date).sort((a,b)=>b.updatedAt-a.updatedAt||b.createdAt-a.createdAt)[0];
+  const next=normalizeAttendanceSession(sameDate
+    ?{...sameDate,playerIds:cleanIds,updatedAt:now,source}
+    :{id:`attendance-${uid()}`,date,playerIds:cleanIds,createdAt:now,updatedAt:now,source});
+  attendanceSessions=normalizeAttendanceSessions(sameDate
+    ?[...attendanceSessions.filter(session=>session.date!==date),next]
+    :[...attendanceSessions,next]);
+  await saveAttendanceSessions();
+  return next;
+}
 function getPlayerRatingDisplay(player,participation){
   if(!participation?.hasTrackedGame)return {status:'unrated',label:'Unrated'};
   return {status:'rated',label:String(Math.round(Number(player?.rating)||0))};
@@ -2214,6 +2376,7 @@ const NAV = [
 const MOBILE_NAV = NAV.slice(0,5);
 window.setTab=(t)=>{
   closeSheet();
+  if(t!=='teams'&&tab==='teams')clearAttendanceTransientState();
   tab=t;
   if(t!=='teams') window._teams=null;
   if(t!=='events') window._evOpen=null;
@@ -2398,7 +2561,8 @@ function render(options={}){
   const policy=options.scroll||'preserve';
   const position=policy==='preserve'?captureRenderPosition(options.focusKey):null;
   renderNav();
-  main.classList.remove('event-detail');
+  if(tab!=='teams')document.querySelector('body > [data-attendance-actions]')?.remove();
+  main.classList.remove('event-detail','attendance-screen');
   const roster = players.filter(p=>!isArchived(p));
   const act = roster.filter(p=>p.active);
   const todayN = games.filter(g=>isToday(g.date)).length;
@@ -3038,42 +3202,123 @@ function showRecap(gid){
 window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
+function attendanceContext(){
+  const scopes=attendanceScopes(),displayLabels=buildUniquePlayerDisplayLabels(scopes.all);
+  return {...scopes,displayLabels};
+}
+function attendanceSelectedTrayHtml(context){
+  const selected=context.all.filter(player=>window._pool?.has(player.id)).sort((a,b)=>attendancePlayerComparator(a,b,{...context,sort:'az'}));
+  const expanded=!!window._attendanceTrayExpanded,showToggle=selected.length>6;
+  return `<div class="attendance-selected ${expanded?'expanded':''}" data-attendance-tray>
+    <div class="attendance-selected-head"><b>Selected</b><span data-attendance-live aria-live="polite">${selected.length} player${selected.length===1?'':'s'}</span></div>
+    ${selected.length?`<div class="attendance-selected-chips">${selected.map(player=>`<button type="button" class="attendance-selected-chip" aria-label="Remove ${esc(context.displayLabels.get(player.id))} from attendance" onclick="removeAttendancePlayer('${esc(player.id)}')">${esc(context.displayLabels.get(player.id))}</button>`).join('')}</div>`:'<div class="tiny faint">No players selected yet.</div>'}
+    ${showToggle?`<button type="button" class="attendance-tray-toggle" aria-expanded="${expanded}" onclick="toggleAttendanceTray()">${expanded?'Collapse':`Show all ${selected.length}`}</button>`:''}
+  </div>`;
+}
+function attendanceResultRows(context){
+  const query=normalizeSearchText(window._teamQuery);
+  if(query)return rankAttendanceSearch(query,context.all,context).map(item=>({...item,search:true}));
+  const scope=settings.attendanceScope==='recent'?'recent':settings.attendanceScope==='all'?'all':'regulars';
+  const source=scope==='regulars'&&context.regularsFallback?context.all:context[scope];
+  return source.filter(player=>!(window._attendanceHideSelected&&window._pool.has(player.id))).slice().sort((a,b)=>
+    attendancePlayerComparator(a,b,{...context,sort:settings.attendanceSort})
+  ).map(player=>({player,aliasMatch:null,search:false}));
+}
+function attendanceResultsHtml(context){
+  const rows=attendanceResultRows(context),query=normalizeSearchText(window._teamQuery),allMatchesSelected=query&&rows.length&&rows.every(row=>window._pool.has(row.player.id));
+  if(!rows.length){
+    const scope=settings.attendanceScope==='recent'?'Recent':settings.attendanceScope==='all'?'All':'Regulars';
+    const message=query?`No eligible players match “${esc(window._teamQuery)}”.`:window._attendanceHideSelected&&window._pool.size?'Everyone in this view is selected.':`No players in ${scope}.`;
+    return `<div class="attendance-empty">${message}</div>`;
+  }
+  const firstUnselected=query?rows.find(row=>!window._pool.has(row.player.id)):null;
+  return rows.map(row=>{
+    const player=row.player,on=window._pool.has(player.id),best=firstUnselected?.player.id===player.id;
+    return `<button type="button" data-player-choice="${esc(player.id)}" data-focus-key="pool-${esc(player.id)}" data-scroll-key="player-${esc(player.id)}" class="chip attendance-player ${on?'on':''} ${best?'best':''}" aria-pressed="${on}" ${best?'aria-describedby="attendanceBestHint"':''} onclick="togglePool('${esc(player.id)}')">
+      ${playerAvatarHtml(player,{size:'sm'})}<span class="attendance-player-copy"><b>${esc(context.displayLabels.get(player.id))}</b>${row.aliasMatch?`<small>Alias match: ${esc(row.aliasMatch)}</small>`:''}</span><span class="attendance-check" aria-hidden="true">${on?'✓':best?'↵':'+'}</span>
+    </button>`;
+  }).join('')+(firstUnselected?'<span id="attendanceBestHint" class="sr-only">Best match. Press Enter to select.</span>':'')+
+    (allMatchesSelected?'<div class="attendance-empty">All matching players are already selected. Tap a checked result to remove one.</div>':'');
+}
+function attendanceActionHtml(){
+  const count=window._pool?.size||0,canGenerate=count>=settings.numTeams;
+  const validation=canGenerate?'':`Pick at least ${settings.numTeams} players to make ${settings.numTeams} non-empty teams.`;
+  const undo=window._attendanceUndo&&window._attendanceUndo.expiresAt>Date.now()?`<div class="attendance-undo" role="status"><span>Attendance cleared.</span><button type="button" class="btn sm ghost" onclick="undoClearPool()">Undo</button></div>`:'';
+  return `${undo}<div class="attendance-action-row">
+    <button type="button" class="btn sm ghost" onclick="clearPool()">Clear all</button>
+    <div class="attendance-count"><b>${count}</b>selected</div>
+    <button type="button" class="btn primary" onclick="genTeams()" ${canGenerate?'':'disabled'}>${icons.bolt} Build teams · ${count}</button>
+  </div>${validation?`<div class="attendance-validation">${esc(validation)}</div>`:''}`;
+}
+function focusWithoutScroll(element){
+  if(!element)return;try{element.focus({preventScroll:true});}catch(_){const x=window.scrollX,y=window.scrollY;element.focus();window.scrollTo(x,y);}
+}
+function updateAttendancePickerUI({preserveResults=true,preserveAnchor=false}={}){
+  const pageX=window.scrollX,pageY=window.scrollY,context=window._attendanceContext||attendanceContext(),results=$('[data-attendance-results]'),oldTop=results?.scrollTop||0;
+  const anchor=$('[data-focus-key="search-teams"]'),anchorTop=preserveAnchor?anchor?.getBoundingClientRect().top:null;
+  const tray=$('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(context);
+  if(results){results.innerHTML=attendanceResultsHtml(context);if(preserveResults)results.scrollTop=oldTop;}
+  const actions=$('[data-attendance-actions]');if(actions)actions.innerHTML=attendanceActionHtml();
+  const select=$('[data-select-pool]');if(select)select.textContent=normalizeSearchText(window._teamQuery)?'Select filtered':'Select all';
+  const meta=$('[data-attendance-result-count]');if(meta)meta.textContent=String(attendanceResultRows(context).length);
+  const topCount=$('[data-attendance-top-count]');if(topCount)topCount.textContent=`${window._pool.size} selected`;
+  const hide=$('[data-attendance-hide-selected]');if(hide){hide.classList.toggle('on',!!window._attendanceHideSelected);hide.setAttribute('aria-pressed',String(!!window._attendanceHideSelected));}
+  window.PlayerPhotos?.hydrate(main);
+  if(preserveAnchor&&Number.isFinite(anchorTop))requestAnimationFrame(()=>{const next=$('[data-focus-key="search-teams"]');if(next)window.scrollBy(0,next.getBoundingClientRect().top-anchorTop);});
+  else{window.scrollTo(pageX,pageY);requestAnimationFrame(()=>window.scrollTo(pageX,pageY));}
+}
+function dismissAttendanceUndo(){
+  if(window._attendanceUndoTimer)clearTimeout(window._attendanceUndoTimer);
+  window._attendanceUndoTimer=null;window._attendanceUndo=null;
+}
+function clearAttendanceTransientState(){
+  dismissAttendanceUndo();window._teamQuery='';window._attendanceTrayExpanded=false;window._attendanceHideSelected=false;window._attendanceContext=null;window._attendanceNotice='';
+}
 function renderTeams(){
-  const act = sortPlayers(getSelectablePlayers({context:'pickupAttendance'}));
-  const participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(act);
+  document.querySelector('body > [data-attendance-actions]')?.remove();
+  const context=attendanceContext(),act=context.all,participation=context.participationIndex,displayLabels=context.displayLabels;
   const activeIds = new Set(act.map(p=>p.id));
   settings.numTeams = positiveInt(settings.numTeams, DEFAULT_SETTINGS.numTeams);
+  if(!['regulars','recent','all'].includes(settings.attendanceScope))settings.attendanceScope='regulars';
+  if(!['recent','az'].includes(settings.attendanceSort))settings.attendanceSort='recent';
   if(!window._pool) window._pool = new Set(activeIds);
   else{
-    const removed=[...window._pool].filter(id=>!activeIds.has(id)).map(pById).filter(Boolean);
+    const removed=[...window._pool].filter(id=>!activeIds.has(id));
     window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
     window._poolEligibilityNotice=removed.length?`${removed.length} previously selected player${removed.length===1?' was':'s were'} removed because they are inactive or unavailable for pickup attendance.`:'';
   }
   const pool = window._pool;
+  window._attendanceContext=context;
   const teamPresets = [2,3,4,5,6];
   const customTeams = !teamPresets.includes(settings.numTeams) ? settings.numTeams : '';
-  const canGenerate = pool.size>=settings.numTeams;
   if(window._teamQuery===undefined) window._teamQuery='';
-  function chip(p){
-    const on = pool.has(p.id);
-    return `<button data-focus-key="pool-${p.id}" class="chip ${on?'on':''}" onclick="togglePool('${p.id}')">${esc(displayLabels.get(p.id))} <span class="r num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span></button>`;
-  }
+  const previous=getPreviousAttendanceSelection({attendanceSessions,games,players,events:evts,beforeDate:todayLocalDate()});
+  const previousUseful=previous&&previous.playerIds.length;
   let html = `${screenHead('Teams','Make even teams','Balanced by rating, then sanity-checked for setters, passers, and beginners. Running fixed teams instead? Use the Events tab.')}`;
   if(!act.length){
-    html += `<div class="empty"><b>No active players</b>Add players or mark some as active to build teams.</div>
+    html += `<div class="empty"><b>No pickup-eligible players</b>Add players, mark them active, or enable ordinary pickup attendance in their profiles.</div>
       <button class="btn primary block" onclick="openPlayer()">${icons.plus} Add player</button>`;
     main.innerHTML = html; return;
   }
+  main.classList.add('attendance-screen');
   html += `
-    <div class="card">
-      <div class="row spread" style="margin-bottom:9px">
-        <span class="small muted" style="font-weight:700">Who\u2019s here today? (${pool.size} selected)</span>
-        <span class="row" style="gap:6px"><button class="btn sm ghost" data-select-pool onclick="selectPoolAll()">${normalizeSearchText(window._teamQuery)?'Select filtered':'Select all'}</button><button class="btn sm ghost" onclick="clearPool()">Clear all</button></span>
+    <div class="card attendance-card" data-selector="teams">
+      <div class="attendance-top">
+        <div class="row spread"><span class="small muted" style="font-weight:800">Who\u2019s here today?</span><span class="tiny faint" data-attendance-top-count>${pool.size} selected</span></div>
+        ${previousUseful?`<button type="button" class="attendance-last" style="margin-top:10px" onclick="usePreviousAttendance()"><b>Use last session · ${previous.playerIds.length} player${previous.playerIds.length===1?'':'s'}</b><span>${esc(formatEventDate(previous.date,{month:'short',day:'numeric'})||previous.date)} ›</span></button>`:''}
+        ${attendanceSelectedTrayHtml(context)}
       </div>
-      ${window._poolEligibilityNotice?`<div class="unkline" role="status">${esc(window._poolEligibilityNotice)}</div>`:''}
-      ${selectorSearch('teams','Search attendance',window._teamQuery,filterPlayersForQuery(act,window._teamQuery).length,act.length)}
-      <div class="chips" id="teamPool" data-selector="teams" style="margin-top:9px">${act.map(p=>`<span class="team-pool-row" data-scroll-key="player-${p.id}" data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._teamQuery)&&!filterPlayersForQuery([p],window._teamQuery).length?'hidden':''}>${chip(p)}</span>`).join('')}</div>
-      ${!filterPlayersForQuery(act,window._teamQuery).length?`<div class="stat-empty">No active players match “${esc(window._teamQuery)}”.</div>`:''}
+      ${window._poolEligibilityNotice?`<div class="attendance-notice unkline" role="status">${esc(window._poolEligibilityNotice)}</div>`:''}
+      ${window._attendanceNotice?`<div class="attendance-notice" role="status">${esc(window._attendanceNotice)}</div>`:''}
+      <div class="attendance-tools">
+        <div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="search-teams" type="search" enterkeyhint="done" autocomplete="off" autocapitalize="words" aria-label="Search attendance" placeholder="Search players or aliases…" value="${esc(window._teamQuery)}" oninput="attendanceSearchInput(this.value)" onkeydown="attendanceSearchKeydown(event)"></div>
+        <div class="attendance-scopes" role="group" aria-label="Attendance player view">
+          ${[['regulars','Regulars',context.regulars.length],['recent','Recent',context.recent.length],['all','All',context.all.length]].map(([key,label,count])=>`<button type="button" class="${settings.attendanceScope===key?'on':''}" aria-pressed="${settings.attendanceScope===key}" onclick="setAttendanceScope('${key}')">${label} ${count}</button>`).join('')}
+        </div>
+        <div class="attendance-options"><span class="tiny faint"><span data-attendance-result-count>${attendanceResultRows(context).length}</span> shown</span><span class="row"><button type="button" class="btn sm ghost ${window._attendanceHideSelected?'on':''}" data-attendance-hide-selected aria-pressed="${!!window._attendanceHideSelected}" onclick="toggleAttendanceHideSelected()">Hide selected</button><button type="button" class="btn sm ghost" onclick="toggleAttendanceSort()">${settings.attendanceSort==='az'?'A–Z':'Recent first'}</button><button type="button" class="btn sm ghost" data-select-pool onclick="selectPoolAll()">${normalizeSearchText(window._teamQuery)?'Select filtered':'Select all'}</button></span></div>
+      </div>
+      ${context.regularsFallback&&settings.attendanceScope==='regulars'?'<div class="attendance-notice">No one meets the Regulars rule yet, so All eligible players are shown.</div>':''}
+      <div class="attendance-results" id="teamPool" data-attendance-results data-preserve-scroll="attendance-roster">${attendanceResultsHtml(context)}</div>
     </div>
     <div class="card">
       <div class="small muted" style="font-weight:700;margin-bottom:9px">Number of teams</div>
@@ -3084,9 +3329,7 @@ function renderTeams(){
         <div><label for="teamCustom">Custom</label><input id="teamCustom" type="number" inputmode="numeric" min="1" placeholder="7" value="${esc(customTeams?String(customTeams):'')}" onkeydown="if(event.key==='Enter')setTeamsCustom()"></div>
         <button class="btn sm ghost" onclick="setTeamsCustom()">Use</button>
       </div>
-      ${pool.size<settings.numTeams?`<div class="tiny" style="color:var(--gold);margin-top:7px">Pick at least ${settings.numTeams} players to make ${settings.numTeams} non-empty teams.</div>`:''}
-    </div>
-    <button class="btn primary block" onclick="genTeams()" ${canGenerate?'':'disabled'}>${icons.bolt} Generate balanced teams</button>`;
+    </div>`;
 
   if(window._teams){
     html += `<div class="section-head"><h3>Balanced teams</h3><span>move any player to a specific team</span></div><div class="team-results">`;
@@ -3129,16 +3372,59 @@ function renderTeams(){
     }
     html += `<button class="btn ghost block" style="margin-top:9px" onclick="genTeams()">Shuffle again</button>`;
   }
+  html += `<div class="attendance-actions" data-attendance-actions>${attendanceActionHtml()}</div>`;
   main.innerHTML = html;
+  const attendanceActions=main.querySelector('[data-attendance-actions]');if(attendanceActions)document.body.appendChild(attendanceActions);
+  window.PlayerPhotos?.hydrate(main);
 }
 function renderTeamsLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTeams(); restoreRenderPosition(pos); }
-window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._pool.add(id); window._teams=null; renderTeamsLocal('pool-'+id); };
-window.selectPoolAll=()=>{ const act=getSelectablePlayers({context:'pickupAttendance'}); const shown=filterPlayersForQuery(act,window._teamQuery); window._pool=new Set([...window._pool,...shown.map(p=>p.id)]); window._teams=null; renderTeamsLocal(); };
-window.clearPool=()=>{ window._pool=new Set(); window._teams=null; renderTeamsLocal(); };
-window.filterTeamPool=(value)=>{
-  window._teamQuery=value;
-  const q=value.trim().toLowerCase();
-  document.querySelectorAll('#teamPool .team-pool-row').forEach(row=>{ row.hidden=!!q && !(row.dataset.name||'').includes(q); });
+window.togglePool=(id)=>{
+  const adding=!window._pool.has(id),fromSearch=!!normalizeSearchText(window._teamQuery);
+  dismissAttendanceUndo();adding?window._pool.add(id):window._pool.delete(id);window._teams=null;
+  if(adding&&fromSearch){window._teamQuery='';const input=$('[data-focus-key="search-teams"]');if(input)input.value='';updateAttendancePickerUI({preserveResults:false});focusWithoutScroll(input);}
+  else updateAttendancePickerUI();
+};
+window.removeAttendancePlayer=id=>{if(!window._pool?.has(id))return;dismissAttendanceUndo();window._pool.delete(id);window._teams=null;updateAttendancePickerUI({preserveAnchor:true});};
+window.selectPoolAll=()=>{
+  dismissAttendanceUndo();const context=window._attendanceContext||attendanceContext(),query=normalizeSearchText(window._teamQuery);
+  const shown=query?rankAttendanceSearch(query,context.all,context).map(row=>row.player):context.all;
+  window._pool=new Set([...window._pool,...shown.map(player=>player.id)]);window._teams=null;updateAttendancePickerUI();
+};
+window.clearPool=()=>{
+  if(!window._pool?.size)return;
+  dismissAttendanceUndo();window._attendanceUndo={playerIds:[...window._pool],expiresAt:Date.now()+ATTENDANCE_UNDO_MS};
+  window._pool=new Set();window._teams=null;
+  window._attendanceUndoTimer=setTimeout(()=>{dismissAttendanceUndo();if(tab==='teams')updateAttendancePickerUI();},ATTENDANCE_UNDO_MS);
+  updateAttendancePickerUI();
+};
+window.undoClearPool=()=>{
+  if(!window._attendanceUndo)return;const ids=window._attendanceUndo.playerIds.slice();dismissAttendanceUndo();
+  window._pool=new Set(ids);window._teams=null;updateAttendancePickerUI();
+};
+window.attendanceSearchInput=value=>{window._teamQuery=value;updateAttendancePickerUI({preserveResults:false});};
+window.attendanceSearchKeydown=event=>{
+  if(event.key==='Escape'&&window._teamQuery){event.preventDefault();window._teamQuery='';event.currentTarget.value='';updateAttendancePickerUI({preserveResults:false});return;}
+  if(event.key!=='Enter')return;
+  event.preventDefault();const context=window._attendanceContext||attendanceContext(),match=rankAttendanceSearch(window._teamQuery,context.all,context).find(row=>!window._pool.has(row.player.id));
+  if(!match){toast('All matching players are already selected');return;}
+  togglePool(match.player.id);
+};
+window.setAttendanceScope=async scope=>{
+  if(!['regulars','recent','all'].includes(scope)||settings.attendanceScope===scope)return;
+  settings.attendanceScope=scope;await saveSettings();const results=$('[data-attendance-results]');updateAttendancePickerUI({preserveResults:false});if(results)results.scrollTop=0;
+  document.querySelectorAll('.attendance-scopes button').forEach(button=>{const on=button.getAttribute('onclick')===`setAttendanceScope('${scope}')`;button.classList.toggle('on',on);button.setAttribute('aria-pressed',String(on));});
+};
+window.toggleAttendanceSort=async()=>{settings.attendanceSort=settings.attendanceSort==='az'?'recent':'az';await saveSettings();renderTeamsLocal();};
+window.toggleAttendanceHideSelected=()=>{window._attendanceHideSelected=!window._attendanceHideSelected;updateAttendancePickerUI({preserveResults:false});};
+window.toggleAttendanceTray=()=>{window._attendanceTrayExpanded=!window._attendanceTrayExpanded;updateAttendancePickerUI({preserveAnchor:true});};
+window.usePreviousAttendance=async()=>{
+  const previous=getPreviousAttendanceSelection({attendanceSessions,games,players,events:evts,beforeDate:todayLocalDate()});if(!previous?.playerIds.length)return;
+  const same=window._pool.size===previous.playerIds.length&&previous.playerIds.every(id=>window._pool.has(id));
+  if(same){toast('Last session is already selected');return;}
+  if(window._pool.size&&!(await askConfirm('Replace the current attendance with the last session?','Replace selection',false)))return;
+  dismissAttendanceUndo();window._pool=new Set(previous.playerIds);window._teams=null;
+  window._attendanceNotice=`Loaded ${previous.playerIds.length} player${previous.playerIds.length===1?'':'s'}.${previous.unavailableCount?` ${previous.unavailableCount} ${previous.unavailableCount===1?'is':'are'} no longer available.`:''}`;
+  renderTeamsLocal();
 };
 window.poolAll=()=>{
   /* toggles: select every active player, or clear them all if already selected */
@@ -3153,11 +3439,12 @@ window.setTeamsCustom=()=>{
   if(!n){ toast('Enter a team count above 0'); return; }
   setTeams(n);
 };
-window.genTeams=()=>{
+window.genTeams=async()=>{
   const pool=getSelectablePlayers({context:'pickupAttendance'}).filter(p=>window._pool.has(p.id));
   if(pool.length<settings.numTeams){ toast('Pick enough players for non-empty teams'); return; }
   window._teams=balance(pool, settings.numTeams);
   if(window._teams.some(t=>!t.length)){ window._teams=null; toast('Every generated team needs a player'); return; }
+  await saveAttendanceSnapshot(pool.map(player=>player.id));
   renderTeamsLocal();
 };
 window.movePlayer=(id, from)=>{
@@ -6816,7 +7103,7 @@ window.copyAppVersion=async()=>{
 };
 window.exportData=async()=>{
   const deletions=Sync.deletionState();
-  const data=JSON.stringify({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:3});
+  const data=JSON.stringify({players,games,settings,events:evts,attendanceSessions,deletions,tomb:{...deletions.games},v:4});
   let copied=false;
   try{ await navigator.clipboard.writeText(data); copied=true; }catch(e){}
   try{
@@ -6840,10 +7127,10 @@ window.openImport=()=>{
 async function restoreBackupData(d){
   if(!d||!Array.isArray(d.players))throw new Error('invalid backup');
   const restored=await Sync.prepareReplacement(d);
-  players=restored.players;games=restored.games;evts=restored.events;
+  players=restored.players;games=restored.games;evts=restored.events;attendanceSessions=restored.attendanceSessions;
   settings={...DEFAULT_SETTINGS,...(d.settings||{})};
   migrateEvents();migratePlayers();
-  await commit();await saveSettings();await saveEvents();
+  await commit();await saveSettings();await saveEvents();await saveAttendanceSessions();
 }
 window.importFile=(e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -6861,8 +7148,8 @@ window.doImport=async()=>{
 window.resetAll=async()=>{
   if(!(await askConfirm('Delete ALL players, games, events, and settings? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
   await Sync.markDeletedMany({players,games,events:evts});
-  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; window._evOpen=null;
-  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents(); toast('Reset'); render();
+  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; attendanceSessions=[];window._evOpen=null;
+  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents();await saveAttendanceSessions();toast('Reset'); render();
 };
 /* ============================================================
    DEMO DATA + SELF-TEST (for trying things without real games)
@@ -7756,12 +8043,13 @@ async function runSelfTest(){
     const snapPool=window._pool, snapGen=window._teams;
     const actIds=players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id);
     window._pool=new Set([actIds[0]]);
+    window._attendanceContext=null;renderTeams();
     selectPoolAll();
     ck('Select all selects every active player', window._pool.size===actIds.length && actIds.every(id=>window._pool.has(id)));
     clearPool();
     ck('Clear all deselects everyone', window._pool.size===0);
-    ck('Attendance controls have explicit labels', $('#main').textContent.includes('Select all') && $('#main').textContent.includes('Clear all'));
-    window._pool=snapPool; window._teams=snapGen;
+    ck('Attendance controls have explicit labels', $('#main').textContent.includes('Select all') && document.body.textContent.includes('Clear all'));
+    dismissAttendanceUndo();window._attendanceContext=null;window._pool=snapPool; window._teams=snapGen;
 
     /* ---- team schedule view ---- */
     const evTS={id:'evTS',name:'Sched Cup',created:1,done:false,teams:[
@@ -8615,7 +8903,7 @@ const Sync=(()=>{
   const configured=()=>!!(cfg.url&&cfg.code);
   // Keep the legacy game-only tomb alias during the generalized-registry
   // transition so older Court builds can still honor game deletions.
-  const payload=()=>({players,games,settings,events:evts,deletions,tomb:{...deletions.games},v:3});
+  const payload=()=>({players,games,settings,events:evts,attendanceSessions,deletions,tomb:{...deletions.games},v:4});
   const payloadStr=()=>JSON.stringify(payload());
 
   async function loadLocalState(){
@@ -8646,6 +8934,9 @@ const Sync=(()=>{
     deletions=mergeDeletionStates(deletions,normalizeDeletionState(remote));
     const resolved=resolveDeletionProtectedRecords({players,games,events:evts},remote,deletions,mode);
     players=resolved.players;games=resolved.games;evts=resolved.events;
+    attendanceSessions=mode==='replace'
+      ?normalizeAttendanceSessions(remote.attendanceSessions)
+      :mergeAttendanceSessionsById(attendanceSessions,remote.attendanceSessions,true);
     settings={...DEFAULT_SETTINGS,...(remote.settings||{})};
     migrateEvents();migratePlayers();
   }
@@ -8667,7 +8958,7 @@ const Sync=(()=>{
           applyRemote(JSON.parse(env.data),opts.mode||'merge');
           lastTs=Math.max(lastTs,rts);
           recomputeAll();
-          await savePlayers();await saveGames();await saveSettings();await saveEvents();
+          await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();
           await saveDeletions();await saveTs();
           lastSyncedAt=Date.now();
           const merged=payloadStr();lastSig=merged;
@@ -8713,7 +9004,7 @@ const Sync=(()=>{
     const incoming=source&&typeof source==='object'?source:{};
     deletions=replacementDeletionState({players,games,events:evts},incoming,deletions);
     const resolved=resolveDeletionProtectedRecords({players,games,events:evts},incoming,deletions,'replace');
-    await saveDeletions();return resolved;
+    await saveDeletions();return {...resolved,attendanceSessions:normalizeAttendanceSessions(incoming.attendanceSessions)};
   }
   function startPoll(){stopPoll();if(cfg.on&&configured())poller=setInterval(()=>pull({}),15000);}
   function stopPoll(){if(poller){clearInterval(poller);poller=null;}}
@@ -8733,7 +9024,7 @@ const Sync=(()=>{
   async function init(){
     await loadLocalState();
     if(applyLocalDeletions()){
-      recomputeAll();await savePlayers();await saveGames();await saveEvents();
+      recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveAttendanceSessions();
       if(typeof render==='function')render();
     }
     lastSig=payloadStr();
@@ -8924,7 +9215,7 @@ const AppUpdates=(()=>{
     const reason=unsafeUpdateReason();
     if(reason){toast(reason);return false;}
     try{
-      await savePlayers();await saveGames();await saveSettings();await saveEvents();
+      await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();
       await Sync.persistLocalState();
     }catch(e){/* Store remains best-effort, matching normal offline saves. */}
     location.replace(navigationUrl());
@@ -8952,6 +9243,7 @@ window.dismissAppUpdate=()=>AppUpdates.dismiss();
 (function(){
   const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();return r;};
   const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();return r;};
+  const _saveAttendanceSessions=saveAttendanceSessions;saveAttendanceSessions=async function(){const r=await _saveAttendanceSessions.apply(this,arguments);Sync.touch();return r;};
   const _saveSettings=saveSettings;saveSettings=async function(){const r=await _saveSettings.apply(this,arguments);Sync.touch();return r;};
 })();
 
@@ -8962,6 +9254,7 @@ window.dismissAppUpdate=()=>AppUpdates.dismiss();
   try{ await load(); }catch(e){ console.warn('load skipped', e); }
   try{ recomputeAll(); }catch(e){ console.warn('recompute skipped', e); }
   try{ await savePlayers(); }catch(e){}
+  try{ await saveAttendanceSessions(); }catch(e){}
   tab = 'home';
   render();
   try{ AppUpdates.init(); }catch(e){ console.warn('update checks skipped', e); }
