@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.2">
+<meta name="court-build" content="20260724.3">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -448,6 +448,21 @@
   .attendance-top{padding:14px 14px 0}
   .attendance-last{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid #f2c66d45;border-radius:14px;background:#f2c66d10;color:var(--text);text-align:left}
   .attendance-last b{display:block;font-size:13px}.attendance-last span{color:var(--gold);font-size:12px;white-space:nowrap}
+  .attendance-crews{margin-top:12px}
+  .attendance-crews-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px}
+  .attendance-crews-head b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
+  .attendance-crews-actions{display:flex;align-items:center;gap:4px}
+  .attendance-crews-actions button{border:0;background:none;color:var(--gold);font-size:11px;font-weight:750;padding:6px}
+  .attendance-crew-strip{display:flex;gap:7px;overflow-x:auto;overscroll-behavior-x:contain;scrollbar-width:none;padding:1px 1px 4px;-webkit-overflow-scrolling:touch}
+  .attendance-crew-strip::-webkit-scrollbar{display:none}
+  .attendance-crew-item{display:flex;flex:none;min-width:0;border:1px solid #ffffff17;border-radius:13px;background:#ffffff08;overflow:hidden}
+  .attendance-crew-add{min-height:43px;max-width:210px;padding:7px 9px 7px 11px;border:0;background:none;color:var(--text);text-align:left}
+  .attendance-crew-add b,.attendance-crew-add small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .attendance-crew-add b{font-size:12px}.attendance-crew-add small{margin-top:2px;color:var(--soft);font-size:10.5px}
+  .attendance-crew-more{width:40px;min-height:43px;border:0;border-left:1px solid #ffffff12;background:#ffffff05;color:var(--muted);font-size:18px}
+  .attendance-crew-save{flex:none;min-height:43px;padding:7px 11px;border:1px dashed #f2c66d55;border-radius:13px;background:#f2c66d0b;color:var(--gold);font-size:11px;font-weight:750}
+  .attendance-crews-empty{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px dashed #ffffff1c;border-radius:13px;color:var(--soft);font-size:11px}
+  .attendance-crews-empty button{min-height:38px}
   .attendance-selected{margin-top:12px;padding:11px;border:1px solid #ffffff15;border-radius:15px;background:#080d182e}
   .attendance-selected-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
   .attendance-selected-head b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
@@ -469,6 +484,19 @@
   .attendance-player-copy{display:block;min-width:0}.attendance-player-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .attendance-player-copy small{display:block;margin-top:2px;color:var(--soft);font-size:10.5px}
   .attendance-check{margin-left:auto;flex:none;min-width:22px;color:var(--soft);font-size:15px;text-align:center}
+  .crew-editor-summary{padding:10px 11px;border:1px solid #ffffff17;border-radius:13px;background:var(--surface2)}
+  .crew-editor-preview{display:flex;flex-wrap:wrap;gap:6px;max-height:116px;overflow:auto;margin-top:8px}
+  .crew-editor-preview span{padding:6px 8px;border-radius:999px;background:#ffffff0b;color:var(--muted);font-size:11px}
+  .crew-editor-list{display:grid;gap:6px;max-height:290px;overflow:auto;overscroll-behavior:contain;margin-top:8px;padding-right:2px}
+  .crew-editor-player{width:100%;min-height:43px;display:flex;align-items:center;gap:9px;padding:7px 9px;border:1px solid #ffffff17;border-radius:12px;background:#ffffff08;color:var(--text);text-align:left}
+  .crew-editor-player.on{border-color:#5fe3ae55;background:#5fe3ae10}
+  .crew-editor-player b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px}
+  .crew-editor-player span{margin-left:auto;color:var(--soft);font-size:13px}
+  .crew-unavailable{display:grid;gap:6px;margin-top:8px}
+  .crew-unavailable-row{display:flex;align-items:center;gap:8px;padding:8px 9px;border:1px solid #ffad7a35;border-radius:12px;background:#ffad7a09}
+  .crew-unavailable-row div{min-width:0;flex:1}.crew-unavailable-row b,.crew-unavailable-row small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .crew-unavailable-row b{font-size:12px}.crew-unavailable-row small{margin-top:2px;color:var(--soft);font-size:10.5px}
+  .crew-unavailable-row button{min-height:36px}
   .attendance-player.on .attendance-check{color:var(--mint)}
   .attendance-player.best{outline:2px solid var(--gold);outline-offset:-2px}
   .attendance-empty{padding:18px 10px;text-align:center;color:var(--soft);font-size:12.5px;line-height:1.45}
@@ -993,9 +1021,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.17.0',
-  build: '20260724.2',
-  releaseNotes: 'Attendance now supports last-session recall, regular and recent views, rapid alias search, a selected-player tray, Clear Undo, and durable session snapshots.'
+  version: '0.18.0',
+  build: '20260724.3',
+  releaseNotes: 'Save recurring attendance groups as crews, add or replace attendance from a crew, and manage unavailable members without changing historical sessions.'
 });
 
 function appVersionLabel(){
@@ -1174,6 +1202,7 @@ let players = [];      // see makePlayer()
 let games = [];        // see makeGame()
 let evts = [];         // events/tournaments: {id,name,eventDate,created,done,teams:[{id,name,players:[ids]}]}
 let attendanceSessions = []; // pickup attendance snapshots; player IDs only
+let savedCrews = [];   // synced reusable pickup attendance groups; stable player IDs only
 let settings = {...DEFAULT_SETTINGS};
 let live = null;       // in-progress game state
 let tab = 'players';
@@ -1181,6 +1210,9 @@ const RECENT_PLAYER_DAYS = 30;
 const REGULAR_MIN_GAMES = 2;
 const REGULAR_MAX_COUNT = 40;
 const ATTENDANCE_UNDO_MS = 9000;
+const SAVED_CREW_NAME_MAX = 60;
+const SAVED_CREW_VISIBLE_LIMIT = 6;
+const SAVED_CREW_USE_TOUCH_MS = 15000;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function hash32(value){
@@ -1250,6 +1282,41 @@ function normalizeAttendanceSessions(value){
     if(!current||session.updatedAt>current.updatedAt)byId.set(session.id,session);
   });
   return [...byId.values()].sort((a,b)=>a.date.localeCompare(b.date)||a.createdAt-b.createdAt||a.id.localeCompare(b.id));
+}
+function normalizeSavedCrew(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const name=typeof value.name==='string'?value.name.trim().replace(/\s+/g,' ').slice(0,SAVED_CREW_NAME_MAX):'';
+  if(!name)return null;
+  const seen=new Set(),playerIds=[];
+  (Array.isArray(value.playerIds)?value.playerIds:[]).forEach(id=>{
+    if(id==null)return;const clean=String(id).trim();if(!clean||seen.has(clean))return;seen.add(clean);playerIds.push(clean);
+  });
+  const createdCandidate=Number(value.createdAt),updatedCandidate=Number(value.updatedAt);
+  const createdAt=Number.isFinite(createdCandidate)&&createdCandidate>0?createdCandidate:
+    Number.isFinite(updatedCandidate)&&updatedCandidate>0?updatedCandidate:1;
+  const updatedAt=Number.isFinite(updatedCandidate)&&updatedCandidate>0?Math.max(updatedCandidate,createdAt):createdAt;
+  const usedCandidate=Number(value.lastUsedAt);
+  const lastUsedAt=Number.isFinite(usedCandidate)&&usedCandidate>0?usedCandidate:null;
+  const suppliedId=typeof value.id==='string'?value.id.trim():'';
+  const id=suppliedId||`crew-${hash32(`${name}|${createdAt}|${playerIds.join('|')}`).toString(36)}`;
+  return {id,name,playerIds,createdAt,updatedAt,lastUsedAt};
+}
+function normalizeSavedCrews(value){
+  const byId=new Map();
+  (Array.isArray(value)?value:[]).forEach(item=>{
+    const crew=normalizeSavedCrew(item);if(!crew)return;
+    const current=byId.get(crew.id);
+    if(!current||crew.updatedAt>current.updatedAt||(crew.updatedAt===current.updatedAt&&JSON.stringify(crew)>JSON.stringify(current)))byId.set(crew.id,crew);
+  });
+  return [...byId.values()].sort((a,b)=>a.createdAt-b.createdAt||a.id.localeCompare(b.id));
+}
+function mergeSavedCrewsById(local,remote,preferRemote=true){
+  const merged=new Map(normalizeSavedCrews(local).map(crew=>[crew.id,crew]));
+  normalizeSavedCrews(remote).forEach(incoming=>{
+    const current=merged.get(incoming.id);
+    if(!current||incoming.updatedAt>current.updatedAt||(preferRemote&&incoming.updatedAt===current.updatedAt))merged.set(incoming.id,incoming);
+  });
+  return normalizeSavedCrews([...merged.values()]);
 }
 function eventLocalDate(ev){
   return normalizeEventDate(ev?.eventDate)||localDateFromTimestamp(ev?.created)||todayLocalDate();
@@ -1395,7 +1462,9 @@ async function load(){
   const s = await Store.get('vb:settings');if(s) settings = {...DEFAULT_SETTINGS, ...JSON.parse(s)};
   const e = await Store.get('vb:events');  if(e) evts = JSON.parse(e);
   const a = await Store.get('vb:attendanceSessions');if(a) attendanceSessions=JSON.parse(a);
+  const c = await Store.get('vb:savedCrews');if(c) savedCrews=JSON.parse(c);
   attendanceSessions=normalizeAttendanceSessions(attendanceSessions);
+  savedCrews=normalizeSavedCrews(savedCrews);
   migrateEvents();
   // migrate any missing fields
   migratePlayers();
@@ -1427,6 +1496,7 @@ async function savePlayers(){ await Store.set('vb:players', JSON.stringify(playe
 async function saveGames(){ await Store.set('vb:games', JSON.stringify(games)); }
 async function saveEvents(){ await Store.set('vb:events', JSON.stringify(evts)); }
 async function saveAttendanceSessions(){ await Store.set('vb:attendanceSessions', JSON.stringify(attendanceSessions)); }
+async function saveSavedCrews(){ await Store.set('vb:savedCrews', JSON.stringify(savedCrews)); }
 async function saveSettings(){ await Store.set('vb:settings', JSON.stringify(settings)); }
 
 /* ============================================================
@@ -3206,6 +3276,96 @@ function attendanceContext(){
   const scopes=attendanceScopes(),displayLabels=buildUniquePlayerDisplayLabels(scopes.all);
   return {...scopes,displayLabels};
 }
+function resolveCrewMembers(crew,playerList=players,playerById){
+  const byId=playerById instanceof Map?playerById:new Map((Array.isArray(playerList)?playerList:[]).filter(player=>player?.id!=null).map(player=>[String(player.id),player]));
+  const resolved={available:[],inactive:[],pickupIneligible:[],missing:[]};
+  (normalizeSavedCrew(crew)?.playerIds||[]).forEach(id=>{
+    const player=byId.get(String(id));
+    if(!player){resolved.missing.push({id:String(id),player:null});return;}
+    if(player.active===false||isArchived(player)){resolved.inactive.push({id:String(id),player});return;}
+    if(player.pickupEligible===false){resolved.pickupIneligible.push({id:String(id),player});return;}
+    resolved.available.push({id:String(id),player});
+  });
+  return resolved;
+}
+function savedCrewApplication(crew,currentIds,{playerList=players,mode='add'}={}){
+  const eligible=getSelectablePlayers({context:'pickupAttendance',playerList}),eligibleIds=new Set(eligible.map(player=>String(player.id)));
+  const currentSource=Array.isArray(currentIds)?currentIds:currentIds instanceof Set?[...currentIds]:[];
+  const current=[...new Set(currentSource.filter(id=>id!=null).map(String))].filter(id=>eligibleIds.has(id));
+  const resolution=resolveCrewMembers(crew,playerList,new Map((Array.isArray(playerList)?playerList:[]).filter(player=>player?.id!=null).map(player=>[String(player.id),player])));
+  const appliedIds=resolution.available.map(member=>member.id),currentSet=new Set(current);
+  const alreadySelectedCount=appliedIds.filter(id=>currentSet.has(id)).length;
+  const selectionIds=mode==='replace'?appliedIds:[...current,...appliedIds.filter(id=>!currentSet.has(id))];
+  return {
+    mode:mode==='replace'?'replace':'add',selectionIds,appliedIds,
+    addedCount:mode==='replace'?appliedIds.length:appliedIds.length-alreadySelectedCount,
+    alreadySelectedCount,
+    unavailableCount:resolution.inactive.length+resolution.pickupIneligible.length+resolution.missing.length,
+    inactiveCount:resolution.inactive.length,
+    pickupIneligibleCount:resolution.pickupIneligible.length,
+    missingCount:resolution.missing.length,
+    resolution
+  };
+}
+function savedCrewSort(a,b){
+  return (Number(b.lastUsedAt)||0)-(Number(a.lastUsedAt)||0)||(Number(b.updatedAt)||0)-(Number(a.updatedAt)||0)||
+    a.name.localeCompare(b.name,undefined,{sensitivity:'base'})||a.id.localeCompare(b.id);
+}
+function savedCrewById(id){return savedCrews.find(crew=>crew.id===String(id));}
+function savedCrewNameKey(value){return String(value||'').trim().replace(/\s+/g,' ').toLocaleLowerCase();}
+async function saveSavedCrew({id=null,name,playerIds,now=Date.now()}={}){
+  const cleanName=typeof name==='string'?name.trim().replace(/\s+/g,' ').slice(0,SAVED_CREW_NAME_MAX):'';
+  if(!cleanName)return {status:'invalid-name'};
+  const cleanIds=[...new Set((playerIds||[]).filter(value=>value!=null).map(value=>String(value).trim()).filter(Boolean))];
+  if(!cleanIds.length)return {status:'empty'};
+  savedCrews=normalizeSavedCrews(savedCrews);
+  const current=id?savedCrewById(id):null;
+  if(id&&!current)return {status:'missing'};
+  const duplicate=savedCrews.find(crew=>crew.id!==current?.id&&savedCrewNameKey(crew.name)===savedCrewNameKey(cleanName));
+  if(duplicate)return {status:'duplicate',existingCrew:duplicate};
+  const timestamp=Number.isFinite(Number(now))&&Number(now)>0?Number(now):Date.now();
+  const next=normalizeSavedCrew(current
+    ?{...current,name:cleanName,playerIds:cleanIds,updatedAt:timestamp}
+    :{id:`crew-${uid()}`,name:cleanName,playerIds:cleanIds,createdAt:timestamp,updatedAt:timestamp,lastUsedAt:null});
+  savedCrews=normalizeSavedCrews(current?savedCrews.map(crew=>crew.id===current.id?next:crew):[...savedCrews,next]);
+  await saveSavedCrews();
+  return {status:current?'updated':'created',crew:next};
+}
+function canonicalAttendanceSelectionIds(){
+  const selected=window._pool instanceof Set?window._pool:new Set();
+  return getSelectablePlayers({context:'pickupAttendance'}).filter(player=>selected.has(player.id)).map(player=>String(player.id));
+}
+function crewStatusLabel(resolution){
+  const available=resolution.available.length,unavailable=resolution.inactive.length+resolution.pickupIneligible.length+resolution.missing.length;
+  return unavailable?`${available} available · ⚠ ${unavailable} unavailable`:`${available} available`;
+}
+function attendanceCrewsHtml(){
+  const sorted=normalizeSavedCrews(savedCrews).slice().sort(savedCrewSort),expanded=!!window._attendanceCrewsExpanded;
+  const shown=expanded?sorted:sorted.slice(0,SAVED_CREW_VISIBLE_LIMIT),canSave=canonicalAttendanceSelectionIds().length>0;
+  if(!sorted.length){
+    return `<section class="attendance-crews" data-attendance-crews aria-labelledby="attendanceCrewsTitle">
+      <div class="attendance-crews-head"><b id="attendanceCrewsTitle">Crews</b></div>
+      <div class="attendance-crews-empty"><span>${canSave?'Save this group for next time.':'Select players to save a recurring crew.'}</span>${canSave?'<button type="button" class="btn sm ghost" onclick="openSaveCurrentCrew()">Save crew</button>':''}</div>
+    </section>`;
+  }
+  const byId=new Map(players.filter(player=>player?.id!=null).map(player=>[String(player.id),player]));
+  return `<section class="attendance-crews" data-attendance-crews aria-labelledby="attendanceCrewsTitle">
+    <div class="attendance-crews-head"><b id="attendanceCrewsTitle">Crews</b><span class="attendance-crews-actions">
+      ${canSave?'<button type="button" onclick="openSaveCurrentCrew()">+ Save current</button>':''}
+      <button type="button" onclick="openManageCrews()">Manage</button>
+    </span></div>
+    <div class="attendance-crew-strip" data-preserve-scroll="attendance-crews">
+      ${shown.map(crew=>{
+        const resolution=resolveCrewMembers(crew,players,byId),status=crewStatusLabel(resolution);
+        return `<div class="attendance-crew-item">
+          <button type="button" class="attendance-crew-add" data-crew-id="${esc(crew.id)}" aria-label="Add ${esc(crew.name)}, ${esc(status)} players" onclick="applySavedCrewById(this.dataset.crewId,'add')"><b>${esc(crew.name)}</b><small>${esc(status)}</small></button>
+          <button type="button" class="attendance-crew-more" data-crew-id="${esc(crew.id)}" aria-label="More actions for ${esc(crew.name)}" onclick="openCrewMenu(this.dataset.crewId)">⋯</button>
+        </div>`;
+      }).join('')}
+      ${sorted.length>SAVED_CREW_VISIBLE_LIMIT?`<button type="button" class="attendance-crew-save" aria-expanded="${expanded}" onclick="toggleAttendanceCrews()">${expanded?'Show fewer':`Show all ${sorted.length}`}</button>`:''}
+    </div>
+  </section>`;
+}
 function attendanceSelectedTrayHtml(context){
   const selected=context.all.filter(player=>window._pool?.has(player.id)).sort((a,b)=>attendancePlayerComparator(a,b,{...context,sort:'az'}));
   const expanded=!!window._attendanceTrayExpanded,showToggle=selected.length>6;
@@ -3256,6 +3416,7 @@ function focusWithoutScroll(element){
 function updateAttendancePickerUI({preserveResults=true,preserveAnchor=false}={}){
   const pageX=window.scrollX,pageY=window.scrollY,context=window._attendanceContext||attendanceContext(),results=$('[data-attendance-results]'),oldTop=results?.scrollTop||0;
   const anchor=$('[data-focus-key="search-teams"]'),anchorTop=preserveAnchor?anchor?.getBoundingClientRect().top:null;
+  const crews=$('[data-attendance-crews]');if(crews)crews.outerHTML=attendanceCrewsHtml();
   const tray=$('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(context);
   if(results){results.innerHTML=attendanceResultsHtml(context);if(preserveResults)results.scrollTop=oldTop;}
   const actions=$('[data-attendance-actions]');if(actions)actions.innerHTML=attendanceActionHtml();
@@ -3272,7 +3433,7 @@ function dismissAttendanceUndo(){
   window._attendanceUndoTimer=null;window._attendanceUndo=null;
 }
 function clearAttendanceTransientState(){
-  dismissAttendanceUndo();window._teamQuery='';window._attendanceTrayExpanded=false;window._attendanceHideSelected=false;window._attendanceContext=null;window._attendanceNotice='';
+  dismissAttendanceUndo();window._teamQuery='';window._attendanceTrayExpanded=false;window._attendanceCrewsExpanded=false;window._attendanceHideSelected=false;window._attendanceContext=null;window._attendanceNotice='';
 }
 function renderTeams(){
   document.querySelector('body > [data-attendance-actions]')?.remove();
@@ -3306,6 +3467,7 @@ function renderTeams(){
       <div class="attendance-top">
         <div class="row spread"><span class="small muted" style="font-weight:800">Who\u2019s here today?</span><span class="tiny faint" data-attendance-top-count>${pool.size} selected</span></div>
         ${previousUseful?`<button type="button" class="attendance-last" style="margin-top:10px" onclick="usePreviousAttendance()"><b>Use last session · ${previous.playerIds.length} player${previous.playerIds.length===1?'':'s'}</b><span>${esc(formatEventDate(previous.date,{month:'short',day:'numeric'})||previous.date)} ›</span></button>`:''}
+        ${attendanceCrewsHtml()}
         ${attendanceSelectedTrayHtml(context)}
       </div>
       ${window._poolEligibilityNotice?`<div class="attendance-notice unkline" role="status">${esc(window._poolEligibilityNotice)}</div>`:''}
@@ -3417,6 +3579,167 @@ window.setAttendanceScope=async scope=>{
 window.toggleAttendanceSort=async()=>{settings.attendanceSort=settings.attendanceSort==='az'?'recent':'az';await saveSettings();renderTeamsLocal();};
 window.toggleAttendanceHideSelected=()=>{window._attendanceHideSelected=!window._attendanceHideSelected;updateAttendancePickerUI({preserveResults:false});};
 window.toggleAttendanceTray=()=>{window._attendanceTrayExpanded=!window._attendanceTrayExpanded;updateAttendancePickerUI({preserveAnchor:true});};
+window.toggleAttendanceCrews=()=>{window._attendanceCrewsExpanded=!window._attendanceCrewsExpanded;updateAttendancePickerUI({preserveAnchor:true});};
+async function touchSavedCrewUse(crew,now=Date.now()){
+  if(!crew||Number(crew.lastUsedAt)&&now-Number(crew.lastUsedAt)<SAVED_CREW_USE_TOUCH_MS)return false;
+  const next=normalizeSavedCrew({...crew,lastUsedAt:now});
+  savedCrews=normalizeSavedCrews(savedCrews.map(item=>item.id===crew.id?next:item));
+  await saveSavedCrews();return true;
+}
+function crewApplicationMessage(result,mode){
+  const unavailable=result.unavailableCount;
+  if(mode==='replace'&&unavailable)return `Loaded ${result.appliedIds.length} player${result.appliedIds.length===1?'':'s'}. ${unavailable} ${unavailable===1?'is':'are'} unavailable.`;
+  if(mode==='add'&&result.addedCount===0&&result.alreadySelectedCount)return `All ${result.alreadySelectedCount} available crew member${result.alreadySelectedCount===1?' is':'s are'} already selected${unavailable?`; ${unavailable} unavailable`:''}.`;
+  if(mode==='add'&&(result.alreadySelectedCount||unavailable)){
+    return `Added ${result.addedCount} player${result.addedCount===1?'':'s'}.${result.alreadySelectedCount?` ${result.alreadySelectedCount} already selected.`:''}${unavailable?` ${unavailable} unavailable.`:''}`;
+  }
+  if(!result.appliedIds.length&&unavailable)return `No crew members are currently available. ${unavailable} unavailable.`;
+  return '';
+}
+window.applySavedCrewById=async(id,mode='add')=>{
+  const crew=savedCrewById(id);if(!crew){toast('That crew is no longer available');return null;}
+  const result=savedCrewApplication(crew,window._pool,{mode});
+  const same=window._pool.size===result.selectionIds.length&&result.selectionIds.every(playerId=>window._pool.has(playerId));
+  if(mode==='replace'&&same){toast(`${crew.name} is already selected`);return result;}
+  if(mode==='replace'&&window._pool.size&&!(await askConfirm(`Replace the current attendance with ${crew.name}?`,'Replace selection',false)))return {...result,cancelled:true};
+  dismissAttendanceUndo();window._pool=new Set(result.selectionIds);window._teams=null;
+  await touchSavedCrewUse(crew);
+  const message=crewApplicationMessage(result,mode);
+  updateAttendancePickerUI({preserveAnchor:true});if(message)toast(message);
+  return result;
+};
+window.openCrewMenu=id=>{
+  const crew=savedCrewById(id);if(!crew){toast('That crew is no longer available');return;}
+  const resolution=resolveCrewMembers(crew),status=crewStatusLabel(resolution);
+  openSheet(`<h3>${esc(crew.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">${esc(status)}. Adding is the primary crew action; Replace is explicit.</p>
+    <button type="button" class="btn primary block" data-crew-id="${esc(crew.id)}" onclick="crewMenuApply(this.dataset.crewId,'replace')">Replace attendance with ${esc(crew.name)}</button>
+    <button type="button" class="btn block ghost" data-crew-id="${esc(crew.id)}" style="margin-top:8px" onclick="openCrewEditor(this.dataset.crewId)">Edit name and members</button>
+    <button type="button" class="btn block danger" data-crew-id="${esc(crew.id)}" style="margin-top:8px" onclick="deleteSavedCrew(this.dataset.crewId)">Delete crew</button>
+    ${sheetCloseBtn('Done')}`);
+};
+window.crewMenuApply=(id,mode)=>{closeSheet(true);requestAnimationFrame(()=>applySavedCrewById(id,mode));};
+window.openManageCrews=()=>{
+  const list=normalizeSavedCrews(savedCrews).slice().sort(savedCrewSort);
+  if(!list.length){toast('No saved crews yet');return;}
+  openSheet(`<h3>Manage crews</h3><p class="small muted" style="margin:-8px 0 12px">Rename crews, change members, or remove a crew without changing today’s attendance.</p>
+    <div class="crew-editor-list">${list.map(crew=>{
+      const status=crewStatusLabel(resolveCrewMembers(crew));
+      return `<button type="button" class="crew-editor-player" data-crew-id="${esc(crew.id)}" onclick="openCrewEditor(this.dataset.crewId)"><b>${esc(crew.name)}</b><span>${esc(status)} ›</span></button>`;
+    }).join('')}</div>${sheetCloseBtn('Done')}`);
+};
+function crewPreviewLabels(ids){
+  const byId=new Map(players.filter(player=>player?.id!=null).map(player=>[String(player.id),player])),labels=buildUniquePlayerDisplayLabels(players);
+  return ids.map(id=>({id,player:byId.get(String(id)),label:byId.has(String(id))?(labels.get(byId.get(String(id)).id)||byId.get(String(id)).name):`Missing player · ${id}`}));
+}
+window.openSaveCurrentCrew=()=>{
+  const selectedIds=canonicalAttendanceSelectionIds();
+  if(!selectedIds.length){toast('Select at least one available player first');return;}
+  window._crewEditor={mode:'create',id:null,name:'',memberIds:new Set(selectedIds),query:'',saving:false};
+  renderCrewEditor();
+};
+window.openCrewEditor=id=>{
+  const crew=savedCrewById(id);if(!crew){toast('That crew is no longer available');closeSheet(true);return;}
+  window._crewEditor={mode:'edit',id:crew.id,name:crew.name,memberIds:new Set(crew.playerIds),query:'',saving:false};
+  renderCrewEditor();
+};
+function crewEditorCandidateHtml(){
+  const editor=window._crewEditor;if(!editor)return '';
+  const eligible=getSelectablePlayers({context:'pickupAttendance'}),labels=buildUniquePlayerDisplayLabels(players);
+  const participation=buildPlayerParticipationIndex(players,[],[]),displayLabels=new Map(eligible.map(player=>[player.id,labels.get(player.id)||player.name]));
+  const rows=normalizeSearchText(editor.query)?rankAttendanceSearch(editor.query,eligible,{participationIndex:participation,displayLabels}):eligible.slice().sort((a,b)=>
+    String(displayLabels.get(a.id)).localeCompare(String(displayLabels.get(b.id)),undefined,{sensitivity:'base'})||String(a.id).localeCompare(String(b.id))
+  ).map(player=>({player,aliasMatch:null}));
+  if(!rows.length)return '<div class="tiny faint" style="padding:9px">No eligible players match this search.</div>';
+  return rows.map(row=>{
+    const on=editor.memberIds.has(String(row.player.id));
+    return `<button type="button" class="crew-editor-player ${on?'on':''}" data-player-id="${esc(row.player.id)}" aria-pressed="${on}" aria-label="${on?'Remove':'Add'} ${esc(displayLabels.get(row.player.id))} ${on?'from':'to'} crew" onclick="toggleCrewEditorMember(this.dataset.playerId)"><b>${esc(displayLabels.get(row.player.id))}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</b><span aria-hidden="true">${on?'✓':'+'}</span></button>`;
+  }).join('');
+}
+function crewEditorUnavailableHtml(){
+  const editor=window._crewEditor;if(!editor)return '';
+  const resolution=resolveCrewMembers({id:'editor',name:'Editor',playerIds:[...editor.memberIds],createdAt:1,updatedAt:1},players);
+  const labels=buildUniquePlayerDisplayLabels(players),rows=[
+    ...resolution.inactive.map(member=>({...member,status:'Inactive'})),
+    ...resolution.pickupIneligible.map(member=>({...member,status:'Not available for pickup'})),
+    ...resolution.missing.map(member=>({...member,status:'Missing player record'}))
+  ];
+  if(!rows.length)return '';
+  return `<div class="small" style="font-weight:750;margin-top:14px">Unavailable members</div><p class="tiny soft" style="margin-top:3px">Kept in the crew until you remove them intentionally.</p><div class="crew-unavailable">${rows.map(member=>{
+    const label=member.player?(labels.get(member.player.id)||member.player.name):`Missing player · ${member.id}`;
+    return `<div class="crew-unavailable-row"><div><b>${esc(label)}</b><small>⚠ ${esc(member.status)}</small></div><button type="button" class="btn sm ghost" data-player-id="${esc(member.id)}" aria-label="Remove ${esc(label)} from crew" onclick="toggleCrewEditorMember(this.dataset.playerId)">Remove</button></div>`;
+  }).join('')}</div>`;
+}
+function renderCrewEditor(){
+  const editor=window._crewEditor;if(!editor)return;
+  const preview=crewPreviewLabels([...editor.memberIds]);
+  if(editor.mode==='create'){
+    openSheet(`<h3>Save current selection</h3>
+      <label class="tiny soft" for="crewName">Crew name</label>
+      <input id="crewName" data-focus-key="crew-name" type="text" maxlength="${SAVED_CREW_NAME_MAX}" autocomplete="off" placeholder="Tuesday Regulars" value="${esc(editor.name)}" oninput="crewEditorNameInput(this.value)" style="width:100%;margin:5px 0 12px">
+      <div class="crew-editor-summary"><b class="small"><span data-crew-member-count>${preview.length}</span> member${preview.length===1?'':'s'}</b><div class="crew-editor-preview">${preview.map(item=>`<span>${esc(item.label)}</span>`).join('')}</div></div>
+      <div class="tiny" data-crew-error role="alert" aria-live="assertive" style="min-height:18px;color:var(--coral);margin-top:7px"></div>
+      <button type="button" class="btn primary block" data-crew-save style="margin-top:5px" onclick="saveCrewEditor()">Save crew</button>
+      <button type="button" class="btn ghost block" style="margin-top:8px" onclick="cancelCrewEditor()">Cancel</button>`,{focus:'[data-focus-key="crew-name"]'});
+    return;
+  }
+  openSheet(`<h3>Edit crew</h3>
+    <label class="tiny soft" for="crewName">Crew name</label>
+    <input id="crewName" data-focus-key="crew-name" type="text" maxlength="${SAVED_CREW_NAME_MAX}" autocomplete="off" value="${esc(editor.name)}" oninput="crewEditorNameInput(this.value)" style="width:100%;margin:5px 0 10px">
+    <div class="row spread"><b class="small"><span data-crew-member-count>${editor.memberIds.size}</span> member${editor.memberIds.size===1?'':'s'}</b><span class="tiny soft">Ratings are not shown</span></div>
+    <div class="search-wrap" style="margin-top:10px">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="crew-search" type="search" aria-label="Search crew members" placeholder="Search names or aliases…" value="${esc(editor.query)}" oninput="crewEditorSearchInput(this.value)"></div>
+    <div class="crew-editor-list" data-crew-editor-candidates data-preserve-scroll="crew-members">${crewEditorCandidateHtml()}</div>
+    <div data-crew-editor-unavailable>${crewEditorUnavailableHtml()}</div>
+    <div class="tiny" data-crew-error role="alert" aria-live="assertive" style="min-height:18px;color:var(--coral);margin-top:8px"></div>
+    <button type="button" class="btn primary block" data-crew-save onclick="saveCrewEditor()">Save changes</button>
+    <button type="button" class="btn ghost block" style="margin-top:8px" onclick="cancelCrewEditor()">Cancel</button>`);
+}
+function setCrewEditorError(message){
+  const error=$('[data-crew-error]');if(error)error.textContent=message||'';
+}
+window.crewEditorNameInput=value=>{if(window._crewEditor)window._crewEditor.name=value;setCrewEditorError('');};
+window.crewEditorSearchInput=value=>{const editor=window._crewEditor;if(!editor)return;editor.query=value;const list=$('[data-crew-editor-candidates]');if(list)list.innerHTML=crewEditorCandidateHtml();};
+window.toggleCrewEditorMember=id=>{
+  const editor=window._crewEditor;if(!editor)return;const clean=String(id);
+  editor.memberIds.has(clean)?editor.memberIds.delete(clean):editor.memberIds.add(clean);
+  const list=$('[data-crew-editor-candidates]'),unavailable=$('[data-crew-editor-unavailable]'),count=$('[data-crew-member-count]');
+  if(list)list.innerHTML=crewEditorCandidateHtml();if(unavailable)unavailable.innerHTML=crewEditorUnavailableHtml();if(count)count.textContent=String(editor.memberIds.size);
+  setCrewEditorError('');
+  const search=$('[data-focus-key="crew-search"]');focusWithoutScroll(search);
+};
+window.cancelCrewEditor=()=>{window._crewEditor=null;closeSheet(true);};
+window.saveCrewEditor=async()=>{
+  const editor=window._crewEditor;if(!editor||editor.saving)return;
+  const current=editor.id?savedCrewById(editor.id):null;
+  if(editor.id&&!current){setCrewEditorError('This crew was deleted on another device.');return;}
+  const cleanName=String(editor.name||'').trim().replace(/\s+/g,' ');
+  if(!cleanName){setCrewEditorError('Enter a crew name.');focusWithoutScroll($('#crewName'));return;}
+  let ids=[...editor.memberIds];
+  if(editor.mode==='create'){
+    const available=new Set(getSelectablePlayers({context:'pickupAttendance'}).map(player=>String(player.id))),before=ids.length;
+    ids=ids.filter(id=>available.has(id));
+    if(before>ids.length)toast(`${before-ids.length} unavailable player${before-ids.length===1?' was':'s were'} excluded`);
+  }
+  if(!ids.length){setCrewEditorError('A crew needs at least one member. Delete the crew instead.');return;}
+  editor.saving=true;const button=$('[data-crew-save]');if(button)button.disabled=true;
+  let result=await saveSavedCrew({id:editor.id,name:cleanName,playerIds:ids});
+  if(result.status==='duplicate'&&editor.mode==='create'){
+    const update=await askConfirm(`${result.existingCrew.name} already exists. Update it with the current selection?`,'Update existing crew',false);
+    if(update)result=await saveSavedCrew({id:result.existingCrew.id,name:result.existingCrew.name,playerIds:ids});
+    else{editor.saving=false;if(button)button.disabled=false;setCrewEditorError('Choose another name, or update the existing crew.');return;}
+  }
+  editor.saving=false;if(button)button.disabled=false;
+  if(result.status==='duplicate'){setCrewEditorError('Another crew already uses that name.');return;}
+  if(!['created','updated'].includes(result.status)){setCrewEditorError(result.status==='missing'?'This crew is no longer available.':'Could not save this crew.');return;}
+  window._crewEditor=null;closeSheet(true);renderTeamsLocal();toast(result.status==='created'?'Crew saved':'Crew updated');
+};
+window.deleteSavedCrew=async id=>{
+  const crew=savedCrewById(id);if(!crew){toast('That crew is already gone');closeSheet(true);return false;}
+  if(!(await askConfirm(`Delete the crew “${crew.name}”? Players, games, and attendance history will not be changed.`,'Delete crew')))return false;
+  await Sync.markDeleted('savedCrews',crew.id);
+  savedCrews=normalizeSavedCrews(savedCrews.filter(item=>item.id!==crew.id));await saveSavedCrews();
+  window._crewEditor=null;closeSheet(true);renderTeamsLocal();toast('Crew deleted');return true;
+};
 window.usePreviousAttendance=async()=>{
   const previous=getPreviousAttendanceSelection({attendanceSessions,games,players,events:evts,beforeDate:todayLocalDate()});if(!previous?.playerIds.length)return;
   const same=window._pool.size===previous.playerIds.length&&previous.playerIds.every(id=>window._pool.has(id));
@@ -7103,7 +7426,7 @@ window.copyAppVersion=async()=>{
 };
 window.exportData=async()=>{
   const deletions=Sync.deletionState();
-  const data=JSON.stringify({players,games,settings,events:evts,attendanceSessions,deletions,tomb:{...deletions.games},v:4});
+  const data=JSON.stringify({players,games,settings,events:evts,attendanceSessions,savedCrews,deletions,tomb:{...deletions.games},v:4});
   let copied=false;
   try{ await navigator.clipboard.writeText(data); copied=true; }catch(e){}
   try{
@@ -7127,10 +7450,10 @@ window.openImport=()=>{
 async function restoreBackupData(d){
   if(!d||!Array.isArray(d.players))throw new Error('invalid backup');
   const restored=await Sync.prepareReplacement(d);
-  players=restored.players;games=restored.games;evts=restored.events;attendanceSessions=restored.attendanceSessions;
+  players=restored.players;games=restored.games;evts=restored.events;attendanceSessions=restored.attendanceSessions;savedCrews=restored.savedCrews;
   settings={...DEFAULT_SETTINGS,...(d.settings||{})};
   migrateEvents();migratePlayers();
-  await commit();await saveSettings();await saveEvents();await saveAttendanceSessions();
+  await commit();await saveSettings();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
 }
 window.importFile=(e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -7146,10 +7469,10 @@ window.doImport=async()=>{
   }catch(e){ toast('Could not read that backup'); }
 };
 window.resetAll=async()=>{
-  if(!(await askConfirm('Delete ALL players, games, events, and settings? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
-  await Sync.markDeletedMany({players,games,events:evts});
-  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; attendanceSessions=[];window._evOpen=null;
-  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents();await saveAttendanceSessions();toast('Reset'); render();
+  if(!(await askConfirm('Delete ALL players, games, events, saved crews, and settings? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
+  await Sync.markDeletedMany({players,games,events:evts,savedCrews});
+  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; attendanceSessions=[];savedCrews=[];window._evOpen=null;
+  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents();await saveAttendanceSessions();await saveSavedCrews();toast('Reset'); render();
 };
 /* ============================================================
    DEMO DATA + SELF-TEST (for trying things without real games)
@@ -8764,10 +9087,10 @@ document.addEventListener('keydown',e=>{
 },true);
 
 const SYNC_DEFAULT_URL='https://court-sync.joshsven92.workers.dev';
-const DELETION_KINDS=Object.freeze(['games','players','events','eventTeams','eventEntries','eventBrackets','eventScheduleMatches']);
+const DELETION_KINDS=Object.freeze(['games','players','events','savedCrews','eventTeams','eventEntries','eventBrackets','eventScheduleMatches']);
 
-/* Persisted deletion inventory: games, unreferenced players, events, event
-   teams, rotating entries, and brackets. Reset/import/demo replacement and
+/* Persisted deletion inventory: games, unreferenced players, events, saved
+   crews, event teams, rotating entries, and brackets. Reset/import/demo replacement and
    playoff rebuilding mark the same affected IDs. Archival, completion,
    schedule clearing/regeneration, pool edits, and UI selections are not
    permanent deletions and intentionally never create markers. */
@@ -8833,7 +9156,8 @@ function filterPersistedRecords(source,state){
   return {
     players:filterDeletedRecords('players',value.players,state),
     games:filterDeletedGames(value.games,state),
-    events:filterDeletedEvents(value.events,state)
+    events:filterDeletedEvents(value.events,state),
+    savedCrews:filterDeletedRecords('savedCrews',value.savedCrews,state)
   };
 }
 function unionById(local,remote,preferRemote){
@@ -8864,11 +9188,12 @@ function mergeEventsById(local,remote,preferRemote){
 }
 function resolveDeletionProtectedRecords(local,remote,state,mode='merge'){
   const cleanLocal=filterPersistedRecords(local,state),cleanRemote=filterPersistedRecords(remote,state);
-  if(mode==='replace')return cleanRemote;
+  if(mode==='replace')return {...cleanRemote,savedCrews:normalizeSavedCrews(cleanRemote.savedCrews)};
   return filterPersistedRecords({
     players:mergePlayersById(cleanLocal.players,cleanRemote.players,true),
     games:unionById(cleanLocal.games,cleanRemote.games,true),
-    events:mergeEventsById(cleanLocal.events,cleanRemote.events,true)
+    events:mergeEventsById(cleanLocal.events,cleanRemote.events,true),
+    savedCrews:mergeSavedCrewsById(cleanLocal.savedCrews,cleanRemote.savedCrews,true)
   },state);
 }
 function replacementDeletionState(local,incoming,state,deletedAt=Date.now()){
@@ -8879,6 +9204,7 @@ function replacementDeletionState(local,incoming,state,deletedAt=Date.now()){
     (Array.isArray(before)?before:[]).forEach(record=>{if(record&&record.id!=null&&!keep.has(String(record.id)))inferred[kind][record.id]=ts;});
   };
   stampMissing('players',current.players,next.players);stampMissing('games',current.games,next.games);stampMissing('events',current.events,next.events);
+  if(Object.prototype.hasOwnProperty.call(next,'savedCrews'))stampMissing('savedCrews',current.savedCrews,next.savedCrews);
   const nextEvents=new Map((Array.isArray(next.events)?next.events:[]).filter(event=>event&&event.id!=null).map(event=>[String(event.id),event]));
   (Array.isArray(current.events)?current.events:[]).forEach(event=>{
     const incomingEvent=event&&nextEvents.get(String(event.id));if(!incomingEvent)return;
@@ -8903,7 +9229,7 @@ const Sync=(()=>{
   const configured=()=>!!(cfg.url&&cfg.code);
   // Keep the legacy game-only tomb alias during the generalized-registry
   // transition so older Court builds can still honor game deletions.
-  const payload=()=>({players,games,settings,events:evts,attendanceSessions,deletions,tomb:{...deletions.games},v:4});
+  const payload=()=>({players,games,settings,events:evts,attendanceSessions,savedCrews,deletions,tomb:{...deletions.games},v:4});
   const payloadStr=()=>JSON.stringify(payload());
 
   async function loadLocalState(){
@@ -8924,16 +9250,18 @@ const Sync=(()=>{
   const saveTs=()=>Store.set('vb:syncTs',String(lastTs)).catch(()=>{});
 
   function applyLocalDeletions(){
-    const next=filterPersistedRecords({players,games,events:evts},deletions);
-    const changed=collectionChanged(players,next.players)||collectionChanged(games,next.games)||collectionChanged(evts,next.events);
-    players=next.players;games=next.games;evts=next.events;
+    const next=filterPersistedRecords({players,games,events:evts,savedCrews},deletions);
+    const changed=collectionChanged(players,next.players)||collectionChanged(games,next.games)||collectionChanged(evts,next.events)||collectionChanged(savedCrews,next.savedCrews);
+    players=next.players;games=next.games;evts=next.events;savedCrews=next.savedCrews;
     return changed;
   }
   function applyRemote(obj,mode){
     const remote=obj&&typeof obj==='object'?obj:{};
     deletions=mergeDeletionStates(deletions,normalizeDeletionState(remote));
-    const resolved=resolveDeletionProtectedRecords({players,games,events:evts},remote,deletions,mode);
+    const hasRemoteCrews=Object.prototype.hasOwnProperty.call(remote,'savedCrews');
+    const resolved=resolveDeletionProtectedRecords({players,games,events:evts,savedCrews},remote,deletions,mode);
     players=resolved.players;games=resolved.games;evts=resolved.events;
+    savedCrews=hasRemoteCrews?resolved.savedCrews:filterDeletedRecords('savedCrews',savedCrews,deletions);
     attendanceSessions=mode==='replace'
       ?normalizeAttendanceSessions(remote.attendanceSessions)
       :mergeAttendanceSessionsById(attendanceSessions,remote.attendanceSessions,true);
@@ -8958,14 +9286,14 @@ const Sync=(()=>{
           applyRemote(JSON.parse(env.data),opts.mode||'merge');
           lastTs=Math.max(lastTs,rts);
           recomputeAll();
-          await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();
+          await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
           await saveDeletions();await saveTs();
           lastSyncedAt=Date.now();
           const merged=payloadStr();lastSig=merged;
           if(merged!==env.data)await push({fromMerge:true});
           if(typeof render==='function')render();
         }else lastSyncedAt=Date.now();
-      }else if(players.length||games.length||evts.length||DELETION_KINDS.some(kind=>Object.keys(deletions[kind]).length)){
+      }else if(players.length||games.length||evts.length||savedCrews.length||DELETION_KINDS.some(kind=>Object.keys(deletions[kind]).length)){
         await push({seed:true});lastSyncedAt=Date.now();
       }else lastSyncedAt=Date.now();
     }catch(e){/* Offline and transient failures never block local use. */}
@@ -8973,7 +9301,7 @@ const Sync=(()=>{
   }
   async function push(opts={}){
     if(!cfg.on||!configured())return;
-    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();await saveEvents();}
+    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveSavedCrews();}
     const body=payloadStr();
     if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return;
     const ts=Math.max(Date.now(),lastTs+1);
@@ -9002,9 +9330,12 @@ const Sync=(()=>{
   }
   async function prepareReplacement(source){
     const incoming=source&&typeof source==='object'?source:{};
-    deletions=replacementDeletionState({players,games,events:evts},incoming,deletions);
-    const resolved=resolveDeletionProtectedRecords({players,games,events:evts},incoming,deletions,'replace');
-    await saveDeletions();return {...resolved,attendanceSessions:normalizeAttendanceSessions(incoming.attendanceSessions)};
+    deletions=replacementDeletionState({players,games,events:evts,savedCrews},incoming,deletions);
+    const hasIncomingCrews=Object.prototype.hasOwnProperty.call(incoming,'savedCrews');
+    const resolved=resolveDeletionProtectedRecords({players,games,events:evts,savedCrews},incoming,deletions,'replace');
+    await saveDeletions();return {...resolved,
+      savedCrews:hasIncomingCrews?resolved.savedCrews:filterDeletedRecords('savedCrews',savedCrews,deletions),
+      attendanceSessions:normalizeAttendanceSessions(incoming.attendanceSessions)};
   }
   function startPoll(){stopPoll();if(cfg.on&&configured())poller=setInterval(()=>pull({}),15000);}
   function stopPoll(){if(poller){clearInterval(poller);poller=null;}}
@@ -9024,7 +9355,7 @@ const Sync=(()=>{
   async function init(){
     await loadLocalState();
     if(applyLocalDeletions()){
-      recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveAttendanceSessions();
+      recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
       if(typeof render==='function')render();
     }
     lastSig=payloadStr();
@@ -9215,7 +9546,7 @@ const AppUpdates=(()=>{
     const reason=unsafeUpdateReason();
     if(reason){toast(reason);return false;}
     try{
-      await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();
+      await savePlayers();await saveGames();await saveSettings();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
       await Sync.persistLocalState();
     }catch(e){/* Store remains best-effort, matching normal offline saves. */}
     location.replace(navigationUrl());
@@ -9244,6 +9575,7 @@ window.dismissAppUpdate=()=>AppUpdates.dismiss();
   const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();return r;};
   const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();return r;};
   const _saveAttendanceSessions=saveAttendanceSessions;saveAttendanceSessions=async function(){const r=await _saveAttendanceSessions.apply(this,arguments);Sync.touch();return r;};
+  const _saveSavedCrews=saveSavedCrews;saveSavedCrews=async function(){const r=await _saveSavedCrews.apply(this,arguments);Sync.touch();return r;};
   const _saveSettings=saveSettings;saveSettings=async function(){const r=await _saveSettings.apply(this,arguments);Sync.touch();return r;};
 })();
 
@@ -9255,6 +9587,7 @@ window.dismissAppUpdate=()=>AppUpdates.dismiss();
   try{ recomputeAll(); }catch(e){ console.warn('recompute skipped', e); }
   try{ await savePlayers(); }catch(e){}
   try{ await saveAttendanceSessions(); }catch(e){}
+  try{ await saveSavedCrews(); }catch(e){}
   tab = 'home';
   render();
   try{ AppUpdates.init(); }catch(e){ console.warn('update checks skipped', e); }

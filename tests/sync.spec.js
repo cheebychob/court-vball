@@ -13,7 +13,7 @@ function game(id, date, extra = {}) {
 }
 
 function deletionRegistry(overrides = {}) {
-  return { games: {}, players: {}, events: {}, eventTeams: {}, eventEntries: {}, eventBrackets: {}, eventScheduleMatches: {}, ...overrides };
+  return { games: {}, players: {}, events: {}, savedCrews: {}, eventTeams: {}, eventEntries: {}, eventBrackets: {}, eventScheduleMatches: {}, ...overrides };
 }
 
 function fixedEvent(id, extra = {}) {
@@ -627,7 +627,7 @@ test('sync payload excludes device-local config keys', async ({ page }) => {
   await expect.poll(() => rooms.get(code)?.data || null).not.toBeNull();
 
   const sent = JSON.parse(rooms.get(code).data);
-  expect(Object.keys(sent).sort()).toEqual(['attendanceSessions', 'deletions', 'events', 'games', 'players', 'settings', 'tomb', 'v']);
+  expect(Object.keys(sent).sort()).toEqual(['attendanceSessions', 'deletions', 'events', 'games', 'players', 'savedCrews', 'settings', 'tomb', 'v']);
   expect(JSON.stringify(sent)).not.toContain('vb:sync');
   expect(sent).not.toHaveProperty('sync');
   expect(sent).not.toHaveProperty('syncTs');
