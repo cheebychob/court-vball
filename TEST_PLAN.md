@@ -92,3 +92,21 @@ Run on a narrow phone viewport and desktop:
 8. Rotate portrait to landscape and back, then retest.
 9. Confirm the modal remains open and the selected summary and save validation update.
 10. Close the modal and confirm the underlying page returns to the correct scroll position.
+
+## Player self check-in manual checklist
+
+Use a disposable sync room and the non-production Worker binding described in `docs/PLAYER_CHECK_IN.md`.
+
+1. Open Teams, preserve one manual selection, and open a six-hour check-in session.
+2. Verify roster count, exact local expiry, public link, five-character code, local QR, copy, native share, and print output.
+3. Open the public link in three isolated browser contexts and submit different known players nearly simultaneously.
+4. Repeat one submission, reload one context, cancel it, and confirm another context cannot cancel it.
+5. Submit an HTML-looking unknown name; confirm it is inert pending text and creates no player or rating.
+6. Match one pending entry by private alias, create a player through the existing editor for another, and dismiss a third.
+7. Confirm known and resolved IDs merge additively into the canonical attendance set without an attendance snapshot.
+8. Remove one check-in from attendance only and confirm polling does not re-add it; explicitly remove another public check-in.
+9. Disconnect the organizer, use search, Same as Last Time, a crew, Clear/Undo, and manual selection, then reconnect and confirm additive merge.
+10. Close the session, confirm public writes and the short code stop, and confirm attendance remains selected.
+11. Reload or use a second organizer device while a session is open and confirm authenticated recovery.
+12. Repeat at 390×844 and 375×667; confirm the check-in sheet, QR, review controls, sticky attendance footer, and safe areas do not overlap.
+13. On a real iPhone, test the installed organizer app plus Safari and Add to Home Screen player flows. Do not treat desktop emulation as this real-device check.

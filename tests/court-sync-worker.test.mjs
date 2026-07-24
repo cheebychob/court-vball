@@ -16,9 +16,17 @@ class MemoryKV {
     this.values = new Map(Object.entries(initial));
     this.gets = [];
     this.puts = [];
+    this.putOptions = [];
+    this.deletes = [];
+    this.lists = [];
   }
   async get(key) { this.gets.push(key); return this.values.get(key) ?? null; }
-  async put(key, value) { this.puts.push([key, value]); this.values.set(key, value); }
+  async put(key, value, options = {}) { this.puts.push([key, value]); this.putOptions.push([key, structuredClone(options)]); this.values.set(key, value); }
+  async delete(key) { this.deletes.push(key); this.values.delete(key); }
+  async list({ prefix = '', limit = 1000 } = {}) {
+    this.lists.push({ prefix, limit });
+    return { keys: [...this.values.keys()].filter(key => key.startsWith(prefix)).sort().slice(0, limit).map(name => ({ name })), list_complete: true };
+  }
 }
 
 class MemoryR2 {
@@ -68,12 +76,13 @@ class MemoryR2 {
 const digest = value => createHash('sha256').update(value).digest('hex');
 const scheduleHtml = title => `<!DOCTYPE html><html lang="en"><head><title>${title}</title><style>body{color:#172033}</style></head><body><main>${title}</main></body></html>`;
 
-function env({ room = true, publicBinding = true, photoBinding = true, rooms = null } = {}) {
+function env({ room = true, publicBinding = true, photoBinding = true, checkInBinding = true, rooms = null } = {}) {
   const roomValues = rooms || (room ? { 'room:test-room': JSON.stringify({ ts: 1, data: '{}' }) } : {});
   return {
     COURT: new MemoryKV(roomValues),
     ...(publicBinding ? { PUBLIC_SCHEDULES: new MemoryKV() } : {}),
     ...(photoBinding ? { PLAYER_PHOTOS: new MemoryR2() } : {}),
+    ...(checkInBinding ? { CHECK_IN_SESSIONS: new MemoryKV() } : {}),
   };
 }
 
@@ -119,6 +128,28 @@ async function uploadPhoto(bindings, playerId = 'player-1', body = webp, extra =
   let result = {};
   try { result = await response.clone().json(); } catch {}
   return { response, body: result };
+}
+
+const organizerHeaders = { 'Content-Type': 'application/json', 'X-Court-Room': 'test-room', Origin: ORIGIN };
+const checkInRoster = () => [
+  { sourcePlayerId: 'player-1', displayName: 'Lily D', photoUrl: null },
+  { sourcePlayerId: 'player-2', displayName: 'Josh S', photoUrl: `/media/player-photos/${'P'.repeat(43)}?v=revision-1` },
+];
+async function createCheckInSession(bindings, body = {}) {
+  const response = await worker.fetch(request('/api/check-in/sessions', {
+    method: 'POST', headers: organizerHeaders,
+    body: JSON.stringify({ label: 'Tuesday Sand', expiresInMs: 6 * 60 * 60 * 1000, roster: checkInRoster(), ...body })
+  }), bindings);
+  const data = await response.json();
+  return { response, body: data };
+}
+async function publicCheckIn(bindings, token, deviceToken, body) {
+  const response = await worker.fetch(request(`/api/check-in/public/${token}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Check-In-Device-Token': deviceToken },
+    body: JSON.stringify(body)
+  }), bindings);
+  return { response, body: await response.json() };
 }
 
 test('legacy GET/POST contract, missing-room response, keys, payloads, and wildcard CORS remain exact', async () => {
@@ -643,4 +674,271 @@ test('Worker source keeps one passthrough renderer boundary and no schedule temp
   assert.match(source, /return new Response\(record\.html/);
   assert.doesNotMatch(source, /scheduleExportBodyHtml|participantScheduleBodyHtml|scheduleDocumentStyles|deriveFullScheduleExportModel/);
   assert.doesNotMatch(source, /Math\.random/);
+});
+
+test('check-in capability and session creation require organizer auth and a dedicated binding', async () => {
+  const bindings = env();
+  const status = await worker.fetch(request('/api/check-in/status', { headers: { Origin: ORIGIN } }), bindings);
+  assert.equal(status.status, 200);
+  assert.deepEqual(await status.json(), { available: true });
+  assert.equal(status.headers.get('access-control-allow-origin'), ORIGIN);
+
+  const missingBinding = await worker.fetch(request('/api/check-in/status', { headers: { Origin: ORIGIN } }), env({ checkInBinding: false }));
+  assert.equal(missingBinding.status, 503);
+  assert.deepEqual(await missingBinding.json(), { available: false, error: 'player check-in storage unavailable' });
+
+  const noRoom = await worker.fetch(request('/api/check-in/sessions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body: JSON.stringify({ roster: checkInRoster() })
+  }), bindings);
+  assert.equal(noRoom.status, 401);
+  const unknownRoom = await createCheckInSession(env({ room: false }));
+  assert.equal(unknownRoom.response.status, 403);
+  assert.doesNotMatch(JSON.stringify(unknownRoom.body), /test-room|room:/);
+  assert.equal(bindings.COURT.puts.length, 0);
+  assert.equal(bindings.PUBLIC_SCHEDULES.puts.length, 0);
+});
+
+test('session creation uses opaque identities, safe short codes, TTL retention, and predictable active-session recovery', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  assert.equal(created.response.status, 201);
+  assert.match(created.body.session.sessionId, /^[A-Za-z0-9_-]{43}$/);
+  assert.match(created.body.session.publicUrl, /^https:\/\/court-sync\.example\/check-in\/[A-Za-z0-9_-]{43}$/);
+  assert.match(created.body.session.shortCode, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/);
+  assert.equal(created.body.session.rosterCount, 2);
+  assert.equal(created.body.session.expiresAt - created.body.session.createdAt, 6 * 60 * 60 * 1000);
+  assert.equal(created.body.resumed, false);
+
+  const stored = [...bindings.CHECK_IN_SESSIONS.values.entries()].find(([key]) => key.startsWith('check-in:session:'));
+  assert.ok(stored);
+  const session = JSON.parse(stored[1]);
+  assert.deepEqual(Object.keys(session.rosterSnapshot[0]).sort(), ['displayName', 'photoUrl', 'playerId', 'publicPlayerId']);
+  assert.match(session.rosterSnapshot[0].publicPlayerId, /^[A-Za-z0-9_-]{22}$/);
+  assert.notEqual(session.rosterSnapshot[0].publicPlayerId, session.rosterSnapshot[0].playerId);
+  assert.ok(bindings.CHECK_IN_SESSIONS.putOptions.every(([, options]) => Number.isInteger(options.expirationTtl) && options.expirationTtl > 0));
+
+  const repeated = await createCheckInSession(bindings, { label: 'Ignored replacement' });
+  assert.equal(repeated.response.status, 200);
+  assert.equal(repeated.body.resumed, true);
+  assert.equal(repeated.body.session.sessionId, created.body.session.sessionId);
+  const recovered = await worker.fetch(request('/api/check-in/sessions', { headers: { 'X-Court-Room': 'test-room', Origin: ORIGIN } }), bindings);
+  assert.equal((await recovered.json()).session.sessionId, created.body.session.sessionId);
+});
+
+test('short-code allocation retries collisions and excludes ambiguous characters', async () => {
+  const bindings = env();
+  bindings.CHECK_IN_SESSIONS.values.set('check-in:short:AAAAA', JSON.stringify({ sessionId: 'old' }));
+  const originalCrypto = globalThis.crypto;
+  let call = 0;
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {
+    subtle: originalCrypto.subtle,
+    getRandomValues(array) {
+      const fill = call++ === 1 ? 0 : call === 3 ? 1 : 7;
+      array.fill(fill);
+      return array;
+    }
+  } });
+  try {
+    const created = await createCheckInSession(bindings);
+    assert.equal(created.response.status, 201);
+    assert.equal(created.body.session.shortCode, 'BBBBB');
+    assert.doesNotMatch(created.body.session.shortCode, /[01ILO]/);
+  } finally {
+    Object.defineProperty(globalThis, 'crypto', { configurable: true, value: originalCrypto });
+  }
+});
+
+test('public session responses are strict allowlists and never expose private roster input or organizer state', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  const response = await worker.fetch(request(`/api/check-in/public/${token}`), bindings);
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  const data = await response.json();
+  assert.deepEqual(Object.keys(data).sort(), ['expiresAt', 'label', 'ok', 'roster', 'status']);
+  assert.deepEqual(Object.keys(data.roster[0]).sort(), ['displayName', 'photoUrl', 'publicPlayerId']);
+  assert.equal(data.roster[1].photoUrl, `/media/player-photos/${'P'.repeat(43)}?v=revision-1`);
+  const serialized = JSON.stringify(data);
+  for (const privateValue of ['player-1', 'player-2', 'roomHash', 'rating', 'seedRating', 'aliases', 'roles', 'notes', 'history', 'gamesPlayed', 'managementToken', 'test-room']) {
+    assert.doesNotMatch(serialized, new RegExp(privateValue, 'i'));
+  }
+  assert.notEqual(data.roster[0].publicPlayerId, 'player-1');
+});
+
+test('known-player check-in is validated, idempotent, isolated by device, and self-cancelable', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  const publicState = await (await worker.fetch(request(`/api/check-in/public/${token}`), bindings)).json();
+  const playerId = publicState.roster[0].publicPlayerId;
+  const deviceA = 'A'.repeat(43), deviceB = 'B'.repeat(43);
+
+  const invalid = await publicCheckIn(bindings, token, deviceA, { publicPlayerId: 'not-valid' });
+  assert.equal(invalid.response.status, 400);
+  assert.equal(invalid.body.code, 'INVALID_PLAYER_ID');
+  const outside = await publicCheckIn(bindings, token, deviceA, { publicPlayerId: 'Z'.repeat(22) });
+  assert.equal(outside.response.status, 400);
+  assert.equal(outside.body.code, 'PLAYER_NOT_IN_SESSION');
+
+  const first = await publicCheckIn(bindings, token, deviceA, { publicPlayerId: playerId });
+  assert.equal(first.response.status, 201);
+  assert.deepEqual(first.body.checkIn, { status: 'checked-in', displayName: 'Lily D', pending: false });
+  const repeated = await publicCheckIn(bindings, token, deviceA, { publicPlayerId: playerId });
+  assert.equal(repeated.response.status, 200);
+  const otherDevice = await publicCheckIn(bindings, token, deviceB, { publicPlayerId: playerId });
+  assert.equal(otherDevice.response.status, 200);
+  assert.equal(otherDevice.body.alreadyCheckedIn, true);
+
+  const otherRead = await worker.fetch(request(`/api/check-in/public/${token}`, { headers: { 'X-Check-In-Device-Token': deviceB } }), bindings);
+  assert.equal((await otherRead.json()).ownCheckIn, undefined);
+  const otherCancel = await worker.fetch(request(`/api/check-in/public/${token}`, { method: 'DELETE', headers: { 'X-Check-In-Device-Token': deviceB } }), bindings);
+  assert.deepEqual(await otherCancel.json(), { ok: true, canceled: false });
+  const ownerRead = await worker.fetch(request(`/api/check-in/public/${token}`, { headers: { 'X-Check-In-Device-Token': deviceA } }), bindings);
+  assert.equal((await ownerRead.json()).ownCheckIn.displayName, 'Lily D');
+  const canceled = await worker.fetch(request(`/api/check-in/public/${token}`, { method: 'DELETE', headers: { 'X-Check-In-Device-Token': deviceA } }), bindings);
+  assert.deepEqual(await canceled.json(), { ok: true, canceled: true });
+  assert.equal((await publicCheckIn(bindings, token, deviceA, { publicPlayerId: playerId })).response.status, 201);
+});
+
+test('simultaneous known check-ins use independent records and organizer review maps only to real player IDs', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  const publicState = await (await worker.fetch(request(`/api/check-in/public/${token}`), bindings)).json();
+  await Promise.all([
+    publicCheckIn(bindings, token, 'C'.repeat(43), { publicPlayerId: publicState.roster[0].publicPlayerId }),
+    publicCheckIn(bindings, token, 'D'.repeat(43), { publicPlayerId: publicState.roster[1].publicPlayerId }),
+  ]);
+  const review = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/review`, { headers: { 'X-Court-Room': 'test-room', Origin: ORIGIN } }), bindings);
+  const data = await review.json();
+  assert.equal(data.checkIns.length, 2);
+  assert.deepEqual(new Set(data.checkIns.map(item => item.playerId)), new Set(['player-1', 'player-2']));
+  assert.equal(bindings.COURT.puts.length, 0);
+  assert.equal(bindings.PUBLIC_SCHEDULES.puts.length, 0);
+});
+
+test('unknown names are bounded, sanitized, pending-only, and organizer disposition remains private', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop(), device = 'E'.repeat(43);
+  const blank = await publicCheckIn(bindings, token, device, { freeTextName: '   ' });
+  assert.equal(blank.response.status, 400);
+  assert.equal(blank.body.code, 'NAME_REQUIRED');
+  const pending = await publicCheckIn(bindings, token, device, { freeTextName: ' <script>alert(1)</script>  Jon from work  ' });
+  assert.equal(pending.response.status, 201);
+  assert.equal(pending.body.checkIn.pending, true);
+  assert.doesNotMatch(JSON.stringify(pending.body), /<script>/i);
+
+  const reviewResponse = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/review`, { headers: { 'X-Court-Room': 'test-room', Origin: ORIGIN } }), bindings);
+  const review = await reviewResponse.json();
+  assert.equal(review.checkIns.length, 1);
+  const unknown = review.checkIns[0];
+  assert.equal(unknown.kind, 'unknown');
+  assert.equal(unknown.status, 'pending');
+  assert.equal(unknown.playerId, null);
+  assert.doesNotMatch(unknown.freeTextName, /[<>]/);
+
+  const publicMatchAttempt = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/check-ins/${unknown.id}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'match', playerId: 'player-1' })
+  }), bindings);
+  assert.equal(publicMatchAttempt.status, 401);
+  const matched = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/check-ins/${unknown.id}`, {
+    method: 'POST', headers: organizerHeaders, body: JSON.stringify({ action: 'match', playerId: 'player-1' })
+  }), bindings);
+  assert.equal(matched.status, 200);
+  assert.equal((await matched.json()).checkIn.playerId, 'player-1');
+  const own = await worker.fetch(request(`/api/check-in/public/${token}`, { headers: { 'X-Check-In-Device-Token': device } }), bindings);
+  const ownBody = await own.json();
+  assert.equal(ownBody.ownCheckIn.status, 'checked-in');
+  assert.doesNotMatch(JSON.stringify(ownBody), /player-1/);
+});
+
+test('free-text rate limiting is stricter, returns 429, and stores only hashed IP/device scopes', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  let last;
+  for (let index = 0; index < 11; index += 1) {
+    last = await worker.fetch(request(`/api/check-in/public/${token}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Check-In-Device-Token': `${String(index).padStart(2, '0')}${'F'.repeat(41)}`, 'CF-Connecting-IP': '203.0.113.10' },
+      body: JSON.stringify({ freeTextName: `Guest ${index}` })
+    }), bindings);
+  }
+  assert.equal(last.status, 429);
+  assert.equal((await last.json()).code, 'RATE_LIMITED');
+  const keys = [...bindings.CHECK_IN_SESSIONS.values.keys()].filter(key => key.startsWith('check-in:rate:'));
+  assert.ok(keys.length > 0);
+  assert.doesNotMatch(keys.join(' '), /203\.0\.113\.10/);
+});
+
+test('close and expiry reject public writes without clearing review data or falling through to sync', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  const publicState = await (await worker.fetch(request(`/api/check-in/public/${token}`), bindings)).json();
+  await publicCheckIn(bindings, token, 'G'.repeat(43), { publicPlayerId: publicState.roster[0].publicPlayerId });
+  const publicClose = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/close`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ confirm: true })
+  }), bindings);
+  assert.equal(publicClose.status, 401);
+  const closed = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/close`, {
+    method: 'POST', headers: organizerHeaders, body: JSON.stringify({ confirm: true })
+  }), bindings);
+  assert.equal(closed.status, 200);
+  const rejected = await publicCheckIn(bindings, token, 'H'.repeat(43), { publicPlayerId: publicState.roster[1].publicPlayerId });
+  assert.equal(rejected.response.status, 410);
+  assert.equal(rejected.body.code, 'SESSION_CLOSED');
+  const review = await worker.fetch(request(`/api/check-in/sessions/${created.body.session.sessionId}/review`, { headers: { 'X-Court-Room': 'test-room', Origin: ORIGIN } }), bindings);
+  assert.equal((await review.json()).checkIns.length, 1);
+  const code = await worker.fetch(request(`/check-in/code/${created.body.session.shortCode}`), bindings);
+  assert.equal(code.status, 410);
+  assert.equal(bindings.COURT.puts.length, 0);
+
+  const newSession = await createCheckInSession(bindings);
+  assert.notEqual(newSession.body.session.sessionId, created.body.session.sessionId);
+  assert.notEqual(newSession.body.session.publicUrl, created.body.session.publicUrl);
+  const storedKey = `check-in:session:${newSession.body.session.sessionId}`;
+  const stored = JSON.parse(bindings.CHECK_IN_SESSIONS.values.get(storedKey));
+  bindings.CHECK_IN_SESSIONS.values.set(storedKey, JSON.stringify({ ...stored, expiresAt: Date.now() - 1 }));
+  const newToken = newSession.body.session.publicUrl.split('/').pop();
+  const newPublicState = await (await worker.fetch(request(`/api/check-in/public/${newToken}`), bindings)).json();
+  const expired = await publicCheckIn(bindings, newToken, 'I'.repeat(43), { publicPlayerId: newPublicState.roster[0]?.publicPlayerId || 'Z'.repeat(22) });
+  assert.equal(expired.response.status, 410);
+  assert.equal(expired.body.code, 'SESSION_EXPIRED');
+});
+
+test('check-in routes enforce exact methods, origins, content types, body limits, and lightweight public HTML', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const token = created.body.session.publicUrl.split('/').pop();
+  const wrongOrigin = await worker.fetch(request(`/api/check-in/public/${token}`, { headers: { Origin: 'https://evil.example' } }), bindings);
+  assert.equal(wrongOrigin.status, 403);
+  const wrongMethod = await worker.fetch(request(`/api/check-in/public/${token}`, { method: 'PUT' }), bindings);
+  assert.equal(wrongMethod.status, 405);
+  const wrongContent = await worker.fetch(request(`/api/check-in/public/${token}`, {
+    method: 'POST', headers: { 'X-Check-In-Device-Token': 'J'.repeat(43) }, body: '{}'
+  }), bindings);
+  assert.equal(wrongContent.status, 415);
+  const oversized = await worker.fetch(request(`/api/check-in/public/${token}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Check-In-Device-Token': 'J'.repeat(43) },
+    body: JSON.stringify({ freeTextName: 'x'.repeat(3000) })
+  }), bindings);
+  assert.equal(oversized.status, 413);
+  const unknownRoute = await worker.fetch(request(`/api/check-in/public/${token}/private-sync`), bindings);
+  assert.equal(unknownRoute.status, 404);
+  assert.doesNotMatch(await unknownRoute.text(), /room|sync payload/i);
+
+  const page = await worker.fetch(request(`/check-in/${token}`), bindings);
+  const html = await page.text();
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  assert.match(page.headers.get('content-security-policy'), /connect-src 'self'/);
+  assert.match(html, /data-check-in-root/);
+  assert.match(html, /court-check-in:/);
+  assert.doesNotMatch(html, /X-Court-Room|PUBLIC_SCHEDULES|CHECK_IN_SESSIONS|seedRating|gamesPlayed|aliases|managementToken/);
+  const codeRedirect = await worker.fetch(request(`/check-in/code/${created.body.session.shortCode}`), bindings);
+  assert.equal(codeRedirect.status, 302);
+  assert.equal(new URL(codeRedirect.headers.get('location')).pathname, `/check-in/${token}`);
 });

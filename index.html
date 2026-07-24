@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.3">
+<meta name="court-build" content="20260724.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -471,7 +471,26 @@
   .attendance-selected.expanded .attendance-selected-chips{max-height:210px;overflow:auto;overscroll-behavior:contain}
   .attendance-selected-chip{min-height:36px;padding:7px 10px;border-radius:999px;border:1px solid #5fe3ae48;background:#5fe3ae12;color:var(--mint);font-size:12px;font-weight:750}
   .attendance-selected-chip::after{content:" ×";color:var(--muted)}
+  .attendance-selected-chip.check-in::before{content:"✓";margin-right:5px;color:var(--cyan);font-weight:900}
   .attendance-tray-toggle{border:0;background:none;color:var(--gold);font-size:11px;font-weight:750;padding:5px}
+  .check-in-status{margin-top:12px;padding:10px 11px;border:1px solid #74d7ff30;border-radius:14px;background:#74d7ff09}
+  .check-in-status-main{display:flex;align-items:center;gap:9px}.check-in-status-copy{min-width:0;flex:1}
+  .check-in-status-copy b,.check-in-status-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .check-in-status-copy b{font-size:12px}.check-in-status-copy span{margin-top:2px;color:var(--soft);font-size:10.5px}
+  .check-in-dot{width:8px;height:8px;flex:none;border-radius:50%;background:var(--faint)}.check-in-dot.live{background:var(--mint);box-shadow:0 0 0 4px #5fe3ae13}.check-in-dot.reconnecting{background:var(--gold)}.check-in-dot.offline{background:var(--coral)}
+  .check-in-status-actions{display:flex;gap:6px;margin-top:9px}.check-in-status-actions .btn{min-height:38px;flex:1}
+  .check-in-share{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:14px;align-items:start}
+  .check-in-link{width:100%;margin-top:6px;font-size:12px}
+  .check-in-code{margin:10px 0 4px;color:var(--gold);font-size:32px;font-weight:900;letter-spacing:.15em}
+  .check-in-qr{padding:12px;border-radius:18px;background:#fff}.check-in-qr svg{display:block;width:100%;height:auto}
+  .check-in-review-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:14px 0}
+  .check-in-review-summary div{padding:9px;border:1px solid #ffffff15;border-radius:12px;background:#ffffff07;text-align:center}.check-in-review-summary b{display:block;font-size:18px}.check-in-review-summary span{display:block;margin-top:3px;color:var(--soft);font-size:10px}
+  .check-in-review-list{display:grid;gap:7px;max-height:300px;overflow:auto;overscroll-behavior:contain}
+  .check-in-review-row{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid #ffffff16;border-radius:13px;background:#ffffff07}
+  .check-in-review-row.pending{border-color:#f2c66d38;background:#f2c66d09}.check-in-review-row-copy{min-width:0;flex:1}.check-in-review-row-copy b,.check-in-review-row-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.check-in-review-row-copy b{font-size:12.5px}.check-in-review-row-copy span{margin-top:2px;color:var(--soft);font-size:10.5px}
+  .check-in-review-row-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.check-in-review-row-actions .btn{min-height:35px;padding:6px 8px;font-size:10.5px}
+  .check-in-connection{display:inline-flex;align-items:center;gap:6px;color:var(--soft);font-size:10.5px}
+  .check-in-match-list{display:grid;gap:6px;max-height:280px;overflow:auto;margin-top:9px}.check-in-match-list button{width:100%;min-height:42px;padding:8px 10px;border:1px solid #ffffff17;border-radius:12px;background:#ffffff08;color:var(--text);text-align:left}
   .attendance-tools{display:grid;gap:10px;padding:12px 14px 0}
   .attendance-scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
   .attendance-scopes button{min-height:40px;padding:7px 5px;border-radius:12px;border:1px solid #ffffff17;background:#ffffff08;color:var(--muted);font-size:12px;font-weight:750}
@@ -515,6 +534,7 @@
     .attendance-action-row{grid-template-columns:auto 58px minmax(0,1fr)}
     .attendance-actions .btn{padding-left:10px;padding-right:10px}
     .attendance-results{max-height:43vh}
+    .check-in-share{grid-template-columns:1fr}.check-in-qr{width:min(100%,240px);margin:0 auto}.check-in-review-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.check-in-review-row{align-items:flex-start;flex-direction:column}.check-in-review-row-actions{width:100%;justify-content:flex-start}
   }
   .entry-table{overflow-x:auto}.entry-table .stand-row{min-width:570px;grid-template-columns:34px minmax(145px,1fr) 48px 70px 64px 76px 72px}
   .rotation-match{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px;margin-top:8px}.rotation-match>div:last-child{text-align:right}.versus{align-self:center;color:var(--faint);font-size:11px}.rotation-side{display:grid;gap:6px;margin-top:5px}.rotation-side>div,.rotation-side>button{display:block;width:100%;text-align:inherit;padding:7px;border-radius:10px;background:#ffffff08;border:1px solid #ffffff10;color:inherit;font:inherit}.rotation-side>button:active{background:var(--tap);border-color:#f2c66d44}.rotation-side b,.rotation-side span{display:block;overflow-wrap:anywhere}.rotation-side span{margin-top:2px;color:var(--soft);font-size:10px;font-weight:500}
@@ -1021,9 +1041,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.18.0',
-  build: '20260724.3',
-  releaseNotes: 'Save recurring attendance groups as crews, add or replace attendance from a crew, and manage unavailable members without changing historical sessions.'
+  version: '0.19.0',
+  build: '20260724.4',
+  releaseNotes: 'Open secure public player check-in sessions with a share link, local QR code, short code, returning-player controls, additive attendance merge, and organizer review.'
 });
 
 function appVersionLabel(){
@@ -1213,6 +1233,10 @@ const ATTENDANCE_UNDO_MS = 9000;
 const SAVED_CREW_NAME_MAX = 60;
 const SAVED_CREW_VISIBLE_LIMIT = 6;
 const SAVED_CREW_USE_TOUCH_MS = 15000;
+const CHECK_IN_DEFAULT_EXPIRY_MS = 6*60*60*1000;
+const CHECK_IN_POLL_MIN_MS = 3000;
+const CHECK_IN_POLL_MAX_MS = 15000;
+const CHECK_IN_PUBLIC_ROSTER_MAX = 250;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function hash32(value){
@@ -2264,6 +2288,61 @@ function buildUniquePlayerDisplayLabels(playerList=[]){
   }
   return labels;
 }
+function createPublicCheckInRoster(playerList=players){
+  const eligible=getSelectablePlayers({context:'pickupAttendance',playerList}).slice(0,CHECK_IN_PUBLIC_ROSTER_MAX);
+  const labels=buildUniquePlayerDisplayLabels(eligible);
+  return eligible.map(player=>({
+    sourcePlayerId:String(player.id),
+    displayName:String(labels.get(player.id)||player.name||'Player'),
+    photoUrl:publicPlayerPhotoPath(player.photo)||null
+  }));
+}
+function qrCodeMatrix(value){
+  const bytes=[...new TextEncoder().encode(String(value||''))],configs=[
+    null,{capacity:17,data:19,ecc:7,blocks:[19],align:[]},
+    {capacity:32,data:34,ecc:10,blocks:[34],align:[6,18]},
+    {capacity:53,data:55,ecc:15,blocks:[55],align:[6,22]},
+    {capacity:78,data:80,ecc:20,blocks:[80],align:[6,26]},
+    {capacity:106,data:108,ecc:26,blocks:[108],align:[6,30]},
+    {capacity:134,data:136,ecc:18,blocks:[68,68],align:[6,34]}
+  ];
+  const version=configs.findIndex((config,index)=>index>0&&bytes.length<=config.capacity);
+  if(version<1)throw new Error('Check-in link is too long for the local QR code.');
+  const config=configs[version],bits=[],append=(number,length)=>{for(let i=length-1;i>=0;i--)bits.push((number>>>i)&1);};
+  append(4,4);append(bytes.length,8);bytes.forEach(byte=>append(byte,8));
+  for(let i=0;i<Math.min(4,config.data*8-bits.length);i++)bits.push(0);
+  while(bits.length%8)bits.push(0);
+  const data=[];for(let i=0;i<bits.length;i+=8)data.push(bits.slice(i,i+8).reduce((sum,bit)=>(sum<<1)|bit,0));
+  for(let pad=0;data.length<config.data;pad++)data.push(pad%2?0x11:0xec);
+  const exp=new Uint8Array(512),log=new Uint8Array(256);let x=1;
+  for(let i=0;i<255;i++){exp[i]=x;log[x]=i;x<<=1;if(x&0x100)x^=0x11d;}for(let i=255;i<512;i++)exp[i]=exp[i-255];
+  const multiply=(a,b)=>a&&b?exp[log[a]+log[b]]:0;
+  const generator=degree=>{let poly=[1];for(let i=0;i<degree;i++){const next=new Array(poly.length+1).fill(0);poly.forEach((coefficient,index)=>{next[index]^=coefficient;next[index+1]^=multiply(coefficient,exp[i]);});poly=next;}return poly;};
+  const remainder=(block,degree)=>{const gen=generator(degree),work=[...block,...new Array(degree).fill(0)];for(let i=0;i<block.length;i++){const factor=work[i];if(!factor)continue;for(let j=0;j<gen.length;j++)work[i+j]^=multiply(gen[j],factor);}return work.slice(-degree);};
+  const blocks=[];let offset=0;config.blocks.forEach(length=>{blocks.push(data.slice(offset,offset+length));offset+=length;});
+  const ecc=blocks.map(block=>remainder(block,config.ecc)),codewords=[];
+  const longest=Math.max(...blocks.map(block=>block.length));for(let i=0;i<longest;i++)blocks.forEach(block=>{if(i<block.length)codewords.push(block[i]);});
+  for(let i=0;i<config.ecc;i++)ecc.forEach(block=>codewords.push(block[i]));
+  const stream=[];codewords.forEach(byte=>{for(let i=7;i>=0;i--)stream.push((byte>>>i)&1);});
+  const size=17+version*4,matrix=Array.from({length:size},()=>Array(size).fill(null)),reserved=Array.from({length:size},()=>Array(size).fill(false));
+  const set=(row,column,on)=>{if(row<0||column<0||row>=size||column>=size)return;matrix[row][column]=!!on;reserved[row][column]=true;};
+  const finder=(row,column)=>{for(let r=-1;r<=7;r++)for(let c=-1;c<=7;c++){const inside=r>=0&&r<=6&&c>=0&&c<=6,on=inside&&(r===0||r===6||c===0||c===6||(r>=2&&r<=4&&c>=2&&c<=4));set(row+r,column+c,on);}};
+  finder(0,0);finder(0,size-7);finder(size-7,0);
+  for(let i=8;i<size-8;i++){if(matrix[6][i]===null)set(6,i,i%2===0);if(matrix[i][6]===null)set(i,6,i%2===0);}
+  config.align.forEach(row=>config.align.forEach(column=>{if(matrix[row][column]!==null)return;for(let r=-2;r<=2;r++)for(let c=-2;c<=2;c++)set(row+r,column+c,Math.max(Math.abs(r),Math.abs(c))===2||(r===0&&c===0));}));
+  const vertical=[],horizontal=[];for(let i=0;i<15;i++){vertical.push(i<6?[i,8]:i<8?[i+1,8]:[size-15+i,8]);horizontal.push(i<8?[8,size-i-1]:i<9?[8,7]:[8,15-i-1]);}
+  [...vertical,...horizontal].forEach(([row,column])=>set(row,column,false));set(size-8,8,true);
+  let bitIndex=0,up=true;
+  for(let column=size-1;column>0;column-=2){if(column===6)column--;for(let step=0;step<size;step++){const row=up?size-1-step:step;for(let delta=0;delta<2;delta++){const col=column-delta;if(reserved[row][col])continue;const bit=stream[bitIndex++]||0;matrix[row][col]=!!(bit^(((row+col)%2)===0));}}up=!up;}
+  const bch=value=>{let data=value<<10,generatorValue=0x537;while((31-Math.clz32(data))>=(31-Math.clz32(generatorValue)))data^=generatorValue<<((31-Math.clz32(data))-(31-Math.clz32(generatorValue)));return ((value<<10)|data)^0x5412;};
+  const format=bch(1<<3);for(let i=0;i<15;i++){const on=((format>>>i)&1)===1;matrix[vertical[i][0]][vertical[i][1]]=on;matrix[horizontal[i][0]][horizontal[i][1]]=on;}matrix[size-8][8]=true;
+  return matrix;
+}
+function checkInQrSvg(value){
+  const matrix=qrCodeMatrix(value),quiet=4,size=matrix.length+quiet*2,cells=[];
+  matrix.forEach((row,y)=>row.forEach((on,x)=>{if(on)cells.push(`<rect x="${x+quiet}" y="${y+quiet}" width="1" height="1"/>`);}));
+  return `<svg role="img" aria-label="QR code for the public player check-in link" viewBox="0 0 ${size} ${size}" shape-rendering="crispEdges" xmlns="http://www.w3.org/2000/svg"><rect width="${size}" height="${size}" fill="#fff"/><g fill="#000">${cells.join('')}</g></svg>`;
+}
 function playerDisplayIdentityWarning(player,playerList=players){
   const key=normalizeSearchText(player?.name),matches=(Array.isArray(playerList)?playerList:[]).filter(other=>other?.id!==player?.id&&normalizeSearchText(other?.name)===key);
   return key&&matches.length?'Another player has this same display name. Add a last initial or other distinguishing name so organizers can identify them confidently.':'';
@@ -3272,6 +3351,184 @@ function showRecap(gid){
 window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
+const PlayerCheckIn=(()=>{
+  let session=null,checkIns=[],connection='closed',busy=false,discovering=false,pollTimer=null,pollDelay=CHECK_IN_POLL_MIN_MS,lastSessionId='';
+  const apiUrl=path=>`${normalizedWorkerBaseUrl(Sync.cfg.url)}${path}`;
+  const organizerHeaders=(json=false)=>({...json?{'Content-Type':'application/json'}:{},'X-Court-Room':Sync.cfg.code});
+  const responseJson=async response=>{try{return await response.json();}catch(_){return {};}};
+  const activeRecords=()=>checkIns.filter(item=>item.status==='checked-in');
+  const pendingRecords=()=>checkIns.filter(item=>item.kind==='unknown'&&item.status==='pending');
+  const checkedPlayerIds=()=>new Set(activeRecords().map(item=>item.playerId).filter(Boolean).map(String));
+  function errorMessage(response,data){
+    if(response.status===404||data.code==='SESSION_NOT_FOUND')return 'The check-in session is no longer available.';
+    if(response.status===401||response.status===403)return 'This device must complete organizer sync before managing check-in.';
+    if(response.status===503)return 'Player check-in is unavailable on the configured sync service.';
+    return data.message||'Could not manage player check-in.';
+  }
+  function configured(){return !!(Sync.configured()&&normalizedWorkerBaseUrl(Sync.cfg.url));}
+  function setConnection(value){connection=value;refreshSurface();}
+  function replaceStatus(){
+    const current=document.querySelector('[data-check-in-status]');if(current)current.outerHTML=checkInStatusHtml();
+  }
+  function refreshSurface(){
+    replaceStatus();
+    if(document.querySelector('[data-check-in-sheet]'))renderPlayerCheckInSheet();
+  }
+  function mergeAttendance(){
+    if(!session||checkInSessionEnded())return false;
+    if(!(window._checkInSuppressed instanceof Set))window._checkInSuppressed=new Set();
+    const eligible=new Set(getSelectablePlayers({context:'pickupAttendance'}).map(player=>String(player.id))),ids=checkedPlayerIds();let changed=false;
+    ids.forEach(id=>{if(eligible.has(id)&&!window._checkInSuppressed.has(id)&&!window._pool?.has(id)){window._pool.add(id);changed=true;}});
+    if(changed){window._teams=null;if(tab==='teams')updateAttendancePickerUI({preserveAnchor:true});}
+    else if(tab==='teams'){const tray=document.querySelector('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(window._attendanceContext||attendanceContext());replaceStatus();}
+    return changed;
+  }
+  function checkInSessionEnded(){return !session||session.status==='closed'||session.status==='expired'||Number(session.expiresAt)<=Date.now();}
+  function applySession(next){
+    const nextId=next?.sessionId||'';
+    if(nextId&&lastSessionId&&nextId!==lastSessionId){window._checkInSuppressed=new Set();checkIns=[];}
+    session=next||null;if(nextId){lastSessionId=nextId;session.status=Number(session.expiresAt)<=Date.now()&&session.status==='open'?'expired':session.status;}
+  }
+  async function discover({silent=false}={}){
+    if(discovering||!configured()){if(!configured()){connection='offline';refreshSurface();}return session;}
+    discovering=true;
+    try{
+      const response=await fetch(apiUrl('/api/check-in/sessions'),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
+      if(!response.ok)throw new Error(errorMessage(response,data));
+      applySession(data.session);connection=session?'live':'closed';pollDelay=CHECK_IN_POLL_MIN_MS;refreshSurface();if(session)await refresh({schedule:true});
+      return session;
+    }catch(error){connection='offline';if(!silent)toast(error.message);refreshSurface();return null;}
+    finally{discovering=false;}
+  }
+  async function create(){
+    if(busy)return session;if(!configured()){toast('Set up device sync in Settings before opening player check-in.');return null;}
+    busy=true;refreshSurface();
+    try{
+      const roster=createPublicCheckInRoster();
+      const response=await fetch(apiUrl('/api/check-in/sessions'),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify({label:'Pickup volleyball',expiresInMs:CHECK_IN_DEFAULT_EXPIRY_MS,roster})}),data=await responseJson(response);
+      if(!response.ok)throw new Error(errorMessage(response,data));
+      applySession(data.session);connection='live';checkIns=[];pollDelay=CHECK_IN_POLL_MIN_MS;renderPlayerCheckInSheet();await refresh({schedule:true});toast(data.resumed?'Resumed open player check-in':'Player check-in opened');return session;
+    }catch(error){connection='offline';toast(error.message);renderPlayerCheckInSheet();return null;}
+    finally{busy=false;refreshSurface();}
+  }
+  function schedulePoll(){
+    if(pollTimer)clearTimeout(pollTimer);pollTimer=null;
+    if(!session||checkInSessionEnded())return;
+    pollTimer=setTimeout(()=>refresh({schedule:true}),pollDelay);
+  }
+  async function refresh({schedule=false}={}){
+    if(!session||!configured()){if(schedule)schedulePoll();return null;}
+    try{
+      const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/review`),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
+      if(!response.ok)throw new Error(errorMessage(response,data));
+      applySession(data.session);checkIns=Array.isArray(data.checkIns)?data.checkIns:[];connection=checkInSessionEnded()?'closed':'live';pollDelay=CHECK_IN_POLL_MIN_MS;mergeAttendance();refreshSurface();return data;
+    }catch(error){connection=navigator.onLine===false?'offline':'reconnecting';pollDelay=Math.min(CHECK_IN_POLL_MAX_MS,Math.max(CHECK_IN_POLL_MIN_MS,pollDelay*1.7));refreshSurface();return null;}
+    finally{if(schedule)schedulePoll();}
+  }
+  async function close(){
+    if(!session||busy)return false;
+    if(!(await askConfirm('Close public player check-in? New check-ins will stop, but the current attendance selection and review list will remain.','Close check-in')))return false;
+    busy=true;refreshSurface();
+    try{
+      const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/close`),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify({confirm:true})}),data=await responseJson(response);
+      if(!response.ok)throw new Error(errorMessage(response,data));
+      applySession(data.session);connection='closed';if(pollTimer)clearTimeout(pollTimer);pollTimer=null;refreshSurface();toast('Player check-in closed');return true;
+    }catch(error){toast(error.message);return false;}
+    finally{busy=false;refreshSurface();}
+  }
+  async function disposition(checkInId,action,playerId){
+    if(!session||busy)return null;busy=true;refreshSurface();
+    try{
+      const body={action,...playerId?{playerId}:{}},response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/check-ins/${encodeURIComponent(checkInId)}`),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify(body)}),data=await responseJson(response);
+      if(!response.ok)throw new Error(errorMessage(response,data));
+      await refresh();return data.checkIn||null;
+    }catch(error){toast(error.message);return null;}
+    finally{busy=false;refreshSurface();}
+  }
+  function suppress(playerId){
+    const id=String(playerId);if(!(window._checkInSuppressed instanceof Set))window._checkInSuppressed=new Set();window._checkInSuppressed.add(id);
+  }
+  function unsuppress(playerId){window._checkInSuppressed?.delete(String(playerId));}
+  function isCheckedIn(playerId){return checkedPlayerIds().has(String(playerId));}
+  function resetForNew(){
+    if(session&&!checkInSessionEnded())return false;applySession(null);checkIns=[];connection='closed';refreshSurface();return true;
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&session&&!checkInSessionEnded())refresh({schedule:true});});
+  window.addEventListener('online',()=>{if(session)refresh({schedule:true});});
+  return {discover,create,refresh,close,disposition,suppress,unsuppress,isCheckedIn,resetForNew,configured,get session(){return session;},get checkIns(){return checkIns.slice();},get connection(){return connection;},get busy(){return busy;},get known(){return activeRecords();},get pending(){return pendingRecords();}};
+})();
+function checkInConnectionLabel(){
+  return PlayerCheckIn.connection==='live'?'Live':PlayerCheckIn.connection==='reconnecting'?'Reconnecting':PlayerCheckIn.connection==='offline'?'Offline':'Closed';
+}
+function checkInStatusHtml(){
+  const session=PlayerCheckIn.session,known=PlayerCheckIn.known.length,pending=PlayerCheckIn.pending.length,configured=PlayerCheckIn.configured();
+  if(!session)return `<section class="check-in-status" data-check-in-status><div class="check-in-status-main"><i class="check-in-dot ${configured?'':'offline'}"></i><div class="check-in-status-copy"><b>Player check-in: Closed</b><span>${configured?'Manual attendance is ready. Open a temporary public session when needed.':'Unavailable until device sync is set up. Manual attendance still works.'}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">${configured?'Open check-in':'Setup required'}</button></div></section>`;
+  const ended=session.status!=='open'||Number(session.expiresAt)<=Date.now(),status=ended?'Closed':`Open · ${known} checked in${pending?` · ${pending} need review`:''}`,connection=checkInConnectionLabel().toLowerCase();
+  return `<section class="check-in-status" data-check-in-status><div class="check-in-status-main"><i class="check-in-dot ${connection}"></i><div class="check-in-status-copy"><b>Player check-in: ${esc(status)}</b><span>${ended?'Attendance stays selected. Review remains available.':`${esc(checkInConnectionLabel())} · expires ${esc(new Date(session.expiresAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}`}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">View</button>${ended?'<button type="button" class="btn sm primary" onclick="startNewPlayerCheckIn()">Start new</button>':'<button type="button" class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button type="button" class="btn sm danger" onclick="closePlayerCheckIn()">Close</button>'}</div></section>`;
+}
+function checkInReviewRowsHtml(){
+  const session=PlayerCheckIn.session,rows=PlayerCheckIn.checkIns.filter(item=>['checked-in','pending'].includes(item.status));
+  if(!rows.length)return '<div class="tiny faint">No player check-ins yet. Manual selections remain available above.</div>';
+  return `<div class="check-in-review-list">${rows.map(item=>{
+    const pending=item.kind==='unknown'&&item.status==='pending',name=item.displayName||item.freeTextName||'Pending player',playerId=item.playerId;
+    const actions=pending
+      ?`<button class="btn sm ghost" onclick="openPendingCheckInMatch('${esc(item.id)}')">Match</button><button class="btn sm ghost" onclick="createPlayerFromCheckIn('${esc(item.id)}')">Create player</button><button class="btn sm danger" onclick="dismissPendingCheckIn('${esc(item.id)}')">Dismiss</button>`
+      :`<button class="btn sm ghost" onclick="removeCheckInAttendance('${esc(playerId)}')">Attendance only</button><button class="btn sm danger" onclick="removePublicCheckIn('${esc(item.id)}','${esc(playerId)}')">Remove check-in</button>`;
+    return `<div class="check-in-review-row ${pending?'pending':''}"><span aria-hidden="true">${pending?'?':'✓'}</span><div class="check-in-review-row-copy"><b>${esc(name)}</b><span>${pending?'Needs organizer review':PlayerCheckIn.isCheckedIn(playerId)?'Public check-in · added to attendance':'Resolved check-in'}</span></div><div class="check-in-review-row-actions">${actions}</div></div>`;
+  }).join('')}</div>`;
+}
+function playerCheckInSheetHtml(){
+  const session=PlayerCheckIn.session;
+  if(!session)return `<div data-check-in-sheet><h3>Open player check-in</h3><p class="small muted">Create a temporary public page where players can choose only their public display identity. Ratings, stats, roles, notes, aliases, history, crews, and private sync data stay private.</p><div class="unkline">${createPublicCheckInRoster().length} active pickup-eligible players will appear. The session expires in about 6 hours. Manual attendance keeps working if the service is offline.</div><button class="btn primary block" onclick="createPlayerCheckIn()" ${PlayerCheckIn.busy?'disabled':''}>${PlayerCheckIn.busy?'Opening…':'Open check-in'}</button>${sheetCloseBtn('Cancel')}</div>`;
+  const ended=session.status!=='open'||Number(session.expiresAt)<=Date.now(),known=PlayerCheckIn.known.length,pending=PlayerCheckIn.pending.length,connection=checkInConnectionLabel();
+  let qr='';try{qr=checkInQrSvg(session.publicUrl);}catch(_){qr='<div class="tiny faint">QR unavailable for this unusually long link. Copy the link instead.</div>';}
+  return `<div data-check-in-sheet><div class="row spread" style="gap:12px"><div><h3 style="margin:0">Player check-in</h3><div class="check-in-connection" style="margin-top:6px"><i class="check-in-dot ${connection.toLowerCase()}"></i>${esc(connection)}</div></div><span class="pill ${ended?'':'good'}">${ended?'Closed':'Open'}</span></div>
+    <div class="check-in-review-summary"><div><b>${known}</b><span>checked in</span></div><div><b>${pending}</b><span>need review</span></div><div><b>${session.rosterCount}</b><span>public roster</span></div></div>
+    ${ended?'<div class="unkline">This public session has ended. Existing attendance is unchanged.</div>':`<div class="check-in-share"><div><div class="tiny faint">SHAREABLE LINK</div><textarea class="check-in-link" aria-label="Player check-in link" readonly onclick="this.select()">${esc(session.publicUrl)}</textarea><div class="check-in-code" aria-label="Short code ${esc(session.shortCode)}">${esc(session.shortCode)}</div><div class="tiny faint">Players can open ${esc(new URL(session.publicUrl).origin)}/check-in and enter this code.</div><div class="row" style="gap:7px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="copyPlayerCheckInLink()">Copy link</button><button class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button class="btn sm ghost" onclick="printPlayerCheckIn()">Print QR</button></div><div class="tiny faint" style="margin-top:10px">Expires ${esc(new Date(session.expiresAt).toLocaleString())}. Players cannot view ratings or stats.</div></div><div class="check-in-qr">${qr}</div></div>`}
+    <h4 style="margin:18px 0 8px">Player check-in</h4>${checkInReviewRowsHtml()}
+    <div class="row" style="gap:8px;margin-top:14px">${ended?'<button class="btn primary wide" onclick="startNewPlayerCheckIn()">Start new session</button>':'<button class="btn danger wide" onclick="closePlayerCheckIn()">Close session</button>'}<button class="btn ghost" onclick="closeSheet()">Done</button></div></div>`;
+}
+function renderPlayerCheckInSheet(){if(document.querySelector('[data-check-in-sheet]'))openSheet(playerCheckInSheetHtml());}
+window.openPlayerCheckIn=()=>{
+  if(!PlayerCheckIn.configured()){toast('Set up device sync in Settings before opening player check-in.');return;}
+  openSheet(playerCheckInSheetHtml());if(!PlayerCheckIn.session)void PlayerCheckIn.discover({silent:true}).then(()=>renderPlayerCheckInSheet());else void PlayerCheckIn.refresh({schedule:true});
+};
+window.createPlayerCheckIn=()=>PlayerCheckIn.create();
+window.closePlayerCheckIn=()=>PlayerCheckIn.close();
+window.startNewPlayerCheckIn=()=>{PlayerCheckIn.resetForNew();renderPlayerCheckInSheet();};
+window.copyPlayerCheckInLink=async()=>{
+  const url=PlayerCheckIn.session?.publicUrl;if(!url)return;try{await navigator.clipboard.writeText(url);toast('Player check-in link copied');}catch(_){const input=document.querySelector('.check-in-link');input?.focus();input?.select();toast('Select and copy the player check-in link');}
+};
+window.sharePlayerCheckIn=async()=>{
+  const session=PlayerCheckIn.session;if(!session||session.status!=='open')return;
+  if(navigator.share){try{await navigator.share({title:'Court player check-in',text:`Check in for volleyball. Code: ${session.shortCode}`,url:session.publicUrl});return;}catch(error){if(error?.name==='AbortError')return;}}
+  await copyPlayerCheckInLink();
+};
+window.printPlayerCheckIn=()=>{
+  const session=PlayerCheckIn.session;if(!session)return;let qr='';try{qr=checkInQrSvg(session.publicUrl);}catch(_){}
+  const popup=window.open('','_blank','noopener,noreferrer');if(!popup){toast('Allow pop-ups to print the QR code');return;}
+  popup.document.write(`<!DOCTYPE html><html><head><title>Court player check-in</title><style>body{font-family:system-ui;text-align:center;padding:30px;color:#172033}.qr{width:320px;max-width:90vw;margin:20px auto}.code{font-size:40px;font-weight:900;letter-spacing:.16em}p{color:#59677c;overflow-wrap:anywhere}@media print{button{display:none}}</style></head><body><h1>Player check-in</h1><div class="qr">${qr}</div><div class="code">${esc(session.shortCode)}</div><p>${esc(session.publicUrl)}</p><button onclick="print()">Print</button></body></html>`);popup.document.close();
+};
+window.removeCheckInAttendance=playerId=>{PlayerCheckIn.suppress(playerId);window._pool?.delete(String(playerId));window._teams=null;updateAttendancePickerUI({preserveAnchor:true});toast('Removed from attendance only');};
+window.removePublicCheckIn=async(checkInId,playerId)=>{const result=await PlayerCheckIn.disposition(checkInId,'remove');if(result){PlayerCheckIn.suppress(playerId);window._pool?.delete(String(playerId));window._teams=null;updateAttendancePickerUI({preserveAnchor:true});toast('Public check-in removed');}};
+window.dismissPendingCheckIn=async checkInId=>{if(await PlayerCheckIn.disposition(checkInId,'dismiss'))toast('Pending name dismissed');};
+window.openPendingCheckInMatch=checkInId=>{window._pendingCheckInMatch={checkInId,query:''};renderPendingCheckInMatch();};
+function renderPendingCheckInMatch(){
+  const state=window._pendingCheckInMatch;if(!state)return;const roster=players.filter(player=>!isArchived(player)),labels=buildUniquePlayerDisplayLabels(roster),rows=normalizeSearchText(state.query)?rankAttendanceSearch(state.query,roster,{participationIndex:buildPlayerParticipationIndex(roster,games,evts),displayLabels:labels}):roster.slice().sort((a,b)=>String(labels.get(a.id)).localeCompare(String(labels.get(b.id))));
+  openSheet(`<h3>Match pending check-in</h3><p class="small muted">Search the private roster by name or alias. Nothing private is returned to the player.</p><div class="search-wrap">${icons.search}<input type="search" data-focus-key="check-in-match-search" aria-label="Search private roster for pending check-in" value="${esc(state.query)}" placeholder="Search names or aliases…" oninput="pendingCheckInMatchSearch(this.value)"></div><div class="check-in-match-list">${rows.slice(0,60).map(row=>{const player=row.player||row;return `<button type="button" onclick="confirmPendingCheckInMatch('${esc(player.id)}')">${esc(labels.get(player.id)||player.name)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>'}</div>${sheetCloseBtn('Cancel')}`,{focus:'[data-focus-key="check-in-match-search"]'});
+};
+window.pendingCheckInMatchSearch=value=>{if(!window._pendingCheckInMatch)return;window._pendingCheckInMatch.query=value;renderPendingCheckInMatch();};
+window.confirmPendingCheckInMatch=async playerId=>{
+  const state=window._pendingCheckInMatch,player=pById(playerId);if(!state||!player)return;
+  if(!(await askConfirm(`Match this pending check-in to ${player.name}?`,'Match player',false)))return;
+  const result=await PlayerCheckIn.disposition(state.checkInId,'match',player.id);if(!result)return;
+  window._pendingCheckInMatch=null;PlayerCheckIn.unsuppress(player.id);if(player.active!==false&&!isArchived(player)&&player.pickupEligible!==false)window._pool?.add(player.id);closeSheet(true);render();toast(`Matched to ${player.name}`);
+};
+window.createPlayerFromCheckIn=checkInId=>{window._pendingCheckInCreationId=checkInId;closeSheet(true);openPlayer();};
+async function resolveCreatedPlayerCheckIn(playerId){
+  const checkInId=window._pendingCheckInCreationId;if(!checkInId)return;window._pendingCheckInCreationId=null;
+  const result=await PlayerCheckIn.disposition(checkInId,'match',playerId);if(result){PlayerCheckIn.unsuppress(playerId);window._pool?.add(String(playerId));toast('Player created and check-in matched');}
+}
 function attendanceContext(){
   const scopes=attendanceScopes(),displayLabels=buildUniquePlayerDisplayLabels(scopes.all);
   return {...scopes,displayLabels};
@@ -3371,7 +3628,7 @@ function attendanceSelectedTrayHtml(context){
   const expanded=!!window._attendanceTrayExpanded,showToggle=selected.length>6;
   return `<div class="attendance-selected ${expanded?'expanded':''}" data-attendance-tray>
     <div class="attendance-selected-head"><b>Selected</b><span data-attendance-live aria-live="polite">${selected.length} player${selected.length===1?'':'s'}</span></div>
-    ${selected.length?`<div class="attendance-selected-chips">${selected.map(player=>`<button type="button" class="attendance-selected-chip" aria-label="Remove ${esc(context.displayLabels.get(player.id))} from attendance" onclick="removeAttendancePlayer('${esc(player.id)}')">${esc(context.displayLabels.get(player.id))}</button>`).join('')}</div>`:'<div class="tiny faint">No players selected yet.</div>'}
+    ${selected.length?`<div class="attendance-selected-chips">${selected.map(player=>`<button type="button" class="attendance-selected-chip ${PlayerCheckIn.isCheckedIn(player.id)?'check-in':''}" aria-label="Remove ${esc(context.displayLabels.get(player.id))} from attendance${PlayerCheckIn.isCheckedIn(player.id)?', public check-in':''}" onclick="removeAttendancePlayer('${esc(player.id)}')">${esc(context.displayLabels.get(player.id))}</button>`).join('')}</div>`:'<div class="tiny faint">No players selected yet.</div>'}
     ${showToggle?`<button type="button" class="attendance-tray-toggle" aria-expanded="${expanded}" onclick="toggleAttendanceTray()">${expanded?'Collapse':`Show all ${selected.length}`}</button>`:''}
   </div>`;
 }
@@ -3467,6 +3724,7 @@ function renderTeams(){
       <div class="attendance-top">
         <div class="row spread"><span class="small muted" style="font-weight:800">Who\u2019s here today?</span><span class="tiny faint" data-attendance-top-count>${pool.size} selected</span></div>
         ${previousUseful?`<button type="button" class="attendance-last" style="margin-top:10px" onclick="usePreviousAttendance()"><b>Use last session · ${previous.playerIds.length} player${previous.playerIds.length===1?'':'s'}</b><span>${esc(formatEventDate(previous.date,{month:'short',day:'numeric'})||previous.date)} ›</span></button>`:''}
+        ${checkInStatusHtml()}
         ${attendanceCrewsHtml()}
         ${attendanceSelectedTrayHtml(context)}
       </div>
@@ -3538,30 +3796,32 @@ function renderTeams(){
   main.innerHTML = html;
   const attendanceActions=main.querySelector('[data-attendance-actions]');if(attendanceActions)document.body.appendChild(attendanceActions);
   window.PlayerPhotos?.hydrate(main);
+  if(PlayerCheckIn.configured()&&!PlayerCheckIn.session)void PlayerCheckIn.discover({silent:true});
 }
 function renderTeamsLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTeams(); restoreRenderPosition(pos); }
 window.togglePool=(id)=>{
   const adding=!window._pool.has(id),fromSearch=!!normalizeSearchText(window._teamQuery);
-  dismissAttendanceUndo();adding?window._pool.add(id):window._pool.delete(id);window._teams=null;
+  dismissAttendanceUndo();if(adding){window._pool.add(id);PlayerCheckIn.unsuppress(id);}else{window._pool.delete(id);if(PlayerCheckIn.isCheckedIn(id))PlayerCheckIn.suppress(id);}window._teams=null;
   if(adding&&fromSearch){window._teamQuery='';const input=$('[data-focus-key="search-teams"]');if(input)input.value='';updateAttendancePickerUI({preserveResults:false});focusWithoutScroll(input);}
   else updateAttendancePickerUI();
 };
-window.removeAttendancePlayer=id=>{if(!window._pool?.has(id))return;dismissAttendanceUndo();window._pool.delete(id);window._teams=null;updateAttendancePickerUI({preserveAnchor:true});};
+window.removeAttendancePlayer=id=>{if(!window._pool?.has(id))return;dismissAttendanceUndo();window._pool.delete(id);if(PlayerCheckIn.isCheckedIn(id))PlayerCheckIn.suppress(id);window._teams=null;updateAttendancePickerUI({preserveAnchor:true});};
 window.selectPoolAll=()=>{
   dismissAttendanceUndo();const context=window._attendanceContext||attendanceContext(),query=normalizeSearchText(window._teamQuery);
   const shown=query?rankAttendanceSearch(query,context.all,context).map(row=>row.player):context.all;
-  window._pool=new Set([...window._pool,...shown.map(player=>player.id)]);window._teams=null;updateAttendancePickerUI();
+  shown.forEach(player=>PlayerCheckIn.unsuppress(player.id));window._pool=new Set([...window._pool,...shown.map(player=>player.id)]);window._teams=null;updateAttendancePickerUI();
 };
 window.clearPool=()=>{
   if(!window._pool?.size)return;
-  dismissAttendanceUndo();window._attendanceUndo={playerIds:[...window._pool],expiresAt:Date.now()+ATTENDANCE_UNDO_MS};
+  dismissAttendanceUndo();window._attendanceUndo={playerIds:[...window._pool],checkInSuppressed:[...(window._checkInSuppressed||[])],expiresAt:Date.now()+ATTENDANCE_UNDO_MS};
+  [...window._pool].filter(id=>PlayerCheckIn.isCheckedIn(id)).forEach(id=>PlayerCheckIn.suppress(id));
   window._pool=new Set();window._teams=null;
   window._attendanceUndoTimer=setTimeout(()=>{dismissAttendanceUndo();if(tab==='teams')updateAttendancePickerUI();},ATTENDANCE_UNDO_MS);
   updateAttendancePickerUI();
 };
 window.undoClearPool=()=>{
-  if(!window._attendanceUndo)return;const ids=window._attendanceUndo.playerIds.slice();dismissAttendanceUndo();
-  window._pool=new Set(ids);window._teams=null;updateAttendancePickerUI();
+  if(!window._attendanceUndo)return;const undo=window._attendanceUndo,ids=undo.playerIds.slice();dismissAttendanceUndo();
+  window._checkInSuppressed=new Set(undo.checkInSuppressed||[]);window._pool=new Set(ids);window._teams=null;updateAttendancePickerUI();
 };
 window.attendanceSearchInput=value=>{window._teamQuery=value;updateAttendancePickerUI({preserveResults:false});};
 window.attendanceSearchKeydown=event=>{
@@ -8736,7 +8996,7 @@ window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=co
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
 window.restoreArchivedPlayer=()=>{captureInputs();draft.archived=false;draft.active=true;renderPlayerSheet();};
-window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId);discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);}};
+window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId),returnToCheckIn=!!window._pendingCheckInCreationId;window._pendingCheckInCreationId=null;discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);if(returnToCheckIn)openPlayerCheckIn();}};
 
 window.openLevelGuide=()=>{
   captureInputs();
@@ -8830,7 +9090,7 @@ window.savePlayer=async()=>{
     if(seedChanged)await commit();else{await savePlayers();Sync.touch();}
     if(photoChanged&&existing)PlayerPhotos.invalidate(existing);
   }catch(error){photoBusy=false;renderPlayerSheet();toast(error?.message||'Could not save this player. Your changes are still here.');return;}
-  const savedId=target.id;discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();renderPlayerProfile();toast(wasEdit?'Saved':'Player added');
+  const savedId=target.id;if(window._pendingCheckInCreationId)await resolveCreatedPlayerCheckIn(savedId);discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();renderPlayerProfile();toast(wasEdit?'Saved':'Player added');
 };
 window.deletePlayer=async()=>{
   const p=pById(editId); if(!p) return;
