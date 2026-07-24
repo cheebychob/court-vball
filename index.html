@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.4">
+<meta name="court-build" content="20260724.5">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -482,14 +482,15 @@
   .check-in-share{display:grid;grid-template-columns:minmax(0,1fr) 190px;gap:14px;align-items:start}
   .check-in-link{width:100%;margin-top:6px;font-size:12px}
   .check-in-code{margin:10px 0 4px;color:var(--gold);font-size:32px;font-weight:900;letter-spacing:.15em}
-  .check-in-qr{padding:12px;border-radius:18px;background:#fff}.check-in-qr svg{display:block;width:100%;height:auto}
+  .check-in-qr{width:190px;height:190px;padding:12px;border-radius:18px;background:#fff}.check-in-qr svg{display:block;width:166px;height:166px}
   .check-in-review-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin:14px 0}
-  .check-in-review-summary div{padding:9px;border:1px solid #ffffff15;border-radius:12px;background:#ffffff07;text-align:center}.check-in-review-summary b{display:block;font-size:18px}.check-in-review-summary span{display:block;margin-top:3px;color:var(--soft);font-size:10px}
+  .check-in-review-summary div{min-width:0;padding:9px;border:1px solid #ffffff15;border-radius:12px;background:#ffffff07;text-align:center}.check-in-review-summary b{display:block;min-width:3ch;font-size:18px;font-variant-numeric:tabular-nums}.check-in-review-summary span{display:block;margin-top:3px;color:var(--soft);font-size:10px}
   .check-in-review-list{display:grid;gap:7px;max-height:300px;overflow:auto;overscroll-behavior:contain}
   .check-in-review-row{display:flex;align-items:center;gap:9px;padding:9px;border:1px solid #ffffff16;border-radius:13px;background:#ffffff07}
   .check-in-review-row.pending{border-color:#f2c66d38;background:#f2c66d09}.check-in-review-row-copy{min-width:0;flex:1}.check-in-review-row-copy b,.check-in-review-row-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.check-in-review-row-copy b{font-size:12.5px}.check-in-review-row-copy span{margin-top:2px;color:var(--soft);font-size:10.5px}
   .check-in-review-row-actions{display:flex;gap:5px;flex-wrap:wrap;justify-content:flex-end}.check-in-review-row-actions .btn{min-height:35px;padding:6px 8px;font-size:10.5px}
   .check-in-connection{display:inline-flex;align-items:center;gap:6px;color:var(--soft);font-size:10.5px}
+  @media (prefers-reduced-motion:reduce){.sheet{animation:none}}
   .check-in-match-list{display:grid;gap:6px;max-height:280px;overflow:auto;margin-top:9px}.check-in-match-list button{width:100%;min-height:42px;padding:8px 10px;border:1px solid #ffffff17;border-radius:12px;background:#ffffff08;color:var(--text);text-align:left}
   .attendance-tools{display:grid;gap:10px;padding:12px 14px 0}
   .attendance-scopes{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
@@ -1041,9 +1042,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.19.0',
-  build: '20260724.4',
-  releaseNotes: 'Open secure public player check-in sessions with a share link, local QR code, short code, returning-player controls, additive attendance merge, and organizer review.'
+  version: '0.19.1',
+  build: '20260724.5',
+  releaseNotes: 'Keep organizer player check-in visually stable during live updates with a persistent modal, QR code, focus, scroll position, and single non-overlapping poller.'
 });
 
 function appVersionLabel(){
@@ -3352,7 +3353,7 @@ window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
 const PlayerCheckIn=(()=>{
-  let session=null,checkIns=[],connection='closed',busy=false,discovering=false,pollTimer=null,pollDelay=CHECK_IN_POLL_MIN_MS,lastSessionId='';
+  let session=null,checkIns=[],connection='closed',busy=false,discovering=false,pollTimer=null,pollDelay=CHECK_IN_POLL_MIN_MS,lastSessionId='',modalOpen=false,refreshPromise=null,reviewSequence=0,lastAppliedReview=0,stateGeneration=0,lastAttendanceSignature='';
   const apiUrl=path=>`${normalizedWorkerBaseUrl(Sync.cfg.url)}${path}`;
   const organizerHeaders=(json=false)=>({...json?{'Content-Type':'application/json'}:{},'X-Court-Room':Sync.cfg.code});
   const responseJson=async response=>{try{return await response.json();}catch(_){return {};}};
@@ -3366,27 +3367,31 @@ const PlayerCheckIn=(()=>{
     return data.message||'Could not manage player check-in.';
   }
   function configured(){return !!(Sync.configured()&&normalizedWorkerBaseUrl(Sync.cfg.url));}
-  function setConnection(value){connection=value;refreshSurface();}
+  function setConnection(value){if(connection===value)return false;connection=value;refreshSurface();return true;}
   function replaceStatus(){
-    const current=document.querySelector('[data-check-in-status]');if(current)current.outerHTML=checkInStatusHtml();
+    const current=document.querySelector('[data-check-in-status]');if(!current)return;
+    const signature=checkInStatusSignature();
+    if(current.dataset.renderSignature===signature)return;
+    current.outerHTML=checkInStatusHtml();
   }
   function refreshSurface(){
     replaceStatus();
-    if(document.querySelector('[data-check-in-sheet]'))renderPlayerCheckInSheet();
+    if(document.querySelector('[data-check-in-sheet]'))patchPlayerCheckInSheet();
   }
   function mergeAttendance(){
     if(!session||checkInSessionEnded())return false;
     if(!(window._checkInSuppressed instanceof Set))window._checkInSuppressed=new Set();
-    const eligible=new Set(getSelectablePlayers({context:'pickupAttendance'}).map(player=>String(player.id))),ids=checkedPlayerIds();let changed=false;
+    const eligible=new Set(getSelectablePlayers({context:'pickupAttendance'}).map(player=>String(player.id))),ids=checkedPlayerIds(),signature=JSON.stringify([...ids].sort()),checkInStateChanged=signature!==lastAttendanceSignature;let changed=false;
+    lastAttendanceSignature=signature;
     ids.forEach(id=>{if(eligible.has(id)&&!window._checkInSuppressed.has(id)&&!window._pool?.has(id)){window._pool.add(id);changed=true;}});
     if(changed){window._teams=null;if(tab==='teams')updateAttendancePickerUI({preserveAnchor:true});}
-    else if(tab==='teams'){const tray=document.querySelector('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(window._attendanceContext||attendanceContext());replaceStatus();}
+    else if(tab==='teams'&&checkInStateChanged){const tray=document.querySelector('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(window._attendanceContext||attendanceContext());replaceStatus();}
     return changed;
   }
   function checkInSessionEnded(){return !session||session.status==='closed'||session.status==='expired'||Number(session.expiresAt)<=Date.now();}
   function applySession(next){
     const nextId=next?.sessionId||'';
-    if(nextId&&lastSessionId&&nextId!==lastSessionId){window._checkInSuppressed=new Set();checkIns=[];}
+    if(nextId&&lastSessionId&&nextId!==lastSessionId){window._checkInSuppressed=new Set();checkIns=[];lastAttendanceSignature='';}
     session=next||null;if(nextId){lastSessionId=nextId;session.status=Number(session.expiresAt)<=Date.now()&&session.status==='open'?'expired':session.status;}
   }
   async function discover({silent=false}={}){
@@ -3395,7 +3400,7 @@ const PlayerCheckIn=(()=>{
     try{
       const response=await fetch(apiUrl('/api/check-in/sessions'),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
       if(!response.ok)throw new Error(errorMessage(response,data));
-      applySession(data.session);connection=session?'live':'closed';pollDelay=CHECK_IN_POLL_MIN_MS;refreshSurface();if(session)await refresh({schedule:true});
+      applySession(data.session);connection=session?'live':'closed';pollDelay=CHECK_IN_POLL_MIN_MS;refreshSurface();if(session)await refresh({schedule:modalOpen});
       return session;
     }catch(error){connection='offline';if(!silent)toast(error.message);refreshSurface();return null;}
     finally{discovering=false;}
@@ -3407,28 +3412,39 @@ const PlayerCheckIn=(()=>{
       const roster=createPublicCheckInRoster();
       const response=await fetch(apiUrl('/api/check-in/sessions'),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify({label:'Pickup volleyball',expiresInMs:CHECK_IN_DEFAULT_EXPIRY_MS,roster})}),data=await responseJson(response);
       if(!response.ok)throw new Error(errorMessage(response,data));
-      applySession(data.session);connection='live';checkIns=[];pollDelay=CHECK_IN_POLL_MIN_MS;renderPlayerCheckInSheet();await refresh({schedule:true});toast(data.resumed?'Resumed open player check-in':'Player check-in opened');return session;
+      applySession(data.session);connection='live';checkIns=[];pollDelay=CHECK_IN_POLL_MIN_MS;renderPlayerCheckInSheet();await refresh({schedule:modalOpen});toast(data.resumed?'Resumed open player check-in':'Player check-in opened');return session;
     }catch(error){connection='offline';toast(error.message);renderPlayerCheckInSheet();return null;}
     finally{busy=false;refreshSurface();}
   }
   function schedulePoll(){
     if(pollTimer)clearTimeout(pollTimer);pollTimer=null;
-    if(!session||checkInSessionEnded())return;
+    if(!modalOpen||document.hidden||!session||checkInSessionEnded())return;
     pollTimer=setTimeout(()=>refresh({schedule:true}),pollDelay);
   }
-  async function refresh({schedule=false}={}){
-    if(!session||!configured()){if(schedule)schedulePoll();return null;}
-    try{
-      const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/review`),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
-      if(!response.ok)throw new Error(errorMessage(response,data));
-      applySession(data.session);checkIns=Array.isArray(data.checkIns)?data.checkIns:[];connection=checkInSessionEnded()?'closed':'live';pollDelay=CHECK_IN_POLL_MIN_MS;mergeAttendance();refreshSurface();return data;
-    }catch(error){connection=navigator.onLine===false?'offline':'reconnecting';pollDelay=Math.min(CHECK_IN_POLL_MAX_MS,Math.max(CHECK_IN_POLL_MIN_MS,pollDelay*1.7));refreshSurface();return null;}
-    finally{if(schedule)schedulePoll();}
+  function refresh({schedule=false}={}){
+    if(!session||!configured()){if(schedule)schedulePoll();return Promise.resolve(null);}
+    if(refreshPromise){if(schedule)refreshPromise.finally(schedulePoll);return refreshPromise;}
+    const requestedSessionId=session.sessionId,sequence=++reviewSequence,generation=stateGeneration;
+    refreshPromise=(async()=>{
+      try{
+        const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(requestedSessionId)}/review`),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
+        if(!response.ok)throw new Error(errorMessage(response,data));
+        if(sequence<=lastAppliedReview||generation!==stateGeneration||session?.sessionId!==requestedSessionId)return null;
+        lastAppliedReview=sequence;applySession(data.session);checkIns=normalizeOrganizerCheckIns(data.checkIns);connection=checkInSessionEnded()?'closed':'live';pollDelay=CHECK_IN_POLL_MIN_MS;mergeAttendance();refreshSurface();return data;
+      }catch(error){
+        if(generation!==stateGeneration||session?.sessionId!==requestedSessionId)return null;
+        connection=navigator.onLine===false?'offline':'reconnecting';pollDelay=Math.min(CHECK_IN_POLL_MAX_MS,Math.max(CHECK_IN_POLL_MIN_MS,pollDelay*1.7));refreshSurface();return null;
+      }finally{
+        refreshPromise=null;
+        if(schedule)schedulePoll();
+      }
+    })();
+    return refreshPromise;
   }
   async function close(){
     if(!session||busy)return false;
     if(!(await askConfirm('Close public player check-in? New check-ins will stop, but the current attendance selection and review list will remain.','Close check-in')))return false;
-    busy=true;refreshSurface();
+    busy=true;stateGeneration++;refreshSurface();
     try{
       const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/close`),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify({confirm:true})}),data=await responseJson(response);
       if(!response.ok)throw new Error(errorMessage(response,data));
@@ -3437,10 +3453,11 @@ const PlayerCheckIn=(()=>{
     finally{busy=false;refreshSurface();}
   }
   async function disposition(checkInId,action,playerId){
-    if(!session||busy)return null;busy=true;refreshSurface();
+    if(!session||busy)return null;busy=true;stateGeneration++;refreshSurface();
     try{
       const body={action,...playerId?{playerId}:{}},response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(session.sessionId)}/check-ins/${encodeURIComponent(checkInId)}`),{method:'POST',headers:organizerHeaders(true),body:JSON.stringify(body)}),data=await responseJson(response);
       if(!response.ok)throw new Error(errorMessage(response,data));
+      if(refreshPromise)await refreshPromise;
       await refresh();return data.checkIn||null;
     }catch(error){toast(error.message);return null;}
     finally{busy=false;refreshSurface();}
@@ -3451,47 +3468,98 @@ const PlayerCheckIn=(()=>{
   function unsuppress(playerId){window._checkInSuppressed?.delete(String(playerId));}
   function isCheckedIn(playerId){return checkedPlayerIds().has(String(playerId));}
   function resetForNew(){
-    if(session&&!checkInSessionEnded())return false;applySession(null);checkIns=[];connection='closed';refreshSurface();return true;
+    if(session&&!checkInSessionEnded())return false;stateGeneration++;applySession(null);checkIns=[];connection='closed';refreshSurface();return true;
   }
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden&&session&&!checkInSessionEnded())refresh({schedule:true});});
-  window.addEventListener('online',()=>{if(session)refresh({schedule:true});});
-  return {discover,create,refresh,close,disposition,suppress,unsuppress,isCheckedIn,resetForNew,configured,get session(){return session;},get checkIns(){return checkIns.slice();},get connection(){return connection;},get busy(){return busy;},get known(){return activeRecords();},get pending(){return pendingRecords();}};
+  function setModalOpen(value){
+    modalOpen=!!value;
+    if(!modalOpen){if(pollTimer)clearTimeout(pollTimer);pollTimer=null;return;}
+    if(session&&!checkInSessionEnded())schedulePoll();
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){if(pollTimer)clearTimeout(pollTimer);pollTimer=null;}else if(modalOpen&&session&&!checkInSessionEnded())refresh({schedule:true});});
+  window.addEventListener('online',()=>{if(modalOpen&&session)refresh({schedule:true});});
+  return {discover,create,refresh,close,disposition,suppress,unsuppress,isCheckedIn,resetForNew,configured,setModalOpen,get session(){return session;},get checkIns(){return checkIns.slice();},get connection(){return connection;},get busy(){return busy;},get known(){return activeRecords();},get pending(){return pendingRecords();},get pollState(){return {modalOpen,scheduled:!!pollTimer,inFlight:!!refreshPromise,sequence:reviewSequence,lastApplied:lastAppliedReview};}};
 })();
+function normalizeOrganizerCheckIns(items){
+  return (Array.isArray(items)?items:[]).slice().sort((a,b)=>(Number(a.createdAt)||0)-(Number(b.createdAt)||0)||String(a.id||'').localeCompare(String(b.id||'')));
+}
 function checkInConnectionLabel(){
   return PlayerCheckIn.connection==='live'?'Live':PlayerCheckIn.connection==='reconnecting'?'Reconnecting':PlayerCheckIn.connection==='offline'?'Offline':'Closed';
 }
+function checkInStatusSignature(){
+  const session=PlayerCheckIn.session;
+  return JSON.stringify([session?.sessionId||'',session?.status||'',session?.expiresAt||'',PlayerCheckIn.known.length,PlayerCheckIn.pending.length,PlayerCheckIn.connection,PlayerCheckIn.configured()]);
+}
 function checkInStatusHtml(){
   const session=PlayerCheckIn.session,known=PlayerCheckIn.known.length,pending=PlayerCheckIn.pending.length,configured=PlayerCheckIn.configured();
-  if(!session)return `<section class="check-in-status" data-check-in-status><div class="check-in-status-main"><i class="check-in-dot ${configured?'':'offline'}"></i><div class="check-in-status-copy"><b>Player check-in: Closed</b><span>${configured?'Manual attendance is ready. Open a temporary public session when needed.':'Unavailable until device sync is set up. Manual attendance still works.'}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">${configured?'Open check-in':'Setup required'}</button></div></section>`;
+  if(!session)return `<section class="check-in-status" data-check-in-status data-render-signature="${esc(checkInStatusSignature())}"><div class="check-in-status-main"><i class="check-in-dot ${configured?'':'offline'}"></i><div class="check-in-status-copy"><b>Player check-in: Closed</b><span>${configured?'Manual attendance is ready. Open a temporary public session when needed.':'Unavailable until device sync is set up. Manual attendance still works.'}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">${configured?'Open check-in':'Setup required'}</button></div></section>`;
   const ended=session.status!=='open'||Number(session.expiresAt)<=Date.now(),status=ended?'Closed':`Open · ${known} checked in${pending?` · ${pending} need review`:''}`,connection=checkInConnectionLabel().toLowerCase();
-  return `<section class="check-in-status" data-check-in-status><div class="check-in-status-main"><i class="check-in-dot ${connection}"></i><div class="check-in-status-copy"><b>Player check-in: ${esc(status)}</b><span>${ended?'Attendance stays selected. Review remains available.':`${esc(checkInConnectionLabel())} · expires ${esc(new Date(session.expiresAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}`}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">View</button>${ended?'<button type="button" class="btn sm primary" onclick="startNewPlayerCheckIn()">Start new</button>':'<button type="button" class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button type="button" class="btn sm danger" onclick="closePlayerCheckIn()">Close</button>'}</div></section>`;
+  return `<section class="check-in-status" data-check-in-status data-render-signature="${esc(checkInStatusSignature())}"><div class="check-in-status-main"><i class="check-in-dot ${connection}"></i><div class="check-in-status-copy"><b>Player check-in: ${esc(status)}</b><span>${ended?'Attendance stays selected. Review remains available.':`${esc(checkInConnectionLabel())} · expires ${esc(new Date(session.expiresAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))}`}</span></div></div><div class="check-in-status-actions"><button type="button" class="btn sm ghost" onclick="openPlayerCheckIn()">View</button>${ended?'<button type="button" class="btn sm primary" onclick="startNewPlayerCheckIn()">Start new</button>':'<button type="button" class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button type="button" class="btn sm danger" onclick="closePlayerCheckIn()">Close</button>'}</div></section>`;
+}
+function checkInRowSignature(item){
+  return JSON.stringify([item.id,item.kind,item.playerId,item.displayName,item.freeTextName,item.status,item.disposition]);
+}
+function checkInReviewRowHtml(item){
+  const pending=item.kind==='unknown'&&item.status==='pending',name=item.displayName||item.freeTextName||'Pending player',playerId=item.playerId;
+  const actions=pending
+    ?`<button class="btn sm ghost" onclick="openPendingCheckInMatch('${esc(item.id)}')">Match</button><button class="btn sm ghost" onclick="createPlayerFromCheckIn('${esc(item.id)}')">Create player</button><button class="btn sm danger" onclick="dismissPendingCheckIn('${esc(item.id)}')">Dismiss</button>`
+    :`<button class="btn sm ghost" onclick="removeCheckInAttendance('${esc(playerId)}')">Attendance only</button><button class="btn sm danger" onclick="removePublicCheckIn('${esc(item.id)}','${esc(playerId)}')">Remove check-in</button>`;
+  return `<div class="check-in-review-row ${pending?'pending':''}" data-check-in-id="${esc(item.id)}" data-render-signature="${esc(checkInRowSignature(item))}"><span aria-hidden="true">${pending?'?':'✓'}</span><div class="check-in-review-row-copy"><b>${esc(name)}</b><span>${pending?'Needs organizer review':PlayerCheckIn.isCheckedIn(playerId)?'Public check-in · added to attendance':'Resolved check-in'}</span></div><div class="check-in-review-row-actions">${actions}</div></div>`;
 }
 function checkInReviewRowsHtml(){
-  const session=PlayerCheckIn.session,rows=PlayerCheckIn.checkIns.filter(item=>['checked-in','pending'].includes(item.status));
-  if(!rows.length)return '<div class="tiny faint">No player check-ins yet. Manual selections remain available above.</div>';
-  return `<div class="check-in-review-list">${rows.map(item=>{
-    const pending=item.kind==='unknown'&&item.status==='pending',name=item.displayName||item.freeTextName||'Pending player',playerId=item.playerId;
-    const actions=pending
-      ?`<button class="btn sm ghost" onclick="openPendingCheckInMatch('${esc(item.id)}')">Match</button><button class="btn sm ghost" onclick="createPlayerFromCheckIn('${esc(item.id)}')">Create player</button><button class="btn sm danger" onclick="dismissPendingCheckIn('${esc(item.id)}')">Dismiss</button>`
-      :`<button class="btn sm ghost" onclick="removeCheckInAttendance('${esc(playerId)}')">Attendance only</button><button class="btn sm danger" onclick="removePublicCheckIn('${esc(item.id)}','${esc(playerId)}')">Remove check-in</button>`;
-    return `<div class="check-in-review-row ${pending?'pending':''}"><span aria-hidden="true">${pending?'?':'✓'}</span><div class="check-in-review-row-copy"><b>${esc(name)}</b><span>${pending?'Needs organizer review':PlayerCheckIn.isCheckedIn(playerId)?'Public check-in · added to attendance':'Resolved check-in'}</span></div><div class="check-in-review-row-actions">${actions}</div></div>`;
-  }).join('')}</div>`;
+  const rows=PlayerCheckIn.checkIns.filter(item=>['checked-in','pending'].includes(item.status));
+  return `<div class="check-in-review-list" data-check-in-list>${rows.map(checkInReviewRowHtml).join('')}<div class="tiny faint" data-check-in-empty ${rows.length?'hidden':''}>No player check-ins yet. Manual selections remain available above.</div></div>`;
 }
 function playerCheckInSheetHtml(){
   const session=PlayerCheckIn.session;
-  if(!session)return `<div data-check-in-sheet><h3>Open player check-in</h3><p class="small muted">Create a temporary public page where players can choose only their public display identity. Ratings, stats, roles, notes, aliases, history, crews, and private sync data stay private.</p><div class="unkline">${createPublicCheckInRoster().length} active pickup-eligible players will appear. The session expires in about 6 hours. Manual attendance keeps working if the service is offline.</div><button class="btn primary block" onclick="createPlayerCheckIn()" ${PlayerCheckIn.busy?'disabled':''}>${PlayerCheckIn.busy?'Opening…':'Open check-in'}</button>${sheetCloseBtn('Cancel')}</div>`;
-  const ended=session.status!=='open'||Number(session.expiresAt)<=Date.now(),known=PlayerCheckIn.known.length,pending=PlayerCheckIn.pending.length,connection=checkInConnectionLabel();
-  let qr='';try{qr=checkInQrSvg(session.publicUrl);}catch(_){qr='<div class="tiny faint">QR unavailable for this unusually long link. Copy the link instead.</div>';}
-  return `<div data-check-in-sheet><div class="row spread" style="gap:12px"><div><h3 style="margin:0">Player check-in</h3><div class="check-in-connection" style="margin-top:6px"><i class="check-in-dot ${connection.toLowerCase()}"></i>${esc(connection)}</div></div><span class="pill ${ended?'':'good'}">${ended?'Closed':'Open'}</span></div>
-    <div class="check-in-review-summary"><div><b>${known}</b><span>checked in</span></div><div><b>${pending}</b><span>need review</span></div><div><b>${session.rosterCount}</b><span>public roster</span></div></div>
-    ${ended?'<div class="unkline">This public session has ended. Existing attendance is unchanged.</div>':`<div class="check-in-share"><div><div class="tiny faint">SHAREABLE LINK</div><textarea class="check-in-link" aria-label="Player check-in link" readonly onclick="this.select()">${esc(session.publicUrl)}</textarea><div class="check-in-code" aria-label="Short code ${esc(session.shortCode)}">${esc(session.shortCode)}</div><div class="tiny faint">Players can open ${esc(new URL(session.publicUrl).origin)}/check-in and enter this code.</div><div class="row" style="gap:7px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="copyPlayerCheckInLink()">Copy link</button><button class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button class="btn sm ghost" onclick="printPlayerCheckIn()">Print QR</button></div><div class="tiny faint" style="margin-top:10px">Expires ${esc(new Date(session.expiresAt).toLocaleString())}. Players cannot view ratings or stats.</div></div><div class="check-in-qr">${qr}</div></div>`}
+  const ended=!session||session.status!=='open'||Number(session.expiresAt)<=Date.now(),known=PlayerCheckIn.known.length,pending=PlayerCheckIn.pending.length,connection=checkInConnectionLabel();
+  let qr='';if(session){try{qr=checkInQrSvg(session.publicUrl);}catch(_){qr='<div class="tiny faint">QR unavailable for this unusually long link. Copy the link instead.</div>';}}
+  return `<div data-check-in-sheet>
+    <div data-check-in-setup ${session?'hidden':''}><h3>Open player check-in</h3><p class="small muted">Create a temporary public page where players can choose only their public display identity. Ratings, stats, roles, notes, aliases, history, crews, and private sync data stay private.</p><div class="unkline"><span data-check-in-roster-preview>${createPublicCheckInRoster().length}</span> active pickup-eligible players will appear. The session expires in about 6 hours. Manual attendance keeps working if the service is offline.</div><button class="btn primary block" data-check-in-create onclick="createPlayerCheckIn()" ${PlayerCheckIn.busy?'disabled':''}>${PlayerCheckIn.busy?'Opening…':'Open check-in'}</button>${sheetCloseBtn('Cancel')}</div>
+    <div data-check-in-session ${session?'':'hidden'}><div class="row spread" style="gap:12px"><div><h3 style="margin:0">Player check-in</h3><div class="check-in-connection" style="margin-top:6px"><i class="check-in-dot ${connection.toLowerCase()}"></i><span data-check-in-connection-label>${esc(connection)}</span></div></div><span class="pill ${ended?'':'good'}" data-check-in-session-status>${ended?'Closed':'Open'}</span></div>
+    <div class="check-in-review-summary"><div><b data-check-in-known-count>${known}</b><span>checked in</span></div><div><b data-check-in-pending-count>${pending}</b><span>need review</span></div><div><b data-check-in-roster-count>${session?.rosterCount||0}</b><span>public roster</span></div></div>
+    <div class="unkline" data-check-in-ended ${ended?'':'hidden'}>This public session has ended. Existing attendance is unchanged.</div>
+    <div class="check-in-share" data-check-in-share ${ended?'hidden':''}><div><div class="tiny faint">SHAREABLE LINK</div><textarea class="check-in-link" aria-label="Player check-in link" readonly onclick="this.select()">${esc(session?.publicUrl||'')}</textarea><div class="check-in-code" data-check-in-short-code aria-label="Short code ${esc(session?.shortCode||'')}">${esc(session?.shortCode||'')}</div><div class="tiny faint">Players can open <span data-check-in-origin>${session?esc(new URL(session.publicUrl).origin):''}</span>/check-in and enter this code.</div><div class="row" style="gap:7px;flex-wrap:wrap;margin-top:10px"><button class="btn sm ghost" onclick="copyPlayerCheckInLink()">Copy link</button><button class="btn sm ghost" onclick="sharePlayerCheckIn()">Share</button><button class="btn sm ghost" onclick="printPlayerCheckIn()">Print QR</button></div><div class="tiny faint" style="margin-top:10px">Expires <span data-check-in-expires>${session?esc(new Date(session.expiresAt).toLocaleString()):''}</span>. Players cannot view ratings or stats.</div></div><div class="check-in-qr" data-check-in-qr data-qr-url="${esc(session?.publicUrl||'')}">${qr}</div></div>
     <h4 style="margin:18px 0 8px">Player check-in</h4>${checkInReviewRowsHtml()}
-    <div class="row" style="gap:8px;margin-top:14px">${ended?'<button class="btn primary wide" onclick="startNewPlayerCheckIn()">Start new session</button>':'<button class="btn danger wide" onclick="closePlayerCheckIn()">Close session</button>'}<button class="btn ghost" onclick="closeSheet()">Done</button></div></div>`;
+    <div class="row" style="gap:8px;margin-top:14px"><button class="btn wide ${ended?'primary':'danger'}" data-check-in-primary-action onclick="${ended?'startNewPlayerCheckIn()':'closePlayerCheckIn()'}">${ended?'Start new session':'Close session'}</button><button class="btn ghost" onclick="closeSheet()">Done</button></div></div></div>`;
 }
-function renderPlayerCheckInSheet(){if(document.querySelector('[data-check-in-sheet]'))openSheet(playerCheckInSheetHtml());}
+function patchPlayerCheckInRows(root){
+  const list=root.querySelector('[data-check-in-list]');if(!list)return;
+  const scrollTop=list.scrollTop,rows=PlayerCheckIn.checkIns.filter(item=>['checked-in','pending'].includes(item.status)),wanted=new Set(rows.map(item=>String(item.id)));
+  list.querySelectorAll('[data-check-in-id]').forEach(node=>{if(!wanted.has(node.dataset.checkInId))node.remove();});
+  const empty=list.querySelector('[data-check-in-empty]');
+  let reference=list.firstElementChild;
+  rows.forEach(item=>{
+    let node=[...list.querySelectorAll('[data-check-in-id]')].find(row=>row.dataset.checkInId===String(item.id));
+    const signature=checkInRowSignature(item);
+    if(node?.dataset.renderSignature!==signature){const wasReference=node===reference,template=document.createElement('template');template.innerHTML=checkInReviewRowHtml(item);const replacement=template.content.firstElementChild;if(node)node.replaceWith(replacement);else list.insertBefore(replacement,empty);node=replacement;if(wasReference)reference=replacement;}
+    if(node!==reference)list.insertBefore(node,reference);
+    reference=node.nextElementSibling;
+  });
+  empty.hidden=!!rows.length;if(list.scrollTop!==scrollTop)list.scrollTop=scrollTop;
+}
+function patchPlayerCheckInSheet(){
+  const root=document.querySelector('[data-check-in-sheet]');if(!root)return;
+  const session=PlayerCheckIn.session,setup=root.querySelector('[data-check-in-setup]'),panel=root.querySelector('[data-check-in-session]');
+  setup.hidden=!!session;panel.hidden=!session;
+  const create=root.querySelector('[data-check-in-create]');if(create){create.disabled=PlayerCheckIn.busy;create.textContent=PlayerCheckIn.busy?'Opening…':'Open check-in';}
+  if(!session)return;
+  const ended=session.status!=='open'||Number(session.expiresAt)<=Date.now(),connection=checkInConnectionLabel(),setText=(selector,value)=>{const node=root.querySelector(selector);if(node&&node.textContent!==String(value))node.textContent=value;};
+  setText('[data-check-in-known-count]',PlayerCheckIn.known.length);setText('[data-check-in-pending-count]',PlayerCheckIn.pending.length);setText('[data-check-in-roster-count]',session.rosterCount);setText('[data-check-in-connection-label]',connection);
+  const dot=root.querySelector('.check-in-connection .check-in-dot'),dotClass=`check-in-dot ${connection.toLowerCase()}`;if(dot&&dot.className!==dotClass)dot.className=dotClass;
+  const status=root.querySelector('[data-check-in-session-status]');if(status){status.textContent=ended?'Closed':'Open';status.classList.toggle('good',!ended);}
+  root.querySelector('[data-check-in-ended]').hidden=!ended;root.querySelector('[data-check-in-share]').hidden=ended;
+  const action=root.querySelector('[data-check-in-primary-action]');if(action){const label=ended?'Start new session':'Close session',className=`btn wide ${ended?'primary':'danger'}`,handler=ended?'startNewPlayerCheckIn()':'closePlayerCheckIn()';if(action.textContent!==label)action.textContent=label;if(action.className!==className)action.className=className;if(action.getAttribute('onclick')!==handler)action.setAttribute('onclick',handler);action.disabled=PlayerCheckIn.busy;}
+  const link=root.querySelector('.check-in-link');if(link.value!==session.publicUrl)link.value=session.publicUrl;
+  const code=root.querySelector('[data-check-in-short-code]'),codeLabel=`Short code ${session.shortCode}`;setText('[data-check-in-short-code]',session.shortCode);if(code.getAttribute('aria-label')!==codeLabel)code.setAttribute('aria-label',codeLabel);
+  setText('[data-check-in-origin]',new URL(session.publicUrl).origin);setText('[data-check-in-expires]',new Date(session.expiresAt).toLocaleString());
+  const qr=root.querySelector('[data-check-in-qr]');
+  if(qr.dataset.qrUrl!==session.publicUrl){try{qr.innerHTML=checkInQrSvg(session.publicUrl);}catch(_){qr.innerHTML='<div class="tiny faint">QR unavailable for this unusually long link. Copy the link instead.</div>';}qr.dataset.qrUrl=session.publicUrl;}
+  patchPlayerCheckInRows(root);
+}
+function renderPlayerCheckInSheet(){if(document.querySelector('[data-check-in-sheet]'))patchPlayerCheckInSheet();}
 window.openPlayerCheckIn=()=>{
   if(!PlayerCheckIn.configured()){toast('Set up device sync in Settings before opening player check-in.');return;}
-  openSheet(playerCheckInSheetHtml());if(!PlayerCheckIn.session)void PlayerCheckIn.discover({silent:true}).then(()=>renderPlayerCheckInSheet());else void PlayerCheckIn.refresh({schedule:true});
+  PlayerCheckIn.setModalOpen(true);openSheet(playerCheckInSheetHtml());if(!PlayerCheckIn.session)void PlayerCheckIn.discover({silent:true}).then(()=>renderPlayerCheckInSheet());else void PlayerCheckIn.refresh({schedule:true});
 };
 window.createPlayerCheckIn=()=>PlayerCheckIn.create();
 window.closePlayerCheckIn=()=>PlayerCheckIn.close();
@@ -9259,6 +9327,7 @@ function sheetCloseBtn(label='Cancel'){
 }
 function openSheet(html,options={}){
   const priorScrim=$('#scrim'),prior=priorScrim?.querySelector('.sheet'),priorFocus=document.activeElement,returnFocus=prior?window._sheetReturnFocus:(priorFocus instanceof HTMLElement?priorFocus:null);
+  if(priorScrim?.querySelector('[data-check-in-sheet]')&&!String(html).includes('data-check-in-sheet'))PlayerCheckIn.setModalOpen(false);
   const sheetState=prior?{top:prior.scrollTop,key:priorFocus?.dataset?.focusKey,start:priorFocus?.selectionStart,end:priorFocus?.selectionEnd}:null;
   if(priorScrim){priorScrim.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;}
   window._sheetReturnFocus=returnFocus;
@@ -9291,6 +9360,7 @@ function requestCloseSheet(){
 function closeSheet(force=false){
   if(!force&&window._sheetBeforeClose){requestCloseSheet();return;}
   const s=$('#scrim'); if(!s){if(force)window._sheetBeforeClose=null;return;}
+  if(s.querySelector('[data-check-in-sheet]'))PlayerCheckIn.setModalOpen(false);
   s.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;
   if(!document.querySelector('.scrim')) document.body.classList.remove('modal-open');
   const back=window._sheetReturnFocus; window._sheetReturnFocus=null;

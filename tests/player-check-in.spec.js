@@ -40,6 +40,9 @@ function organizerMock(page) {
     session: null,
     checkIns: [],
     requests: [],
+    reviewDelayMs: 0,
+    activeReviews: 0,
+    maxActiveReviews: 0,
   };
   const makeSession = () => ({
     sessionId: 'S'.repeat(43),
@@ -65,7 +68,13 @@ function organizerMock(page) {
       return;
     }
     if (url.pathname.endsWith('/review') && method === 'GET') {
-      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, session: state.session, checkIns: state.checkIns }) });
+      const responseSession = state.session ? { ...state.session } : null;
+      const responseCheckIns = state.checkIns.map(item => ({ ...item }));
+      state.activeReviews++;
+      state.maxActiveReviews = Math.max(state.maxActiveReviews, state.activeReviews);
+      if (state.reviewDelayMs) await new Promise(resolve => setTimeout(resolve, state.reviewDelayMs));
+      state.activeReviews--;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, session: responseSession, checkIns: responseCheckIns }) });
       return;
     }
     if (url.pathname.endsWith('/close') && method === 'POST') {
@@ -173,6 +182,207 @@ test('known and late check-ins merge additively, manual removal suppresses re-ad
   await page.getByRole('button', { name: 'Match player', exact: true }).click();
   expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b', 'c']);
   expect(await page.evaluate(() => attendanceSessions)).toEqual([]);
+});
+
+test('organizer polling patches stable modal, QR, counts, and keyed rows in place', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  const roster = Array.from({ length: 55 }, (_, index) => player(`p${index}`, `Player ${String(index).padStart(2, '0')}`));
+  await seed(page, roster);
+  const state = organizerMock(page);
+  state.session = {
+    sessionId: 'S'.repeat(43), status: 'open', createdAt: 1, updatedAt: 1,
+    expiresAt: Date.now() + 60_000, shortCode: '7KMFQ',
+    publicUrl: `${APP_WORKER}/check-in/${'P'.repeat(43)}`, rosterCount: roster.length, label: 'Pickup volleyball'
+  };
+  state.checkIns = Array.from({ length: 35 }, (_, index) => ({
+    id: `known-${index}`, kind: 'known', publicPlayerId: `public-${index}`, playerId: `p${index}`,
+    displayName: `Player ${String(index).padStart(2, '0')}`, freeTextName: null, status: 'checked-in',
+    disposition: null, createdAt: index + 1, updatedAt: index + 1
+  }));
+  await page.goto('/');
+  await page.locator('[data-tab="teams"]:visible').first().click();
+  await expect(page.getByRole('button', { name: 'View', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'View', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Player check-in', exact: true, level: 3 })).toBeVisible();
+
+  await page.evaluate(() => {
+    const root = document.querySelector('[data-check-in-sheet]');
+    root.__identity = 'shell';
+    root.querySelector('[data-check-in-qr] svg').__identity = 'qr';
+    root.querySelector('[data-check-in-id="known-0"]').__identity = 'known-0';
+    root.querySelector('[data-check-in-connection-label]').__identity = 'connection';
+    const list = root.querySelector('[data-check-in-list]');
+    list.scrollTop = 120;
+    root.querySelector('.check-in-link').focus();
+  });
+  state.checkIns.forEach(item => { item.updatedAt += 1000; });
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  expect(await page.evaluate(() => {
+    const root = document.querySelector('[data-check-in-sheet]'), list = root.querySelector('[data-check-in-list]');
+    return {
+      shell: root.__identity,
+      qr: root.querySelector('[data-check-in-qr] svg').__identity,
+      row: root.querySelector('[data-check-in-id="known-0"]').__identity,
+      connection: root.querySelector('[data-check-in-connection-label]').__identity,
+      scrollTop: list.scrollTop,
+      focused: document.activeElement === root.querySelector('.check-in-link'),
+    };
+  })).toEqual({ shell: 'shell', qr: 'qr', row: 'known-0', connection: 'connection', scrollTop: 120, focused: true });
+
+  state.session = { ...state.session, rosterCount: 56, updatedAt: 2 };
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.locator('[data-check-in-roster-count]')).toHaveText('56');
+  expect(await page.evaluate(() => document.querySelector('[data-check-in-id="known-0"]').__identity)).toBe('known-0');
+
+  state.checkIns.push({
+    id: 'known-new', kind: 'known', publicPlayerId: 'public-new', playerId: 'p50',
+    displayName: 'Player 50', freeTextName: null, status: 'checked-in', disposition: null, createdAt: 100, updatedAt: 100
+  });
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.locator('[data-check-in-known-count]')).toHaveText('36');
+  await expect(page.locator('[data-check-in-id="known-new"]')).toBeVisible();
+  expect(await page.evaluate(() => document.querySelector('[data-check-in-id="known-0"]').__identity)).toBe('known-0');
+
+  state.checkIns.push({
+    id: 'pending-new', kind: 'unknown', publicPlayerId: null, playerId: null,
+    displayName: null, freeTextName: 'Walk-up guest', status: 'pending', disposition: null, createdAt: 101, updatedAt: 101
+  });
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.locator('[data-check-in-pending-count]')).toHaveText('1');
+  await expect(page.locator('[data-check-in-id="pending-new"]')).toContainText('Walk-up guest');
+
+  state.checkIns = state.checkIns.filter(item => item.id !== 'known-new');
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.locator('[data-check-in-id="known-new"]')).toHaveCount(0);
+  expect(await page.evaluate(() => document.querySelector('[data-check-in-id="known-0"]').__identity)).toBe('known-0');
+
+  state.session = {
+    ...state.session, publicUrl: `${APP_WORKER}/check-in/${'R'.repeat(43)}`, shortCode: '8LNGQ', updatedAt: 3
+  };
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.getByLabel('Player check-in link', { exact: true })).toHaveValue(state.session.publicUrl);
+  expect(await page.evaluate(() => ({
+    shell: document.querySelector('[data-check-in-sheet]').__identity,
+    qrWasReplaced: !document.querySelector('[data-check-in-qr] svg').__identity,
+  }))).toEqual({ shell: 'shell', qrWasReplaced: true });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(await page.evaluate(() => ({
+    viewportOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    modalOverflow: document.querySelector('#scrim .sheet').scrollWidth - document.querySelector('#scrim .sheet').clientWidth,
+  }))).toEqual({ viewportOverflow: 0, modalOverflow: 0 });
+
+  state.session = { ...state.session, status: 'closed', updatedAt: 4 };
+  await page.evaluate(() => PlayerCheckIn.refresh());
+  await expect(page.locator('[data-check-in-session-status]')).toHaveText('Closed');
+  await expect(page.getByRole('button', { name: 'Start new session', exact: true })).toBeVisible();
+  expect(await page.evaluate(() => document.querySelector('[data-check-in-sheet]').__identity)).toBe('shell');
+});
+
+test('organizer modal owns one non-overlapping poller, pauses hidden, and ignores a stale review after close', async ({ page }) => {
+  await seed(page, [player('a', 'Alpha')]);
+  const state = organizerMock(page);
+  state.session = {
+    sessionId: 'S'.repeat(43), status: 'open', createdAt: 1, updatedAt: 1,
+    expiresAt: Date.now() + 60_000, shortCode: '7KMFQ',
+    publicUrl: `${APP_WORKER}/check-in/${'P'.repeat(43)}`, rosterCount: 1, label: 'Pickup volleyball'
+  };
+  await page.goto('/');
+  await page.locator('[data-tab="teams"]:visible').first().click();
+  await expect(page.getByRole('button', { name: 'View', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'View', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: true, scheduled: true, inFlight: false });
+
+  state.reviewDelayMs = 150;
+  state.maxActiveReviews = 0;
+  await page.evaluate(() => Promise.all([
+    PlayerCheckIn.refresh({ schedule: true }),
+    PlayerCheckIn.refresh({ schedule: true }),
+    PlayerCheckIn.refresh({ schedule: true }),
+  ]));
+  expect(state.maxActiveReviews).toBe(1);
+  await expect.poll(() => page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ scheduled: true, inFlight: false });
+
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  expect(await page.evaluate(() => PlayerCheckIn.pollState.scheduled)).toBe(false);
+  await page.evaluate(() => {
+    Object.defineProperty(document, 'hidden', { configurable: true, value: false });
+    document.dispatchEvent(new Event('visibilitychange'));
+  });
+  await expect.poll(() => page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ scheduled: true });
+
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(await page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: false, scheduled: false });
+  await page.getByRole('button', { name: 'View', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: true, scheduled: true });
+
+  state.reviewDelayMs = 250;
+  await page.evaluate(() => { void PlayerCheckIn.refresh({ schedule: true }); });
+  await expect.poll(() => state.activeReviews).toBe(1);
+  await page.getByRole('button', { name: 'Close session', exact: true }).click();
+  await page.getByRole('button', { name: 'Close check-in', exact: true }).click();
+  await expect(page.locator('[data-check-in-session-status]')).toHaveText('Closed');
+  await page.waitForTimeout(300);
+  await expect(page.locator('[data-check-in-session-status]')).toHaveText('Closed');
+  expect(await page.evaluate(() => PlayerCheckIn.session.status)).toBe('closed');
+
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  expect(await page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: false, scheduled: false });
+  await page.getByRole('button', { name: 'View', exact: true }).click();
+  expect(await page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: true, scheduled: false });
+});
+
+test('organizer row actions preserve attendance intent and still remove, dismiss, and create', async ({ page }) => {
+  await seed(page, [player('a', 'Alpha')]);
+  const state = organizerMock(page);
+  state.session = {
+    sessionId: 'S'.repeat(43), status: 'open', createdAt: 1, updatedAt: 1,
+    expiresAt: Date.now() + 60_000, shortCode: '7KMFQ',
+    publicUrl: `${APP_WORKER}/check-in/${'P'.repeat(43)}`, rosterCount: 1, label: 'Pickup volleyball'
+  };
+  state.checkIns = [
+    {
+      id: 'known-a', kind: 'known', publicPlayerId: 'public-a', playerId: 'a', displayName: 'Alpha',
+      freeTextName: null, status: 'checked-in', disposition: null, createdAt: 1, updatedAt: 1
+    },
+    {
+      id: 'pending-dismiss', kind: 'unknown', publicPlayerId: null, playerId: null, displayName: null,
+      freeTextName: 'Dismiss Me', status: 'pending', disposition: null, createdAt: 2, updatedAt: 2
+    },
+    {
+      id: 'pending-create', kind: 'unknown', publicPlayerId: null, playerId: null, displayName: null,
+      freeTextName: 'Create Me', status: 'pending', disposition: null, createdAt: 3, updatedAt: 3
+    },
+  ];
+  await page.goto('/');
+  await page.locator('[data-tab="teams"]:visible').first().click();
+  await expect(page.getByRole('button', { name: 'View', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'View', exact: true }).click();
+
+  const knownRow = page.locator('[data-check-in-id="known-a"]');
+  await knownRow.getByRole('button', { name: 'Attendance only', exact: true }).click();
+  expect(await page.evaluate(() => window._pool.has('a'))).toBe(false);
+  await expect(knownRow).toBeVisible();
+  await knownRow.getByRole('button', { name: 'Remove check-in', exact: true }).click();
+  await expect(knownRow).toHaveCount(0);
+  expect(state.checkIns.find(item => item.id === 'known-a').status).toBe('canceled');
+
+  const dismissRow = page.locator('[data-check-in-id="pending-dismiss"]');
+  await dismissRow.getByRole('button', { name: 'Dismiss', exact: true }).click();
+  await expect(dismissRow).toHaveCount(0);
+  expect(state.checkIns.find(item => item.id === 'pending-dismiss').status).toBe('dismissed');
+
+  await page.locator('[data-check-in-id="pending-create"]').getByRole('button', { name: 'Create player', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Add player', exact: true })).toBeVisible();
+  await page.getByPlaceholder('Player name').fill('Created Guest');
+  await page.locator('.sheet').getByRole('button', { name: 'Add player', exact: true }).click();
+  await expect.poll(() => page.evaluate(() => players.some(item => item.name === 'Created Guest'))).toBe(true);
+  expect(state.checkIns.find(item => item.id === 'pending-create')).toMatchObject({ status: 'checked-in', disposition: 'matched' });
+  const createdId = await page.evaluate(() => players.find(item => item.name === 'Created Guest').id);
+  await expect.poll(() => page.evaluate(id => window._pool.has(id), createdId)).toBe(true);
 });
 
 class MemoryKV {
