@@ -524,7 +524,7 @@ test('old backups load, backup deletion metadata is honored, and exports include
   expect(state.deletions.players.current).toBeGreaterThan(0);
   expect(state.deletions.games['current-game']).toBeGreaterThan(0);
   expect(state.deletions.events['current-event']).toBeGreaterThan(0);
-  expect(state.exported.v).toBe(3);
+  expect(state.exported.v).toBe(4);
   expect(state.exported.deletions).toEqual(state.deletions);
   expect(state.exported.tomb).toEqual(state.deletions.games);
 });
@@ -627,7 +627,7 @@ test('sync payload excludes device-local config keys', async ({ page }) => {
   await expect.poll(() => rooms.get(code)?.data || null).not.toBeNull();
 
   const sent = JSON.parse(rooms.get(code).data);
-  expect(Object.keys(sent).sort()).toEqual(['deletions', 'events', 'games', 'players', 'settings', 'tomb', 'v']);
+  expect(Object.keys(sent).sort()).toEqual(['attendanceSessions', 'deletions', 'events', 'games', 'players', 'settings', 'tomb', 'v']);
   expect(JSON.stringify(sent)).not.toContain('vb:sync');
   expect(sent).not.toHaveProperty('sync');
   expect(sent).not.toHaveProperty('syncTs');
