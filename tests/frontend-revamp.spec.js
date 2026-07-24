@@ -154,7 +154,9 @@ test('event detail exposes command-center sections and history filters overlap c
   await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Events', exact: true }).click();
   await page.locator('.ev-row').filter({ hasText: 'Summer Command Cup' }).click();
   const eventNav = page.getByRole('navigation', { name: 'Event sections' });
-  await expect(eventNav.getByRole('button')).toHaveCount(5);
+  await expect(eventNav.getByRole('button')).toHaveCount(6);
+  await eventNav.getByRole('button', { name: 'Registration', exact: true }).click();
+  await expect(page.locator('#event-registration')).toBeVisible();
   await eventNav.getByRole('button', { name: 'Schedule', exact: true }).click();
   await expect(page.locator('#event-schedule')).toBeVisible();
   await eventNav.getByRole('button', { name: 'Playoffs', exact: true }).click();

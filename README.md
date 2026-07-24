@@ -11,6 +11,7 @@ Current app entry point:
 - Single-file HTML/CSS/JavaScript app.
 - Local-first storage for players, games, events, and settings, with JSON backup/restore.
 - Secure temporary public player self check-in with share links, local QR codes, short codes, returning-device state, and organizer review.
+- Persistent event registration foundation with organizer settings/dashboard, standalone public availability pages, and D1-backed status/capacity enforcement.
 - Complete event Rules Hub with guided or free-form drafting, safe rich text, Quick Rules, immutable publication history, sync-aware conflicts, and unified public event pages.
 - Ratings replay deterministically from saved games on load and after each save.
 - Players with game history are archived instead of destructively deleted, so historical games can still replay with their players intact.
@@ -18,6 +19,7 @@ Current app entry point:
 - Per-player stat event logs are stored in game history and included in backups.
 - Event/tournament support exists with fixed teams, standings, brackets, guest teams, and court/schedule projections.
 - Event Rules architecture: [data model, publishing, sync, and sanitization](docs/EVENT_RULES.md).
+- Event registration architecture: [D1 schema, routes, capacity, lifecycle, and deployment](docs/EVENT_REGISTRATION.md).
 - Event metadata is separate from rating math; event games rate like normal saved games.
 
 Core features:
