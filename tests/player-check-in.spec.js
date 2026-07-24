@@ -150,8 +150,8 @@ test('known and late check-ins merge additively, manual removal suppresses re-ad
     displayName: 'Alpha', freeTextName: null, status: 'checked-in', disposition: null, createdAt: 1, updatedAt: 1
   }];
   await page.goto('/');
+  await page.evaluate(() => { window._pool = new Set(['c']); });
   await page.locator('[data-tab="teams"]:visible').first().click();
-  await page.evaluate(() => { window._pool = new Set(['c']); renderTeams(); });
   await expect.poll(() => page.evaluate(() => [...window._pool].sort())).toEqual(['a', 'c']);
   await expect(page.locator('.attendance-selected-chip.check-in')).toContainText('Alpha');
   expect(await page.evaluate(() => attendanceSessions)).toEqual([]);

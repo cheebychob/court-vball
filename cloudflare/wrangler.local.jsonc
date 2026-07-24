@@ -1,0 +1,25 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "court-sync-local",
+  "main": "court-sync-worker.js",
+  "compatibility_date": "2026-07-24",
+
+  // Draft bindings intentionally have no remote IDs. Wrangler provisions
+  // persistent local-only resources for `wrangler dev` and `--local` commands.
+  // Never use this file with `wrangler deploy`.
+  "kv_namespaces": [
+    { "binding": "COURT" },
+    { "binding": "PUBLIC_SCHEDULES" },
+    { "binding": "CHECK_IN_SESSIONS" }
+  ],
+  "r2_buckets": [
+    { "binding": "PLAYER_PHOTOS" }
+  ],
+  "d1_databases": [
+    {
+      "binding": "EVENT_REGISTRATION_DB",
+      "database_name": "court-event-registration-local",
+      "migrations_dir": "migrations"
+    }
+  ]
+}
