@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260721.4">
+<meta name="court-build" content="20260724.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -947,9 +947,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.15.3',
-  build: '20260721.4',
-  releaseNotes: 'Player search now resets reliably, and event roster selections keep their scroll position on iPhone.'
+  version: '0.16.0',
+  build: '20260724.1',
+  releaseNotes: 'Pickup attendance now excludes event-only players, aliases are editable and searchable, duplicate choices are distinct, and players without saved games display as Unrated.'
 });
 
 function appVersionLabel(){
@@ -1130,6 +1130,7 @@ let evts = [];         // events/tournaments: {id,name,eventDate,created,done,te
 let settings = {...DEFAULT_SETTINGS};
 let live = null;       // in-progress game state
 let tab = 'players';
+const RECENT_PLAYER_DAYS = 30;
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function hash32(value){
@@ -1195,12 +1196,83 @@ function formatEventDate(value,options={month:'long',day:'numeric',year:'numeric
   return new Date(parts.year,parts.month-1,parts.day,12,0,0,0).toLocaleDateString([],options);
 }
 function zeroEvents(){ const o={}; EVENTS.forEach(e=>o[e.k]=0); return o; }
+function normalizedPlayerText(value){return String(value||'').trim().replace(/\s+/g,' ').toLocaleLowerCase();}
+function normalizePlayerAliases(value,primaryName=''){
+  const primary=normalizedPlayerText(primaryName),seen=new Set(),out=[];
+  (Array.isArray(value)?value:[]).forEach(alias=>{
+    if(typeof alias!=='string')return;
+    const clean=alias.trim().replace(/\s+/g,' '),key=normalizedPlayerText(clean);
+    if(!key||key===primary||seen.has(key))return;
+    seen.add(key);out.push(clean);
+  });
+  return out;
+}
+function getPlayerSearchTerms(player){
+  const seen=new Set(),terms=[];
+  [player?.name,...normalizePlayerAliases(player?.aliases,player?.name)].forEach(value=>{
+    const term=normalizedPlayerText(value);if(term&&!seen.has(term)){seen.add(term);terms.push(term);}
+  });
+  return terms;
+}
+function playerSearchText(player){return getPlayerSearchTerms(player).join(' ');}
+function collectEventPlayerIds(value,out=new Set(),key=''){
+  const arrayKeys=new Set(['players','playerIds','roster','members','teamA','teamB']),valueKeys=new Set(['playerId','winnerPlayerId','loserPlayerId']);
+  if(Array.isArray(value)){
+    if(arrayKeys.has(key))value.forEach(id=>{if(typeof id==='string'||typeof id==='number')out.add(String(id));});
+    value.forEach(item=>{if(item&&typeof item==='object')collectEventPlayerIds(item,out,key);});
+  }else if(value&&typeof value==='object'){
+    Object.entries(value).forEach(([childKey,child])=>{
+      if(valueKeys.has(childKey)&&(typeof child==='string'||typeof child==='number'))out.add(String(child));
+      else collectEventPlayerIds(child,out,childKey);
+    });
+  }
+  return out;
+}
+function buildPlayerParticipationIndex(playerList=[],gameList=[],eventList=[],now=Date.now()){
+  const index=new Map();
+  (Array.isArray(playerList)?playerList:[]).forEach(player=>{
+    if(player?.id==null)return;
+    index.set(String(player.id),{gamesPlayed:0,lastPlayedAt:null,hasTrackedGame:false,appearsInEvent:false,participationCategory:'neverPlayed'});
+  });
+  (Array.isArray(gameList)?gameList:[]).forEach(game=>{
+    let sides={A:Array.isArray(game?.teamA)?game.teamA:[],B:Array.isArray(game?.teamB)?game.teamB:[]};
+    try{sides=gamePlayerSides(game,{eventList});}catch(_){/* Malformed historical event links fall back to saved sides. */}
+    const ids=new Set([...(sides?.A||[]),...(sides?.B||[])].filter(id=>id!=null).map(String));
+    const timestamp=gameChronologyTimestamp(game,{eventList});
+    ids.forEach(id=>{
+      const meta=index.get(id);if(!meta)return;
+      meta.gamesPlayed+=1;meta.hasTrackedGame=true;
+      if(Number.isFinite(timestamp)&&(meta.lastPlayedAt==null||timestamp>meta.lastPlayedAt))meta.lastPlayedAt=timestamp;
+    });
+  });
+  (Array.isArray(eventList)?eventList:[]).forEach(event=>{
+    collectEventPlayerIds(event).forEach(id=>{const meta=index.get(id);if(meta)meta.appearsInEvent=true;});
+  });
+  const recentCutoff=Number(now)-RECENT_PLAYER_DAYS*24*60*60*1000;
+  index.forEach(meta=>{
+    meta.participationCategory=meta.hasTrackedGame
+      ?(meta.lastPlayedAt!=null&&meta.lastPlayedAt>=recentCutoff?'recent':'occasional')
+      :(meta.appearsInEvent?'eventOnly':'neverPlayed');
+  });
+  return index;
+}
+function normalizePlayerRecord(player,{participation}={}){
+  const target=player&&typeof player==='object'?player:{};
+  target.aliases=normalizePlayerAliases(target.aliases,target.name);
+  if(target.active===undefined)target.active=true;
+  if(target.archived===undefined)target.archived=false;
+  if(typeof target.pickupEligible!=='boolean'){
+    target.pickupEligible=participation?.hasTrackedGame?true:participation?.appearsInEvent?false:true;
+  }
+  return target;
+}
 function makePlayer(name, seed){
   return { id:uid(), name:name.trim(), seedRating:seed,
     rating:seed, gamesPlayed:0, trackedGames:0, wins:0, losses:0,
     fullGames:0, partialGames:0, soloGames:0,
     roles:{}, skills:null, lifetime:zeroEvents(),
-    history:[{i:0,r:seed}], notes:'', active:true, archived:false };
+    history:[{i:0,r:seed}], notes:'', active:true, archived:false,
+    pickupEligible:true, aliases:[] };
 }
 const PLAYER_PHOTO_TOKEN_PATTERN=/^[A-Za-z0-9_-]{43}$/;
 const PLAYER_PHOTO_REVISION_PATTERN=/^[A-Za-z0-9._~-]{1,128}$/;
@@ -1263,9 +1335,10 @@ function migrateEvents(){
   });
 }
 function migratePlayers(){
+  const participation=buildPlayerParticipationIndex(players,games,evts);
   players.forEach(pl=>{ pl.lifetime = {...zeroEvents(), ...(pl.lifetime||{})};
     if(!pl.roles) pl.roles={}; if(!pl.history) pl.history=[{i:0,r:pl.seedRating}];
-    if(pl.active === undefined) pl.active = true; if(pl.archived === undefined) pl.archived = false;
+    normalizePlayerRecord(pl,{participation:participation.get(String(pl.id))});
     if(pl.trackedGames === undefined) pl.trackedGames = pl.gamesPlayed || 0;
     const photo=normalizePlayerPhoto(pl.photo);if(photo)pl.photo=photo;else delete pl.photo; });
 }
@@ -1531,14 +1604,16 @@ function profileCardData(p){
   const pr=passerRating(p);
   const dig=evCount(p,'dig'), block=evCount(p,'block');
   const gp=p.gamesPlayed||0;
+  const participation=buildPlayerParticipationIndex(players,games,evts).get(String(p.id))||{hasTrackedGame:false};
+  const ratingDisplay=getPlayerRatingDisplay(p,participation);
   const level=volleyballLevelOf(p.rating);
   const roleNames=ROLE_DEFS.filter(([k])=>p.roles&&p.roles[k]).map(([,l])=>l);
   const trend=recentRatingTrend(p);
   return {
     name:p.name,
     initials:initials(p.name),
-    subtitle:roleNames.length?roleNames.slice(0,2).join(' \u00b7 '):(settings.hideRatings?'Player':level.short+' player'),
-    level:settings.hideRatings?null:level.label,
+    subtitle:roleNames.length?roleNames.slice(0,2).join(' \u00b7 '):(settings.hideRatings?'Player':ratingDisplay.status==='unrated'?'Unrated player':level.short+' player'),
+    level:settings.hideRatings?null:ratingDisplay.status==='unrated'?'Unrated':level.label,
     sample:ins.statConfidence.label,
     axes:radarAxes(p),
     strengths:a&&a.strength?capFirst(a.strength):null,
@@ -1657,10 +1732,12 @@ function drawPlayerCard(canvas, d){
 }
 window.openPlayerCard=(id)=>{
   const p=pById(id); if(!p) return;
+  const participation=buildPlayerParticipationIndex(players,games,evts).get(String(p.id));
+  const ratingDisplay=getPlayerRatingDisplay(p,participation);
   if(editId) captureInputs();
   const back = editId ? 'renderPlayerSheet()' : 'closeSheet()';
   openSheet(`<h3>Player card</h3>
-    <div class="profile-photo-head">${playerAvatarHtml(p,{size:'lg'})}<div><b>${esc(p.name)}</b><span>${esc(volleyballLevelOf(p.rating).label)} · ${p.wins}-${p.losses}</span></div></div>
+    <div class="profile-photo-head">${playerAvatarHtml(p,{size:'lg'})}<div><b>${esc(p.name)}</b><span>${esc(ratingDisplay.status==='unrated'?'Unrated':`${volleyballLevelOf(p.rating).label} · ${p.wins}-${p.losses}`)}</span></div></div>
     <canvas id="cardCanvas" style="width:100%;border-radius:16px;display:block;background:#070a12"></canvas>
     <div class="tiny faint" style="margin-top:8px;text-align:center">Bright radar points are backed by logged events; faded ones lean on the starting skill ratings until more games are tracked.</div>
     <button class="btn primary block" style="margin-top:12px" onclick="sharePlayerCard('${p.id}')">Save / share image</button>
@@ -1999,7 +2076,53 @@ const $ = (s,r=document)=>r.querySelector(s);
 const main = $('#main');
 function esc(s){ return String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
 function normalizeSearchText(value){ return String(value||'').trim().toLocaleLowerCase().replace(/\s+/g,' '); }
-function filterPlayersForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(p=>normalizeSearchText(p.name).includes(q)) : list.slice(); }
+function filterPlayersForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(p=>getPlayerSearchTerms(p).some(term=>term.includes(q))) : list.slice(); }
+function getSelectablePlayers({context='general',playerList=players}={}){
+  const available=(Array.isArray(playerList)?playerList:[]).filter(player=>player?.active!==false&&!isArchived(player));
+  return context==='pickupAttendance'?available.filter(player=>player.pickupEligible!==false):available;
+}
+function buildUniquePlayerDisplayLabels(playerList=[]){
+  const list=(Array.isArray(playerList)?playerList:[]).filter(player=>player?.id!=null),groups=new Map(),labels=new Map();
+  list.forEach(player=>{
+    const clean=String(player.name||'Player').trim().replace(/\s+/g,' ')||'Player',key=normalizeSearchText(clean);
+    if(!groups.has(key))groups.set(key,[]);groups.get(key).push({player,clean});
+  });
+  groups.forEach(group=>{
+    if(group.length===1){labels.set(group[0].player.id,group[0].clean);return;}
+    const aliasCounts=new Map();
+    group.forEach(({player})=>normalizePlayerAliases(player.aliases,player.name).forEach(alias=>{
+      const key=normalizeSearchText(alias);aliasCounts.set(key,(aliasCounts.get(key)||0)+1);
+    }));
+    const unresolved=[];
+    group.forEach(({player,clean})=>{
+      const alias=normalizePlayerAliases(player.aliases,player.name).find(value=>aliasCounts.get(normalizeSearchText(value))===1);
+      if(alias)labels.set(player.id,`${clean} · ${alias}`);else unresolved.push({player,clean});
+    });
+    unresolved.sort((a,b)=>String(a.player.id).localeCompare(String(b.player.id))).forEach(({player,clean},index)=>{
+      labels.set(player.id,`${clean} #${index+1}`);
+    });
+  });
+  for(let pass=0;pass<3;pass++){
+    const collisions=new Map();
+    list.forEach(player=>{const key=normalizeSearchText(labels.get(player.id));if(!collisions.has(key))collisions.set(key,[]);collisions.get(key).push(player);});
+    const duplicateGroups=[...collisions.values()].filter(group=>group.length>1);if(!duplicateGroups.length)break;
+    duplicateGroups.forEach(group=>group.slice().sort((a,b)=>String(a.id).localeCompare(String(b.id))).forEach((player,index)=>{
+      labels.set(player.id,`${labels.get(player.id)} #${index+1}`);
+    }));
+  }
+  return labels;
+}
+function playerDisplayIdentityWarning(player,playerList=players){
+  const key=normalizeSearchText(player?.name),matches=(Array.isArray(playerList)?playerList:[]).filter(other=>other?.id!==player?.id&&normalizeSearchText(other?.name)===key);
+  return key&&matches.length?'Another player has this same display name. Add a last initial or other distinguishing name so organizers can identify them confidently.':'';
+}
+function getPlayerRatingDisplay(player,participation){
+  if(!participation?.hasTrackedGame)return {status:'unrated',label:'Unrated'};
+  return {status:'rated',label:String(Math.round(Number(player?.rating)||0))};
+}
+function showPlayerRating(player,participation){
+  return settings.hideRatings?'••':getPlayerRatingDisplay(player,participation).label;
+}
 function filterTeamsForQuery(list, query){ const q=normalizeSearchText(query); return q ? list.filter(t=>normalizeSearchText(t.name).includes(q)) : list.slice(); }
 function selectorSearch(key, label, query, count, total){
   return `<div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="search-${esc(key)}" type="search" aria-label="${esc(label)}" placeholder="${esc(label)}" value="${esc(query||'')}" oninput="selectorQuery('${esc(key)}',this.value)"></div>
@@ -2180,19 +2303,19 @@ function playerGameProfileRow(game,playerId,playerList=players,eventList=evts){
   const teammateLabel=teammates.length?`with ${teammates.slice(0,2).join(' + ')}${teammates.length>2?` +${teammates.length-2}`:''}`:'';
   return {id:String(game.id||''),date:gameChronologyTimestamp(game,{eventList}),outcome,score:game.solo?'Scout':`${myScore}–${theirScore}`,opponentLabel,teammateLabel,eventName:event?.name||'',label:String(game.label||''),ratingDelta};
 }
-function playerProfileViewModel(player,{gameList=games,playerList=players,eventList=evts}={}){
+function playerProfileViewModel(player,{gameList=games,playerList=players,eventList=evts,participationIndex=buildPlayerParticipationIndex(playerList,gameList,eventList)}={}){
   if(!player)return null;
-  const related=getGamesForPlayer(player.id,{gameList,eventList}).map(game=>playerGameProfileRow(game,player.id,playerList,eventList)).filter(Boolean),recentGames=related.slice(0,5),ties=related.filter(row=>row.outcome==='T').length;
-  const activeRanked=playerList.filter(item=>item.active!==false&&!isArchived(item)).slice().sort((a,b)=>b.rating-a.rating||a.name.localeCompare(b.name)),rankIndex=activeRanked.findIndex(item=>item.id===player.id);
-  const rank=!settings.hideRatings&&player.active!==false&&!isArchived(player)&&activeRanked.length>=2&&rankIndex>=0?{position:rankIndex+1,population:activeRanked.length}:null;
+  const participation=participationIndex.get(String(player.id))||{gamesPlayed:0,hasTrackedGame:false},related=getGamesForPlayer(player.id,{gameList,eventList}).map(game=>playerGameProfileRow(game,player.id,playerList,eventList)).filter(Boolean),recentGames=related.slice(0,5),ties=related.filter(row=>row.outcome==='T').length;
+  const activeRanked=playerList.filter(item=>item.active!==false&&!isArchived(item)&&participationIndex.get(String(item.id))?.hasTrackedGame).slice().sort((a,b)=>b.rating-a.rating||a.name.localeCompare(b.name)),rankIndex=activeRanked.findIndex(item=>item.id===player.id);
+  const rank=!settings.hideRatings&&participation.hasTrackedGame&&player.active!==false&&!isArchived(player)&&activeRanked.length>=2&&rankIndex>=0?{position:rankIndex+1,population:activeRanked.length}:null;
   const history=(Array.isArray(player.history)?player.history:[]).filter(point=>Number.isFinite(Number(point?.r))).map(point=>({i:Number(point.i)||0,r:Number(point.r)})),trendPoints=history.slice(-32),trendGames=Math.min(5,Math.max(0,history.length-1)),trendDelta=trendGames?history.at(-1).r-history[history.length-1-trendGames].r:null;
   const statItems=PLAYER_STAT_GROUPS.flatMap(group=>group.keys.map(key=>({key,label:PLAYER_STAT_LABELS[key],value:evCount(player,key),group:group.g,error:PLAYER_STAT_ERRORS.has(key)}))).filter(item=>item.value>0).slice(0,6);
   const recordDenominator=(Number(player.wins)||0)+(Number(player.losses)||0),first=recentGames[0]?.outcome||'',streakCount=first?recentGames.findIndex(row=>row.outcome!==first):-1,currentStreak=first?`${first}${streakCount===-1?recentGames.length:streakCount}`:DASH;
   const roles=ROLE_DEFS.filter(([key])=>player.roles?.[key]).map(([,label])=>label),level=volleyballLevelOf(player.rating);
   return {
     id:player.id,name:String(player.name||'Player'),initials:initials(player.name),photo:normalizePlayerPhoto(player.photo),archived:isArchived(player),active:player.active!==false,roles,notes:String(player.notes||''),
-    rating:settings.hideRatings?null:Math.round(Number(player.rating)||0),ratingsHidden:!!settings.hideRatings,level:settings.hideRatings?null:{label:level.label,short:level.short,overall:level.overall},rank,
-    gamesPlayed:Number(player.gamesPlayed)||0,wins:Number(player.wins)||0,losses:Number(player.losses)||0,ties,winRate:recordDenominator?`${((Number(player.wins)||0)/recordDenominator*100).toFixed(1).replace(/\.0$/,'')}%`:null,currentStreak,
+    rating:settings.hideRatings?null:Math.round(Number(player.rating)||0),ratingDisplay:settings.hideRatings?null:getPlayerRatingDisplay(player,participation),ratingsHidden:!!settings.hideRatings,level:settings.hideRatings?null:{label:level.label,short:level.short,overall:level.overall},rank,
+    gamesPlayed:participation.gamesPlayed,wins:Number(player.wins)||0,losses:Number(player.losses)||0,ties,winRate:recordDenominator?`${((Number(player.wins)||0)/recordDenominator*100).toFixed(1).replace(/\.0$/,'')}%`:null,currentStreak,
     recentGames,trendPoints:settings.hideRatings?[]:trendPoints,trendDelta:settings.hideRatings?null:trendDelta,trendGames:settings.hideRatings?0:trendGames,trackedGames:Number(player.trackedGames)||0,statItems
   };
 }
@@ -2236,7 +2359,8 @@ function renderPlayerProfile(){
     profileMetric(streakValue,'Streak',{tone:streakTone,aria:streakMatch?`Current streak ${streakMatch[2]} ${streakMatch[1]==='W'?'win':streakMatch[1]==='L'?'loss':'tie'}${Number(streakMatch[2])===1?'':'es'}`:'No current streak'}),
     showTrend?profileMetric(`${trendRounded>0?'+':''}${trendRounded}`,`Last ${model.trendGames}`,{tone:trendRounded>0?'up':trendRounded<0?'down':'',aria:`Court Rating ${trendRounded>0?'up':trendRounded<0?'down':'unchanged'} ${Math.abs(trendRounded)} over the last ${model.trendGames} rated game${model.trendGames===1?'':'s'}`}):''
   ].join('');
-  const rating=model.ratingsHidden?'<div class="player-profile-hidden-rating">Court Rating, active rank, deltas, and trend are hidden in stealth mode.</div>':`<div class="player-profile-rating"><b class="num">${model.rating}</b><span>Court Rating</span></div>`;
+  const ratingPresentation=model.ratingDisplay||{status:'rated',label:String(model.rating??'')};
+  const rating=model.ratingsHidden?'<div class="player-profile-hidden-rating">Court Rating, active rank, deltas, and trend are hidden in stealth mode.</div>':`<div class="player-profile-rating"><b class="num">${esc(ratingPresentation.label)}</b><span>${ratingPresentation.status==='unrated'?'No saved games':'Court Rating'}</span></div>`;
   const html=`<article class="player-profile" data-player-window-mode="profile"><section class="player-profile-hero"><button type="button" class="btn sm player-profile-edit" data-focus-key="edit-profile" onclick="editPlayerProfile()">Edit profile</button><div class="player-profile-main">${profilePhotoHtml(player,model)}<div class="player-profile-identity"><div class="player-profile-kicker"><span>Court player profile</span>${status}</div><h3 class="player-profile-name">${esc(model.name)}</h3>${tags}</div><div class="player-profile-rating-row">${rating}</div></div><div class="player-profile-metrics">${metrics}</div></section><div class="player-profile-grid"><section class="profile-panel wide profile-rating-trend-panel"><div class="profile-panel-head"><h4>Rating trend</h4><span>${model.ratingsHidden?'Stealth mode':esc(trend)}</span></div>${profileTrendHtml(model)}</section>${impact?`<section class="profile-panel wide"><div class="profile-panel-head"><h4>Player impact</h4><span>Saved tracked events</span></div>${impact}</section>`:''}<section class="profile-panel wide"><div class="profile-panel-head"><h4>Recent games</h4><div class="profile-panel-actions"><span>Latest ${Math.min(5,model.recentGames.length)}</span><button type="button" class="btn sm ghost" data-focus-key="view-all-games" aria-label="View all games for ${esc(model.name)}" onclick="openPlayerGameHistory()">View all games</button></div></div>${recent}</section>${model.roles.length?`<section class="profile-panel"><div class="profile-panel-head"><h4>Roles</h4><span>${model.roles.length}</span></div><div class="player-profile-roles" style="margin:0">${model.roles.map(role=>`<span class="pill">${esc(role)}</span>`).join('')}</div></section>`:''}<section class="profile-panel ${model.roles.length?'':'wide'}"><div class="profile-panel-head"><h4>Notes</h4></div>${notes}</section></div><div class="player-profile-actions"><button class="btn ghost" onclick="openPlayerCard('${player.id}')">View &amp; share player card</button><button class="btn primary" onclick="editPlayerProfile()">Edit profile</button></div></article>`;
   openSheet(html,{className:'player-profile-sheet',focus:'[data-focus-key="edit-profile"]'});window._sheetBeforeClose=null;
 }
@@ -2430,6 +2554,7 @@ function derivePlayerRosterView(){
 }
 function renderPlayers(){
   const {roster,archived,visible}=derivePlayerRosterView();
+  const participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(visible);
   let html = screenHead('Roster', roster.length?`${roster.length} current player${roster.length===1?'':'s'}`:'Build your roster','Search, sort, and scan status without opening every profile.');
   html += `<div class="page-toolbar">
     <div class="search-wrap">${icons.search||'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>'}<input data-focus-key="player-search" type="search" aria-label="Search players" placeholder="Search players" value="${esc(window._playerQuery)}" oninput="filterPlayerRows(this)"></div>
@@ -2452,7 +2577,7 @@ function renderPlayers(){
       }
     }
     html += visible.length
-      ? `<div class="player-list" id="playerList">${visible.map(playerCard).join('')}</div>`
+      ? `<div class="player-list" id="playerList">${visible.map(player=>playerCard(player,participation,displayLabels)).join('')}</div>`
       : `<div class="empty"><b>No matching players</b>Try another search or status filter.</div>`;
   }
   main.innerHTML = html;
@@ -2469,15 +2594,16 @@ window.filterPlayerRows=(input)=>{
     if(Number.isFinite(start)&&next?.setSelectionRange) next.setSelectionRange(start,end);
   }
 };
-function playerCard(p){
+function playerCard(p,participationIndex=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels([p])){
+  const participation=participationIndex.get(String(p.id))||{gamesPlayed:0,hasTrackedGame:false};
   const rel = reliability(p);
   const rd = recentDelta(p);
   const level = volleyballLevelOf(p.rating).label;
   const roles = ROLE_DEFS.filter(([k])=>p.roles&&p.roles[k]).map(([k,l])=>`<span class="pill">${l}</span>`).join('');
-  const levelPart = settings.hideRatings ? '' : `${esc(level)} · `;
-  const sub = p.gamesPlayed
+  const levelPart = settings.hideRatings || !participation.hasTrackedGame ? '' : `${esc(level)} · `;
+  const sub = participation.gamesPlayed
     ? `${levelPart}${p.wins}-${p.losses} · <span style="color:${rel.c}">${rel.k}</span>`
-    : `${levelPart}<span style="color:${rel.c}">new</span>`;
+    : `<span style="color:${rel.c}">Unrated · no saved games</span>`;
   const arrow = (p.gamesPlayed>=2 && Math.abs(rd)>=1 && !settings.hideRatings)
     ? `<span class="delta ${rd>0?'up':'down'} num">${rd>0?'▲':'▼'}${Math.abs(rd)}</span>` : '';
   const status = isArchived(p)?'archived':p.active?'active':'away';
@@ -2485,18 +2611,18 @@ function playerCard(p){
     <span class="player-top">
       ${playerAvatarHtml(p,{showInactive:true})}
       <span class="player-meta">
-        <b>${esc(p.name)}</b>
+        <b>${esc(displayLabels.get(p.id)||p.name)}</b>
         <span class="player-sub">${sub}${isArchived(p)?' · archived':p.active?'':' · away'}</span>
         ${roles?`<span class="tags">${roles}</span>`:''}
       </span>
-      <span class="rating-badge"><b class="num">${showRate(p.rating)}</b>${arrow}${settings.hideRatings?'':sparkline(p.history)}</span>
+      <span class="rating-badge"><b class="num">${esc(showPlayerRating(p,participation))}</b>${arrow}${settings.hideRatings?'':sparkline(p.history)}</span>
     </span>
     ${settings.hideRatings?'':`<span class="bar"><i style="width:${clamp(p.rating,0,100)}%"></i></span>`}
   </button>`;
 }
 
 /* ---------- TRACK ---------- */
-function trackCard(p){
+function trackCard(p,displayLabels=buildUniquePlayerDisplayLabels([p]),participationIndex=buildPlayerParticipationIndex(players,games,evts)){
   const v = Math.round(rawPerf(live.log[p.id]||{})*10)/10;
   const cls = v>0?'good':(v<0?'bad':'');
   const exp = live.expanded[p.id];
@@ -2508,11 +2634,12 @@ function trackCard(p){
   const terminalKeys=exp?TERMINAL_EVENT_KEYS:COLLAPSED_EVENT_KEYS;
   const attempts=exp&&settings.detailed?`<div class="evrow"><span class="evlbl">Attempts</span><div class="ev">${NON_TERMINAL_EVENT_KEYS.map(btn).join('')}</div></div><div class="attempts-help">Attempts don't affect rating — they're the denominators for serve % and passer rating.</div>`:'';
   const evHtml=`<div class="ev">${terminalKeys.map(btn).join('')}</div>${attempts}${exp?`<div class="tiny faint" style="margin-top:6px">Block = a point-ending block. Do not log a touch that stays in play.</div>`:''}`;
-  const meta = `${settings.hideRatings?'':esc(volleyballLevelOf(p.rating).label)}${p.gamesPlayed?`${settings.hideRatings?'':' · '}${p.wins}-${p.losses}`:''}`;
+  const participation=participationIndex.get(String(p.id))||{hasTrackedGame:false},ratingDisplay=getPlayerRatingDisplay(p,participation);
+  const meta = `${settings.hideRatings?'':ratingDisplay.status==='unrated'?'Unrated':esc(volleyballLevelOf(p.rating).label)}${p.gamesPlayed?`${settings.hideRatings?'':' · '}${p.wins}-${p.losses}`:''}`;
   return `<div class="tcard">
     <div class="thead">
       <div class="avatar sm">${initials(p.name)}</div>
-      <div class="tname"><b>${esc(p.name)}</b>${meta?`<span>${meta}</span>`:''}</div>
+      <div class="tname"><b>${esc(displayLabels.get(p.id)||p.name)}</b>${meta?`<span>${meta}</span>`:''}</div>
       <div class="perf ${cls} num">${v>0?'+':''}${v}</div>
     </div>
     ${live.quick?'':evHtml+`<button class="expand" onclick="toggleExpand('${p.id}')">${exp?'− fewer':'+ more events'}</button>`}
@@ -2523,13 +2650,14 @@ function renderTrack(){
   if(!live){ renderTrackSetup(); return; }
   if(live.solo){
     const p = pById(live.player);
+    const labels=buildUniquePlayerDisplayLabels(p?[p]:[]),participation=buildPlayerParticipationIndex(players,games,evts);
     main.innerHTML = `
       ${screenHead('Scout / Solo', p?esc(p.name):'Solo tracking', `Unknown opponent \u2014 only ${p?esc(p.name):'this player'}\u2019s own logged events move their rating.`)}
       <div class="strip">
         <button class="btn sm ghost" onclick="undoEv()" ${live.undo.length?'':'disabled'}>↶ Undo</button>
         <button class="btn sm ghost" style="margin-left:auto" onclick="cancelGame()">Discard</button>
       </div>
-      ${p?trackCard(p):'<div class="empty">Player not found.</div>'}
+      ${p?trackCard(p,labels,participation):'<div class="empty">Player not found.</div>'}
       <div class="card">
         <div class="small muted" style="margin-bottom:9px;font-weight:700">Result (optional)</div>
         <div class="seg">
@@ -2545,6 +2673,7 @@ function renderTrack(){
   }
   const A = (live.teamA||[]).map(pById).filter(Boolean);
   const B = (live.teamB||[]).map(pById).filter(Boolean);
+  const labels=buildUniquePlayerDisplayLabels([...A,...B]),participation=buildPlayerParticipationIndex(players,games,evts);
   main.innerHTML = `
     ${screenHead('Live', 'Track this game')}
     <div class="score-card live-score">
@@ -2572,12 +2701,12 @@ function renderTrack(){
     <div class="live-workspace">
       <section class="live-team">
         <div class="teamhdr A">Team A${live.unkA?` <span class="unktag">· +${live.unkA} untracked</span>`:''}</div>
-        ${A.map(trackCard).join('')}
+        ${A.map(p=>trackCard(p,labels,participation)).join('')}
         ${(!A.length&&live.unkA)?`<div class="unkline">Fully untracked side \u2014 nothing to log here.</div>`:''}
       </section>
       <section class="live-team">
         <div class="teamhdr B">Team B${live.unkB?` <span class="unktag">· +${live.unkB} untracked</span>`:''}</div>
-        ${B.map(trackCard).join('')}
+        ${B.map(p=>trackCard(p,labels,participation)).join('')}
         ${(!B.length&&live.unkB)?`<div class="unkline">Fully untracked side \u2014 nothing to log here.</div>`:''}
       </section>
     </div>
@@ -2588,7 +2717,8 @@ function renderTrack(){
 function renderTrackLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTrack(); restoreRenderPosition(pos); }
 
 function renderTrackSetup(){
-  const act = sortPlayers(players.filter(p=>p.active&&!isArchived(p)));
+  const act = sortPlayers(getSelectablePlayers({context:'gameEntry'}));
+  const participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(act);
   const activeIds = new Set(act.map(p=>p.id));
   if(window._sel){
     window._sel.A = new Set([...window._sel.A].filter(id=>activeIds.has(id)));
@@ -2617,14 +2747,14 @@ function renderTrackSetup(){
     const pick = window._soloPick;
     if(window._soloQuery===undefined) window._soloQuery='';
     const shown=filterPlayersForQuery(act,window._soloQuery);
-    const schip = p=>`<button data-focus-key="solo-${p.id}" class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:#f2c66d66;color:var(--gold);background:#f2c66d16':''}" onclick="pickSolo('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
+    const schip = p=>`<button data-focus-key="solo-${p.id}" class="chip ${pick===p.id?'on':''}" style="${pick===p.id?'border-color:#f2c66d66;color:var(--gold);background:#f2c66d16':''}" onclick="pickSolo('${p.id}')">${esc(displayLabels.get(p.id))} <span class="r num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span></button>`;
     main.innerHTML = `
       ${screenHead('Track','Scout one player')}
       ${modeRow}
       <div class="card">
         <div class="small muted" style="margin-bottom:10px">Watching one player somewhere else? Pick them and track just their game. The opponent stays unknown, so only their own stats nudge the rating.</div>
         ${selectorSearch('solo','Search roster',window._soloQuery,shown.length,act.length)}
-        <div class="chips" data-selector="solo" style="margin-top:10px">${act.map(p=>`<span data-scroll-key="player-${p.id}" data-search-text="${esc(p.name)}">${schip(p)}</span>`).join('')}</div>
+        <div class="chips" data-selector="solo" style="margin-top:10px">${act.map(p=>`<span data-scroll-key="player-${p.id}" data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._soloQuery)&&!filterPlayersForQuery([p],window._soloQuery).length?'hidden':''}>${schip(p)}</span>`).join('')}</div>
         ${!shown.length?`<div class="stat-empty">No active players match “${esc(window._soloQuery)}”.</div>`:''}
       </div>
       <button class="btn primary block" onclick="startSolo()" ${pick?'':'disabled'}>Start solo tracking</button>
@@ -2647,13 +2777,13 @@ function renderTrackSetup(){
     const state = inA?'A':inB?'B':'';
     const bg = inA?'var(--teamA)':inB?'var(--teamB)':'';
     return `<button class="chip ${state?'on':''}" style="${state?`border-color:${bg};color:${bg};background:${inA?'#6db4ff1c':'#ffb36e1c'}`:''}"
-      data-focus-key="track-${p.id}" onclick="cycleSel('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span>${state?` · ${state}`:''}</button>`;
+      data-focus-key="track-${p.id}" onclick="cycleSel('${p.id}')">${esc(displayLabels.get(p.id))} <span class="r num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span>${state?` · ${state}`:''}</button>`;
   }
   const sideLine = (label, n, u, set) =>
     `<span>${label}: <b>${n}</b>${u?` <span class="faint">+${u} untracked</span>`:''}${n?` · avg ${avgSel(set)}`:''}</span>`;
   if(window._trackQuery===undefined) window._trackQuery='';
   const selectedRows=(set,side)=>{
-    const rows=[...set].map(pById).filter(Boolean).map(p=>`<button class="selection-player" onclick="clearTrackPlayer('${p.id}')" aria-label="Remove ${esc(p.name)} from Team ${side}"><span>${esc(p.name)}</span><i>remove ×</i></button>`).join('');
+    const rows=[...set].map(pById).filter(Boolean).map(p=>`<button class="selection-player" onclick="clearTrackPlayer('${p.id}')" aria-label="Remove ${esc(displayLabels.get(p.id)||p.name)} from Team ${side}"><span>${esc(displayLabels.get(p.id)||p.name)}</span><i>remove ×</i></button>`).join('');
     return rows || `<div class="selection-empty">No tracked players yet${fmt?` · ${fmt} open slot${fmt===1?'':'s'}`:''}</div>`;
   };
   let evBanner='';
@@ -2683,7 +2813,7 @@ function renderTrackSetup(){
       <section class="selection-panel available" aria-label="Available players">
         <div class="selection-head"><b>Available players</b><span class="tiny faint">tap: A → B → clear</span></div>
         ${selectorSearch('track','Search available players',window._trackQuery,filterPlayersForQuery(act,window._trackQuery).length,act.length)}
-        <div class="selection-list available-list" data-selector="track" data-preserve-scroll="track-roster" style="margin-top:9px">${act.map(p=>`<div class="track-pick-row" data-scroll-key="player-${p.id}" data-search-text="${esc(p.name)}" ${normalizeSearchText(window._trackQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._trackQuery))?'hidden':''}>${chip(p)}</div>`).join('')}</div>
+        <div class="selection-list available-list" data-selector="track" data-preserve-scroll="track-roster" style="margin-top:9px">${act.map(p=>`<div class="track-pick-row" data-scroll-key="player-${p.id}" data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._trackQuery)&&!filterPlayersForQuery([p],window._trackQuery).length?'hidden':''}>${chip(p)}</div>`).join('')}</div>
         ${!filterPlayersForQuery(act,window._trackQuery).length?`<div class="stat-empty">No active players match “${esc(window._trackQuery)}”.</div>`:''}
       </section>
       <section class="selection-panel B" aria-label="Team B selections">
@@ -2909,11 +3039,16 @@ window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
 function renderTeams(){
-  const act = sortPlayers(players.filter(p=>p.active&&!isArchived(p)));
+  const act = sortPlayers(getSelectablePlayers({context:'pickupAttendance'}));
+  const participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(act);
   const activeIds = new Set(act.map(p=>p.id));
   settings.numTeams = positiveInt(settings.numTeams, DEFAULT_SETTINGS.numTeams);
   if(!window._pool) window._pool = new Set(activeIds);
-  else window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
+  else{
+    const removed=[...window._pool].filter(id=>!activeIds.has(id)).map(pById).filter(Boolean);
+    window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
+    window._poolEligibilityNotice=removed.length?`${removed.length} previously selected player${removed.length===1?' was':'s were'} removed because they are inactive or unavailable for pickup attendance.`:'';
+  }
   const pool = window._pool;
   const teamPresets = [2,3,4,5,6];
   const customTeams = !teamPresets.includes(settings.numTeams) ? settings.numTeams : '';
@@ -2921,7 +3056,7 @@ function renderTeams(){
   if(window._teamQuery===undefined) window._teamQuery='';
   function chip(p){
     const on = pool.has(p.id);
-    return `<button data-focus-key="pool-${p.id}" class="chip ${on?'on':''}" onclick="togglePool('${p.id}')">${esc(p.name)} <span class="r num">${showRate(p.rating)}</span></button>`;
+    return `<button data-focus-key="pool-${p.id}" class="chip ${on?'on':''}" onclick="togglePool('${p.id}')">${esc(displayLabels.get(p.id))} <span class="r num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span></button>`;
   }
   let html = `${screenHead('Teams','Make even teams','Balanced by rating, then sanity-checked for setters, passers, and beginners. Running fixed teams instead? Use the Events tab.')}`;
   if(!act.length){
@@ -2935,8 +3070,9 @@ function renderTeams(){
         <span class="small muted" style="font-weight:700">Who\u2019s here today? (${pool.size} selected)</span>
         <span class="row" style="gap:6px"><button class="btn sm ghost" data-select-pool onclick="selectPoolAll()">${normalizeSearchText(window._teamQuery)?'Select filtered':'Select all'}</button><button class="btn sm ghost" onclick="clearPool()">Clear all</button></span>
       </div>
+      ${window._poolEligibilityNotice?`<div class="unkline" role="status">${esc(window._poolEligibilityNotice)}</div>`:''}
       ${selectorSearch('teams','Search attendance',window._teamQuery,filterPlayersForQuery(act,window._teamQuery).length,act.length)}
-      <div class="chips" id="teamPool" data-selector="teams" style="margin-top:9px">${act.map(p=>`<span class="team-pool-row" data-scroll-key="player-${p.id}" data-search-text="${esc(p.name)}" ${normalizeSearchText(window._teamQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._teamQuery))?'hidden':''}>${chip(p)}</span>`).join('')}</div>
+      <div class="chips" id="teamPool" data-selector="teams" style="margin-top:9px">${act.map(p=>`<span class="team-pool-row" data-scroll-key="player-${p.id}" data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._teamQuery)&&!filterPlayersForQuery([p],window._teamQuery).length?'hidden':''}>${chip(p)}</span>`).join('')}</div>
       ${!filterPlayersForQuery(act,window._teamQuery).length?`<div class="stat-empty">No active players match “${esc(window._teamQuery)}”.</div>`:''}
     </div>
     <div class="card">
@@ -2970,9 +3106,9 @@ function renderTeams(){
         </div>
         ${t.slice().sort((a,b)=>b.rating-a.rating).map(p=>`<div class="member" data-scroll-key="team-player-${p.id}">
           ${playerAvatarHtml(p,{size:'sm'})}
-          <span class="nm">${esc(p.name)}</span>
+          <span class="nm">${esc(displayLabels.get(p.id)||p.name)}</span>
           ${ROLE_DEFS.filter(([k])=>p.roles[k]).slice(0,2).map(([k,l])=>`<span class="pill">${l}</span>`).join('')}
-          <span class="mrate num">${showRate(p.rating)}</span>
+          <span class="mrate num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span>
           <button class="mv" onclick="openMovePlayer('${p.id}',${i})">Move</button>
         </div>`).join('')}
         <div class="warning-row">${warnings.length?warnings.join(''):'<span class="pill good">Roles covered</span>'}</div>
@@ -2997,7 +3133,7 @@ function renderTeams(){
 }
 function renderTeamsLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTeams(); restoreRenderPosition(pos); }
 window.togglePool=(id)=>{ window._pool.has(id)?window._pool.delete(id):window._pool.add(id); window._teams=null; renderTeamsLocal('pool-'+id); };
-window.selectPoolAll=()=>{ const act=players.filter(p=>p.active&&!isArchived(p)); const shown=filterPlayersForQuery(act,window._teamQuery); window._pool=new Set([...window._pool,...shown.map(p=>p.id)]); window._teams=null; renderTeamsLocal(); };
+window.selectPoolAll=()=>{ const act=getSelectablePlayers({context:'pickupAttendance'}); const shown=filterPlayersForQuery(act,window._teamQuery); window._pool=new Set([...window._pool,...shown.map(p=>p.id)]); window._teams=null; renderTeamsLocal(); };
 window.clearPool=()=>{ window._pool=new Set(); window._teams=null; renderTeamsLocal(); };
 window.filterTeamPool=(value)=>{
   window._teamQuery=value;
@@ -3006,7 +3142,7 @@ window.filterTeamPool=(value)=>{
 };
 window.poolAll=()=>{
   /* toggles: select every active player, or clear them all if already selected */
-  const ids=players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id);
+  const ids=getSelectablePlayers({context:'pickupAttendance'}).map(p=>p.id);
   const allOn = ids.length>0 && ids.every(id=>window._pool.has(id));
   window._pool = allOn ? new Set() : new Set(ids);
   window._teams=null; renderTeamsLocal();
@@ -3018,7 +3154,7 @@ window.setTeamsCustom=()=>{
   setTeams(n);
 };
 window.genTeams=()=>{
-  const pool=players.filter(p=>p.active && !isArchived(p) && window._pool.has(p.id));
+  const pool=getSelectablePlayers({context:'pickupAttendance'}).filter(p=>window._pool.has(p.id));
   if(pool.length<settings.numTeams){ toast('Pick enough players for non-empty teams'); return; }
   window._teams=balance(pool, settings.numTeams);
   if(window._teams.some(t=>!t.length)){ window._teams=null; toast('Every generated team needs a player'); return; }
@@ -5311,7 +5447,7 @@ function entrySelectionSummary(d,s){
   const selected=[...d.players].map(pById).filter(Boolean);
   return `${selected.length} of ${s.entrySize} selected${selected.length?` · ${selected.map(p=>p.name).join(' + ')}`:''}`;
 }
-function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(players.filter(p=>p.active&&!isArchived(p))),shown=filterPlayersForQuery(roster,window._entryQuery),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),type=rotatingEntryLabel(s.entrySize);openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button type="button" class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div data-player-selection-summary class="small muted" style="margin:9px 0">${esc(entrySelectionSummary(d,s))}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._entryQuery));return `<span data-search-text="${esc(p.name)}" ${hidden&&!on?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="entry-${p.id}" aria-pressed="${on}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(p.name)}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p data-entry-strength class="tiny faint">${esc(entryStrengthCopy(d,s))}</p><button type="button" data-save-entry class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button type="button" class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
+function renderEntryEditor(){const d=window._entryDraft,ev=evById(d.evId);if(!ev)return;const s=rotationSettings(ev),roster=sortPlayers(getSelectablePlayers({context:'eventMembers'})),shown=filterPlayersForQuery(roster,window._entryQuery),labels=buildUniquePlayerDisplayLabels(roster),taken=new Set(rotatingEntries(ev).filter(e=>e.id!==d.entryId).flatMap(e=>e.players||[])),type=rotatingEntryLabel(s.entrySize);openSheet(`<h3>${d.entryId?'Edit':'Add'} ${type.toLowerCase()} · ${esc(ev.name)}</h3><button type="button" class="btn sm ghost" style="margin:-8px 0 12px" onclick="closeSheet()">Cancel</button><div class="field"><label>Entry name</label><input id="entryName" value="${esc(d.name)}" placeholder="Auto from member names"></div><div class="field"><label>Members · exactly ${s.entrySize}</label>${selectorSearch('entry','Search roster',window._entryQuery,shown.length,roster.length)}<div data-player-selection-summary class="small muted" style="margin:9px 0">${esc(entrySelectionSummary(d,s))}</div><div class="chips" data-selector="entry">${roster.map(p=>{const unavailable=taken.has(p.id),on=d.players.has(p.id),hidden=normalizeSearchText(window._entryQuery)&&!filterPlayersForQuery([p],window._entryQuery).length;return `<span data-search-text="${esc(playerSearchText(p))}" ${hidden&&!on?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="entry-${p.id}" aria-pressed="${on}" class="chip ${on?'on':''}" ${unavailable?'disabled title="Already assigned to another entry" style="opacity:.35"':''} onclick="entryToggle('${p.id}')">${esc(labels.get(p.id))}${unavailable?' · assigned':''}</button></span>`;}).join('')}</div>${!shown.length?`<div class="stat-empty">No active players match “${esc(window._entryQuery)}”.</div>`:''}</div>${s.seedMode==='manual'?`<div class="field"><label>Manual seed</label><input id="entryManualSeed" type="number" min="1" value="${d.manualSeed}"></div>`:''}<p data-entry-strength class="tiny faint">${esc(entryStrengthCopy(d,s))}</p><button type="button" data-save-entry class="btn primary block" ${d.players.size===s.entrySize?'':'disabled'} onclick="saveEntry()">Save entry</button>${d.entryId?`<button type="button" class="btn danger block" style="margin-top:8px" onclick="deleteEntry()">Delete entry</button>`:''}`);}
 window.entryToggle=id=>{
   const d=entryDraftCapture(),s=rotationSettings(evById(d.evId));
   if(d.players.has(id))d.players.delete(id);
@@ -5806,12 +5942,13 @@ window.openEventTeam=(evId, tid)=>{
 function renderEventTeamSheet(){
   const d=window._evTeamDraft; const ev=evById(d.evId); if(!ev) return;
   const roster=players.filter(p=>!isArchived(p)).slice().sort((a,b)=>a.name.localeCompare(b.name));
+  const labels=buildUniquePlayerDisplayLabels(roster);
   const hasGames = d.tid && games.some(g=>g.evId===ev.id && (g.evA===d.tid||g.evB===d.tid));
   const shown=filterPlayersForQuery(roster,window._evTeamQuery);
   const chips=roster.map(p=>{
     const mine=d.players.has(p.id);
     const other=!mine && (ev.teams||[]).some(t=>t.id!==d.tid && t.players.includes(p.id));
-    return `<span data-search-text="${esc(p.name)}" ${normalizeSearchText(window._evTeamQuery)&&!normalizeSearchText(p.name).includes(normalizeSearchText(window._evTeamQuery))?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="event-team-${p.id}" aria-pressed="${mine}" class="chip ${mine?'on':''}" ${other?'disabled style="opacity:.35" title="Already assigned to another team"':''} onclick="evTeamToggle('${p.id}')">${esc(p.name)}${other?' <span class="tiny faint">· taken</span>':''}</button></span>`;
+    return `<span data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._evTeamQuery)&&!filterPlayersForQuery([p],window._evTeamQuery).length?'hidden':''}><button type="button" data-player-choice="${esc(p.id)}" data-focus-key="event-team-${p.id}" aria-pressed="${mine}" class="chip ${mine?'on':''}" ${other?'disabled style="opacity:.35" title="Already assigned to another team"':''} onclick="evTeamToggle('${p.id}')">${esc(labels.get(p.id))}${other?' <span class="tiny faint">· taken</span>':''}</button></span>`;
   }).join('');
   const poolChoices=eventPoolChoices(ev,d.pool);
   const customPool=d.pool && !poolChoices.includes(d.pool) ? d.pool : '';
@@ -7787,7 +7924,7 @@ window.runTests=async()=>{
 let editId=null,draft=null,playerWindowMode=null,playerEditReturnMode='close',playerSavedDraft=null,photoPrepared=null,photoCrop=null,photoDecodeUrl='',photoDraftPublic=false,photoRemovePending=false,photoBusy=false,photoSession='';
 function cleanupPreparedPhoto(){if(photoPrepared?.previewUrl)URL.revokeObjectURL(photoPrepared.previewUrl);photoPrepared=null;}
 function cleanupPhotoCrop(){if(photoCrop?.sourceUrl)URL.revokeObjectURL(photoCrop.sourceUrl);if(photoDecodeUrl)URL.revokeObjectURL(photoDecodeUrl);photoDecodeUrl='';photoCrop=null;}
-function playerEditableState(value){const roles=Object.fromEntries(Object.entries(value?.roles||{}).filter(([,enabled])=>!!enabled).sort(([a],[b])=>a.localeCompare(b)));return {name:String(value?.name||''),seedRating:Number(value?.seedRating)||0,roles,skills:value?.skills?{...value.skills}:null,notes:String(value?.notes||''),photo:normalizePlayerPhoto(value?.photo),active:value?.active!==false,archived:!!value?.archived};}
+function playerEditableState(value){const roles=Object.fromEntries(Object.entries(value?.roles||{}).filter(([,enabled])=>!!enabled).sort(([a],[b])=>a.localeCompare(b)));return {name:String(value?.name||''),aliases:normalizePlayerAliases(value?.aliases,value?.name),pickupEligible:value?.pickupEligible!==false,seedRating:Number(value?.seedRating)||0,roles,skills:value?.skills?{...value.skills}:null,notes:String(value?.notes||''),photo:normalizePlayerPhoto(value?.photo),active:value?.active!==false,archived:!!value?.archived};}
 function playerDraftDirty(){if(!draft)return false;captureInputs();return !!photoPrepared||photoRemovePending||JSON.stringify(playerEditableState(draft))!==JSON.stringify(playerSavedDraft);}
 function discardPlayerDraft(){cleanupPhotoCrop();cleanupPreparedPhoto();draft=null;playerSavedDraft=null;photoDraftPublic=false;photoRemovePending=false;photoBusy=false;photoSession='';}
 async function playerEditorCloseGuard(){
@@ -7797,7 +7934,7 @@ async function playerEditorCloseGuard(){
 }
 function setPlayerEditorCloseGuard(){window._sheetBeforeClose=playerEditorCloseGuard;}
 function beginPlayerDraft(player,returnMode){
-  draft=player?JSON.parse(JSON.stringify(player)):{name:'',seedRating:48,roles:{},skills:null,notes:'',active:true,archived:false};if(!draft.roles)draft.roles={};
+  draft=player?JSON.parse(JSON.stringify(player)):{name:'',aliases:[],pickupEligible:true,seedRating:48,roles:{},skills:null,notes:'',active:true,archived:false};if(!draft.roles)draft.roles={};draft.aliases=normalizePlayerAliases(draft.aliases,draft.name);if(typeof draft.pickupEligible!=='boolean')draft.pickupEligible=true;
   playerSavedDraft=playerEditableState(draft);photoDraftPublic=normalizePlayerPhoto(draft.photo)?.public||false;photoRemovePending=false;photoBusy=false;photoSession=uid();window._seedMode=draft.skills?'skills':'tier';playerEditReturnMode=returnMode;
 }
 window.openPlayer=(id,explicitMode)=>{
@@ -7831,6 +7968,12 @@ function renderPlayerSheet(){
     ${playerPhotoEditorHtml(p)}
     <div class="field"><label>Name</label>
       <input id="pName" data-focus-key="player-name" value="${esc(draft.name)}" placeholder="Player name" autocomplete="off" oninput="playerNameInputChanged(this.value)"></div>
+    <div class="field"><label>Aliases</label>
+      <input id="pAliases" value="${esc((draft.aliases||[]).join(', '))}" placeholder="e.g. AJ, Ace" autocomplete="off" oninput="playerAliasesInputChanged(this.value)">
+      <div class="tiny faint" style="margin-top:6px">Alternate names used for player search. Separate aliases with commas.</div>
+    </div>
+    <div data-player-identity-warning class="unkline" role="status" ${playerDisplayIdentityWarning(draft)?'':'hidden'}>${esc(playerDisplayIdentityWarning(draft))}</div>
+    <div class="field"><label style="display:flex;align-items:flex-start;gap:10px;cursor:pointer"><input id="pPickupEligible" type="checkbox" style="width:auto;margin-top:2px" ${draft.pickupEligible!==false?'checked':''} onchange="playerPickupEligibilityChanged(this.checked)"><span>Available for pickup attendance<span class="tiny faint" style="display:block;margin-top:3px;font-weight:400">Controls whether this player appears in Teams → Who’s here today?</span></span></label></div>
     <div class="field">
       <div class="row spread" style="margin-bottom:7px">
         <label style="margin:0">Starting level</label>
@@ -7899,9 +8042,14 @@ function computeSkillSeed(){
 function captureInputs(){
   if(!draft)return;
   const n=$('#pName'); if(n) draft.name=n.value;
+  const aliases=$('#pAliases');if(aliases)draft.aliases=normalizePlayerAliases(aliases.value.split(','),draft.name);
+  const pickup=$('#pPickupEligible');if(pickup)draft.pickupEligible=pickup.checked;
   const no=$('#pNotes'); if(no) draft.notes=no.value;
 }
-window.playerNameInputChanged=value=>{if(!draft)return;draft.name=value;document.querySelectorAll('#scrim .player-editor-identity .avatar-initials').forEach(element=>element.textContent=initials(value));document.querySelectorAll('#scrim .player-editor-photo-button').forEach(button=>button.setAttribute('aria-label',`${photoPrepared||(!photoRemovePending&&normalizePlayerPhoto(editId?pById(editId)?.photo:null))?'View larger photo of':'Add photo for'} ${String(value||'Player').trim()||'Player'}`));};
+function updatePlayerIdentityWarning(){const warning=document.querySelector('#scrim [data-player-identity-warning]');if(!warning||!draft)return;const message=playerDisplayIdentityWarning(draft);warning.textContent=message;warning.hidden=!message;}
+window.playerNameInputChanged=value=>{if(!draft)return;draft.name=value;draft.aliases=normalizePlayerAliases(draft.aliases,value);document.querySelectorAll('#scrim .player-editor-identity .avatar-initials').forEach(element=>element.textContent=initials(value));document.querySelectorAll('#scrim .player-editor-photo-button').forEach(button=>button.setAttribute('aria-label',`${photoPrepared||(!photoRemovePending&&normalizePlayerPhoto(editId?pById(editId)?.photo:null))?'View larger photo of':'Add photo for'} ${String(value||'Player').trim()||'Player'}`));updatePlayerIdentityWarning();};
+window.playerAliasesInputChanged=value=>{if(!draft)return;draft.aliases=normalizePlayerAliases(String(value||'').split(','),draft.name);};
+window.playerPickupEligibilityChanged=value=>{if(draft)draft.pickupEligible=!!value;};
 let playerPhotoViewer=null;
 function closePlayerPhotoViewer(){
   const state=playerPhotoViewer,layer=document.querySelector('[data-player-photo-viewer]');if(!state&&!layer)return;
@@ -8064,7 +8212,7 @@ window.savePlayer=async()=>{
     if(photoRemovePending&&existing){await PlayerPhotos.remove(existing);nextPhoto=null;photoChanged=true;}
     else if(photoPrepared){nextPhoto=await PlayerPhotos.upload(target.id,photoPrepared,existing,photoDraftPublic);photoChanged=true;}
     else if(existing&&existing.public!==photoDraftPublic){nextPhoto=await PlayerPhotos.setPublic(existing,photoDraftPublic);photoChanged=true;}
-    target.name=name;target.notes=notes;target.roles={...(draft.roles||{})};target.skills=draft.skills?{...draft.skills}:null;target.seedRating=draft.seedRating;
+    target.name=name;target.aliases=normalizePlayerAliases(draft.aliases,name);target.pickupEligible=draft.pickupEligible!==false;target.notes=notes;target.roles={...(draft.roles||{})};target.skills=draft.skills?{...draft.skills}:null;target.seedRating=draft.seedRating;
     if(draft.active!==undefined)target.active=draft.active;if(draft.archived!==undefined)target.archived=draft.archived;
     if(nextPhoto)target.photo=nextPhoto;else delete target.photo;
     if(!current)players.push(target);
@@ -8406,6 +8554,21 @@ function unionById(local,remote,preferRemote){
   (remote||[]).forEach(x=>{if(x&&x.id!=null&&(preferRemote||!m.has(x.id)))m.set(x.id,x);});
   return [...m.values()];
 }
+function mergePlayersById(local,remote,preferRemote){
+  const merged=new Map();
+  (local||[]).forEach(player=>{if(player?.id!=null)merged.set(player.id,player);});
+  (remote||[]).forEach(incoming=>{
+    if(incoming?.id==null)return;
+    const current=merged.get(incoming.id);
+    if(!current){merged.set(incoming.id,incoming);return;}
+    if(!preferRemote)return;
+    const next={...incoming};
+    if(!Object.prototype.hasOwnProperty.call(incoming,'aliases')&&Array.isArray(current.aliases))next.aliases=current.aliases;
+    if(typeof incoming.pickupEligible!=='boolean'&&typeof current.pickupEligible==='boolean')next.pickupEligible=current.pickupEligible;
+    merged.set(incoming.id,next);
+  });
+  return [...merged.values()];
+}
 function mergeEventsById(local,remote,preferRemote){
   const m=new Map();(local||[]).forEach(event=>{if(event&&event.id!=null)m.set(event.id,event);});
   (remote||[]).forEach(event=>{if(!event||event.id==null)return;const current=m.get(event.id);m.set(event.id,current?mergeEventRecords(current,event,preferRemote):event);});
@@ -8415,7 +8578,7 @@ function resolveDeletionProtectedRecords(local,remote,state,mode='merge'){
   const cleanLocal=filterPersistedRecords(local,state),cleanRemote=filterPersistedRecords(remote,state);
   if(mode==='replace')return cleanRemote;
   return filterPersistedRecords({
-    players:unionById(cleanLocal.players,cleanRemote.players,true),
+    players:mergePlayersById(cleanLocal.players,cleanRemote.players,true),
     games:unionById(cleanLocal.games,cleanRemote.games,true),
     events:mergeEventsById(cleanLocal.events,cleanRemote.events,true)
   },state);

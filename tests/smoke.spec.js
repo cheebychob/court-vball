@@ -513,7 +513,7 @@ test('starting level guide opens and returns to the player draft', async ({ page
   await expect(page.getByPlaceholder('Player name')).toHaveValue('Guide Draft');
 });
 
-test('shows volleyball level on roster and player details when ratings are visible', async ({ page }) => {
+test('shows an unplayed seed as Unrated instead of an established volleyball rating', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem('vb:players', JSON.stringify([
       { id: 'level-visible', name: 'Level Visible', seedRating: 62, active: true, archived: false }
@@ -526,11 +526,11 @@ test('shows volleyball level on roster and player details when ratings are visib
 
   await goToPlayers(page);
   const card = playerCard(page, 'Level Visible');
-  await expect(card.getByText(/BB/)).toBeVisible();
+  await expect(card.getByText('Unrated', { exact: true })).toBeVisible();
 
   await page.getByText('Level Visible').click();
-  await expect(page.locator('.sheet')).toContainText('BB · Solid');
-  await expect(page.locator('.sheet')).toContainText('Court Rating');
+  await expect(page.locator('.sheet')).toContainText('Unrated');
+  await expect(page.locator('.sheet')).toContainText('No saved games');
 });
 
 test('hides volleyball level when hide ratings is on', async ({ page }) => {
