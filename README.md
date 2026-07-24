@@ -10,6 +10,7 @@ Current app entry point:
 
 - Single-file HTML/CSS/JavaScript app.
 - Local-first storage for players, games, events, and settings, with JSON backup/restore.
+- Secure temporary public player self check-in with share links, local QR codes, short codes, returning-device state, and organizer review.
 - Complete event Rules Hub with guided or free-form drafting, safe rich text, Quick Rules, immutable publication history, sync-aware conflicts, and unified public event pages.
 - Ratings replay deterministically from saved games on load and after each save.
 - Players with game history are archived instead of destructively deleted, so historical games can still replay with their players intact.
