@@ -10,7 +10,7 @@ Legacy events without `registration` remain valid and behave as disabled/closed 
 
 Disabling registration sets the server configuration to disabled/closed and preserves every entry. Marking an event complete or deleting it sets `event_available = 0`, closes public access, records `archived_at`, and retains the configuration and entries. Reopening/restoring the local event does not reopen registration. A deliberate registration settings save can reactivate the D1 configuration. Public-token rotation replaces the stored hash immediately; the old URL stops resolving while entries remain.
 
-No automatic purge runs in this branch. Registration rows are retained for organizer review until a future explicit retention/purge policy is implemented. The rate-limit table stores only a registration-token/IP-derived SHA-256 scope and deletes buckets more than 24 hours old during later submissions. It does not store raw IP addresses or device fingerprints.
+No automatic purge runs in this branch. Registration rows are retained for organizer review until a future explicit retention/purge policy is implemented. The rate-limit table stores only SHA-256 scopes derived from the relevant public/management capability and request address. Submission, lookup, management-read, management-write, withdrawal, and address-wide token-guess buckets are named separately. Buckets older than 24 hours are deleted during later protected actions. Raw IP addresses and device fingerprints are not stored.
 
 Backups and device sync include the event’s safe registration settings/reference, including the public token needed to share the link from another organizer device. They do not contain D1 entries. Restoring onto the same owner scope reconnects to the existing D1 row by event ID. Restoring onto another sync room cannot read or mutate the original owner’s row; the organizer must create a distinct event ID or resolve the ownership conflict with the original dataset. Restore never duplicates D1 registrations and never reopens a closed/deleted event automatically.
 
@@ -57,7 +57,7 @@ Entry statuses are `draft`, `submitted`, `needs_review`, `accepted`, `waitlisted
 
 Only `accepted.active_player_count` consumes committed capacity. Submitted/needs-review demand is reported separately. Waitlisted, declined, and withdrawn entries consume no active capacity. Substitutes never consume active capacity. Auto-accept and organizer acceptance are whole-entry operations; Court never partially accepts a team. Organizer over-cap acceptance requires `overrideCapacity: true`, returns before/after counts, and stores `capacity_override = 1`.
 
-Submitted entries do not reserve capacity. Auto-accept and organizer acceptance use a single conditional SQLite statement that recomputes accepted active players inside the write. Concurrent non-override acceptances cannot both pass a stale browser count. Unlimited capacity is represented by `NULL`.
+Submitted entries do not reserve capacity. Auto-accept and organizer acceptance use a single conditional SQLite statement that recomputes accepted active players inside the write. Concurrent non-override acceptances cannot both pass a stale browser count. An accepted captain edit that would exceed active capacity fails atomically with `CAPACITY_EXCEEDED`; it never silently moves the whole team to the waitlist. Unlimited capacity is represented by `NULL`.
 
 ## Routes and privacy boundary
 
@@ -66,9 +66,12 @@ Organizer routes require an allowlisted Court origin, `X-Court-Room`, a matching
 ```text
 GET  /api/event-registration/organizer/:eventId
 POST /api/event-registration/organizer/:eventId/config
+POST /api/event-registration/organizer/:eventId/players
 POST /api/event-registration/organizer/:eventId/status
 POST /api/event-registration/organizer/:eventId/token/rotate
 POST /api/event-registration/organizer/:eventId/entries/:entryId/status
+POST /api/event-registration/organizer/:eventId/entries/:entryId/management
+POST /api/event-registration/organizer/:eventId/entries/:entryId/members/:memberId
 ```
 
 Organizer responses use `Cache-Control: no-store`. Changing the event ID cannot cross owner scope. Public tokens are not accepted as organizer credentials.
@@ -78,10 +81,19 @@ Anonymous same-origin routes are exact-matched separately:
 ```text
 GET  /register/:publicToken
 GET  /api/event-registration/public/:publicToken
+GET  /api/event-registration/public/:publicToken/players?q=:query
 POST /api/event-registration/public/:publicToken/submissions
+
+GET   /event-registration/manage/:managementToken
+GET   /api/event-registration/manage/:managementToken
+PATCH /api/event-registration/manage/:managementToken
+GET   /api/event-registration/manage/:managementToken/players?q=:query
+POST  /api/event-registration/manage/:managementToken/withdraw
 ```
 
-The shipped page shows live status/capacity and an intentionally disabled “form coming next” action. The minimal write API proves persistence and atomic capacity for tests and the next branch; the page does not expose an incomplete entry form.
+The public page provides a mobile-first team form with separate active and substitute rosters. Matched players are selected through a bounded event-scoped search; aliases influence private server ranking but are never returned. Unknown names stay pending for organizer review and never create a Court player. Successful submission returns a one-registration management capability, offers native sharing with copy fallback, and may retain only that management URL in local browser storage so the confirmation survives reload. The management page can edit the team/roster with optimistic concurrency while registration is open, move players between roster roles, and withdraw without deleting the record.
+
+The management capability is separate from the event public token and organizer room. D1 stores only its SHA-256 hash. Organizer rotation invalidates the old link immediately and returns the replacement once for copying; the current raw URL cannot be recovered later from D1. Revocation removes public access, and locking retains a view-only page. A withdrawn registration remains viewable but cannot be edited.
 
 The public serializer allowlists only title, description, event date, registration mode/effective status/window, active-capacity summary, waitlist/substitute rules, active roster limits, submission availability, and server time. It never serializes event IDs, owner scope, token hashes, ratings, seeds, player IDs, names/aliases from Court’s roster, notes, roles, games, schedules, sync credentials, backups, attendance, crews, or check-in capabilities.
 
@@ -101,6 +113,15 @@ Migration `cloudflare/migrations/0001_event_registration_foundation.sql` creates
 - `idx_event_registration_rate_limits_updated`
 
 Foreign-key deletion is `RESTRICT`; UI lifecycle operations archive rather than delete. Status, mode, boolean, capacity, roster-count, and window constraints are enforced in SQL in addition to Worker validation.
+
+Migration `cloudflare/migrations/0002_team_registration_portal.sql` additively extends the foundation:
+
+- `event_registrations` gains normalized team-name, hashed management-token, rotation/revocation, edit-lock/override, last-edit, revision, and edit-key fields.
+- `event_registration_members` stores stable active/substitute member rows, optional internal matches, public display names, centralized match statuses, duplicate overrides, and timestamps.
+- `event_registration_players` is an event-scoped private search index populated by the authenticated organizer. It stores only internal identity, an opaque public token, the unique public label, normalized primary/alias search terms, eligibility, and update time.
+- Indexed paths cover registration-member loading, player conflicts, management-token lookup, active team-name uniqueness for new portal registrations, dashboard update sorting, and bounded player lookup.
+
+Existing foundation rows are preserved. They retain revision `1`, receive no management capability automatically, and remain compatible with the organizer status/capacity workflow. The additive tables and columns should not be rolled back by dropping them.
 
 ## Local development
 

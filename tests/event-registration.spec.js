@@ -20,14 +20,14 @@ function fixedEvent(overrides = {}) {
   };
 }
 
-async function seed(page, events = [fixedEvent()]) {
-  await page.addInitScript(({ events, worker }) => {
-    localStorage.setItem('vb:players', '[]');
+async function seed(page, events = [fixedEvent()], playerList = []) {
+  await page.addInitScript(({ events, worker, playerList }) => {
+    localStorage.setItem('vb:players', JSON.stringify(playerList));
     localStorage.setItem('vb:games', '[]');
     localStorage.setItem('vb:events', JSON.stringify(events));
     localStorage.setItem('vb:settings', '{}');
     localStorage.setItem('vb:sync', JSON.stringify({ url: worker, code: 'owner-room', on: true }));
-  }, { events, worker: WORKER });
+  }, { events, worker: WORKER, playerList });
 }
 
 async function openEvent(page) {
@@ -42,12 +42,18 @@ function organizerState() {
       {
         id: 'entry-alpha', registrationType: 'team', displayName: 'Alpha Squad', status: 'submitted',
         activePlayerCount: 4, substituteCount: 1, createdAt: 10, updatedAt: 10, submittedAt: 10,
-        withdrawnAt: null, organizerNote: '', capacityOverride: false,
+        withdrawnAt: null, organizerNote: '', capacityOverride: false, editingLocked: false,
+        managementAccessRevoked: false, lastEditedAt: 10, revision: 1, duplicateWarnings: [],
+        members: [
+          { id: 'member-a', rosterRole: 'active', displayName: 'Alex A', matchStatus: 'matched', internalPlayerId: 'p1', createdAt: 10, updatedAt: 10 },
+          { id: 'member-b', rosterRole: 'substitute', displayName: 'New Player', matchStatus: 'pending', internalPlayerId: null, createdAt: 10, updatedAt: 10 },
+        ],
       },
       {
         id: 'entry-bravo', registrationType: 'team', displayName: 'Bravo Squad', status: 'accepted',
         activePlayerCount: 4, substituteCount: 2, createdAt: 9, updatedAt: 9, submittedAt: 9,
-        withdrawnAt: null, organizerNote: '', capacityOverride: false,
+        withdrawnAt: null, organizerNote: '', capacityOverride: false, editingLocked: false,
+        managementAccessRevoked: false, lastEditedAt: null, revision: 1, duplicateWarnings: [], members: [],
       },
     ],
     capacity: {
@@ -58,6 +64,7 @@ function organizerState() {
     },
     organizerGets: 0,
     configPosts: 0,
+    lastConfigInput: null,
     failConfig: false,
   };
 }
@@ -73,6 +80,7 @@ async function mockWorker(page, state) {
       state.configPosts++;
       if (state.failConfig) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Registration storage is offline.' }) });
       const input = request.postDataJSON();
+      state.lastConfigInput = input;
       state.config = {
         eventId: 'registration-event', eventName: input.eventName, eventDate: input.eventDate,
         eventFormat: input.eventFormat, entrySize: input.entrySize, teamSize: input.teamSize,
@@ -116,7 +124,7 @@ async function mockWorker(page, state) {
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, entry, capacity: state.capacity, override: { used: false } }) });
     }
-    if (path.endsWith('/status')) {
+    if (path.includes('/api/event-registration/') && path.endsWith('/status')) {
       const input = request.postDataJSON();state.config.status = input.status;state.config.effectiveStatus = input.status;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, config: state.config, capacity: state.capacity }) });
     }
@@ -189,6 +197,31 @@ test('registration normalization is backward-compatible, idempotent, format-awar
   expect(result.transitions).toEqual([true, false, true]);
 });
 
+test('event-registration player directory uses public-safe unique labels and a dedicated eligibility rule', async ({ page }) => {
+  const playerList = [
+    { id: 'p1', name: 'Alex', aliases: ['Ace'], active: true, archived: false, pickupEligible: true, rating: 99, notes: 'private' },
+    { id: 'p2', name: 'Alex', aliases: ['Lex'], active: true, archived: false, pickupEligible: false, rating: 12, notes: 'private' },
+    { id: 'p3', name: 'Away', aliases: [], active: false, archived: false, pickupEligible: true, rating: 50 },
+    { id: 'p4', name: 'Excluded', aliases: [], active: true, archived: false, registrationEligible: false, rating: 50 },
+  ];
+  await seed(page, [fixedEvent()], playerList);
+  await mockWorker(page, organizerState());
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const event = evById('registration-event');
+    const directory = createEventRegistrationPlayerDirectory(event);
+    const repeated = createEventRegistrationPlayerDirectory(event);
+    const payload = registrationServerPayload(event, { ...deriveRegistrationDefaultsFromEvent(event), enabled: true, status: 'open', mode: 'team' });
+    return { directory, repeated, players: payload.players };
+  });
+  expect(result.directory).toHaveLength(2);
+  expect(result.directory.map(player => player.displayName)).toEqual(['Alex #1', 'Alex #2']);
+  expect(result.directory.map(player => player.publicPlayerToken).every(token => /^[A-Za-z0-9_-]{22}$/.test(token))).toBe(true);
+  expect(result.repeated.map(player => player.publicPlayerToken)).toEqual(result.directory.map(player => player.publicPlayerToken));
+  expect(result.directory.find(player => player.internalPlayerId === 'p2')).toMatchObject({ eligible: true, aliases: ['Lex'] });
+  expect(JSON.stringify(result.players)).not.toMatch(/rating|notes|roles|stats|history/i);
+});
+
 test('organizer settings derive roster defaults, save server-first, persist a public reference, and render a stable dashboard', async ({ page }) => {
   const state = organizerState();
   await seed(page);
@@ -223,6 +256,23 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   await expect(page.locator('[data-reg-active]')).toHaveText('4');
   await expect(page.locator('[data-reg-subs]')).toHaveText('2');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Alpha Squad');
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Active roster · 1');
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Substitutes · 1');
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('New Player');
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).not.toContainText(/rating|seed|notes|stats/i);
+  await expect(page.getByRole('button', { name: 'Move New Player to active players' })).toBeVisible();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Review New Player' })).toBeVisible();
+  await page.getByRole('button', { name: 'Create event-only participant', exact: true }).click();
+  await expect(page.locator('#pName')).toHaveValue('New Player');
+  await expect(page.locator('#pPickupEligible')).not.toBeChecked();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Create normal player', exact: true }).click();
+  await expect(page.locator('#pPickupEligible')).toBeChecked();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
   const passiveState = await page.evaluate(() => {
     const root = document.querySelector('[data-registration-dashboard]');

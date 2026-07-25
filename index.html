@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.6">
+<meta name="court-build" content="20260724.7">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -556,6 +556,12 @@
   .registration-entry-list{display:grid;gap:8px;max-height:48vh;overflow:auto;overscroll-behavior:contain}
   .registration-entry-row{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07}
   .registration-entry-row select{min-height:42px;margin-top:8px}
+  .registration-roster-group{margin-top:9px;padding:9px;border:1px solid var(--line);border-radius:11px;background:#0001}
+  .registration-member-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .registration-member-row:last-child{border-bottom:0}
+  .registration-member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
+  .registration-member-actions .btn{min-height:34px;padding:5px 8px}
+  @media(max-width:520px){.registration-member-row{align-items:flex-start;flex-direction:column}.registration-member-actions{justify-content:flex-start}}
   .registration-link{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gold);font-size:11px}
   .registration-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .registration-settings-grid .field{min-width:0}
@@ -1054,9 +1060,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.20.0',
-  build: '20260724.6',
-  releaseNotes: 'Add secure persistent event registration settings, public availability pages, D1-backed capacity and statuses, and organizer registration management.'
+  version: '0.21.0',
+  build: '20260724.7',
+  releaseNotes: 'Add public team registration, private roster management, safe player matching, substitutes, withdrawals, and full organizer roster review.'
 });
 
 function appVersionLabel(){
@@ -2283,7 +2289,7 @@ function getSelectablePlayers({context='general',playerList=players}={}){
   const available=(Array.isArray(playerList)?playerList:[]).filter(player=>player?.active!==false&&!isArchived(player));
   return context==='pickupAttendance'?available.filter(player=>player.pickupEligible!==false):available;
 }
-function buildUniquePlayerDisplayLabels(playerList=[]){
+function buildUniquePlayerDisplayLabels(playerList=[],{includeAliases=true}={}){
   const list=(Array.isArray(playerList)?playerList:[]).filter(player=>player?.id!=null),groups=new Map(),labels=new Map();
   list.forEach(player=>{
     const clean=String(player.name||'Player').trim().replace(/\s+/g,' ')||'Player',key=normalizeSearchText(clean);
@@ -2292,12 +2298,12 @@ function buildUniquePlayerDisplayLabels(playerList=[]){
   groups.forEach(group=>{
     if(group.length===1){labels.set(group[0].player.id,group[0].clean);return;}
     const aliasCounts=new Map();
-    group.forEach(({player})=>normalizePlayerAliases(player.aliases,player.name).forEach(alias=>{
+    if(includeAliases)group.forEach(({player})=>normalizePlayerAliases(player.aliases,player.name).forEach(alias=>{
       const key=normalizeSearchText(alias);aliasCounts.set(key,(aliasCounts.get(key)||0)+1);
     }));
     const unresolved=[];
     group.forEach(({player,clean})=>{
-      const alias=normalizePlayerAliases(player.aliases,player.name).find(value=>aliasCounts.get(normalizeSearchText(value))===1);
+      const alias=includeAliases&&normalizePlayerAliases(player.aliases,player.name).find(value=>aliasCounts.get(normalizeSearchText(value))===1);
       if(alias)labels.set(player.id,`${clean} · ${alias}`);else unresolved.push({player,clean});
     });
     unresolved.sort((a,b)=>String(a.player.id).localeCompare(String(b.player.id))).forEach(({player,clean},index)=>{
@@ -2321,6 +2327,31 @@ function createPublicCheckInRoster(playerList=players){
     sourcePlayerId:String(player.id),
     displayName:String(labels.get(player.id)||player.name||'Player'),
     photoUrl:publicPlayerPhotoPath(player.photo)||null
+  }));
+}
+function eventRegistrationPlayerEligible(player){
+  return !!(player?.id!=null&&player.active!==false&&!isArchived(player)&&player.registrationEligible!==false&&String(player.name||'').trim());
+}
+let eventRegistrationPlayerTokenCache=null;
+function eventRegistrationOpaquePlayerToken(eventId,playerId){
+  if(!eventRegistrationPlayerTokenCache){try{const stored=JSON.parse(localStorage.getItem('vb:registration-player-tokens')||'{}');eventRegistrationPlayerTokenCache=stored&&typeof stored==='object'&&!Array.isArray(stored)?stored:{};}catch(_){eventRegistrationPlayerTokenCache={};}}
+  const key=`${eventId}|${playerId}`,current=eventRegistrationPlayerTokenCache[key];
+  if(/^[A-Za-z0-9_-]{22}$/.test(current||''))return current;
+  const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));
+  const token=btoa(raw).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/g,'');eventRegistrationPlayerTokenCache[key]=token;
+  try{localStorage.setItem('vb:registration-player-tokens',JSON.stringify(eventRegistrationPlayerTokenCache));}catch(_){}
+  return token;
+}
+function createEventRegistrationPlayerDirectory(ev,playerList=players){
+  const eligible=(Array.isArray(playerList)?playerList:[]).filter(eventRegistrationPlayerEligible).slice(0,500);
+  const labels=buildUniquePlayerDisplayLabels(eligible,{includeAliases:false});
+  return eligible.map(player=>({
+    internalPlayerId:String(player.id),
+    publicPlayerToken:eventRegistrationOpaquePlayerToken(ev?.id||'',player.id),
+    displayName:String(labels.get(player.id)||player.name||'Player'),
+    primaryName:String(player.name||'Player').trim().replace(/\s+/g,' '),
+    aliases:normalizePlayerAliases(player.aliases,player.name),
+    eligible:true
   }));
 }
 function qrCodeMatrix(value){
@@ -9037,13 +9068,19 @@ function beginPlayerDraft(player,returnMode){
   draft=player?JSON.parse(JSON.stringify(player)):{name:'',aliases:[],pickupEligible:true,seedRating:48,roles:{},skills:null,notes:'',active:true,archived:false};if(!draft.roles)draft.roles={};draft.aliases=normalizePlayerAliases(draft.aliases,draft.name);if(typeof draft.pickupEligible!=='boolean')draft.pickupEligible=true;
   playerSavedDraft=playerEditableState(draft);photoDraftPublic=normalizePlayerPhoto(draft.photo)?.public||false;photoRemovePending=false;photoBusy=false;photoSession=uid();window._seedMode=draft.skills?'skills':'tier';playerEditReturnMode=returnMode;
 }
-window.openPlayer=(id,explicitMode)=>{
+window.openPlayer=(id,explicitMode,initialValues)=>{
   cleanupPhotoCrop();cleanupPreparedPhoto();
   playerProfileNavigation=null;
   editId=id||null;
   const p=id?pById(id):null;if(id&&!p)return;
   if(p&&explicitMode!=='edit'){discardPlayerDraft();playerWindowMode='profile';renderPlayerSheet();return;}
   playerWindowMode=p?'edit':'add';beginPlayerDraft(p,p&&explicitMode==='edit'?'close':p?'profile':'close');
+  if(!p&&initialValues&&typeof initialValues==='object'){
+    if(typeof initialValues.name==='string')draft.name=initialValues.name;
+    if(typeof initialValues.pickupEligible==='boolean')draft.pickupEligible=initialValues.pickupEligible;
+    draft.aliases=normalizePlayerAliases(draft.aliases,draft.name);
+    playerSavedDraft=playerEditableState({...draft,name:'',pickupEligible:true});
+  }
   renderPlayerSheet();
   const session=photoSession;void PlayerPhotos.capability().then(()=>{if(draft&&photoSession===session){captureInputs();renderPlayerSheet();}});
 };
@@ -9225,7 +9262,7 @@ window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=co
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
 window.restoreArchivedPlayer=()=>{captureInputs();draft.archived=false;draft.active=true;renderPlayerSheet();};
-window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId),returnToCheckIn=!!window._pendingCheckInCreationId;window._pendingCheckInCreationId=null;discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);if(returnToCheckIn)openPlayerCheckIn();}};
+window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId),returnToCheckIn=!!window._pendingCheckInCreationId,registrationEventId=window._pendingRegistrationMemberCreation?.eventId;window._pendingCheckInCreationId=null;window._pendingRegistrationMemberCreation=null;discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);if(returnToCheckIn)openPlayerCheckIn();else if(registrationEventId)openRegistrationDashboard(registrationEventId);}};
 
 window.openLevelGuide=()=>{
   captureInputs();
@@ -9319,7 +9356,14 @@ window.savePlayer=async()=>{
     if(seedChanged)await commit();else{await savePlayers();Sync.touch();}
     if(photoChanged&&existing)PlayerPhotos.invalidate(existing);
   }catch(error){photoBusy=false;renderPlayerSheet();toast(error?.message||'Could not save this player. Your changes are still here.');return;}
-  const savedId=target.id;if(window._pendingCheckInCreationId)await resolveCreatedPlayerCheckIn(savedId);discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();renderPlayerProfile();toast(wasEdit?'Saved':'Player added');
+  const savedId=target.id;if(window._pendingCheckInCreationId)await resolveCreatedPlayerCheckIn(savedId);
+  const registrationEventId=window._pendingRegistrationMemberCreation?.eventId;let registrationResolved=false,registrationResolutionError=null;
+  if(registrationEventId){try{registrationResolved=await resolveCreatedRegistrationMember(savedId);}catch(error){registrationResolutionError=error;window._pendingRegistrationMemberCreation=null;window._registrationMemberReview=null;}}
+  else void EventRegistration.syncPlayerDirectories();
+  discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();
+  if(registrationResolved){openRegistrationDashboard(registrationEventId);toast(wasEdit?'Player saved and registration matched':'Player created and registration matched');}
+  else if(registrationResolutionError){openRegistrationDashboard(registrationEventId);toast(`Player saved, but registration matching needs retry: ${registrationResolutionError.message}`);}
+  else{renderPlayerProfile();toast(wasEdit?'Saved':'Player added');}
 };
 window.deletePlayer=async()=>{
   const p=pById(editId); if(!p) return;
@@ -9329,12 +9373,12 @@ window.deletePlayer=async()=>{
     : 'Delete this player? This cannot be undone.';
   if(!(await askConfirm(msg, historical?'Archive player':'Delete player'))) return;
   clearPlayerRuntimeState(editId);
-  if(historical){p.archived=true;p.active=false;await savePlayers();Sync.touch();discardPlayerDraft();playerWindowMode='profile';render();renderPlayerProfile();toast('Archived');return;}
+  if(historical){p.archived=true;p.active=false;await savePlayers();Sync.touch();void EventRegistration.syncPlayerDirectories();discardPlayerDraft();playerWindowMode='profile';render();renderPlayerProfile();toast('Archived');return;}
   else{
     const photo=normalizePlayerPhoto(p.photo);if(photo){try{await PlayerPhotos.remove(photo);PlayerPhotos.invalidate(photo);}catch(_){/* Permanent player deletion remains usable if photo storage is temporarily unavailable. */}}
     await Sync.markDeleted('players',editId); players=players.filter(p=>p.id!==editId);
   }
-  await savePlayers();Sync.touch();discardPlayerDraft();editId=null;playerWindowMode=null;closeSheet(true);toast('Deleted');render();
+  await savePlayers();Sync.touch();void EventRegistration.syncPlayerDirectories();discardPlayerDraft();editId=null;playerWindowMode=null;closeSheet(true);toast('Deleted');render();
 };
 
 /* ============================================================
@@ -9994,13 +10038,14 @@ function registrationServerPayload(ev,config){
     activePlayerCapacity:config.activePlayerCapacity,allowSubstitutes:config.allowSubstitutes,
     maxSubstitutesPerTeam:config.maxSubstitutesPerTeam,minActivePlayersPerTeam:config.minActivePlayersPerTeam,
     maxActivePlayersPerTeam:config.maxActivePlayersPerTeam,requireOrganizerApproval:config.requireOrganizerApproval,
-    allowWaitlist:config.allowWaitlist,publicTitle:config.publicTitle,publicDescription:config.publicDescription
+    allowWaitlist:config.allowWaitlist,publicTitle:config.publicTitle,publicDescription:config.publicDescription,
+    players:createEventRegistrationPlayerDirectory(ev)
   };
 }
 const EventRegistration=(()=>{
   const states=new Map();
   const activeRefreshes=new Map();
-  let modalEventId=null,pollTimer=null,requestSequence=0,filter='all',visibilityBound=false;
+  let modalEventId=null,pollTimer=null,requestSequence=0,filter='all',visibilityBound=false,playerDirectorySync=null;
   const configured=()=>Sync.configured();
   const workerUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
   const headers=()=>({'Content-Type':'application/json','X-Court-Room':Sync.cfg.code});
@@ -10024,6 +10069,17 @@ const EventRegistration=(()=>{
     const saved=normalizeEventRegistration({...next,...(response.config||{}),publicToken:token,publicUrl:publicUrlFromResponse(ev,response,{...current,publicToken:token}),updatedAt:response.config?.updatedAt||Date.now()},ev);
     states.set(ev.id,{...(cached||{}),...response,configured:true,error:'',loadedAt:Date.now()});
     return saved;
+  }
+  async function syncPlayers(ev){
+    if(!ev||!configured()||!eventRegistration(ev).publicToken)return null;
+    return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/players`,{method:'POST',body:{players:createEventRegistrationPlayerDirectory(ev)}});
+  }
+  function syncPlayerDirectories(){
+    if(playerDirectorySync)return playerDirectorySync;
+    const activeEvents=evts.filter(ev=>eventRegistration(ev).publicToken);
+    if(!configured()||!activeEvents.length)return Promise.resolve([]);
+    playerDirectorySync=Promise.allSettled(activeEvents.map(syncPlayers)).finally(()=>{playerDirectorySync=null;});
+    return playerDirectorySync;
   }
   async function refresh(eventId,{patch=true,poll=false}={}){
     const ev=evById(eventId);if(!ev)return null;
@@ -10075,14 +10131,25 @@ const EventRegistration=(()=>{
     modalEventId=value?eventId:null;stopPoll();
     if(value){if(!visibilityBound){visibilityBound=true;document.addEventListener('visibilitychange',()=>{if(modalEventId){stopPoll();if(!document.hidden)void refresh(modalEventId).finally(schedulePoll);else schedulePoll();}});}schedulePoll();}
   }
-  function entryFingerprint(entry){return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.capacityOverride]);}
+  function entryFingerprint(entry){return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.members,entry.duplicateWarnings]);}
   function entryRowHtml(entry){
     const options=[entry.status,...(REGISTRATION_ENTRY_TRANSITIONS[entry.status]||[])].filter((value,index,array)=>array.indexOf(value)===index);
+    const memberSection=(role,title)=>{
+      const rows=(entry.members||[]).filter(member=>member.rosterRole===role);
+      return `<div class="registration-roster-group"><b class="tiny">${esc(title)} · ${rows.length}</b>${rows.length?rows.map(member=>{
+        const review=member.matchStatus==='pending'||member.matchStatus==='rejected'?`<button class="btn sm ghost" onclick="reviewRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Review</button>`:member.internalPlayerId?`<button class="btn sm ghost" onclick="openPlayer('${esc(member.internalPlayerId)}')">Player profile</button><button class="btn sm ghost" onclick="unmatchRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Unmatch</button>`:'';
+        const move=member.matchStatus==='rejected'?'':`<button class="btn sm ghost" aria-label="Move ${esc(member.displayName)} to ${role==='active'?'substitutes':'active players'}" onclick="moveOrganizerRegistrationMember('${esc(entry.id)}','${esc(member.id)}','${role==='active'?'substitute':'active'}')">${role==='active'?'Move to substitutes':'Move to active'}</button>`;
+        return `<div class="registration-member-row"><span>${esc(member.displayName)} <span class="pill ${member.matchStatus==='pending'?'warn':member.matchStatus==='rejected'?'bad':'good'}">${esc(member.matchStatus.replace(/_/g,' '))}</span>${member.duplicateOverride?' <span class="tiny faint">· duplicate override</span>':''}</span><span class="registration-member-actions">${move}${review}</span></div>`;
+      }).join(''):'<div class="tiny faint">None</div>'}</div>`;
+    };
     return `<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry))}">
       <div class="row spread" style="gap:9px"><span style="min-width:0"><b>${esc(entry.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block">${esc(entry.registrationType)} · ${entry.activePlayerCount} active · ${entry.substituteCount} substitute${entry.substituteCount===1?'':'s'}</span></span><span class="pill ${entry.status==='accepted'?'good':entry.status==='waitlisted'||entry.status==='needs_review'?'warn':entry.status==='declined'||entry.status==='withdrawn'?'bad':''}">${esc(registrationStatusLabel(entry.status))}</span></div>
-      <div class="tiny faint" style="margin-top:6px">${entry.submittedAt?`Submitted ${esc(registrationFormatTime(entry.submittedAt))}`:'Not submitted'}${entry.capacityOverride?' · capacity override':''}</div>
+      <div class="tiny faint" style="margin-top:6px">${entry.submittedAt?`Submitted ${esc(registrationFormatTime(entry.submittedAt))}`:'Not submitted'}${entry.lastEditedAt?` · edited ${esc(registrationFormatTime(entry.lastEditedAt))}`:''}${entry.capacityOverride?' · capacity override':''}${entry.editingLocked?' · editing locked':''}${entry.managementAccessRevoked?' · management revoked':''}</div>
+      ${(entry.duplicateWarnings||[]).map(warning=>`<div class="tiny" style="margin-top:6px;color:var(--sand)">⚠ ${esc(warning)}</div>`).join('')}
+      ${memberSection('active','Active roster')}${memberSection('substitute','Substitutes')}
       <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status</label>
       <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
+      <div class="registration-actions"><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','${entry.editingLocked?'unlock':'lock'}')">${entry.editingLocked?'Unlock editing':'Lock editing'}</button><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','rotate')">Rotate management link</button><button class="btn sm danger" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','revoke')">Revoke access</button></div>
     </div>`;
   }
   function filteredEntries(state){
@@ -10119,7 +10186,7 @@ const EventRegistration=(()=>{
   function patchSummaryCard(eventId){
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);if(ev&&node)node.outerHTML=registrationSummaryHtml(ev);
   }
-  return {configured,get,request,saveConfiguration,refresh,updateLifecycle,rotateToken,setModalOpen,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,refresh,updateLifecycle,rotateToken,setModalOpen,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -10160,6 +10227,56 @@ window.changeRegistrationLifecycle=async(evId,status)=>{const ev=evById(evId);if
 window.changeRegistrationEntryStatus=async(entryId,status)=>{const evId=EventRegistration.modalEventId,ev=evId&&evById(evId),state=evId&&EventRegistration.get(evId),entry=state?.entries?.find(row=>row.id===entryId);if(!ev||!entry||!canTransitionRegistrationStatus(entry.status,status))return;try{
   await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/status`,{method:'POST',body:{status,overrideCapacity:false}});await EventRegistration.refresh(evId);
 }catch(error){if(error.code==='CAPACITY_EXCEEDED'&&status==='accepted'){const capacity=state.capacity,after=(capacity.acceptedActivePlayers||0)+entry.activePlayerCount,cap=capacity.capacity;if(await askConfirm(`Accept this entire entry with a capacity override? Active positions will go from ${capacity.acceptedActivePlayers||0} to ${after}${cap==null?'':` against a capacity of ${cap}`}.`,'Accept over capacity')){try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/status`,{method:'POST',body:{status,overrideCapacity:true}});await EventRegistration.refresh(evId);toast('Accepted with capacity override');}catch(overrideError){toast(overrideError.message);}}}else toast(error.message);EventRegistration.patchDashboard();}};
+window.changeRegistrationManagementAccess=async(entryId,action)=>{
+  const evId=EventRegistration.modalEventId;if(!evId)return;
+  if(['rotate','revoke'].includes(action)&&!(await askConfirm(action==='rotate'?'Rotate this team’s private management link? The old link will stop working immediately.':'Revoke this team’s private management access? The registration and roster will remain. ',action==='rotate'?'Rotate link':'Revoke access')))return;
+  try{
+    const response=await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/management`,{method:'POST',body:{action}});
+    if(response.managementUrl){let copied=false;try{await navigator.clipboard.writeText(response.managementUrl);copied=true;}catch(_){copied=copyTextFallback(response.managementUrl);}window._latestRegistrationManagementUrl=response.managementUrl;toast(copied?'New management link copied':'New management link issued');}
+    else toast(action==='lock'?'Public editing locked':action==='unlock'?'Public editing unlocked':'Management access revoked');
+    await EventRegistration.refresh(evId);
+  }catch(error){toast(error.message);EventRegistration.patchDashboard();}
+};
+function registrationMemberState(entryId,memberId){
+  const evId=EventRegistration.modalEventId||window._registrationMemberReview?.eventId,state=evId&&EventRegistration.get(evId),entry=state?.entries?.find(row=>row.id===entryId),member=entry?.members?.find(row=>row.id===memberId);
+  return evId&&entry&&member?{evId,entry,member}:null;
+}
+function renderRegistrationMemberReview(){
+  const review=window._registrationMemberReview;if(!review)return;const current=registrationMemberState(review.entryId,review.memberId);if(!current)return;
+  const roster=players.filter(eventRegistrationPlayerEligible),labels=buildUniquePlayerDisplayLabels(roster),rows=normalizeSearchText(review.query)?rankAttendanceSearch(review.query,roster,{participationIndex:buildPlayerParticipationIndex(roster,games,evts),displayLabels:labels}):roster.slice().sort((a,b)=>String(labels.get(a.id)).localeCompare(String(labels.get(b.id))));
+  openSheet(`<h3>Review ${esc(current.member.displayName)}</h3><p class="small muted">Search private names and aliases. The captain sees only the selected player’s public display label.</p><div class="search-wrap">${icons.search}<input type="search" data-focus-key="registration-member-search" aria-label="Search private roster" value="${esc(review.query)}" placeholder="Search names or aliases…" oninput="registrationMemberSearch(this.value)"></div><div class="check-in-match-list">${rows.slice(0,60).map(row=>{const player=row.player||row;return `<button type="button" onclick="confirmRegistrationMemberMatch('${esc(player.id)}')">${esc(labels.get(player.id)||player.name)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>'}</div><div class="registration-actions"><button class="btn ghost" onclick="createPlayerFromRegistrationMember(false)">Create normal player</button><button class="btn ghost" onclick="createPlayerFromRegistrationMember(true)">Create event-only participant</button><button class="btn danger" onclick="rejectRegistrationMember()">Reject member</button></div>${sheetCloseBtn('Cancel')}`,{focus:'[data-focus-key="registration-member-search"]'});
+}
+window.reviewRegistrationMember=(entryId,memberId)=>{const current=registrationMemberState(entryId,memberId);if(!current)return;window._registrationMemberReview={eventId:current.evId,entryId,memberId,query:current.member.displayName};renderRegistrationMemberReview();};
+window.registrationMemberSearch=value=>{if(!window._registrationMemberReview)return;window._registrationMemberReview.query=value;renderRegistrationMemberReview();};
+window.confirmRegistrationMemberMatch=async(playerId,duplicateOverride=false)=>{
+  const review=window._registrationMemberReview,current=review&&registrationMemberState(review.entryId,review.memberId),player=pById(playerId);if(!current||!player)return;
+  if(!(await askConfirm(`Match “${current.member.displayName}” to ${player.name}?`,'Match player')))return;
+  try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(current.evId)}/entries/${encodeURIComponent(current.entry.id)}/members/${encodeURIComponent(current.member.id)}`,{method:'POST',body:{action:'match',internalPlayerId:String(player.id),duplicateOverride}});window._registrationMemberReview=null;openRegistrationDashboard(current.evId);toast('Registration member matched');}
+  catch(error){if(error.code==='PLAYER_ALREADY_REGISTERED'&&!duplicateOverride&&await askConfirm('This player is already on another registration. Record an organizer duplicate override and match anyway?','Override duplicate'))return confirmRegistrationMemberMatch(playerId,true);toast(error.message);}
+};
+window.unmatchRegistrationMember=async(entryId,memberId)=>{const current=registrationMemberState(entryId,memberId);if(!current||!(await askConfirm('Return this roster member to pending review?','Unmatch player')))return;try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(current.evId)}/entries/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}`,{method:'POST',body:{action:'unmatch'}});await EventRegistration.refresh(current.evId);toast('Member returned to review');}catch(error){toast(error.message);}};
+window.moveOrganizerRegistrationMember=async(entryId,memberId,rosterRole,overrideCapacity=false)=>{
+  const current=registrationMemberState(entryId,memberId);if(!current||!['active','substitute'].includes(rosterRole))return;
+  try{
+    await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(current.evId)}/entries/${encodeURIComponent(entryId)}/members/${encodeURIComponent(memberId)}`,{method:'POST',body:{action:'move',rosterRole,overrideCapacity}});
+    await EventRegistration.refresh(current.evId);toast(rosterRole==='active'?'Moved to active roster':'Moved to substitutes');
+  }catch(error){
+    if(error.code==='CAPACITY_EXCEEDED'&&!overrideCapacity&&await askConfirm('Moving this player to the active roster exceeds capacity. Record an organizer capacity override and continue?','Move over capacity'))return moveOrganizerRegistrationMember(entryId,memberId,rosterRole,true);
+    toast(error.message);EventRegistration.patchDashboard();
+  }
+};
+window.rejectRegistrationMember=async()=>{const review=window._registrationMemberReview,current=review&&registrationMemberState(review.entryId,review.memberId);if(!current||!(await askConfirm(`Reject “${current.member.displayName}” from this roster?`,'Reject member')))return;try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(current.evId)}/entries/${encodeURIComponent(current.entry.id)}/members/${encodeURIComponent(current.member.id)}`,{method:'POST',body:{action:'reject'}});window._registrationMemberReview=null;openRegistrationDashboard(current.evId);toast('Registration member rejected');}catch(error){toast(error.message);}};
+window.createPlayerFromRegistrationMember=eventOnly=>{
+  const review=window._registrationMemberReview,current=review&&registrationMemberState(review.entryId,review.memberId);if(!current)return;
+  window._pendingRegistrationMemberCreation={eventId:current.evId,entryId:current.entry.id,memberId:current.member.id,eventOnly:!!eventOnly};
+  openPlayer(null,null,{name:current.member.displayName,pickupEligible:!eventOnly});
+};
+async function resolveCreatedRegistrationMember(playerId){
+  const pending=window._pendingRegistrationMemberCreation;if(!pending)return false;const ev=evById(pending.eventId);if(!ev)return false;
+  await EventRegistration.syncPlayers(ev);
+  await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(pending.eventId)}/entries/${encodeURIComponent(pending.entryId)}/members/${encodeURIComponent(pending.memberId)}`,{method:'POST',body:{action:'match',internalPlayerId:String(playerId),duplicateOverride:false,organizerCreated:true}});
+  window._pendingRegistrationMemberCreation=null;window._registrationMemberReview=null;await EventRegistration.refresh(pending.eventId,{patch:false});return true;
+}
 
 function registrationSettingsDraft(ev){
   const current=eventRegistration(ev),defaults=deriveRegistrationDefaultsFromEvent(ev);
