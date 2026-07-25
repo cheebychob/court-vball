@@ -29,7 +29,10 @@ class MemoryKV {
 
 class SQLiteD1Statement {
   constructor(database, sql, values = []) { this.database = database; this.sql = sql; this.values = values; }
-  bind(...values) { return new SQLiteD1Statement(this.database, this.sql, values); }
+  bind(...values) {
+    if (values.length > 100) throw new Error('D1_ERROR: too many SQL variables');
+    return new SQLiteD1Statement(this.database, this.sql, values);
+  }
   async first() { return this.database.prepare(this.sql).get(...this.values) ?? null; }
   async all() { return { success: true, results: this.database.prepare(this.sql).all(...this.values) }; }
   async run() {
@@ -393,6 +396,47 @@ test('public player lookup is bounded, ranked, alias-aware, stable across organi
   assert.equal(boundedResponse.status, 200);
   assert.equal(boundedBody.players.length, 8);
   assert.equal(boundedBody.resultLimit, 8);
+});
+
+test('organizer player directories above the D1 parameter limit save, preserve tokens, and remove stale players', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  const tokenFor = index => Buffer.from(String(index).padStart(16, '0')).toString('base64url');
+  const players = Array.from({ length: 103 }, (_, index) => ({
+    internalPlayerId: `large-roster-${index}`,
+    publicPlayerToken: tokenFor(index),
+    displayName: `Large Roster ${index}`,
+    primaryName: `Large Roster ${index}`,
+    aliases: [],
+    eligible: true,
+  }));
+
+  const created = await createConfig(env, 'event-large-directory', { players });
+  assert.equal(created.response.status, 201);
+  assert.equal(
+    env.EVENT_REGISTRATION_DB.database.prepare(
+      'SELECT COUNT(*) AS count FROM event_registration_players WHERE event_id = ?'
+    ).get('event-large-directory').count,
+    103,
+  );
+
+  const resynced = await createConfig(env, 'event-large-directory', {
+    players: players.slice(0, 101).map((player, index) => ({
+      ...player,
+      publicPlayerToken: tokenFor(index + 200),
+      displayName: `${player.displayName} updated`,
+    })),
+  });
+  assert.equal(resynced.response.status, 200);
+  const stored = env.EVENT_REGISTRATION_DB.database.prepare(`
+    SELECT internal_player_id, public_player_token, public_display_name
+    FROM event_registration_players
+    WHERE event_id = ?
+    ORDER BY internal_player_id
+  `).all('event-large-directory');
+  assert.equal(stored.length, 101);
+  assert.equal(stored.find(row => row.internal_player_id === 'large-roster-0').public_player_token, tokenFor(0));
+  assert.equal(stored.find(row => row.internal_player_id === 'large-roster-0').public_display_name, 'Large Roster 0 updated');
+  assert.equal(stored.some(row => row.internal_player_id === 'large-roster-102'), false);
 });
 
 test('roster-aware submission rejects invalid names, sizes, substitute counts, and player tokens without partial writes', async t => {

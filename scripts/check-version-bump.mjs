@@ -12,7 +12,8 @@ function git(args, options = {}) {
   return execFileSync('git', args, {
     cwd: options.cwd ?? process.cwd(),
     encoding: 'utf8',
-    stdio: ['ignore', 'pipe', 'pipe']
+    stdio: ['ignore', 'pipe', 'pipe'],
+    maxBuffer: 8 * 1024 * 1024,
   }).trim();
 }
 

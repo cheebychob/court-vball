@@ -1779,29 +1779,48 @@ async function resetOrganizerRegistrationImport(request, env, eventId) {
 }
 
 async function replaceRegistrationPlayerDirectory(db, eventId, players, now = Date.now()) {
-  const upserts = players.map(player => db.prepare(`
+  const statements = [];
+  if (players.length) {
+    const rows = players.map(player => ({
+      eventId,
+      internalPlayerId: player.internalPlayerId,
+      publicPlayerToken: player.publicPlayerToken,
+      displayName: player.displayName,
+      normalizedPrimaryName: player.normalizedPrimaryName,
+      normalizedAliases: JSON.stringify(player.normalizedAliases),
+      eligible: player.eligible ? 1 : 0,
+      updatedAt: now,
+    }));
+    statements.push(db.prepare(`
       INSERT INTO event_registration_players (
         event_id, internal_player_id, public_player_token, public_display_name,
         normalized_primary_name, normalized_aliases, eligible, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      )
+      SELECT
+        json_extract(value, '$.eventId'),
+        json_extract(value, '$.internalPlayerId'),
+        json_extract(value, '$.publicPlayerToken'),
+        json_extract(value, '$.displayName'),
+        json_extract(value, '$.normalizedPrimaryName'),
+        json_extract(value, '$.normalizedAliases'),
+        json_extract(value, '$.eligible'),
+        json_extract(value, '$.updatedAt')
+      FROM json_each(?)
+      WHERE 1
       ON CONFLICT(event_id, internal_player_id) DO UPDATE SET
         public_display_name = excluded.public_display_name,
         normalized_primary_name = excluded.normalized_primary_name,
         normalized_aliases = excluded.normalized_aliases,
         eligible = excluded.eligible,
         updated_at = excluded.updated_at
-    `).bind(
-      eventId, player.internalPlayerId, player.publicPlayerToken, player.displayName,
-      player.normalizedPrimaryName, JSON.stringify(player.normalizedAliases), player.eligible ? 1 : 0, now
-    ));
-  const removeStale = players.length
-    ? db.prepare(`
-        DELETE FROM event_registration_players
-        WHERE event_id = ?
-          AND internal_player_id NOT IN (${players.map(() => "?").join(", ")})
-      `).bind(eventId, ...players.map(player => player.internalPlayerId))
-    : db.prepare("DELETE FROM event_registration_players WHERE event_id = ?").bind(eventId);
-  await d1Batch(db, [...upserts, removeStale]);
+    `).bind(JSON.stringify(rows)));
+  }
+  statements.push(db.prepare(`
+    DELETE FROM event_registration_players
+    WHERE event_id = ?
+      AND internal_player_id NOT IN (SELECT value FROM json_each(?))
+  `).bind(eventId, JSON.stringify(players.map(player => player.internalPlayerId))));
+  await d1Batch(db, statements);
 }
 
 async function saveOrganizerRegistrationConfig(request, env, url, eventId) {
