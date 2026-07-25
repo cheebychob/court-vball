@@ -838,6 +838,7 @@ test('legacy check-in records migrate once to the deterministic directory withou
   assert.ok(migratedBody.checkIns.some(item => item.freeTextName === 'Legacy Guest'));
   assert.equal(migratedBody.session.publicUrl, created.body.session.publicUrl);
   assert.equal(storage.lists.length, 1);
+  assert.deepEqual(storage.lists[0], { prefix: `check-in:record:${sessionId}:`, limit: 351 });
 
   const storedSession = JSON.parse(storage.values.get(sessionKey));
   assert.equal(storedSession.recordDirectoryVersion, 1);
@@ -851,6 +852,8 @@ test('the only check-in KV list call is documented as a one-time legacy migratio
   const occurrences = [...source.matchAll(/\.list\(/g)];
   assert.equal(occurrences.length, 1);
   assert.match(source, /Enumeration is required only to migrate a pre-directory session once/);
+  assert.match(source, /limit: MAX_CHECK_INS_PER_SESSION \+ 1/);
+  assert.doesNotMatch(source, /storage\.list\(\{ prefix, cursor/);
 });
 
 test('known-player check-in is validated, idempotent, isolated by device, and self-cancelable', async () => {

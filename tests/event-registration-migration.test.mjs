@@ -5,7 +5,8 @@ import test from 'node:test';
 
 const foundationMigration = await readFile(new URL('../cloudflare/migrations/0001_event_registration_foundation.sql', import.meta.url), 'utf8');
 const teamMigration = await readFile(new URL('../cloudflare/migrations/0002_team_registration_portal.sql', import.meta.url), 'utf8');
-const migration = `${foundationMigration}\n${teamMigration}`;
+const integrationMigration = await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8');
+const migration = `${foundationMigration}\n${teamMigration}\n${integrationMigration}`;
 
 test('registration migration applies cleanly with tables, indexes, foreign keys, and uniqueness constraints', () => {
   const database = new DatabaseSync(':memory:');
@@ -16,6 +17,7 @@ test('registration migration applies cleanly with tables, indexes, foreign keys,
   assert.ok(tables.includes('event_registration_rate_limits'));
   assert.ok(tables.includes('event_registration_members'));
   assert.ok(tables.includes('event_registration_players'));
+  assert.ok(tables.includes('event_registration_imports'));
   const indexes = database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name").all().map(row => row.name);
   for (const name of [
     'idx_event_registration_configs_owner',
@@ -30,6 +32,8 @@ test('registration migration applies cleanly with tables, indexes, foreign keys,
     'idx_registration_members_internal_player',
     'idx_event_registration_players_lookup',
     'idx_event_registration_members_conflicts',
+    'idx_event_registration_imports_owner_event',
+    'idx_event_registration_imports_local_entry',
   ]) assert.ok(indexes.includes(name), `${name} exists`);
 
   const insertConfig = database.prepare(`
@@ -75,5 +79,44 @@ test('team portal migration applies after populated foundation data and preserve
   assert.equal(database.prepare('SELECT revision FROM event_registrations WHERE id = ?').get('existing-a').revision, 1);
   const foreignKeys = database.prepare("PRAGMA foreign_key_list('event_registration_members')").all();
   assert.ok(foreignKeys.some(row => row.table === 'event_registrations' && row.on_delete === 'CASCADE'));
+  database.close();
+});
+
+test('registration event import migration is additive, owner scoped, and preserves stable mappings', () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec(foundationMigration);
+  database.exec(teamMigration);
+  const now = Date.now();
+  database.prepare(`
+    INSERT INTO event_registration_configs (
+      event_id, owner_scope, event_name, event_date, event_format, enabled, event_available,
+      mode, status, allow_substitutes, require_organizer_approval, allow_waitlist,
+      public_token_hash, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'fixedTeams', 1, 1, 'team', 'open', 1, 1, 1, ?, ?, ?)
+  `).run('event-import', 'owner-a', 'Import Cup', '2026-08-15', 'token-hash', now, now);
+  database.prepare(`
+    INSERT INTO event_registrations (
+      id, event_id, registration_type, display_name, status, active_player_count,
+      substitute_count, created_at, updated_at, revision
+    ) VALUES (?, ?, 'team', 'Alpha', 'accepted', 2, 0, ?, ?, 3)
+  `).run('registration-import', 'event-import', now, now);
+
+  assert.doesNotThrow(() => database.exec(integrationMigration));
+  database.prepare(`
+    INSERT INTO event_registration_imports (
+      event_id, registration_id, owner_scope, local_entry_id,
+      imported_revision, imported_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run('event-import', 'registration-import', 'owner-a', 'local-team-1', 3, now, now);
+
+  const mapping = database.prepare('SELECT * FROM event_registration_imports').get();
+  assert.equal(mapping.local_entry_id, 'local-team-1');
+  assert.equal(mapping.imported_revision, 3);
+  assert.throws(() => database.prepare(`
+    INSERT INTO event_registration_imports (
+      event_id, registration_id, owner_scope, local_entry_id,
+      imported_revision, imported_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run('event-import', 'registration-import', 'owner-a', 'local-team-2', 3, now, now));
   database.close();
 });

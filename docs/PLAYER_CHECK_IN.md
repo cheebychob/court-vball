@@ -2,7 +2,7 @@
 
 ## Existing Cloudflare architecture
 
-Court's Cloudflare code is the module Worker at `cloudflare/court-sync-worker.js`. The repository has no Wrangler configuration, migrations, Pages project, D1 database, or Durable Object binding. Production deployment has historically been a manual Worker edit/deploy.
+Court's Cloudflare code is the module Worker at `cloudflare/court-sync-worker.js`. The repository now includes example/local Wrangler configuration and additive D1 migrations for event registration. It still has no Durable Object binding. Production resource IDs remain intentionally absent from source.
 
 Existing services remain unchanged:
 
@@ -11,6 +11,8 @@ Existing services remain unchanged:
 | `COURT` | KV | Private device-sync envelopes at `room:{roomCode}` |
 | `PUBLIC_SCHEDULES` | KV | Public schedule HTML snapshots and management metadata |
 | `PLAYER_PHOTOS` | private R2 | Opaque-token JPEG/WebP objects; public media is gated by explicit object metadata |
+| `CHECK_IN_SESSIONS` | KV | Short-lived player check-in sessions and deterministic lookup indexes |
+| `EVENT_REGISTRATION_DB` | D1 | Persistent registration configuration, rosters, revisions, and import acknowledgments |
 
 The legacy `GET`/`POST /?room=...` sync route still accepts and returns the existing opaque full-state envelope. Public schedule routes are exact-matched before that handler. Player photos use room-authorized private APIs and an opaque-token public media route. No existing Cloudflare-native rate limiter, WebSocket endpoint, or Worker test runtime was configured; Worker routes are tested with Node's test runner and in-memory binding fakes.
 
@@ -200,10 +202,11 @@ The browser tests mock or locally proxy the Worker. They do not access productio
 6. Re-test legacy sync, public schedules, and photos.
 7. Deploy `index.html` through the existing GitHub Pages `master` root flow.
 
-The repository has no `wrangler.toml`; binding creation is therefore a Cloudflare dashboard action. After the binding exists, the exact optional CLI Worker deployment command is:
+The repository has no production `wrangler.jsonc`; `cloudflare/wrangler.example.jsonc` must be copied and populated with the existing production resource IDs. After binding verification, the Worker deployment command is:
 
 ```sh
-npx wrangler deploy cloudflare/court-sync-worker.js --name court-sync
+cd cloudflare
+npx wrangler deploy --config wrangler.jsonc
 ```
 
 Do not deploy the frontend before the Worker and binding are ready. An older/missing Worker does not block manual attendance, but public check-in controls will report unavailable.
