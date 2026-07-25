@@ -91,3 +91,13 @@ Before finishing:
 - Never delete stored data, migrations, backups, or deployment configuration.
 - Never modify Cloudflare bindings, secrets, routes, or storage without explicit instruction.
 - Leave changes uncommitted for review unless asked to commit.
+
+## Active implementation roadmaps
+
+For any event UI, event sharing, registration dashboard, standings, bracket,
+or public event-page work, read `docs/EVENT_UI_ROADMAP.md` before planning or
+editing.
+
+Follow only the roadmap item assigned in the current prompt. Do not begin later
+items. Update that item's status, tests, completion notes, and PR information
+as part of the implementation branch.

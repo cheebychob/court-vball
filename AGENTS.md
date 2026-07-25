@@ -22,3 +22,14 @@
 - Prefer small, reviewable changes.
 - Keep the single-file app unless intentionally split.
 - Do not add unnecessary dependencies.
+
+# Court Agent Instructions
+
+Read `CLAUDE.md` for the project's architecture, safety rules, testing
+expectations, and application conventions.
+
+For event UI work, also read `docs/EVENT_UI_ROADMAP.md`.
+
+Implement only the roadmap item assigned in the current prompt. Do not combine
+later roadmap items or perform unrelated cleanup. Update the roadmap entry in
+the same branch as the implementation.
