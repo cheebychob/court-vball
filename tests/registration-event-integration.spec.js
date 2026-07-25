@@ -295,7 +295,7 @@ test('import cards render legacy-safe details, block incomplete records, preserv
   await expect(secondCheckbox).toBeChecked();
 
   const layout = await page.evaluate(() => {
-    const sheet = document.querySelector('.sheet'), title = document.querySelector('.registration-import-title b');
+    const sheet = document.querySelector('.sheet'), title = document.querySelector('.registration-import-title');
     return {
       sheetOverflow: sheet.scrollWidth - sheet.clientWidth,
       documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,

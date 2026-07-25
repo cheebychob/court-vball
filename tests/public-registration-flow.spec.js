@@ -45,8 +45,8 @@ function publicConfig(overrides = {}) {
   };
 }
 
-async function mockPublicRegistration(page, { config = publicConfig(), failFirst = false } = {}) {
-  const state = { submissions: [], failFirst };
+async function mockPublicRegistration(page, { config = publicConfig(), failFirst = false, failureBody = null } = {}) {
+  const state = { submissions: [], failFirst, failureBody };
   await page.route(`**/register/${TOKEN}`, route => route.fulfill({
     status: 200,
     contentType: 'text/html',
@@ -66,9 +66,9 @@ async function mockPublicRegistration(page, { config = publicConfig(), failFirst
       state.submissions.push(body);
       if (state.failFirst && state.submissions.length === 1) {
         return route.fulfill({
-          status: 503,
+          status: state.failureBody ? 409 : 503,
           contentType: 'application/json',
-          body: JSON.stringify({ ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Registration is temporarily unavailable.' }),
+          body: JSON.stringify(state.failureBody || { ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Registration is temporarily unavailable.' }),
         });
       }
       return route.fulfill({
@@ -178,6 +178,53 @@ test('review separates substitutes, closes with focus restoration, reopens once,
   await page.getByRole('button', { name: 'Review and submit' }).click();
   await expect(page.getByText('Active roster cannot exceed 4.')).toBeVisible();
   await expect(page.getByRole('dialog')).toHaveCount(0);
+});
+
+test('duplicate-player responses name every conflict safely and preserve the populated roster', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockPublicRegistration(page, {
+    failFirst: true,
+    failureBody: {
+      ok: false,
+      code: 'PLAYER_ALREADY_REGISTERED',
+      message: 'These players conflict.',
+      conflicts: [
+        { submittedName: 'Alex Rivera' },
+        { submittedName: '<img src=x onerror=alert(1)>' },
+      ],
+    },
+  });
+  await page.goto(`/register/${TOKEN}`);
+  await buildPublicRoster(page);
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  const review = page.getByRole('dialog', { name: 'Review your team' });
+  await review.getByRole('button', { name: 'Submit registration' }).click();
+  await expect(review.getByRole('alert')).toContainText('These players are already listed');
+  await expect(review.getByRole('alert')).toContainText('• Alex Rivera');
+  await expect(review.getByRole('alert')).toContainText('• <img src=x onerror=alert(1)>');
+  await expect(review.locator('img')).toHaveCount(0);
+  await expect(review.getByRole('alert')).toContainText('Remove the conflicting players');
+  await review.getByRole('button', { name: 'Back to edit' }).click();
+  await expect(page.locator('#team-name')).toHaveValue('Mobile Net Results');
+  for (const player of publicPlayers.slice(0, 4)) await expect(page.locator('.member-row').filter({ hasText: player.displayName })).toBeVisible();
+});
+
+test('legacy duplicate error without structured conflicts remains useful', async ({ page }) => {
+  await mockPublicRegistration(page, {
+    failFirst: true,
+    failureBody: {
+      ok: false,
+      code: 'PLAYER_ALREADY_REGISTERED',
+      message: 'This player is already listed on another registration.',
+    },
+  });
+  await page.goto(`/register/${TOKEN}`);
+  await buildPublicRoster(page);
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  const review = page.getByRole('dialog', { name: 'Review your team' });
+  await review.getByRole('button', { name: 'Submit registration' }).click();
+  await expect(review.getByRole('alert')).toContainText('This player is already listed on another registration.');
+  await expect(review.getByRole('alert')).toContainText('Your team and roster are still here');
 });
 
 test('mobile public submission flows through organizer refresh, accepted import preview, selection, and confirmation', async ({ page }) => {

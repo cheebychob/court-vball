@@ -1176,6 +1176,17 @@ function registrationError(status, code, message, headers = {}) {
   return registrationJson({ ok: false, code, message }, status, headers);
 }
 
+function registrationPlayerConflictError(conflicts, headers = {}) {
+  const safeConflicts = (Array.isArray(conflicts) ? conflicts : [])
+    .map(conflict => cleanRegistrationName(conflict?.submittedName))
+    .filter(Boolean)
+    .map(submittedName => ({ submittedName }));
+  const message = safeConflicts.length === 1
+    ? `${safeConflicts[0].submittedName} is already listed on another registration for this event.`
+    : "These players are already listed on another registration for this event.";
+  return registrationJson({ ok: false, code: "PLAYER_ALREADY_REGISTERED", message, conflicts: safeConflicts }, 409, headers);
+}
+
 async function readRegistrationJson(request, maximum, headers = {}) {
   if (!isJsonRequest(request)) return { response: registrationError(415, "JSON_REQUIRED", "Use an application/json request.", headers) };
   const result = await readBoundedBody(request, maximum);
@@ -2468,18 +2479,8 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   if (duplicateTeam) return registrationError(409, "DUPLICATE_TEAM_NAME", "Another active registration already uses this team name. Add a distinguishing suffix.");
   const matchedIds = [...new Set(members.map(member => member.internalPlayerId).filter(Boolean))];
   if (matchedIds.length) {
-    const placeholders = matchedIds.map(() => "?").join(", ");
-    const conflict = await d1First(db.prepare(`
-      SELECT 1 AS found
-      FROM event_registration_members m
-      JOIN event_registrations r ON r.id = m.registration_id
-      WHERE r.event_id = ? AND r.status NOT IN ('declined', 'withdrawn')
-        AND m.internal_player_id IN (${placeholders})
-        AND m.match_status IN ('matched', 'organizer_created')
-        AND m.duplicate_override = 0
-      LIMIT 1
-    `).bind(config.event_id, ...matchedIds));
-    if (conflict) return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+    const conflicts = await conflictingSubmittedRegistrationPlayers(db, config.event_id, "", members);
+    if (conflicts.length) return registrationPlayerConflictError(conflicts);
   }
   const managementToken = randomToken(), managementTokenHash = await sha256(managementToken);
   const conflictClause = matchedIds.length ? `
@@ -2552,8 +2553,9 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   if (!Number(writeResults[0]?.meta?.changes)) {
     const latest = await publicRegistrationConfig(env, publicToken);
     if (!latest || getEffectiveRegistrationStatus(latest, now) !== "open") return registrationError(409, "REGISTRATION_NOT_OPEN", "Registration is no longer open.");
-    if (matchedIds.length && await conflictingRegistrationPlayer(db, latest.event_id, entryId, matchedIds)) {
-      return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+    if (matchedIds.length) {
+      const conflicts = await conflictingSubmittedRegistrationPlayers(db, latest.event_id, entryId, members);
+      if (conflicts.length) return registrationPlayerConflictError(conflicts);
     }
     const capacity = await registrationCapacity(db, latest.event_id, latest);
     if (capacity.remainingAcceptedCapacity != null && capacity.remainingAcceptedCapacity < activePlayerCount && !Number(latest.allow_waitlist)) {
@@ -2721,6 +2723,29 @@ async function conflictingRegistrationPlayer(db, eventId, registrationId, intern
   return !!row;
 }
 
+async function conflictingSubmittedRegistrationPlayers(db, eventId, registrationId, submittedMembers) {
+  const ordered = [], seen = new Set();
+  for (const member of Array.isArray(submittedMembers) ? submittedMembers : []) {
+    const internalPlayerId = String(member?.internalPlayerId || "");
+    if (!internalPlayerId || seen.has(internalPlayerId)) continue;
+    seen.add(internalPlayerId);
+    ordered.push({ internalPlayerId, submittedName: cleanRegistrationName(member?.displayName) || "Submitted player" });
+  }
+  if (!ordered.length) return [];
+  const placeholders = ordered.map(() => "?").join(", ");
+  const rows = await d1Rows(db.prepare(`
+    SELECT DISTINCT m.internal_player_id
+    FROM event_registration_members m
+    JOIN event_registrations r ON r.id = m.registration_id
+    WHERE r.event_id = ? AND r.id <> ? AND r.status NOT IN ('declined', 'withdrawn')
+      AND m.internal_player_id IN (${placeholders})
+      AND m.match_status IN ('matched', 'organizer_created')
+      AND m.duplicate_override = 0
+  `).bind(eventId, registrationId || "", ...ordered.map(member => member.internalPlayerId)));
+  const conflictingIds = new Set(rows.map(row => String(row.internal_player_id || "")));
+  return ordered.filter(member => conflictingIds.has(member.internalPlayerId)).map(({ submittedName }) => ({ submittedName }));
+}
+
 async function patchManagedRegistration(request, env, managementToken) {
   if (!publicRegistrationOriginAllowed(request, new URL(request.url))) return registrationError(403, "ORIGIN_NOT_ALLOWED", "Cross-origin registration edits are not allowed.");
   if (!(await rateLimitManagementAccess(request, env, "write", managementToken, REGISTRATION_MANAGEMENT_WRITE_LIMIT))) {
@@ -2758,12 +2783,8 @@ async function patchManagedRegistration(request, env, managementToken) {
   if (resolved.error) return registrationError(400, resolved.error[0], resolved.error[1]);
   const countError = validateRegistrationRosterCounts(config, resolved.activeCount, resolved.substituteCount);
   if (countError) return registrationError(400, countError[0], countError[1]);
-  if (await conflictingRegistrationPlayer(
-    env.EVENT_REGISTRATION_DB,
-    row.event_id,
-    row.id,
-    [...new Set(resolved.value.map(member => member.internalPlayerId).filter(Boolean))]
-  )) return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+  const playerConflicts = await conflictingSubmittedRegistrationPlayers(env.EVENT_REGISTRATION_DB, row.event_id, row.id, resolved.value);
+  if (playerConflicts.length) return registrationPlayerConflictError(playerConflicts);
   const normalizedTeamName = normalizeRegistrationName(teamName);
   const duplicateTeam = await d1First(env.EVENT_REGISTRATION_DB.prepare(`
     SELECT 1 AS found FROM event_registrations
@@ -3140,7 +3161,8 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
   const eventDate=value=>{if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(value||''))return '';const parts=value.split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2],12).toLocaleDateString([],{weekday:'long',month:'long',day:'numeric',year:'numeric'})};
   const say=text=>{const node=root.querySelector('[data-message]');if(node)node.textContent=text||''};
   const statusLabel=value=>({submitted:'Submitted',needs_review:'Needs organizer review',accepted:'Accepted',waitlisted:'Waitlisted',withdrawn:'Withdrawn'})[value]||value;
-  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'Registration is unavailable.');error.code=data.code;throw error}return data}
+  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'Registration is unavailable.');error.code=data.code;error.conflicts=Array.isArray(data.conflicts)?data.conflicts.filter(row=>row&&typeof row.submittedName==='string').map(row=>({submittedName:row.submittedName})):[];throw error}return data}
+  function submissionErrorMessage(error){if(error.code!=='PLAYER_ALREADY_REGISTERED'||!error.conflicts?.length)return error.message;const names=error.conflicts.map(row=>row.submittedName.trim()).filter(Boolean);if(!names.length)return error.message;const conflict=names.length===1?names[0]+' is already listed on another registration for this event.':'These players are already listed on another registration for this event:\\n'+names.map(name=>'• '+name).join('\\n');return conflict+'\\n\\nRemove the conflicting player'+(names.length===1?'':'s')+', use a different roster, or contact the organizer if the existing registration should be changed.'}
   function header(card){card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},config?.title||'Event registration'));if(config?.eventDate)card.append(el('p',{class:'date'},eventDate(config.eventDate)));if(config?.description)card.append(el('p',{class:'description'},config.description))}
   function focus(selector){requestAnimationFrame(()=>root.querySelector(selector)?.focus({preventScroll:true}))}
   function focusable(dialog){return [...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')].filter(node=>!node.hidden&&node.getClientRects().length)}
@@ -3187,7 +3209,7 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
   async function search(query,results){results.replaceChildren(el('p',{class:'muted'},'Searching…'));try{const data=await request('/players?q='+encodeURIComponent(query));results.replaceChildren();data.players.forEach(player=>{const button=el('button',{type:'button',role:'option',class:'search-result'},player.displayName);button.addEventListener('click',()=>{members.push({id:uid(),rosterRole:addingRole,publicPlayerToken:player.publicPlayerToken,displayName:player.displayName});notice=player.displayName+' added to '+(addingRole==='active'?'active roster.':'substitutes.');render()});results.append(button)});if(!data.players.length)results.append(el('p',{class:'muted'},'No matching players.'))}catch(error){results.replaceChildren(el('p',{class:'message',role:'alert'},error.message))}}
   function unknownName(dialog){dialog.replaceChildren();const title=el('h2',{},'Add a name for organizer review'),input=el('input',{maxlength:'100',autocomplete:'name',placeholder:'Player name','aria-label':'New player name'}),add=el('button',{type:'button',class:'primary'},'Add pending name'),back=el('button',{type:'button',class:'link'},'Back');add.addEventListener('click',()=>{const name=input.value.trim().replace(/\\s+/g,' ');if(!name){input.focus();return}members.push({id:uid(),rosterRole:addingRole,displayName:name});notice=name+' added for organizer review.';render()});back.addEventListener('click',()=>openSearch(addingRole));dialog.append(title,el('p',{class:'muted'},'This does not create a Court player. The organizer must review the name.'),input,add,back);input.focus()}
   function openReview(){if(busy)return;const draft=validateDraft();if(!draft.valid){notice=draft.message;render();focus(draft.focus);return}reviewOpen=true;submissionKey=uid();notice='';render()}
-  async function submitTeam(){if(busy||!reviewOpen)return;const draft=validateDraft();if(!draft.valid){reviewOpen=false;notice=draft.message;render();focus(draft.focus);return}busy=true;notice='Submitting your registration…';render();try{const data=await request('/submissions',{method:'POST',body:JSON.stringify({registrationType:'team',teamName:draft.teamName,members,idempotencyKey:submissionKey})});submission=data.submission;reviewOpen=false;try{localStorage.setItem(storageKey,submission.managementUrl)}catch{}render()}catch(error){busy=false;notice=error.message+' Your team and roster are still here; you can try again.';render()}}
+  async function submitTeam(){if(busy||!reviewOpen)return;const draft=validateDraft();if(!draft.valid){reviewOpen=false;notice=draft.message;render();focus(draft.focus);return}busy=true;notice='Submitting your registration…';render();try{const data=await request('/submissions',{method:'POST',body:JSON.stringify({registrationType:'team',teamName:draft.teamName,members,idempotencyKey:submissionKey})});submission=data.submission;reviewOpen=false;try{localStorage.setItem(storageKey,submission.managementUrl)}catch{}render()}catch(error){busy=false;notice=submissionErrorMessage(error)+' Your team and roster are still here; you can try again.';render()}}
   document.addEventListener('keydown',event=>{const dialog=root.querySelector('[role="dialog"]');if(!dialog)return;if(event.key==='Escape'&&!busy){event.preventDefault();if(reviewOpen)closeReview();else{render();focus('[data-add-role="'+addingRole+'"]')}}else if(event.key==='Tab')trapFocus(dialog,event)});
   async function load(){root.replaceChildren(el('main',{class:'registration-card'},'Loading registration…'));try{let saved='';try{saved=localStorage.getItem(storageKey)||''}catch{}if(saved){const savedUrl=new URL(saved,location.origin),match=savedUrl.origin===location.origin&&savedUrl.pathname.match(/^\\/event-registration\\/manage\\/([A-Za-z0-9_-]{22,128})$/);if(match){const response=await fetch('/api/event-registration/manage/'+encodeURIComponent(match[1]),{cache:'no-store'}),data=await response.json().catch(()=>({}));if(response.ok){config={title:data.event.title,eventDate:data.event.eventDate,description:data.event.description,status:data.event.registrationStatus};submission={teamName:data.registration.teamName,status:data.registration.status,managementUrl:saved,warnings:data.registration.warnings||[]};notice='Your saved private management link was restored on this device.';render();return}}try{localStorage.removeItem(storageKey)}catch{}}const data=await request();config=data.registration;render()}catch(error){root.replaceChildren();const card=el('main',{class:'registration-card'});card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},'Registration unavailable'),el('p',{class:'muted',role:'alert'},error.message));root.append(card)}}
   load();
@@ -3195,7 +3217,7 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
 
 function registrationPage(publicToken) {
   const nonce = randomTokenBytes(16);
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}html{background:#060b13}body{margin:0;min-height:100vh;min-height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card,.search-panel,.review-dialog{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08;overflow-wrap:anywhere}h2{margin:4px 0 12px}.date,.description,.muted{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df;overflow-wrap:anywhere}.muted{color:#aebacd}.status,.capacity,.roster-section,.success{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.capacity{display:grid;gap:5px}.capacity span,.count{color:#b5c0d1;font-size:13px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-weight:850}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-row>span:first-child{min-width:0;overflow-wrap:anywhere}.member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,button,.button-link{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}button,.button-link{font-weight:800;cursor:pointer;text-align:center;text-decoration:none}button:focus-visible,input:focus-visible,.button-link:focus-visible{outline:3px solid #74d7ff;outline-offset:2px}.primary,.button-link{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.link{border:0;background:transparent;color:#f2c66d}.danger{color:#ffb1b4}.member-actions button{width:auto;min-height:44px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message{min-height:20px;color:#ffcc92;line-height:1.45}.success{border-color:#5fe3ae55}.warning{color:#f2d48f;line-height:1.45}.management-link{display:block;overflow-wrap:anywhere;color:#8ff0c6;line-height:1.5}.button-link{display:block;margin-top:8px}.primary:disabled,.secondary:disabled{opacity:.68;cursor:wait}.review-dialog{display:flex;flex-direction:column;max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:min(560px,calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));overflow:hidden;padding:0}.review-header{flex:none;padding:22px 22px 12px;border-bottom:1px solid #ffffff16}.review-header h1{font-size:clamp(25px,7vw,34px)}.review-header p{margin:8px 0 0}.review-body{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:4px 22px 18px}.review-summary,.review-roster,.review-warnings{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#ffffff08}.review-label{display:block;color:#b5c0d1;font-size:12px}.review-team{display:block;margin-top:4px;font-size:19px;overflow-wrap:anywhere}.review-count{display:block;margin-top:6px;color:#d4ddea;font-size:13px}.review-roster-heading{display:flex;justify-content:space-between;gap:12px}.review-roster-heading span{color:#b5c0d1}.review-roster ul{margin:10px 0 0;padding-left:22px}.review-roster li{padding:3px 0;line-height:1.4;overflow-wrap:anywhere}.review-warnings{border-color:#f2c66d55;background:#f2c66d0d;color:#f6dda4}.review-warnings p{margin:7px 0 0;line-height:1.45}.review-empty{margin:14px 2px}.review-actions{display:grid;grid-template-columns:1fr 1.2fr;gap:9px;flex:none;padding:12px 22px calc(16px + env(safe-area-inset-bottom));border-top:1px solid #ffffff1d;background:#0d1727}.review-actions button{margin:0;min-height:50px}@media(max-width:420px){body{padding-left:8px;padding-right:8px}.registration-card,.search-panel{padding:18px;border-radius:20px}.registration-card,.search-panel,.review-dialog{margin:0 auto;border-radius:20px}.member-row{grid-template-columns:1fr}.member-actions{justify-content:flex-start}.review-header{padding:18px 16px 10px}.review-body{padding:2px 16px 14px}.review-actions{grid-template-columns:1fr;padding:10px 16px calc(12px + env(safe-area-inset-bottom))}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${TEAM_REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}html{background:#060b13}body{margin:0;min-height:100vh;min-height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card,.search-panel,.review-dialog{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08;overflow-wrap:anywhere}h2{margin:4px 0 12px}.date,.description,.muted{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df;overflow-wrap:anywhere}.muted{color:#aebacd}.status,.capacity,.roster-section,.success{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.capacity{display:grid;gap:5px}.capacity span,.count{color:#b5c0d1;font-size:13px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-weight:850}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-row>span:first-child{min-width:0;overflow-wrap:anywhere}.member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,button,.button-link{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}button,.button-link{font-weight:800;cursor:pointer;text-align:center;text-decoration:none}button:focus-visible,input:focus-visible,.button-link:focus-visible{outline:3px solid #74d7ff;outline-offset:2px}.primary,.button-link{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.link{border:0;background:transparent;color:#f2c66d}.danger{color:#ffb1b4}.member-actions button{width:auto;min-height:44px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message{min-height:20px;color:#ffcc92;line-height:1.45;white-space:pre-line}.success{border-color:#5fe3ae55}.warning{color:#f2d48f;line-height:1.45}.management-link{display:block;overflow-wrap:anywhere;color:#8ff0c6;line-height:1.5}.button-link{display:block;margin-top:8px}.primary:disabled,.secondary:disabled{opacity:.68;cursor:wait}.review-dialog{display:flex;flex-direction:column;max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:min(560px,calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));overflow:hidden;padding:0}.review-header{flex:none;padding:22px 22px 12px;border-bottom:1px solid #ffffff16}.review-header h1{font-size:clamp(25px,7vw,34px)}.review-header p{margin:8px 0 0}.review-body{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:4px 22px 18px}.review-summary,.review-roster,.review-warnings{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#ffffff08}.review-label{display:block;color:#b5c0d1;font-size:12px}.review-team{display:block;margin-top:4px;font-size:19px;overflow-wrap:anywhere}.review-count{display:block;margin-top:6px;color:#d4ddea;font-size:13px}.review-roster-heading{display:flex;justify-content:space-between;gap:12px}.review-roster-heading span{color:#b5c0d1}.review-roster ul{margin:10px 0 0;padding-left:22px}.review-roster li{padding:3px 0;line-height:1.4;overflow-wrap:anywhere}.review-warnings{border-color:#f2c66d55;background:#f2c66d0d;color:#f6dda4}.review-warnings p{margin:7px 0 0;line-height:1.45}.review-empty{margin:14px 2px}.review-actions{display:grid;grid-template-columns:1fr 1.2fr;gap:9px;flex:none;padding:12px 22px calc(16px + env(safe-area-inset-bottom));border-top:1px solid #ffffff1d;background:#0d1727}.review-actions button{margin:0;min-height:50px}@media(max-width:420px){body{padding-left:8px;padding-right:8px}.registration-card,.search-panel{padding:18px;border-radius:20px}.registration-card,.search-panel,.review-dialog{margin:0 auto;border-radius:20px}.member-row{grid-template-columns:1fr}.member-actions{justify-content:flex-start}.review-header{padding:18px 16px 10px}.review-body{padding:2px 16px 14px}.review-actions{grid-template-columns:1fr;padding:10px 16px calc(12px + env(safe-area-inset-bottom))}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${TEAM_REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
   return new Response(html, {
     status: 200,
     headers: publicRegistrationHeaders({
