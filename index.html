@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260725.2">
+<meta name="court-build" content="20260725.3">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1075,9 +1075,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.22.1',
-  build: '20260725.2',
-  releaseNotes: 'Save event registration settings reliably for large player directories.'
+  version: '0.22.2',
+  build: '20260725.3',
+  releaseNotes: 'Keep event registration counts consistent across organizer views.'
 });
 
 function appVersionLabel(){
@@ -2808,6 +2808,8 @@ function render(options={}){
   if(policy==='top') requestAnimationFrame(()=>window.scrollTo({top:0,behavior:'auto'}));
   else if(policy==='anchor'&&options.anchorId) requestAnimationFrame(()=>scrollToEventSection(options.anchorId));
   else if(position) restoreRenderPosition(position);
+  const visibleRegistrationEvent=tab==='events'&&window._evOpen?evById(window._evOpen):null;
+  window.EventRegistration?.setEventVisible(visibleRegistrationEvent&&eventRegistration(visibleRegistrationEvent).enabled?visibleRegistrationEvent.id:null);
 }
 
 /* ---------- HOME ---------- */
@@ -10262,10 +10264,77 @@ function registrationServerPayload(ev,config){
     players:createEventRegistrationPlayerDirectory(ev)
   };
 }
+function registrationSummaryNumber(value){
+  const number=Number(value);return Number.isFinite(number)&&number>=0?number:0;
+}
+function registrationSummaryNullableNumber(value,fallback=null){
+  if(value==null||value==='')return null;
+  const number=Number(value);return Number.isFinite(number)&&number>=0?number:fallback;
+}
+function normalizeRegistrationSummary(raw,{eventId='',config=null}={}){
+  const source=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{};
+  const root=source.summary&&typeof source.summary==='object'&&!Array.isArray(source.summary)?source.summary:source;
+  const entry=root.entryCounts&&typeof root.entryCounts==='object'&&!Array.isArray(root.entryCounts)?root.entryCounts:{};
+  const player=root.playerCounts&&typeof root.playerCounts==='object'&&!Array.isArray(root.playerCounts)?root.playerCounts:{};
+  const legacy=source.capacity&&typeof source.capacity==='object'&&!Array.isArray(source.capacity)?source.capacity:root;
+  const capacity=root.capacity&&typeof root.capacity==='object'&&!Array.isArray(root.capacity)?root.capacity:{};
+  const integration=root.integration&&typeof root.integration==='object'&&!Array.isArray(root.integration)?root.integration:{};
+  const read=(value,...fallbacks)=>registrationSummaryNumber([value,...fallbacks].find(item=>item!=null));
+  let activePlayerCapacity;
+  if(Object.prototype.hasOwnProperty.call(capacity,'activePlayerCapacity'))activePlayerCapacity=registrationSummaryNullableNumber(capacity.activePlayerCapacity);
+  else if(Object.prototype.hasOwnProperty.call(legacy,'capacity'))activePlayerCapacity=registrationSummaryNullableNumber(legacy.capacity);
+  else activePlayerCapacity=registrationSummaryNullableNumber(config?.activePlayerCapacity);
+  const accepted=read(entry.accepted,legacy.acceptedEntries);
+  const submitted=read(entry.submitted,legacy.submittedEntries);
+  const needsReview=read(entry.needsReview,entry.needs_review,legacy.needsReviewEntries);
+  const acceptedActive=read(player.acceptedActive,legacy.acceptedActivePlayers,capacity.acceptedActivePlayers);
+  const remainingRaw=Object.prototype.hasOwnProperty.call(capacity,'remainingActiveSpots')?capacity.remainingActiveSpots:legacy.remainingAcceptedCapacity;
+  const remainingActiveSpots=activePlayerCapacity==null?null:registrationSummaryNullableNumber(remainingRaw,Math.max(0,activePlayerCapacity-acceptedActive));
+  const revision=read(root.revision,source.revision);
+  const updatedAt=read(root.updatedAt,source.updatedAt,revision);
+  return {
+    eventId:String(root.eventId||source.eventId||eventId||''),
+    effectiveStatus:REGISTRATION_SYSTEM_STATUSES.includes(root.effectiveStatus)?root.effectiveStatus:(REGISTRATION_SYSTEM_STATUSES.includes(config?.effectiveStatus)?config.effectiveStatus:getEffectiveEventRegistrationStatus(config)),
+    entryCounts:{
+      draft:read(entry.draft,legacy.draftEntries),submitted,needsReview,accepted,
+      waitlisted:read(entry.waitlisted,legacy.waitlistedEntries),declined:read(entry.declined,legacy.declinedEntries),
+      withdrawn:read(entry.withdrawn,legacy.withdrawnEntries)
+    },
+    playerCounts:{
+      acceptedActive,acceptedSubstitutes:read(player.acceptedSubstitutes,legacy.acceptedSubstitutePlayers),
+      pendingActive:read(player.pendingActive,legacy.pendingActivePlayers),
+      pendingSubstitutes:read(player.pendingSubstitutes,legacy.pendingSubstitutePlayers),
+      waitlistedActive:read(player.waitlistedActive,legacy.waitlistedActivePlayers),
+      waitlistedSubstitutes:read(player.waitlistedSubstitutes,legacy.waitlistedSubstitutePlayers),
+      totalSubstitutes:read(player.totalSubstitutes,legacy.totalSubstitutePlayers)
+    },
+    capacity:{activePlayerCapacity,acceptedActivePlayers:acceptedActive,remainingActiveSpots,isUnlimited:activePlayerCapacity==null},
+    integration:{
+      acceptedRegistrations:read(integration.acceptedRegistrations,accepted),
+      importedRegistrations:read(integration.importedRegistrations),
+      readyToImport:read(integration.readyToImport),
+      blocked:read(integration.blocked),
+      updatesAvailable:read(integration.updatesAvailable)
+    },
+    revision,updatedAt
+  };
+}
+function normalizeRegistrationImportSummary(raw){
+  const source=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{},counts=source.counts&&typeof source.counts==='object'&&!Array.isArray(source.counts)?source.counts:source;
+  return {
+    acceptedRegistrations:registrationSummaryNumber(counts.acceptedRegistrations??counts.accepted),
+    importedRegistrations:registrationSummaryNumber(counts.importedRegistrations??counts.imported),
+    readyToImport:registrationSummaryNumber(counts.readyToImport??counts.ready),
+    blocked:registrationSummaryNumber(counts.blocked),
+    updatesAvailable:registrationSummaryNumber(counts.updatesAvailable??counts.updated),
+    current:registrationSummaryNumber(counts.current),
+    revision:registrationSummaryNumber(source.revision)
+  };
+}
 const EventRegistration=(()=>{
   const states=new Map();
-  const activeRefreshes=new Map();
-  let modalEventId=null,pollTimer=null,requestSequence=0,filter='all',visibilityBound=false,playerDirectorySync=null;
+  const refreshes=new Map();
+  let modalEventId=null,visibleEventId=null,pollTimer=null,filter='all',visibilityBound=false,playerDirectorySync=null;
   const configured=()=>Sync.configured();
   const workerUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
   const headers=()=>({'Content-Type':'application/json','X-Court-Room':Sync.cfg.code});
@@ -10278,6 +10347,28 @@ const EventRegistration=(()=>{
     const result=await data(response);if(!response.ok)throw failure(response,result,'Registration service could not complete the request.');return result;
   }
   function get(eventId){return states.get(eventId)||null;}
+  function baseState(eventId){return get(eventId)||{eventId,summary:null,entries:[],importSummary:null,revision:0,fetchedAt:0,loading:false,error:'',requestSequence:0};}
+  function normalizedSummary(ev,response){
+    return normalizeRegistrationSummary(response,{eventId:ev.id,config:response?.config||eventRegistration(ev)});
+  }
+  function applyResponse(ev,response,{entries=true,importSummary=null}={}){
+    const current=baseState(ev.id),unavailable=response?.configured===false,summary=unavailable?(current.summary||null):normalizedSummary(ev,response);
+    if(unavailable){
+      const next={...current,...response,eventId:ev.id,summary,entries:current.entries,loading:false,error:'Registration is not configured on this sync service.',fetchedAt:Date.now()};
+      states.set(ev.id,next);return next;
+    }
+    if(current.summary&&summary.revision&&current.summary.revision>summary.revision)return current;
+    const sameSummary=current.summary&&JSON.stringify(current.summary)===JSON.stringify(summary);
+    const next={
+      ...current,...response,eventId:ev.id,summary:sameSummary?current.summary:summary,
+      summarySource:response?.summary?'canonical':(current.summarySource||'legacy'),
+      entries:entries&&Array.isArray(response?.entries)?response.entries:current.entries,
+      importSummary:importSummary||current.importSummary,
+      revision:Math.max(current.revision||0,summary.revision||0),
+      configured:response?.configured??current.configured,loading:false,error:'',fetchedAt:Date.now()
+    };
+    states.set(ev.id,next);return next;
+  }
   function publicUrlFromResponse(ev,response,local){
     return response.publicUrl||local.publicUrl||(response.publicToken?`${Sync.cfg.url.replace(/\/+$/,'')}/register/${response.publicToken}`:registrationPublicUrl(ev))||null;
   }
@@ -10287,7 +10378,7 @@ const EventRegistration=(()=>{
     const response=await request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/config`,{method:'POST',body:registrationServerPayload(ev,next)});
     const token=response.publicToken||current.publicToken||null;
     const saved=normalizeEventRegistration({...next,...(response.config||{}),publicToken:token,publicUrl:publicUrlFromResponse(ev,response,{...current,publicToken:token}),updatedAt:response.config?.updatedAt||Date.now()},ev);
-    states.set(ev.id,{...(cached||{}),...response,configured:true,error:'',loadedAt:Date.now()});
+    applyResponse(ev,{...response,configured:true});
     return saved;
   }
   async function syncPlayers(ev){
@@ -10297,7 +10388,17 @@ const EventRegistration=(()=>{
   async function importPreview(ev){
     if(!ev)throw new Error('Event is unavailable.');
     const response=await request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-preview`);
-    return registrationImportPreview(ev,response);
+    const preview=registrationImportPreview(ev,response),importSummary=normalizeRegistrationImportSummary(preview);
+    const next=applyResponse(ev,response,{entries:false,importSummary});
+    next.summary={...next.summary,integration:{
+      ...next.summary.integration,
+      acceptedRegistrations:importSummary.acceptedRegistrations,
+      importedRegistrations:importSummary.importedRegistrations,
+      readyToImport:importSummary.readyToImport,
+      blocked:importSummary.blocked,
+      updatesAvailable:importSummary.updatesAvailable
+    }};
+    states.set(ev.id,next);patchSummaryCard(ev.id);return preview;
   }
   async function markImported(ev,registrationId,localEntryId,importedRevision){
     return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-mark`,{method:'POST',body:{registrationId,localEntryId,importedRevision}});
@@ -10312,33 +10413,49 @@ const EventRegistration=(()=>{
     playerDirectorySync=Promise.allSettled(activeEvents.map(syncPlayers)).finally(()=>{playerDirectorySync=null;});
     return playerDirectorySync;
   }
-  async function refresh(eventId,{patch=true,poll=false}={}){
-    const ev=evById(eventId);if(!ev)return null;
-    if(poll&&activeRefreshes.has(eventId))return null;
-    const sequence=++requestSequence;
-    activeRefreshes.set(eventId,(activeRefreshes.get(eventId)||0)+1);
+  function refresh(eventId,{patch=true,details=modalEventId===eventId}={}){
+    const ev=evById(eventId);if(!ev)return Promise.resolve(null);
+    const active=refreshes.get(eventId);
+    if(active)return details&&!active.details?active.promise.then(()=>refresh(eventId,{patch,details:true})):active.promise;
+    const current=baseState(eventId),sequence=(current.requestSequence||0)+1;
+    states.set(eventId,{...current,loading:true,error:'',requestSequence:sequence});
     const interactionRoot=patch&&modalEventId===eventId?document.querySelector('[data-registration-dashboard]'):null,interactionFocus=interactionRoot?.contains(document.activeElement)?document.activeElement?.dataset?.focusKey||'':'',interactionScroll=interactionRoot?.querySelector('[data-registration-entry-list]')?.scrollTop||0;
     const restoreInteraction=()=>{if(!interactionRoot?.isConnected)return;const focus=interactionFocus&&interactionRoot.querySelector(`[data-focus-key="${CSS.escape(interactionFocus)}"]`);if(focus)focus.focus({preventScroll:true});const list=interactionRoot.querySelector('[data-registration-entry-list]');if(list)list.scrollTop=interactionScroll;};
     const restoreInteractionAfterPaint=()=>{restoreInteraction();requestAnimationFrame(restoreInteraction);};
-    states.set(eventId,{...(get(eventId)||{}),loading:true,error:''});if(patch&&modalEventId===eventId)patchDashboard();
-    try{
-      const response=await request(`/api/event-registration/organizer/${encodeURIComponent(eventId)}`);
-      if(sequence!==requestSequence)return null;
-      const next={...response,loading:false,error:'',loadedAt:Date.now()};states.set(eventId,next);
-      if(response.config){
-        const current=eventRegistration(ev),updated=normalizeEventRegistration({...current,...response.config},ev);
-        if(JSON.stringify(updated)!==JSON.stringify(current)){ev.registration=updated;await saveEvents();}
+    if(modalEventId===eventId)patchDashboard();
+    const operation=(async()=>{
+      try{
+        const basePath=`/api/event-registration/organizer/${encodeURIComponent(eventId)}`;
+        let response;
+        try{response=await request(details?basePath:`${basePath}/summary`);}
+        catch(error){if(details||error.status!==404)throw error;response=await request(basePath);}
+        if(baseState(eventId).requestSequence!==sequence)return get(eventId);
+        const existing=baseState(eventId),received=normalizedSummary(ev,response);
+        if(existing.summary&&received.revision&&existing.summary.revision>received.revision){
+          const preserved={...existing,loading:false,error:'',fetchedAt:Date.now()};states.set(eventId,preserved);
+          if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);return preserved;
+        }
+        const next=applyResponse(ev,response);
+        if(response.config){
+          const local=eventRegistration(ev),updated=normalizeEventRegistration({...local,...response.config},ev);
+          if(JSON.stringify(updated)!==JSON.stringify(local)){ev.registration=updated;await saveEvents();}
+        }
+        if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);
+        return next;
+      }catch(error){
+        if(baseState(eventId).requestSequence!==sequence)return get(eventId);
+        const next={...baseState(eventId),loading:false,error:error.message,fetchedAt:Date.now()};states.set(eventId,next);
+        if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);return next;
+      }finally{
+        if(refreshes.get(eventId)?.promise===operation)refreshes.delete(eventId);
       }
-      if(patch&&modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}
-      else patchSummaryCard(eventId);
-      return next;
-    }catch(error){
-      if(sequence!==requestSequence)return null;
-      const next={...(get(eventId)||{}),loading:false,error:error.message,loadedAt:Date.now()};states.set(eventId,next);
-      if(patch&&modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}else patchSummaryCard(eventId);return next;
-    }finally{
-      const remaining=(activeRefreshes.get(eventId)||1)-1;if(remaining>0)activeRefreshes.set(eventId,remaining);else activeRefreshes.delete(eventId);
-    }
+    })();
+    refreshes.set(eventId,{promise:operation,details});return operation;
+  }
+  function ensureFresh(eventId,{maximumAge=REGISTRATION_POLL_VISIBLE_MS}={}){
+    const ev=evById(eventId),state=baseState(eventId);
+    if(!ev||!configured()||!eventRegistration(ev).enabled)return Promise.resolve(state);
+    return state.summary&&Date.now()-state.fetchedAt<maximumAge?Promise.resolve(state):refresh(eventId,{patch:false});
   }
   async function updateLifecycle(ev,status,{eventAvailable=true}={}){
     const current=eventRegistration(ev);if(!current.enabled&&!current.publicToken&&!get(ev.id)?.configured){
@@ -10346,7 +10463,7 @@ const EventRegistration=(()=>{
     }
     const response=await request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/status`,{method:'POST',body:{status,eventAvailable}});
     const next=normalizeEventRegistration({...current,...response.config,enabled:eventAvailable?current.enabled:false,status:response.config?.status||status},ev);
-    ev.registration=next;states.set(ev.id,{...(get(ev.id)||{}),...response,configured:true,error:'',loadedAt:Date.now()});await saveEvents();return next;
+    ev.registration=next;applyResponse(ev,{...response,configured:true});await saveEvents();patchSummaryCard(ev.id);return next;
   }
   async function rotateToken(ev){
     const response=await request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/token/rotate`,{method:'POST',body:{}});
@@ -10354,13 +10471,22 @@ const EventRegistration=(()=>{
     await saveEvents();patchDashboard();return response;
   }
   function stopPoll(){if(pollTimer){clearTimeout(pollTimer);pollTimer=null;}}
+  function activeSurfaceEventId(){return modalEventId||visibleEventId;}
   function schedulePoll(){
-    stopPoll();if(!modalEventId)return;
-    pollTimer=setTimeout(async()=>{const eventId=modalEventId;await refresh(eventId,{poll:true});if(modalEventId===eventId)schedulePoll();},document.hidden?REGISTRATION_POLL_HIDDEN_MS:REGISTRATION_POLL_VISIBLE_MS);
+    stopPoll();const eventId=activeSurfaceEventId();if(!eventId)return;
+    pollTimer=setTimeout(async()=>{await refresh(eventId);if(activeSurfaceEventId()===eventId)schedulePoll();},document.hidden?REGISTRATION_POLL_HIDDEN_MS:REGISTRATION_POLL_VISIBLE_MS);
+  }
+  function bindVisibility(){
+    if(visibilityBound)return;visibilityBound=true;
+    document.addEventListener('visibilitychange',()=>{const eventId=activeSurfaceEventId();stopPoll();if(eventId&&!document.hidden)void refresh(eventId).finally(schedulePoll);else schedulePoll();});
   }
   function setModalOpen(value,eventId=null){
-    modalEventId=value?eventId:null;stopPoll();
-    if(value){if(!visibilityBound){visibilityBound=true;document.addEventListener('visibilitychange',()=>{if(modalEventId){stopPoll();if(!document.hidden)void refresh(modalEventId).finally(schedulePoll);else schedulePoll();}});}schedulePoll();}
+    const prior=modalEventId;modalEventId=value?eventId:null;bindVisibility();stopPoll();
+    if(!value&&prior)patchSummaryCard(prior);schedulePoll();
+  }
+  function setEventVisible(eventId=null){
+    visibleEventId=eventId||null;bindVisibility();stopPoll();schedulePoll();
+    if(visibleEventId)void ensureFresh(visibleEventId,{maximumAge:0});
   }
   function entryFingerprint(entry){return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.members,entry.duplicateWarnings]);}
   function entryRowHtml(entry){
@@ -10390,13 +10516,13 @@ const EventRegistration=(()=>{
   function patchDashboard(){
     const root=document.querySelector('[data-registration-dashboard]'),ev=modalEventId&&evById(modalEventId);if(!root||!ev)return;
     const focused=root.contains(document.activeElement)?document.activeElement:null,focusKey=focused?.dataset?.focusKey||'',priorList=root.querySelector('[data-registration-entry-list]'),priorScroll=priorList?.scrollTop||0;
-    const state=get(ev.id),capacity=state?.capacity||emptyRegistrationCapacity(eventRegistration(ev).activePlayerCapacity),config=state?.config||eventRegistration(ev),url=registrationPublicUrl(ev),entries=filteredEntries(state);
-    setText(root,'[data-reg-status]',registrationStatusLabel(config.effectiveStatus||getEffectiveEventRegistrationStatus(config)));
-    setText(root,'[data-reg-accepted]',capacity.acceptedEntries||0);setText(root,'[data-reg-pending]',capacity.pendingEntries||0);
-    setText(root,'[data-reg-waitlisted]',capacity.waitlistedEntries||0);setText(root,'[data-reg-active]',capacity.acceptedActivePlayers||0);
-    setText(root,'[data-reg-declined]',capacity.declinedEntries||0);setText(root,'[data-reg-withdrawn]',capacity.withdrawnEntries||0);
-    setText(root,'[data-reg-subs]',capacity.acceptedSubstitutePlayers||0);
-    setText(root,'[data-reg-remaining]',capacity.remainingAcceptedCapacity==null?'Unlimited':capacity.remainingAcceptedCapacity);
+    const state=get(ev.id),summary=state?.summary,config=state?.config||eventRegistration(ev),url=registrationPublicUrl(ev),entries=filteredEntries(state),unloaded='—';
+    setText(root,'[data-reg-status]',registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(config)));
+    setText(root,'[data-reg-accepted]',summary?.entryCounts.accepted??unloaded);setText(root,'[data-reg-pending]',summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded);
+    setText(root,'[data-reg-waitlisted]',summary?.entryCounts.waitlisted??unloaded);setText(root,'[data-reg-active]',summary?.playerCounts.acceptedActive??unloaded);
+    setText(root,'[data-reg-declined]',summary?.entryCounts.declined??unloaded);setText(root,'[data-reg-withdrawn]',summary?.entryCounts.withdrawn??unloaded);
+    setText(root,'[data-reg-subs]',summary?.playerCounts.acceptedSubstitutes??unloaded);
+    setText(root,'[data-reg-remaining]',summary?(summary.capacity.isUnlimited?'Unlimited':summary.capacity.remainingActiveSpots):unloaded);
     setText(root,'[data-reg-window]',`${registrationFormatTime(config.opensAt)} → ${registrationFormatTime(config.closesAt)}`);
     setText(root,'[data-reg-error]',state?.error||'');
     const link=root.querySelector('[data-reg-link]');if(link&&link.textContent!==url){link.textContent=url||'Public link unavailable on this device';link.title=url||'';}
@@ -10415,33 +10541,40 @@ const EventRegistration=(()=>{
     list.scrollTop=priorScroll;
   }
   function patchSummaryCard(eventId){
-    const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);if(ev&&node)node.outerHTML=registrationSummaryHtml(ev);
+    const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);
+    if(ev&&node&&node.dataset.registrationFingerprint!==String(registrationSummaryFingerprint(ev)))node.outerHTML=registrationSummaryHtml(ev);
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,refresh,updateLifecycle,rotateToken,setModalOpen,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
-function emptyRegistrationCapacity(capacity=null){
-  return {capacity,acceptedEntries:0,pendingEntries:0,waitlistedEntries:0,declinedEntries:0,withdrawnEntries:0,acceptedActivePlayers:0,pendingActivePlayers:0,waitlistedActivePlayers:0,acceptedSubstitutePlayers:0,remainingAcceptedCapacity:capacity};
+function registrationSummaryFingerprint(ev){
+  const local=eventRegistration(ev),state=EventRegistration.get(ev.id),config=state?.config||local;
+  return hash32(JSON.stringify([
+    state?.summary||null,state?.importSummary||null,state?.error||'',!state?.summary&&!!state?.loading,
+    config.effectiveStatus||config.status,config.opensAt,config.closesAt,local.enabled,local.mode,
+    registrationPublicUrl(ev),eventImportEntries(ev).filter(entry=>entry.registrationSource).length
+  ]));
 }
 function registrationSummaryHtml(ev){
-  const local=eventRegistration(ev),state=EventRegistration.get(ev.id),config=state?.config||local,status=config.effectiveStatus||getEffectiveEventRegistrationStatus(config),capacity=state?.capacity||emptyRegistrationCapacity(local.activePlayerCapacity),enabled=local.enabled,url=registrationPublicUrl(ev);
-  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource).length,accepted=capacity.acceptedEntries||0;
-  return `<section id="event-registration" class="card registration-card" data-registration-summary="${esc(ev.id)}">
+  const local=eventRegistration(ev),state=EventRegistration.get(ev.id),config=state?.config||local,summary=state?.summary,status=summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(config),enabled=local.enabled,url=registrationPublicUrl(ev),unloaded='—';
+  const accepted=summary?.entryCounts.accepted,acceptedActive=summary?.playerCounts.acceptedActive,pending=summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:null,remaining=summary?(summary.capacity.isUnlimited?'∞':summary.capacity.remainingActiveSpots):null,localImported=eventImportEntries(ev).filter(entry=>entry.registrationSource).length;
+  const imported=state?.importSummary?.importedRegistrations??(state?.summarySource==='canonical'?summary?.integration.importedRegistrations:localImported),toReview=state?.importSummary?state.importSummary.readyToImport+state.importSummary.blocked+state.importSummary.updatesAvailable:state?.summarySource==='canonical'&&summary?summary.integration.readyToImport+summary.integration.blocked+summary.integration.updatesAvailable:summary?Math.max(0,accepted-localImported):null;
+  return `<section id="event-registration" class="card registration-card" data-registration-summary="${esc(ev.id)}" data-registration-fingerprint="${registrationSummaryFingerprint(ev)}">
     <div class="row spread" style="gap:10px"><div><div class="stat-title" style="margin:0">Registration</div><div class="tiny faint">${enabled?`${esc(registrationStatusLabel(status))} · ${esc(local.mode==='team'?'Team entries':'Individual entries')}`:'Public registration is off'}</div></div><span class="pill ${status==='open'?'good':status==='scheduled'?'warn':status==='cancelled'?'bad':''}">${esc(registrationStatusLabel(status))}</span></div>
-    ${enabled?`<div class="registration-capacity-grid"><div><b class="num">${capacity.acceptedEntries||0}</b><span>accepted entries</span></div><div><b class="num">${capacity.acceptedActivePlayers||0}</b><span>accepted active players</span></div><div><b class="num">${capacity.pendingEntries||0}</b><span>pending review</span></div><div><b class="num">${capacity.remainingAcceptedCapacity==null?'∞':capacity.remainingAcceptedCapacity}</b><span>active spots remaining</span></div></div>
-      <div class="tiny faint">${esc(registrationFormatTime(local.opensAt))} → ${esc(registrationFormatTime(local.closesAt))}</div>${url?`<span class="registration-link" title="${esc(url)}">${esc(url)}</span>`:''}`:`<p class="small soft">Collect long-lived team or individual intent separately from event-day player check-in.</p>`}
-    ${enabled||imported?`<div class="registration-integration-summary"><div><b>${accepted}</b><span>accepted</span></div><div><b>${imported}</b><span>imported</span></div><div><b>${Math.max(0,accepted-imported)}</b><span>to review</span></div></div>`:''}
-    <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">${enabled?'Registration settings':'Set up registration'}</button>${enabled?`<button class="btn primary" onclick="openRegistrationDashboard('${esc(ev.id)}')">Manage registrations</button><button class="btn ghost" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button>`:''}${imported?`<button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button>`:''}</div>
+    ${enabled?`<div class="registration-capacity-grid"><div><b class="num">${accepted??unloaded}</b><span>accepted entries</span></div><div><b class="num">${acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num">${pending??unloaded}</b><span>pending review</span></div><div><b class="num">${remaining??unloaded}</b><span>active spots remaining</span></div></div>
+      <div class="tiny faint">${esc(registrationFormatTime(config.opensAt))} → ${esc(registrationFormatTime(config.closesAt))}${!summary?' · Loading server counts…':state?.loading?' · Refreshing…':''}</div>${url?`<span class="registration-link" title="${esc(url)}">${esc(url)}</span>`:''}`:`<p class="small soft">Collect long-lived team or individual intent separately from event-day player check-in.</p>`}
+    ${enabled||imported?`<div class="registration-integration-summary"><div><b>${accepted??unloaded}</b><span>accepted</span></div><div><b>${imported}</b><span>imported</span></div><div><b>${toReview??unloaded}</b><span>to review</span></div></div>`:''}
+    <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">${enabled?'Registration settings':'Set up registration'}</button>${enabled?`<button class="btn primary" onclick="openRegistrationDashboard('${esc(ev.id)}')">Manage registrations</button><button class="btn ghost" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button>`:''}${localImported||imported?`<button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button>`:''}</div>
     <div class="tiny" data-registration-summary-error style="min-height:${state?.error?'18px':'0'};margin-top:7px;color:var(--coral)">${esc(state?.error||'')}</div>
   </section>`;
 }
 function registrationDashboardHtml(ev){
-  const state=EventRegistration.get(ev.id),local=eventRegistration(ev),config=state?.config||local,capacity=state?.capacity||emptyRegistrationCapacity(local.activePlayerCapacity),url=registrationPublicUrl(ev);
+  const state=EventRegistration.get(ev.id),local=eventRegistration(ev),config=state?.config||local,summary=state?.summary,url=registrationPublicUrl(ev),unloaded='—';
   return `<div data-registration-dashboard data-event-id="${esc(ev.id)}"><h3>Registration · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Persistent registrations are separate from event-day player check-in. Ratings and private roster data never appear here.</p>
-    <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" onclick="refreshRegistrationDashboard()">Refresh</button></div>
-    <div class="registration-capacity-grid"><div><b class="num" data-reg-accepted>${capacity.acceptedEntries||0}</b><span>accepted entries</span></div><div><b class="num" data-reg-active>${capacity.acceptedActivePlayers||0}</b><span>accepted active players</span></div><div><b class="num" data-reg-pending>${capacity.pendingEntries||0}</b><span>pending review</span></div><div><b class="num" data-reg-waitlisted>${capacity.waitlistedEntries||0}</b><span>waitlisted</span></div><div><b class="num" data-reg-declined>${capacity.declinedEntries||0}</b><span>declined</span></div><div><b class="num" data-reg-withdrawn>${capacity.withdrawnEntries||0}</b><span>withdrawn</span></div><div><b class="num" data-reg-subs>${capacity.acceptedSubstitutePlayers||0}</b><span>accepted substitutes</span></div><div><b class="num" data-reg-remaining>${capacity.remainingAcceptedCapacity==null?'Unlimited':capacity.remainingAcceptedCapacity}</b><span>active spots remaining</span></div></div>
-    <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(local.opensAt)} → ${registrationFormatTime(local.closesAt)}`)}</div>
+    <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" onclick="refreshRegistrationDashboard()">Refresh</button></div>
+    <div class="registration-capacity-grid"><div><b class="num" data-reg-accepted>${summary?.entryCounts.accepted??unloaded}</b><span>accepted entries</span></div><div><b class="num" data-reg-active>${summary?.playerCounts.acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num" data-reg-pending>${summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded}</b><span>pending review</span></div><div><b class="num" data-reg-waitlisted>${summary?.entryCounts.waitlisted??unloaded}</b><span>waitlisted</span></div><div><b class="num" data-reg-declined>${summary?.entryCounts.declined??unloaded}</b><span>declined</span></div><div><b class="num" data-reg-withdrawn>${summary?.entryCounts.withdrawn??unloaded}</b><span>withdrawn</span></div><div><b class="num" data-reg-subs>${summary?.playerCounts.acceptedSubstitutes??unloaded}</b><span>accepted substitutes</span></div><div><b class="num" data-reg-remaining>${summary?(summary.capacity.isUnlimited?'Unlimited':summary.capacity.remainingActiveSpots):unloaded}</b><span>active spots remaining</span></div></div>
+    <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(config.opensAt)} → ${registrationFormatTime(config.closesAt)}`)}</div>
     <span class="registration-link" data-reg-link title="${esc(url)}">${esc(url||'Public link unavailable on this device')}</span>
     <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="rotateRegistrationLink('${esc(ev.id)}')">Rotate link</button><button class="btn ghost" onclick="changeRegistrationLifecycle('${esc(ev.id)}','open')">Open</button><button class="btn ghost" onclick="changeRegistrationLifecycle('${esc(ev.id)}','closed')">Close</button><button class="btn danger" onclick="changeRegistrationLifecycle('${esc(ev.id)}','cancelled')">Cancel registration</button></div>
     <div class="registration-import-callout"><div><b>Registration entries</b><span>Preview accepted registrations before changing this event. Imports never generate a schedule or alter ratings.</span></div><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button></div>
@@ -10632,7 +10765,7 @@ window.rotateRegistrationLink=async evId=>{const ev=evById(evId);if(!ev||!(await
 window.changeRegistrationLifecycle=async(evId,status)=>{const ev=evById(evId);if(!ev)return;if(['closed','cancelled'].includes(status)&&!(await askConfirm(status==='cancelled'?'Cancel registration? The public page will show that registration was cancelled. Existing entries remain.':'Close registration now? Existing entries remain available. ',status==='cancelled'?'Cancel registration':'Close registration')))return;try{await EventRegistration.updateLifecycle(ev,status);toast(`Registration ${status}`);render();if(document.querySelector('[data-registration-dashboard]')){openRegistrationDashboard(evId);}}catch(error){toast(error.message);EventRegistration.patchDashboard();}};
 window.changeRegistrationEntryStatus=async(entryId,status)=>{const evId=EventRegistration.modalEventId,ev=evId&&evById(evId),state=evId&&EventRegistration.get(evId),entry=state?.entries?.find(row=>row.id===entryId);if(!ev||!entry||!canTransitionRegistrationStatus(entry.status,status))return;try{
   await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/status`,{method:'POST',body:{status,overrideCapacity:false}});await EventRegistration.refresh(evId);
-}catch(error){if(error.code==='CAPACITY_EXCEEDED'&&status==='accepted'){const capacity=state.capacity,after=(capacity.acceptedActivePlayers||0)+entry.activePlayerCount,cap=capacity.capacity;if(await askConfirm(`Accept this entire entry with a capacity override? Active positions will go from ${capacity.acceptedActivePlayers||0} to ${after}${cap==null?'':` against a capacity of ${cap}`}.`,'Accept over capacity')){try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/status`,{method:'POST',body:{status,overrideCapacity:true}});await EventRegistration.refresh(evId);toast('Accepted with capacity override');}catch(overrideError){toast(overrideError.message);}}}else toast(error.message);EventRegistration.patchDashboard();}};
+}catch(error){if(error.code==='CAPACITY_EXCEEDED'&&status==='accepted'){const summary=state.summary,accepted=summary?.playerCounts.acceptedActive||0,after=accepted+entry.activePlayerCount,cap=summary?.capacity.activePlayerCapacity;if(await askConfirm(`Accept this entire entry with a capacity override? Active positions will go from ${accepted} to ${after}${cap==null?'':` against a capacity of ${cap}`}.`,'Accept over capacity')){try{await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/status`,{method:'POST',body:{status,overrideCapacity:true}});await EventRegistration.refresh(evId);toast('Accepted with capacity override');}catch(overrideError){toast(overrideError.message);}}}else toast(error.message);EventRegistration.patchDashboard();}};
 window.changeRegistrationManagementAccess=async(entryId,action)=>{
   const evId=EventRegistration.modalEventId;if(!evId)return;
   if(['rotate','revoke'].includes(action)&&!(await askConfirm(action==='rotate'?'Rotate this team’s private management link? The old link will stop working immediately.':'Revoke this team’s private management access? The registration and roster will remain. ',action==='rotate'?'Rotate link':'Revoke access')))return;

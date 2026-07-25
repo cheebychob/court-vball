@@ -63,9 +63,33 @@ function organizerState() {
       totalSubstitutePlayers: 3, remainingAcceptedCapacity: 8,
     },
     organizerGets: 0,
+    summaryGets: 0,
+    dashboardGets: 0,
+    organizerActive: 0,
+    organizerMaxActive: 0,
+    organizerDelayMs: 0,
+    failOrganizer: false,
+    summary: null,
     configPosts: 0,
     lastConfigInput: null,
     failConfig: false,
+  };
+}
+
+function canonicalSummary(overrides = {}) {
+  return {
+    eventId: 'registration-event',
+    effectiveStatus: 'open',
+    entryCounts: { draft: 0, submitted: 0, needsReview: 0, accepted: 1, waitlisted: 0, declined: 0, withdrawn: 0 },
+    playerCounts: {
+      acceptedActive: 4, acceptedSubstitutes: 0, pendingActive: 0, pendingSubstitutes: 0,
+      waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 0,
+    },
+    capacity: { activePlayerCapacity: 12, acceptedActivePlayers: 4, remainingActiveSpots: 8, isUnlimited: false },
+    integration: { acceptedRegistrations: 1, importedRegistrations: 0, readyToImport: 1, blocked: 0, updatesAvailable: 0 },
+    revision: 10,
+    updatedAt: 10,
+    ...overrides,
   };
 }
 
@@ -106,11 +130,25 @@ async function mockWorker(page, state) {
         })
       });
     }
-    if (path === '/api/event-registration/organizer/registration-event' && request.method() === 'GET') {
+    const organizerMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)(\/summary)?$/);
+    if (organizerMatch && request.method() === 'GET') {
+      const organizer = state.organizers?.[organizerMatch[1]] || state;
       state.organizerGets++;
+      if (organizerMatch[2]) state.summaryGets++;
+      else state.dashboardGets++;
+      state.organizerActive++;
+      state.organizerMaxActive = Math.max(state.organizerMaxActive, state.organizerActive);
+      if (state.organizerDelayMs) await new Promise(resolve => setTimeout(resolve, state.organizerDelayMs));
+      state.organizerActive--;
+      if (state.failOrganizer) {
+        return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Registration summary is temporarily unavailable.' }) });
+      }
       return route.fulfill({
         status: 200, contentType: 'application/json',
-        body: JSON.stringify({ ok: true, configured: !!state.config, config: state.config, capacity: state.capacity, entries: state.entries, serverTime: Date.now() })
+        body: JSON.stringify({
+          ok: true, configured: !!organizer.config, config: organizer.config, summary: organizer.summary,
+          capacity: organizer.capacity, ...(organizerMatch[2] ? {} : { entries: organizer.entries }), serverTime: Date.now()
+        })
       });
     }
     if (path.endsWith('/status') && path.includes('/entries/')) {
@@ -195,6 +233,71 @@ test('registration normalization is backward-compatible, idempotent, format-awar
     substitutePlayers: 3, remainingAcceptedCapacity: 4,
   });
   expect(result.transitions).toEqual([true, false, true]);
+});
+
+test('canonical registration summary normalization is safe, numeric, idempotent, and keeps statuses, players, substitutes, capacity, and imports distinct', async ({ page }) => {
+  await seed(page, []);
+  await mockWorker(page, organizerState());
+  await page.goto('/');
+  const result = await page.evaluate(() => {
+    const raw = {
+      summary: {
+        eventId: 'summary-event', effectiveStatus: 'open',
+        entryCounts: { draft: '1', submitted: '2', needsReview: '3', accepted: '1', waitlisted: '4', declined: '5', withdrawn: '6' },
+        playerCounts: {
+          acceptedActive: '4', acceptedSubstitutes: '2', pendingActive: '9', pendingSubstitutes: '3',
+          waitlistedActive: '8', waitlistedSubstitutes: '1', totalSubstitutes: '6',
+        },
+        capacity: { activePlayerCapacity: '12', acceptedActivePlayers: '4', remainingActiveSpots: '8', isUnlimited: false },
+        integration: { acceptedRegistrations: '1', importedRegistrations: '0', readyToImport: '1', blocked: '2', updatesAvailable: '3' },
+        revision: '44', updatedAt: '43',
+      },
+    };
+    const before = JSON.stringify(raw), normalized = normalizeRegistrationSummary(raw);
+    const repeated = normalizeRegistrationSummary(normalized);
+    const legacy = normalizeRegistrationSummary({
+      eventId: 'legacy-event',
+      capacity: {
+        capacity: null, acceptedEntries: '1', submittedEntries: '2', needsReviewEntries: '3',
+        acceptedActivePlayers: '4', acceptedSubstitutePlayers: '2', remainingAcceptedCapacity: null,
+      },
+    });
+    const missing = normalizeRegistrationSummary(null, { eventId: 'missing-event' });
+    const importSummary = normalizeRegistrationImportSummary({ counts: { accepted: '4', imported: '1', ready: '2', updated: '1', blocked: '3', current: '1' }, revision: '9' });
+    return {
+      unchanged: before === JSON.stringify(raw), normalized,
+      idempotent: JSON.stringify(normalized) === JSON.stringify(repeated),
+      legacy, missing, importSummary,
+      statuses: REGISTRATION_ENTRY_STATUSES.slice(),
+    };
+  });
+  expect(result.unchanged).toBe(true);
+  expect(result.idempotent).toBe(true);
+  expect(result.normalized).toMatchObject({
+    eventId: 'summary-event',
+    entryCounts: { submitted: 2, needsReview: 3, accepted: 1, waitlisted: 4, declined: 5, withdrawn: 6 },
+    playerCounts: { acceptedActive: 4, acceptedSubstitutes: 2, pendingActive: 9, pendingSubstitutes: 3 },
+    capacity: { activePlayerCapacity: 12, acceptedActivePlayers: 4, remainingActiveSpots: 8, isUnlimited: false },
+    integration: { acceptedRegistrations: 1, importedRegistrations: 0, readyToImport: 1, blocked: 2, updatesAvailable: 3 },
+    revision: 44, updatedAt: 43,
+  });
+  expect(result.legacy).toMatchObject({
+    entryCounts: { accepted: 1, submitted: 2, needsReview: 3 },
+    playerCounts: { acceptedActive: 4, acceptedSubstitutes: 2 },
+    capacity: { activePlayerCapacity: null, remainingActiveSpots: null, isUnlimited: true },
+  });
+  expect(result.missing).toMatchObject({
+    eventId: 'missing-event',
+    entryCounts: { accepted: 0, submitted: 0, needsReview: 0 },
+    capacity: { activePlayerCapacity: null, remainingActiveSpots: null, isUnlimited: true },
+  });
+  expect(result.importSummary).toEqual({
+    acceptedRegistrations: 4, importedRegistrations: 1, readyToImport: 2,
+    blocked: 3, updatesAvailable: 1, current: 1, revision: 9,
+  });
+  expect(result.statuses).toEqual(['draft', 'submitted', 'needs_review', 'accepted', 'waitlisted', 'declined', 'withdrawn']);
+  expect(result.statuses).not.toContain('pending');
+  expect(result.statuses).not.toContain('approved');
 });
 
 test('event-registration player directory uses public-safe unique labels and a dedicated eligibility rule', async ({ page }) => {
@@ -319,6 +422,159 @@ test('failed registration persistence leaves the event unchanged and shows a ret
   expect(await page.evaluate(() => eventRegistration(evts[0]))).toMatchObject({ enabled: false, status: 'closed', publicToken: null });
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem('vb:events')))[0].registration).toBeUndefined();
   await expect(page.getByRole('button', { name: 'Save registration' })).toBeEnabled();
+});
+
+test('event card and management modal share live canonical counts without zero-loading, overlap, stale clearing, or a reload', async ({ page }) => {
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: Date.now() - 1000, closesAt: Date.now() + 100000,
+    activePlayerCapacity: 12, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: Date.now(),
+  };
+  const state = organizerState();
+  state.config = {
+    ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventDate: '2026-08-15',
+    eventFormat: 'fixedTeams', eventAvailable: true, effectiveStatus: 'open', archivedAt: null, createdAt: 1,
+  };
+  state.summary = canonicalSummary();
+  state.organizerDelayMs = 200;
+  await seed(page, [fixedEvent({ registration })]);
+  await mockWorker(page, state);
+  await page.goto('/');
+  await openEvent(page);
+
+  const card = page.locator('[data-registration-summary="registration-event"]');
+  const cardMetrics = card.locator('.registration-capacity-grid .num');
+  expect(await cardMetrics.allTextContents()).toEqual(['—', '—', '—', '—']);
+  await expect(cardMetrics.nth(0)).toHaveText('1');
+  await expect(cardMetrics.nth(1)).toHaveText('4');
+  await expect(cardMetrics.nth(2)).toHaveText('0');
+  await expect(cardMetrics.nth(3)).toHaveText('8');
+  expect(state.summaryGets).toBeGreaterThan(0);
+  expect(state.dashboardGets).toBe(0);
+  await page.evaluate(() => { document.querySelector('[data-registration-summary]').__identity = 'same-summary-card'; });
+  await page.evaluate(() => EventRegistration.refresh('registration-event'));
+  expect(await page.evaluate(() => document.querySelector('[data-registration-summary]').__identity)).toBe('same-summary-card');
+
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await expect(page.locator('[data-reg-accepted]')).toHaveText('1');
+  await expect(page.locator('[data-reg-active]')).toHaveText('4');
+  await expect.poll(() => state.dashboardGets).toBeGreaterThan(0);
+  expect(await page.evaluate(() => EventRegistration.get('registration-event').summary)).toMatchObject({
+    entryCounts: { accepted: 1 }, playerCounts: { acceptedActive: 4 }, revision: 10,
+  });
+
+  state.summary = canonicalSummary({
+    entryCounts: { draft: 0, submitted: 0, needsReview: 1, accepted: 1, waitlisted: 0, declined: 0, withdrawn: 0 },
+    playerCounts: {
+      acceptedActive: 4, acceptedSubstitutes: 1, pendingActive: 4, pendingSubstitutes: 0,
+      waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 1,
+    },
+    revision: 11, updatedAt: 11,
+  });
+  state.organizerDelayMs = 0;
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+  await expect(page.locator('[data-reg-pending]')).toHaveText('1');
+  await expect(page.locator('[data-reg-subs]')).toHaveText('1');
+  await expect(cardMetrics.nth(2)).toHaveText('1');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(cardMetrics.nth(0)).toHaveText('1');
+  await expect(cardMetrics.nth(1)).toHaveText('4');
+  await expect(cardMetrics.nth(2)).toHaveText('1');
+
+  state.failOrganizer = true;
+  await page.evaluate(() => EventRegistration.refresh('registration-event'));
+  await expect(cardMetrics.nth(0)).toHaveText('1');
+  await expect(cardMetrics.nth(1)).toHaveText('4');
+  await expect(card.locator('[data-registration-summary-error]')).toHaveText('Registration summary is temporarily unavailable.');
+
+  state.failOrganizer = false;
+  state.summary = canonicalSummary({
+    entryCounts: { draft: 0, submitted: 0, needsReview: 0, accepted: 2, waitlisted: 0, declined: 0, withdrawn: 0 },
+    playerCounts: {
+      acceptedActive: 8, acceptedSubstitutes: 1, pendingActive: 0, pendingSubstitutes: 0,
+      waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 1,
+    },
+    capacity: { activePlayerCapacity: null, acceptedActivePlayers: 8, remainingActiveSpots: null, isUnlimited: true },
+    integration: { acceptedRegistrations: 2, importedRegistrations: 0, readyToImport: 2, blocked: 0, updatesAvailable: 0 },
+    revision: 12, updatedAt: 12,
+  });
+  const before = state.organizerGets;
+  state.organizerDelayMs = 100;
+  await page.evaluate(() => Promise.all([
+    EventRegistration.refresh('registration-event'),
+    EventRegistration.refresh('registration-event'),
+    EventRegistration.refresh('registration-event'),
+  ]));
+  expect(state.organizerGets - before).toBe(1);
+  expect(state.organizerMaxActive).toBe(1);
+  await expect(cardMetrics.nth(0)).toHaveText('2');
+  await expect(cardMetrics.nth(1)).toHaveText('8');
+  await expect(cardMetrics.nth(3)).toHaveText('∞');
+  expect(await page.evaluate(() => EventRegistration.pollState)).toMatchObject({
+    visibleEventId: 'registration-event', modalEventId: null, scheduled: true, inFlight: [],
+  });
+});
+
+test('registration state and response sequencing stay scoped to stable event IDs when events refresh concurrently', async ({ page }) => {
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: Date.now() - 1000, closesAt: Date.now() + 100000,
+    activePlayerCapacity: 20, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: Date.now(),
+  };
+  const otherRegistration = { ...registration, publicToken: 'S'.repeat(43), publicUrl: `${WORKER}/register/${'S'.repeat(43)}` };
+  const otherEvent = fixedEvent({ id: 'registration-other', name: 'Other Event', teams: [], registration: otherRegistration });
+  const state = organizerState();
+  state.config = {
+    ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventDate: '2026-08-15',
+    eventFormat: 'fixedTeams', eventAvailable: true, effectiveStatus: 'open',
+  };
+  state.summary = canonicalSummary();
+  state.organizerDelayMs = 100;
+  state.organizers = {
+    'registration-other': {
+      config: {
+        ...otherRegistration, eventId: 'registration-other', eventName: 'Other Event', eventDate: '2026-08-15',
+        eventFormat: 'fixedTeams', eventAvailable: true, effectiveStatus: 'open',
+      },
+      summary: canonicalSummary({
+        eventId: 'registration-other',
+        entryCounts: { draft: 0, submitted: 0, needsReview: 0, accepted: 3, waitlisted: 1, declined: 0, withdrawn: 0 },
+        playerCounts: {
+          acceptedActive: 12, acceptedSubstitutes: 2, pendingActive: 0, pendingSubstitutes: 0,
+          waitlistedActive: 4, waitlistedSubstitutes: 0, totalSubstitutes: 2,
+        },
+        capacity: { activePlayerCapacity: 20, acceptedActivePlayers: 12, remainingActiveSpots: 8, isUnlimited: false },
+        integration: { acceptedRegistrations: 3, importedRegistrations: 0, readyToImport: 3, blocked: 0, updatesAvailable: 0 },
+        revision: 20, updatedAt: 20,
+      }),
+      capacity: { ...state.capacity, acceptedEntries: 3, acceptedActivePlayers: 12, remainingAcceptedCapacity: 8 },
+      entries: [],
+    },
+  };
+  await seed(page, [fixedEvent({ registration }), otherEvent]);
+  await mockWorker(page, state);
+  await page.goto('/');
+  await page.evaluate(() => Promise.all([
+    EventRegistration.refresh('registration-event'),
+    EventRegistration.refresh('registration-other'),
+  ]));
+  const summaries = await page.evaluate(() => ({
+    first: EventRegistration.get('registration-event').summary,
+    second: EventRegistration.get('registration-other').summary,
+  }));
+  expect(summaries.first).toMatchObject({ eventId: 'registration-event', entryCounts: { accepted: 1 }, playerCounts: { acceptedActive: 4 } });
+  expect(summaries.second).toMatchObject({ eventId: 'registration-other', entryCounts: { accepted: 3 }, playerCounts: { acceptedActive: 12 } });
+
+  await openEvent(page);
+  await expect(page.locator('[data-registration-summary] .registration-capacity-grid .num').nth(0)).toHaveText('1');
+  await page.evaluate(() => { window._evOpen = null; render({ scroll: 'top' }); });
+  await page.getByRole('button', { name: /Other Event/ }).click();
+  await expect(page.locator('[data-registration-summary] .registration-capacity-grid .num').nth(0)).toHaveText('3');
+  await expect(page.locator('[data-registration-summary] .registration-capacity-grid .num').nth(1)).toHaveText('12');
 });
 
 test('registration settings and dashboard fit a narrow mobile viewport without overlap', async ({ page }) => {
