@@ -596,7 +596,14 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   await page.goto('/');
   await openEvent(page);
   await page.getByRole('button', { name: 'Manage registrations' }).click();
-  await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
+  const dashboard = page.locator('[data-registration-dashboard]');
+  await expect(dashboard).toBeVisible();
+  for (const removed of ['Rotate link', 'Open', 'Close', 'Cancel registration']) {
+    await expect(dashboard.getByRole('button', { name: removed, exact: true })).toHaveCount(0);
+  }
+  for (const retained of ['Share link', 'Copy link', 'Settings', 'Review import', 'Event-day check-in']) {
+    await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
+  }
   const dashboardOverflow = await page.evaluate(() => document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth);
   expect(dashboardOverflow).toBeLessThanOrEqual(0);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
@@ -604,6 +611,8 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   const settingsOverflow = await page.evaluate(() => document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth);
   expect(settingsOverflow).toBeLessThanOrEqual(0);
   await expect(page.locator('#registrationEnabled')).toHaveAccessibleName(/Public registration enabled/);
+  await expect(page.locator('[data-registration-settings] input[type="checkbox"]')).toHaveCount(4);
+  await expect(page.locator('[data-registration-settings] input[type="checkbox"]:not(.court-checkbox-input)')).toHaveCount(0);
   const substituteToggle = page.locator('#registrationAllowSubstitutes');
   await expect(substituteToggle).toHaveAccessibleName(/Allow substitutes/);
   await page.locator('label[for="registrationAllowSubstitutes"]').click();
@@ -612,4 +621,33 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   await page.locator('label[for="registrationAllowSubstitutes"]').click();
   await expect(substituteToggle).toBeChecked();
   await expect(page.locator('#registrationMaxSubstitutes')).toBeEnabled();
+  const checkboxLayout = await page.evaluate(() => {
+    const row = document.querySelector('label[for="registrationEnabled"]');
+    const control = row.querySelector('.court-checkbox-control');
+    const nextField = row.nextElementSibling;
+    const rowBox = row.getBoundingClientRect(), fieldBox = nextField.getBoundingClientRect();
+    return {
+      rowHeight: rowBox.height,
+      gap: fieldBox.top - rowBox.bottom,
+      rowOutline: getComputedStyle(row).outlineStyle,
+      controlOutline: getComputedStyle(control).outlineStyle,
+    };
+  });
+  expect(checkboxLayout.rowHeight).toBeGreaterThanOrEqual(44);
+  expect(checkboxLayout.gap).toBeGreaterThanOrEqual(10);
+  expect(checkboxLayout.rowOutline).toBe('none');
+  expect(checkboxLayout.controlOutline).toBe('none');
+  await page.locator('#registrationEnabled').focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#registrationEnabled')).toBeFocused();
+  await expect(page.locator('label[for="registrationEnabled"] .court-checkbox-control')).toHaveCSS('outline-style', 'solid');
+  await expect(page.getByRole('button', { name: 'Rotate link', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Rotate link', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('old link will stop working immediately');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Cancel registration', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel registration', exact: true }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('Existing entries remain');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Cancel', exact: true }).click();
 });

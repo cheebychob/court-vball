@@ -812,12 +812,28 @@ test('matched-player duplicates are rejected safely within and across teams', as
       member('E'.repeat(22), 'j'),
       member('F'.repeat(22), 'k'),
       member('G'.repeat(22), 'l'),
+      member('B'.repeat(22), 'q', 'substitute'),
     ],
   });
   assert.equal(across.response.status, 409);
   assert.equal(across.body.code, 'PLAYER_ALREADY_REGISTERED');
+  assert.deepEqual(across.body.conflicts, [{ submittedName: 'Player 1' }, { submittedName: 'Player 2' }]);
+  assert.deepEqual(Object.keys(across.body.conflicts[0]), ['submittedName']);
   assert.doesNotMatch(across.body.message, /First|team/i);
   assert.equal(env.EVENT_REGISTRATION_DB.database.prepare("SELECT COUNT(*) AS count FROM event_registrations WHERE display_name IN ('Within', 'Across')").get().count, 0);
+
+  env.EVENT_REGISTRATION_DB.database.prepare("UPDATE event_registrations SET status = 'declined' WHERE display_name = 'First'").run();
+  const released = await submit(env, created.body.publicToken, {
+    registrationType: 'team',
+    teamName: 'Released',
+    members: [
+      member('A'.repeat(22), 'r'),
+      member('B'.repeat(22), 's'),
+      member('C'.repeat(22), 't'),
+      member('D'.repeat(22), 'u'),
+    ],
+  });
+  assert.equal(released.response.status, 201);
 
   const editable = await submit(env, created.body.publicToken, {
     registrationType: 'team',
@@ -841,7 +857,9 @@ test('matched-player duplicates are rejected safely within and across teams', as
     body: JSON.stringify({ revision: before.registration.revision, teamName: 'Editable', members: conflictMembers }),
   }), env);
   assert.equal(editConflict.status, 409);
-  assert.equal((await editConflict.json()).code, 'PLAYER_ALREADY_REGISTERED');
+  const editConflictBody = await editConflict.json();
+  assert.equal(editConflictBody.code, 'PLAYER_ALREADY_REGISTERED');
+  assert.deepEqual(editConflictBody.conflicts, [{ submittedName: 'Player 1' }]);
   const after = await (await worker.fetch(request(`/api/event-registration/manage/${managementToken}`), env)).json();
   assert.equal(after.registration.revision, before.registration.revision);
   assert.equal(after.registration.members.find(memberRow => memberRow.id === 'p'.repeat(22)).matchStatus, 'pending');

@@ -178,6 +178,13 @@ test('editor saves and cancels aliases and pickup eligibility, warns on duplicat
   await page.evaluate(() => openPlayer('edit', 'edit'));
 
   await expect(page.locator('[data-player-identity-warning]')).toContainText('Another player has this same display name');
+  await expect(page.locator('#pPickupEligible')).toHaveClass(/court-checkbox-input/);
+  await expect(page.locator('label[for="pPickupEligible"]')).toHaveClass(/court-checkbox-row/);
+  await expect(page.locator('label[for="pPickupEligible"]')).toHaveCSS('min-height', '44px');
+  await page.locator('#pAliases').focus();
+  await page.keyboard.press('Tab');
+  await expect(page.locator('#pPickupEligible')).toBeFocused();
+  await expect(page.locator('label[for="pPickupEligible"] .court-checkbox-control')).toHaveCSS('outline-style', 'solid');
   await page.locator('#pAliases').fill('  Caz, caz, , CJ ');
   await page.locator('#pPickupEligible').uncheck();
   await page.getByRole('button', { name: 'Save changes', exact: true }).click();

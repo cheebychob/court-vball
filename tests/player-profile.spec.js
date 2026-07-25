@@ -129,6 +129,40 @@ test('player cards open a streamlined read-only sports profile without crosshair
   expect(after).toEqual(before);
 });
 
+test('unrated profile keeps ordinary names readable without character-by-character wrapping', async ({ page }) => {
+  const unrated = [{
+    id: 'profile-unrated', name: 'Rachel Sventek', seedRating: 52, rating: 52, active: true, archived: false,
+    roles: { setter: true, passer: true, defense: true }, notes: '', history: [{ i: 0, r: 52 }],
+    gamesPlayed: 0, trackedGames: 0, wins: 0, losses: 0, lifetime: {},
+  }];
+  await seed(page, { playerList: unrated, gameList: [] });
+  await page.setViewportSize({ width: 900, height: 900 });
+  await page.goto('/');
+  await openProfile(page, 'Rachel Sventek');
+  await expect(page.locator('.player-profile-rating.unrated')).toContainText('Unrated');
+  await expect(page.locator('.player-profile-rating.rated')).toHaveCount(0);
+
+  for (const viewport of [{ width: 1280, height: 900 }, { width: 768, height: 1024 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    const layout = await page.evaluate(() => {
+      const name = document.querySelector('.player-profile-name'), identity = document.querySelector('.player-profile-identity');
+      const range = document.createRange(); range.selectNodeContents(name);
+      return {
+        wordBreak: getComputedStyle(name).wordBreak,
+        overflowWrap: getComputedStyle(name).overflowWrap,
+        identityWidth: identity.getBoundingClientRect().width,
+        nameOverflow: name.scrollWidth - name.clientWidth,
+        lines: range.getClientRects().length,
+      };
+    });
+    expect(layout.wordBreak).toBe('normal');
+    expect(layout.overflowWrap).not.toBe('anywhere');
+    expect(layout.identityWidth).toBeGreaterThan(150);
+    expect(layout.nameOverflow).toBeLessThanOrEqual(0);
+    expect(layout.lines).toBeLessThanOrEqual(2);
+  }
+});
+
 test('record win rate stays fully visible on iPhone and desktop widths', async ({ page }) => {
   await seed(page);
   await page.setViewportSize({ width: 390, height: 844 });
