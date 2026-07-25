@@ -1187,6 +1187,16 @@ function registrationPlayerConflictError(conflicts, headers = {}) {
   return registrationJson({ ok: false, code: "PLAYER_ALREADY_REGISTERED", message, conflicts: safeConflicts }, 409, headers);
 }
 
+function registrationValidationError(fieldErrors, headers = {}) {
+  return registrationJson({
+    ok: false,
+    error: "VALIDATION_ERROR",
+    code: "VALIDATION_ERROR",
+    message: "Review the highlighted contact information.",
+    fieldErrors,
+  }, 400, headers);
+}
+
 async function readRegistrationJson(request, maximum, headers = {}) {
   if (!isJsonRequest(request)) return { response: registrationError(415, "JSON_REQUIRED", "Use an application/json request.", headers) };
   const result = await readBoundedBody(request, maximum);
@@ -1257,6 +1267,70 @@ function cleanRegistrationName(value, maximum = REGISTRATION_MEMBER_NAME_MAX) {
   const clean = cleanRegistrationText(value, maximum);
   if (!clean || /[<>]/.test(clean)) return null;
   return clean.replace(/\s+/g, " ");
+}
+
+const REGISTRATION_CONTACT_METHODS = new Set(["", "email", "phone", "text", "none"]);
+
+function validateRegistrationContact(value, { required = true } = {}) {
+  const fieldErrors = {};
+  if (value == null && !required) return { value: null, fieldErrors };
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {
+      value: null,
+      fieldErrors: {
+        "contact.name": "Enter a contact name.",
+        "contact.emailOrPhone": "Enter an email address or phone number.",
+      },
+    };
+  }
+  const extra = unexpectedFields(value, ["name", "email", "phone", "preferredMethod", "notes"]);
+  if (extra.length) fieldErrors.contact = "Contact information contains unsupported fields.";
+  const name = cleanRegistrationName(value.name, 100);
+  const email = cleanRegistrationText(value.email, 254);
+  const phone = cleanRegistrationText(value.phone, 40);
+  const preferredMethod = cleanRegistrationText(value.preferredMethod, 20);
+  const notes = cleanRegistrationText(value.notes, 1000);
+  if (!name) fieldErrors["contact.name"] = "Enter a contact name.";
+  if (email == null) fieldErrors["contact.email"] = "Email address must be 254 characters or fewer.";
+  else if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fieldErrors["contact.email"] = "Enter a valid email address.";
+  if (phone == null) fieldErrors["contact.phone"] = "Phone number must be 40 characters or fewer.";
+  else if (phone && !/\d/.test(phone)) fieldErrors["contact.phone"] = "Enter a phone number with at least one digit.";
+  if (!email && !phone) fieldErrors["contact.emailOrPhone"] = "Enter an email address or phone number.";
+  if (preferredMethod == null || !REGISTRATION_CONTACT_METHODS.has(preferredMethod || "")) {
+    fieldErrors["contact.preferredMethod"] = "Choose a supported preferred contact method.";
+  } else if (preferredMethod === "email" && !email) {
+    fieldErrors["contact.preferredMethod"] = "Enter an email address before choosing Email.";
+  } else if ((preferredMethod === "phone" || preferredMethod === "text") && !phone) {
+    fieldErrors["contact.preferredMethod"] = `Enter a phone number before choosing ${preferredMethod === "text" ? "Text" : "Phone"}.`;
+  }
+  if (notes == null) fieldErrors["contact.notes"] = "Notes must be 1,000 characters or fewer.";
+  return {
+    value: Object.keys(fieldErrors).length ? null : {
+      name,
+      email: email.toLocaleLowerCase(),
+      phone,
+      preferredMethod: preferredMethod || "none",
+      notes,
+    },
+    fieldErrors,
+  };
+}
+
+function registrationContactView(row) {
+  if (!row?.contact_json || typeof row.contact_json !== "string") return null;
+  try {
+    const parsed = JSON.parse(row.contact_json);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    const name = cleanRegistrationName(parsed.name, 100) || "";
+    const email = cleanRegistrationText(parsed.email, 254) || "";
+    const phone = cleanRegistrationText(parsed.phone, 40) || "";
+    const notes = cleanRegistrationText(parsed.notes, 1000) || "";
+    let preferredMethod = REGISTRATION_CONTACT_METHODS.has(parsed.preferredMethod) ? parsed.preferredMethod : "none";
+    if ((preferredMethod === "email" && !email) || (["phone", "text"].includes(preferredMethod) && !phone)) preferredMethod = "none";
+    return name || email || phone || notes ? { name, email, phone, preferredMethod: preferredMethod || "none", notes } : null;
+  } catch {
+    return null;
+  }
 }
 
 function normalizeRegistrationAliases(value, primaryName = "") {
@@ -1487,6 +1561,7 @@ function registrationEntryView(row, members = []) {
     managementAccessRevoked: row.management_token_revoked_at != null || !row.management_token_hash,
     lastEditedAt: row.last_edited_at == null ? null : Number(row.last_edited_at),
     revision: Number(row.revision) || 1,
+    contact: registrationContactView(row),
     members,
   };
 }
@@ -1710,7 +1785,8 @@ async function organizerRegistrationDashboard(request, env, url, eventId) {
     d1Rows(env.EVENT_REGISTRATION_DB.prepare(`
       SELECT id, registration_type, display_name, status, active_player_count, substitute_count,
              created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override,
-             editing_locked, public_edit_override, management_token_hash, management_token_revoked_at, last_edited_at, revision
+             editing_locked, public_edit_override, management_token_hash, management_token_revoked_at, last_edited_at, revision,
+             contact_json
       FROM event_registrations
       WHERE event_id = ?
       ORDER BY COALESCE(submitted_at, created_at) DESC, id ASC
@@ -1784,6 +1860,7 @@ function registrationImportEntryView(row, members, imported) {
     createdAt: Number(row.created_at) || null,
     submittedAt: row.submitted_at == null ? null : Number(row.submitted_at),
     updatedAt: Number(row.updated_at),
+    contact: registrationContactView(row),
     members,
     imported: imported ? {
       localEntryId: imported.local_entry_id,
@@ -1805,7 +1882,8 @@ async function organizerRegistrationImportPreview(request, env, eventId) {
     getEventRegistrationSummary(db, auth.ownerScope, eventId, config),
     d1Rows(db.prepare(`
       SELECT id, event_id, registration_type, display_name, status, active_player_count,
-             substitute_count, capacity_override, revision, created_at, submitted_at, updated_at
+             substitute_count, capacity_override, revision, created_at, submitted_at, updated_at,
+             contact_json
       FROM event_registrations
       WHERE event_id = ?
       ORDER BY COALESCE(submitted_at, created_at), id
@@ -2414,14 +2492,16 @@ async function resolveRegistrationMembers(db, config, rawMembers, existingMember
 }
 
 function validatePublicRegistrationSubmission(body, config) {
-  const extra = unexpectedFields(body, ["registrationType", "teamName", "displayName", "members", "activePlayerCount", "substituteCount", "idempotencyKey"]);
+  const extra = unexpectedFields(body, ["registrationType", "teamName", "displayName", "members", "activePlayerCount", "substituteCount", "idempotencyKey", "contact"]);
   if (extra.length) return { error: ["INVALID_FIELDS", "The registration submission contains unsupported fields."] };
   if (body.registrationType !== config.mode) return { error: ["INVALID_REGISTRATION_TYPE", "This submission type does not match the event registration mode."] };
   const displayName = cleanRegistrationName(body.teamName ?? body.displayName, REGISTRATION_DISPLAY_NAME_MAX);
-  if (!displayName) return { error: ["INVALID_TEAM_NAME", "A valid team name is required."] };
+  if (!displayName) return { error: ["INVALID_TEAM_NAME", config.mode === "individual" ? "A valid registrant name is required." : "A valid team name is required."] };
+  const contact = validateRegistrationContact(body.contact);
+  if (Object.keys(contact.fieldErrors).length) return { fieldErrors: contact.fieldErrors };
   const idempotencyKey = body.idempotencyKey == null ? null : String(body.idempotencyKey);
   if (idempotencyKey != null && !TOKEN_PATTERN.test(idempotencyKey)) return { error: ["INVALID_IDEMPOTENCY_KEY", "The submission request identifier is invalid."] };
-  if (body.members != null) return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), members: body.members, idempotencyKey } };
+  if (body.members != null) return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), members: body.members, contact: contact.value, idempotencyKey } };
   const activePlayerCount = registrationInteger(body.activePlayerCount, { nullable: false, minimum: 1, maximum: 1000 });
   const substituteCount = registrationInteger(body.substituteCount, { nullable: false, minimum: 0, maximum: 1000 });
   if (activePlayerCount === undefined || substituteCount === undefined) return { error: ["INVALID_ROSTER_COUNT", "Active-player and substitute counts are invalid."] };
@@ -2430,7 +2510,7 @@ function validatePublicRegistrationSubmission(body, config) {
   if (config.max_active_players_per_team != null && activePlayerCount > Number(config.max_active_players_per_team)) return { error: ["ROSTER_TOO_LARGE", "The active roster exceeds the event maximum."] };
   if (!Number(config.allow_substitutes) && substituteCount > 0) return { error: ["SUBSTITUTES_NOT_ALLOWED", "This event does not allow substitutes."] };
   if (config.max_substitutes_per_team != null && substituteCount > Number(config.max_substitutes_per_team)) return { error: ["TOO_MANY_SUBSTITUTES", "The substitute count exceeds the event limit."] };
-  return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), activePlayerCount, substituteCount, legacyCountsOnly: true, idempotencyKey } };
+  return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), activePlayerCount, substituteCount, contact: contact.value, legacyCountsOnly: true, idempotencyKey } };
 }
 
 function validateRegistrationRosterCounts(config, activePlayerCount, substituteCount) {
@@ -2455,6 +2535,7 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   const parsed = await readRegistrationJson(request, MAX_PUBLIC_REGISTRATION_BODY_BYTES);
   if (parsed.response) return parsed.response;
   const validated = validatePublicRegistrationSubmission(parsed.value, config);
+  if (validated.fieldErrors) return registrationValidationError(validated.fieldErrors);
   if (validated.error) return registrationError(400, validated.error[0], validated.error[1]);
   const value = validated.value, now = Date.now(), entryId = randomToken(), db = env.EVENT_REGISTRATION_DB;
   let members = [], activePlayerCount = value.activePlayerCount, substituteCount = value.substituteCount, hasPending = false, rosterWarnings = [];
@@ -2501,7 +2582,8 @@ async function submitPublicRegistration(request, env, url, publicToken) {
       id, event_id, registration_type, display_name, status, active_player_count, substitute_count,
       created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override,
       normalized_team_name, management_token_hash, management_token_rotated_at,
-      management_token_revoked_at, editing_locked, last_edited_at, revision, last_edit_key
+      management_token_revoked_at, editing_locked, last_edited_at, revision, last_edit_key,
+      contact_json
     )
     SELECT
       ?, c.event_id, ?, ?,
@@ -2514,7 +2596,7 @@ async function submitPublicRegistration(request, env, url, publicToken) {
         ELSE 'accepted'
       END,
       ?, ?, ?, ?, ?, NULL, NULL, 0,
-      ?, ?, ?, NULL, 0, ?, 1, ?
+      ?, ?, ?, NULL, 0, ?, 1, ?, ?
     FROM event_registration_configs c
     WHERE c.public_token_hash = ? AND c.enabled = 1 AND c.event_available = 1
       AND c.status IN ('open', 'scheduled')
@@ -2530,7 +2612,7 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   `).bind(
     entryId, config.mode, value.displayName, hasPending ? 1 : 0, activePlayerCount,
     activePlayerCount, substituteCount, now, now, now,
-    value.normalizedTeamName, managementTokenHash, now, now, value.idempotencyKey,
+    value.normalizedTeamName, managementTokenHash, now, now, value.idempotencyKey, JSON.stringify(value.contact),
     tokenHash, now, now, MAX_REGISTRATION_ENTRIES_PER_EVENT, activePlayerCount, ...matchedIds
   );
   const memberStatements = members.map(member => db.prepare(`
@@ -2577,7 +2659,7 @@ async function submitPublicRegistration(request, env, url, publicToken) {
       substituteCount: Number(row.substitute_count),
       submittedAt: Number(row.submitted_at),
       managementUrl,
-      message: "Your team is registered. Save the private management link.",
+      message: config.mode === "individual" ? "Your registration is submitted. Save the private management link." : "Your team is registered. Save the private management link.",
       warnings: rosterWarnings,
     },
     capacity: {
@@ -2984,6 +3066,43 @@ async function withdrawManagedRegistration(request, env, managementToken) {
   return getManagedRegistration(request, env, managementToken);
 }
 
+async function updateOrganizerRegistrationContact(request, env, eventId, entryId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId) || !TOKEN_PATTERN.test(entryId)) {
+    return registrationError(404, "ENTRY_NOT_FOUND", "The registration entry was not found.", auth.headers);
+  }
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["contact", "revision"]).length) {
+    return registrationError(400, "INVALID_FIELDS", "The contact update contains unsupported fields.", auth.headers);
+  }
+  const revision = registrationInteger(parsed.value.revision, { nullable: false, minimum: 1, maximum: 1_000_000_000 });
+  if (revision === undefined) {
+    return registrationError(400, "INVALID_REVISION", "The registration revision is invalid.", auth.headers);
+  }
+  const contact = validateRegistrationContact(parsed.value.contact);
+  if (Object.keys(contact.fieldErrors).length) return registrationValidationError(contact.fieldErrors, auth.headers);
+  const db = env.EVENT_REGISTRATION_DB;
+  const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const now = Date.now();
+  const result = await db.prepare(`
+    UPDATE event_registrations
+    SET contact_json = ?, updated_at = ?, last_edited_at = ?, revision = revision + 1
+    WHERE id = ? AND event_id = ? AND revision = ?
+  `).bind(JSON.stringify(contact.value), now, now, entryId, eventId, revision).run();
+  if (!Number(result?.meta?.changes)) {
+    const exists = await d1First(db.prepare("SELECT 1 AS found FROM event_registrations WHERE id = ? AND event_id = ?").bind(entryId, eventId));
+    return registrationError(exists ? 409 : 404, exists ? "REGISTRATION_CONFLICT" : "ENTRY_NOT_FOUND", exists ? "This registration changed on another device. Refresh and try again." : "The registration entry was not found.", auth.headers);
+  }
+  const updated = await d1First(db.prepare("SELECT * FROM event_registrations WHERE id = ? AND event_id = ?").bind(entryId, eventId));
+  return registrationJson({
+    ok: true,
+    entry: registrationEntryView(updated, (await registrationMembersFor(db, entryId)).map(member => registrationMemberView(member, { organizer: true }))),
+  }, 200, auth.headers);
+}
+
 async function updateOrganizerManagementAccess(request, env, url, eventId, entryId) {
   const auth = await authorizeRegistrationOrganizer(request, env);
   if (auth.response) return auth.response;
@@ -3155,30 +3274,43 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
   const root=document.querySelector('[data-registration-root]'),token=root?.dataset.token||'';
   const api='/api/event-registration/public/'+encodeURIComponent(token);
   const storageKey='court-registration-management:'+token;
-  let config=null,members=[],addingRole='active',busy=false,searchTimer=null,submission=null,notice='',reviewOpen=false,submissionKey=null;
+  let config=null,members=[],addingRole='active',busy=false,searchTimer=null,submission=null,notice='',reviewOpen=false,submissionKey=null,contact={name:'',email:'',phone:'',preferredMethod:'none',notes:''},contactErrors={};
   const el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([key,value])=>{if(key==='class')node.className=value;else if(value!==false&&value!=null)node.setAttribute(key,value===true?'':String(value))});node.textContent=text;return node};
   const uid=()=>{const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'')};
   const eventDate=value=>{if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(value||''))return '';const parts=value.split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2],12).toLocaleDateString([],{weekday:'long',month:'long',day:'numeric',year:'numeric'})};
   const say=text=>{const node=root.querySelector('[data-message]');if(node)node.textContent=text||''};
   const statusLabel=value=>({submitted:'Submitted',needs_review:'Needs organizer review',accepted:'Accepted',waitlisted:'Waitlisted',withdrawn:'Withdrawn'})[value]||value;
-  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'Registration is unavailable.');error.code=data.code;error.conflicts=Array.isArray(data.conflicts)?data.conflicts.filter(row=>row&&typeof row.submittedName==='string').map(row=>({submittedName:row.submittedName})):[];throw error}return data}
+  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'Registration is unavailable.');error.code=data.code;error.fieldErrors=data.fieldErrors&&typeof data.fieldErrors==='object'?data.fieldErrors:{};error.conflicts=Array.isArray(data.conflicts)?data.conflicts.filter(row=>row&&typeof row.submittedName==='string').map(row=>({submittedName:row.submittedName})):[];throw error}return data}
   function submissionErrorMessage(error){if(error.code!=='PLAYER_ALREADY_REGISTERED'||!error.conflicts?.length)return error.message;const names=error.conflicts.map(row=>row.submittedName.trim()).filter(Boolean);if(!names.length)return error.message;const conflict=names.length===1?names[0]+' is already listed on another registration for this event.':'These players are already listed on another registration for this event:\\n'+names.map(name=>'• '+name).join('\\n');return conflict+'\\n\\nRemove the conflicting player'+(names.length===1?'':'s')+', use a different roster, or contact the organizer if the existing registration should be changed.'}
   function header(card){card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},config?.title||'Event registration'));if(config?.eventDate)card.append(el('p',{class:'date'},eventDate(config.eventDate)));if(config?.description)card.append(el('p',{class:'description'},config.description))}
   function focus(selector){requestAnimationFrame(()=>root.querySelector(selector)?.focus({preventScroll:true}))}
-  function focusable(dialog){return [...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')].filter(node=>!node.hidden&&node.getClientRects().length)}
+  function focusable(dialog){return [...dialog.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href],[tabindex]:not([tabindex="-1"])')].filter(node=>!node.hidden&&node.getClientRects().length)}
   function trapFocus(dialog,event){const nodes=focusable(dialog);if(!nodes.length){event.preventDefault();dialog.focus();return}const first=nodes[0],last=nodes[nodes.length-1];if(!dialog.contains(document.activeElement)){event.preventDefault();(event.shiftKey?last:first).focus()}else if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}}
   function validateDraft(){
     const teamName=(root.dataset.teamName||'').trim(),activeMembers=members.filter(member=>member.rosterRole==='active'),substituteMembers=members.filter(member=>member.rosterRole==='substitute'),warnings=[];
-    if(!teamName)return {valid:false,message:'Enter a team name.',focus:'#team-name'};
+    contactErrors={};
+    if(!teamName)return {valid:false,message:config.mode==='individual'?'Enter a registration name.':'Enter a team name.',focus:'#team-name'};
     const active=activeMembers.length,subs=substituteMembers.length,min=config.minActivePlayersPerTeam,max=config.maxActivePlayersPerTeam,subMax=config.maxSubstitutesPerTeam;
     if(min!=null&&active<min)return {valid:false,message:'Add at least '+min+' active players.',focus:'[data-add-role="active"]'};
     if(max!=null&&active>max)return {valid:false,message:'Active roster cannot exceed '+max+'.',focus:'[data-add-role="active"]'};
     if(!config.allowSubstitutes&&subs)return {valid:false,message:'This event does not allow substitutes.',focus:'[data-add-role="active"]'};
     if(subMax!=null&&subs>subMax)return {valid:false,message:'Substitutes cannot exceed '+subMax+'.',focus:'[data-add-role="substitute"]'};
+    const cleanContact={name:contact.name.trim(),email:contact.email.trim(),phone:contact.phone.trim(),preferredMethod:contact.preferredMethod||'none',notes:contact.notes.trim()};
+    if(!cleanContact.name)contactErrors['contact.name']='Enter a contact name.';
+    if(cleanContact.email&&!/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(cleanContact.email))contactErrors['contact.email']='Enter a valid email address.';
+    if(cleanContact.phone&&!/\\d/.test(cleanContact.phone))contactErrors['contact.phone']='Enter a phone number with at least one digit.';
+    if(!cleanContact.email&&!cleanContact.phone)contactErrors['contact.emailOrPhone']='Enter an email address or phone number.';
+    if(!['email','phone','text','none'].includes(cleanContact.preferredMethod))contactErrors['contact.preferredMethod']='Choose a supported preferred contact method.';
+    else if(cleanContact.preferredMethod==='email'&&!cleanContact.email)contactErrors['contact.preferredMethod']='Enter an email address before choosing Email.';
+    else if(['phone','text'].includes(cleanContact.preferredMethod)&&!cleanContact.phone)contactErrors['contact.preferredMethod']='Enter a phone number before choosing '+(cleanContact.preferredMethod==='text'?'Text.':'Phone.');
+    if(Object.keys(contactErrors).length){
+      const first=['contact.name','contact.email','contact.emailOrPhone','contact.phone','contact.preferredMethod'].find(key=>contactErrors[key]);
+      return {valid:false,message:'Review the highlighted contact information.',focus:first==='contact.name'?'#contact-name':first==='contact.phone'?'#contact-phone':first==='contact.preferredMethod'?'#contact-method':'#contact-email'};
+    }
     const pending=members.filter(member=>!member.publicPlayerToken).length;
     if(pending)warnings.push(pending+' player name'+(pending===1?' needs':'s need')+' organizer review before the roster can be accepted.');
     if(config.capacity?.full&&config.allowWaitlist)warnings.push('Active capacity is full, so this team may be waitlisted.');
-    return {valid:true,teamName,activeMembers,substituteMembers,warnings};
+    return {valid:true,teamName,activeMembers,substituteMembers,contact:cleanContact,warnings};
   }
   function memberList(title,rows){const section=el('section',{class:'review-roster','aria-label':title}),heading=el('div',{class:'review-roster-heading'});heading.append(el('b',{},title),el('span',{},String(rows.length)));section.append(heading);const list=el('ul');rows.forEach(member=>list.append(el('li',{},member.displayName)));section.append(list);return section}
   function closeReview(){
@@ -3189,12 +3321,19 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
     const draft=validateDraft();
     if(!draft.valid){reviewOpen=false;notice=draft.message;render();focus(draft.focus);return}
     const dialog=el('main',{class:'review-dialog',role:'dialog','aria-modal':'true','aria-labelledby':'registration-review-title','aria-describedby':'registration-review-summary'});
-    const head=el('header',{class:'review-header'});head.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{id:'registration-review-title'},'Review your team'),el('p',{id:'registration-review-summary',class:'muted'},'Confirm the team and roster below before sending it to the organizer.'));dialog.append(head);
+    const head=el('header',{class:'review-header'});head.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{id:'registration-review-title'},config.mode==='individual'?'Review registration':'Review your team'),el('p',{id:'registration-review-summary',class:'muted'},config.mode==='individual'?'Confirm the participant and contact below before sending it to the organizer.':'Confirm the team, roster, and contact below before sending it to the organizer.'));dialog.append(head);
     const body=el('div',{class:'review-body'}),summary=el('section',{class:'review-summary','aria-label':'Registration summary'});
     summary.append(el('span',{class:'review-label'},'Team / entry name'),el('b',{class:'review-team'},draft.teamName),el('span',{class:'review-count'},draft.activeMembers.length+' active player'+(draft.activeMembers.length===1?'':'s')+' · '+draft.substituteMembers.length+' substitute'+(draft.substituteMembers.length===1?'':'s')));
-    body.append(summary,memberList('Active roster',draft.activeMembers));
+    body.append(summary,memberList(config.mode==='individual'?'Participant':'Active roster',draft.activeMembers));
     if(draft.substituteMembers.length)body.append(memberList('Substitutes',draft.substituteMembers));
     else body.append(el('p',{class:'muted review-empty'},'No substitutes listed.'));
+    const contactSummary=el('section',{class:'review-summary','aria-label':config.mode==='individual'?'Registrant contact':'Team contact'});
+    contactSummary.append(el('span',{class:'review-label'},config.mode==='individual'?'Registrant contact':'Team contact'),el('b',{class:'review-team'},draft.contact.name));
+    if(draft.contact.email)contactSummary.append(el('span',{class:'review-contact-line'},draft.contact.email));
+    if(draft.contact.phone)contactSummary.append(el('span',{class:'review-contact-line'},draft.contact.phone));
+    contactSummary.append(el('span',{class:'review-count'},'Preferred: '+({email:'Email',phone:'Phone',text:'Text',none:'No preference'}[draft.contact.preferredMethod]||'No preference')));
+    if(draft.contact.notes)contactSummary.append(el('p',{class:'review-note'},draft.contact.notes));
+    body.append(contactSummary);
     if(draft.warnings.length){const warnings=el('section',{class:'review-warnings',role:'status','aria-label':'Registration warnings'});warnings.append(el('b',{},'Before you submit'));draft.warnings.forEach(warning=>warnings.append(el('p',{},warning)));body.append(warnings)}
     body.append(el('p',{'data-message':'',class:'message',role:'alert','aria-live':'assertive'},notice));dialog.append(body);
     const actions=el('footer',{class:'review-actions'}),back=el('button',{type:'button',class:'secondary'},'Back to edit'),submit=el('button',{type:'button',class:'primary'},busy?'Submitting…':'Submit registration');
@@ -3204,12 +3343,25 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
   function rosterRule(role){if(role==='active'){const min=config.minActivePlayersPerTeam,max=config.maxActivePlayersPerTeam;return min===max&&min!=null?String(min)+' required':(min==null?'No minimum':String(min)+' minimum')+' · '+(max==null?'no maximum':String(max)+' maximum')}return config.maxSubstitutesPerTeam==null?'Optional substitutes':'Up to '+config.maxSubstitutesPerTeam+' allowed'}
   function memberRow(member){const row=el('div',{class:'member-row'}),copy=el('span',{},member.displayName),actions=el('span',{class:'member-actions'}),move=el('button',{type:'button','aria-label':'Move '+member.displayName+' to '+(member.rosterRole==='active'?'substitutes':'active players')},member.rosterRole==='active'?'Move to substitutes':'Move to active'),remove=el('button',{type:'button',class:'danger','aria-label':'Remove '+member.displayName},'Remove');move.addEventListener('click',()=>{member.rosterRole=member.rosterRole==='active'?'substitute':'active';notice=member.displayName+' moved to '+(member.rosterRole==='active'?'active roster.':'substitutes.');render()});remove.addEventListener('click',()=>{members=members.filter(row=>row.id!==member.id);notice=member.displayName+' removed.';render()});actions.append(move,remove);row.append(copy,actions);return row}
   function rosterSection(card,role,title){const section=el('section',{class:'roster-section','aria-labelledby':'heading-'+role}),heading=el('div',{class:'section-heading'}),count=members.filter(member=>member.rosterRole===role).length;heading.append(el('span',{id:'heading-'+role},title),el('span',{class:'count'},count+' · '+rosterRule(role)));section.append(heading);members.filter(member=>member.rosterRole===role).forEach(member=>section.append(memberRow(member)));if(!members.some(member=>member.rosterRole===role))section.append(el('p',{class:'muted'},role==='active'?'No active players added yet.':'No substitutes added.'));const add=el('button',{type:'button',class:'secondary','data-add-role':role,'aria-label':'Add '+(role==='active'?'active player':'substitute')},role==='active'?'Add active player':'Add substitute');add.addEventListener('click',()=>openSearch(role));section.append(add);card.append(section)}
-  function render(){if(reviewOpen){renderReview();return}root.replaceChildren();const card=el('main',{class:'registration-card'});header(card);if(submission){const box=el('section',{class:'success'});box.append(el('h2',{},'Your team is registered'),el('p',{},submission.teamName+' · '+statusLabel(submission.status)),el('p',{class:'warning'},'Save this private link. Anyone with it can manage this registration.'));(submission.warnings||[]).forEach(warning=>box.append(el('p',{class:'warning'},warning)));const link=el('a',{href:submission.managementUrl,class:'management-link'},submission.managementUrl),copy=el('button',{type:'button',class:'primary'},'Copy management link'),share=el('button',{type:'button',class:'secondary'},'Share management link'),open=el('a',{href:submission.managementUrl,class:'button-link'},'Open registration');copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(submission.managementUrl);say('Management link copied.')}catch{say('Copy the link shown above.')}});share.addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'Court team registration',url:submission.managementUrl});return}catch(error){if(error?.name==='AbortError')return}}try{await navigator.clipboard.writeText(submission.managementUrl);say('Sharing is unavailable, so the management link was copied.')}catch{say('Copy the link shown above.')}});box.append(link,copy,share,open);card.append(box,el('p',{'data-message':'',class:'message',role:'status','aria-live':'polite'},notice));notice='';root.append(card);return}if(config.status!=='open'){const label=config.status==='scheduled'?'Registration has not opened yet.':config.status==='cancelled'?'Registration was cancelled.':'Registration is closed.';card.append(el('div',{class:'status'},label));root.append(card);return}if(config.mode!=='team'){card.append(el('div',{class:'status'},'This link accepts individual registrations. Team registration is not available for this event.'));root.append(card);return}const capacity=el('div',{class:'capacity'});capacity.append(el('b',{},config.capacity.activePlayerCapacity==null?'Active-player capacity is unlimited.':config.capacity.full?(config.allowWaitlist?'Active capacity is full; valid teams join the waitlist.':'Registration is full.'):config.capacity.remainingActivePlayers+' active spots remaining'),el('span',{},'Substitutes do not use active-player capacity.'));card.append(capacity);const label=el('label',{for:'team-name'},'Team name'),input=el('input',{id:'team-name',maxlength:'100',autocomplete:'organization',placeholder:'Team name',value:root.dataset.teamName||'','aria-describedby':'registration-message'});input.value=root.dataset.teamName||'';input.addEventListener('input',()=>root.dataset.teamName=input.value);card.append(label,input);rosterSection(card,'active','Active roster');if(config.allowSubstitutes)rosterSection(card,'substitute','Substitutes');const submit=el('button',{type:'button',class:'primary','data-review-submit':''},'Review and submit');submit.addEventListener('click',openReview);card.append(submit,el('p',{id:'registration-message','data-message':'',class:'message',role:'alert','aria-live':'assertive'},notice));notice='';root.append(card)}
+  function contactSection(card){
+    const section=el('section',{class:'contact-section','aria-labelledby':'contact-heading'});section.append(el('div',{class:'section-heading',id:'contact-heading'},config.mode==='individual'?'Registrant contact':'Team contact'),el('p',{class:'muted'},'Used only by the event organizer for registration questions and updates.'));
+    const field=(id,label,attrs,key,errorKeys=[key])=>{const labelNode=el('label',{for:id},label),input=el('input',{id,...attrs,value:contact[key],'aria-describedby':id+'-error'});input.value=contact[key];const error=el('span',{id:id+'-error',class:'field-error',role:'alert'},errorKeys.map(name=>contactErrors['contact.'+name]).find(Boolean)||'');input.addEventListener('input',()=>{contact[key]=input.value;errorKeys.forEach(name=>delete contactErrors['contact.'+name]);error.textContent='';updateMethods()});section.append(labelNode,input,error)};
+    field('contact-name','Contact name',{maxlength:'100',autocomplete:'name'},'name');
+    field('contact-email','Email address',{type:'email',maxlength:'254',autocomplete:'email',inputmode:'email'},'email',['email','emailOrPhone']);
+    field('contact-phone','Phone number',{type:'tel',maxlength:'40',autocomplete:'tel',inputmode:'tel'},'phone',['phone','emailOrPhone']);
+    const methodLabel=el('label',{for:'contact-method'},'Preferred contact method'),method=el('select',{id:'contact-method','aria-describedby':'contact-method-error'}),methodError=el('span',{id:'contact-method-error',class:'field-error',role:'alert'},contactErrors['contact.preferredMethod']||'');
+    [['none','No preference'],['email','Email'],['phone','Phone'],['text','Text']].forEach(([value,label])=>{const option=el('option',{value},label);option.selected=contact.preferredMethod===value;method.append(option)});method.addEventListener('change',()=>{contact.preferredMethod=method.value;delete contactErrors['contact.preferredMethod'];methodError.textContent=''});
+    section.append(methodLabel,method,methodError);
+    const notesLabel=el('label',{for:'contact-notes'},'Notes to organizer'),notes=el('textarea',{id:'contact-notes',maxlength:'1000',rows:'4'},contact.notes);notes.value=contact.notes;notes.addEventListener('input',()=>contact.notes=notes.value);section.append(notesLabel,notes,el('p',{class:'privacy-note'},'Contact information is shared only with the event organizer and is not shown publicly.'));
+    function updateMethods(){const email=contact.email.trim(),phone=contact.phone.trim();method.querySelector('option[value="email"]').disabled=!email;method.querySelector('option[value="phone"]').disabled=!phone;method.querySelector('option[value="text"]').disabled=!phone;if(method.selectedOptions[0]?.disabled){contact.preferredMethod='none';method.value='none'}}
+    updateMethods();card.append(section);
+  }
+  function render(){if(reviewOpen){renderReview();return}root.replaceChildren();const card=el('main',{class:'registration-card'});header(card);if(submission){const box=el('section',{class:'success'});box.append(el('h2',{},config.mode==='individual'?'Your registration is submitted':'Your team is registered'),el('p',{},submission.teamName+' · '+statusLabel(submission.status)),el('p',{class:'warning'},'Save this private link. Anyone with it can manage this registration.'));(submission.warnings||[]).forEach(warning=>box.append(el('p',{class:'warning'},warning)));const link=el('a',{href:submission.managementUrl,class:'management-link'},submission.managementUrl),copy=el('button',{type:'button',class:'primary'},'Copy management link'),share=el('button',{type:'button',class:'secondary'},'Share management link'),open=el('a',{href:submission.managementUrl,class:'button-link'},'Open registration');copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(submission.managementUrl);say('Management link copied.')}catch{say('Copy the link shown above.')}});share.addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'Court registration',url:submission.managementUrl});return}catch(error){if(error?.name==='AbortError')return}}try{await navigator.clipboard.writeText(submission.managementUrl);say('Sharing is unavailable, so the management link was copied.')}catch{say('Copy the link shown above.')}});box.append(link,copy,share,open);card.append(box,el('p',{'data-message':'',class:'message',role:'status','aria-live':'polite'},notice));notice='';root.append(card);return}if(config.status!=='open'){const label=config.status==='scheduled'?'Registration has not opened yet.':config.status==='cancelled'?'Registration was cancelled.':'Registration is closed.';card.append(el('div',{class:'status'},label));root.append(card);return}const capacity=el('div',{class:'capacity'});capacity.append(el('b',{},config.capacity.activePlayerCapacity==null?'Active-player capacity is unlimited.':config.capacity.full?(config.allowWaitlist?'Active capacity is full; valid entries join the waitlist.':'Registration is full.'):config.capacity.remainingActivePlayers+' active spots remaining'),el('span',{},'Substitutes do not use active-player capacity.'));card.append(capacity);const individual=config.mode==='individual',label=el('label',{for:'team-name'},individual?'Registration name':'Team name'),input=el('input',{id:'team-name',maxlength:'100',autocomplete:individual?'name':'organization',placeholder:individual?'Registrant name':'Team name',value:root.dataset.teamName||'','aria-describedby':'registration-message'});input.value=root.dataset.teamName||'';input.addEventListener('input',()=>root.dataset.teamName=input.value);card.append(label,input);rosterSection(card,'active',individual?'Participant':'Active roster');if(config.allowSubstitutes)rosterSection(card,'substitute','Substitutes');contactSection(card);const submit=el('button',{type:'button',class:'primary','data-review-submit':''},'Review and submit');submit.addEventListener('click',openReview);card.append(submit,el('p',{id:'registration-message','data-message':'',class:'message',role:'alert','aria-live':'assertive'},notice));notice='';root.append(card)}
   function openSearch(role){addingRole=role;const dialog=el('div',{class:'search-panel',role:'dialog','aria-modal':'true','aria-labelledby':'player-search-title'}),title=el('h2',{id:'player-search-title'},role==='active'?'Add active player':'Add substitute'),input=el('input',{type:'search',autocomplete:'off',placeholder:'Search names','aria-label':'Search Court players'}),results=el('div',{class:'search-results',role:'listbox'}),unknown=el('button',{type:'button',class:'secondary'},'Can’t find this player? Add a new name'),close=el('button',{type:'button',class:'link'},'Cancel');input.addEventListener('input',()=>{clearTimeout(searchTimer);const query=input.value.trim();if(query.length<2){results.replaceChildren(el('p',{class:'muted'},'Enter at least 2 characters.'));return}searchTimer=setTimeout(()=>search(query,results),220)});unknown.addEventListener('click',()=>unknownName(dialog));close.addEventListener('click',render);dialog.append(title,input,results,unknown,close);root.replaceChildren(dialog);input.focus()}
   async function search(query,results){results.replaceChildren(el('p',{class:'muted'},'Searching…'));try{const data=await request('/players?q='+encodeURIComponent(query));results.replaceChildren();data.players.forEach(player=>{const button=el('button',{type:'button',role:'option',class:'search-result'},player.displayName);button.addEventListener('click',()=>{members.push({id:uid(),rosterRole:addingRole,publicPlayerToken:player.publicPlayerToken,displayName:player.displayName});notice=player.displayName+' added to '+(addingRole==='active'?'active roster.':'substitutes.');render()});results.append(button)});if(!data.players.length)results.append(el('p',{class:'muted'},'No matching players.'))}catch(error){results.replaceChildren(el('p',{class:'message',role:'alert'},error.message))}}
   function unknownName(dialog){dialog.replaceChildren();const title=el('h2',{},'Add a name for organizer review'),input=el('input',{maxlength:'100',autocomplete:'name',placeholder:'Player name','aria-label':'New player name'}),add=el('button',{type:'button',class:'primary'},'Add pending name'),back=el('button',{type:'button',class:'link'},'Back');add.addEventListener('click',()=>{const name=input.value.trim().replace(/\\s+/g,' ');if(!name){input.focus();return}members.push({id:uid(),rosterRole:addingRole,displayName:name});notice=name+' added for organizer review.';render()});back.addEventListener('click',()=>openSearch(addingRole));dialog.append(title,el('p',{class:'muted'},'This does not create a Court player. The organizer must review the name.'),input,add,back);input.focus()}
   function openReview(){if(busy)return;const draft=validateDraft();if(!draft.valid){notice=draft.message;render();focus(draft.focus);return}reviewOpen=true;submissionKey=uid();notice='';render()}
-  async function submitTeam(){if(busy||!reviewOpen)return;const draft=validateDraft();if(!draft.valid){reviewOpen=false;notice=draft.message;render();focus(draft.focus);return}busy=true;notice='Submitting your registration…';render();try{const data=await request('/submissions',{method:'POST',body:JSON.stringify({registrationType:'team',teamName:draft.teamName,members,idempotencyKey:submissionKey})});submission=data.submission;reviewOpen=false;try{localStorage.setItem(storageKey,submission.managementUrl)}catch{}render()}catch(error){busy=false;notice=submissionErrorMessage(error)+' Your team and roster are still here; you can try again.';render()}}
+  async function submitTeam(){if(busy||!reviewOpen)return;const draft=validateDraft();if(!draft.valid){reviewOpen=false;notice=draft.message;render();focus(draft.focus);return}busy=true;notice='Submitting your registration…';render();try{const payload={registrationType:config.mode,members,contact:draft.contact,idempotencyKey:submissionKey};if(config.mode==='individual')payload.displayName=draft.teamName;else payload.teamName=draft.teamName;const data=await request('/submissions',{method:'POST',body:JSON.stringify(payload)});submission=data.submission;reviewOpen=false;try{localStorage.setItem(storageKey,submission.managementUrl)}catch{}render()}catch(error){busy=false;if(Object.keys(error.fieldErrors||{}).length){contactErrors=error.fieldErrors;reviewOpen=false;notice=error.message+' Your registration details are still here.';render();const first=['contact.name','contact.email','contact.emailOrPhone','contact.phone','contact.preferredMethod'].find(key=>contactErrors[key]);focus(first==='contact.name'?'#contact-name':first==='contact.phone'?'#contact-phone':first==='contact.preferredMethod'?'#contact-method':'#contact-email')}else{notice=submissionErrorMessage(error)+' Your team and roster are still here; your contact details are preserved, and you can try again.';render()}}}
   document.addEventListener('keydown',event=>{const dialog=root.querySelector('[role="dialog"]');if(!dialog)return;if(event.key==='Escape'&&!busy){event.preventDefault();if(reviewOpen)closeReview();else{render();focus('[data-add-role="'+addingRole+'"]')}}else if(event.key==='Tab')trapFocus(dialog,event)});
   async function load(){root.replaceChildren(el('main',{class:'registration-card'},'Loading registration…'));try{let saved='';try{saved=localStorage.getItem(storageKey)||''}catch{}if(saved){const savedUrl=new URL(saved,location.origin),match=savedUrl.origin===location.origin&&savedUrl.pathname.match(/^\\/event-registration\\/manage\\/([A-Za-z0-9_-]{22,128})$/);if(match){const response=await fetch('/api/event-registration/manage/'+encodeURIComponent(match[1]),{cache:'no-store'}),data=await response.json().catch(()=>({}));if(response.ok){config={title:data.event.title,eventDate:data.event.eventDate,description:data.event.description,status:data.event.registrationStatus};submission={teamName:data.registration.teamName,status:data.registration.status,managementUrl:saved,warnings:data.registration.warnings||[]};notice='Your saved private management link was restored on this device.';render();return}}try{localStorage.removeItem(storageKey)}catch{}}const data=await request();config=data.registration;render()}catch(error){root.replaceChildren();const card=el('main',{class:'registration-card'});card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},'Registration unavailable'),el('p',{class:'muted',role:'alert'},error.message));root.append(card)}}
   load();
@@ -3217,7 +3369,7 @@ const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
 
 function registrationPage(publicToken) {
   const nonce = randomTokenBytes(16);
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}html{background:#060b13}body{margin:0;min-height:100vh;min-height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card,.search-panel,.review-dialog{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08;overflow-wrap:anywhere}h2{margin:4px 0 12px}.date,.description,.muted{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df;overflow-wrap:anywhere}.muted{color:#aebacd}.status,.capacity,.roster-section,.success{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.capacity{display:grid;gap:5px}.capacity span,.count{color:#b5c0d1;font-size:13px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-weight:850}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-row>span:first-child{min-width:0;overflow-wrap:anywhere}.member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,button,.button-link{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}button,.button-link{font-weight:800;cursor:pointer;text-align:center;text-decoration:none}button:focus-visible,input:focus-visible,.button-link:focus-visible{outline:3px solid #74d7ff;outline-offset:2px}.primary,.button-link{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.link{border:0;background:transparent;color:#f2c66d}.danger{color:#ffb1b4}.member-actions button{width:auto;min-height:44px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message{min-height:20px;color:#ffcc92;line-height:1.45;white-space:pre-line}.success{border-color:#5fe3ae55}.warning{color:#f2d48f;line-height:1.45}.management-link{display:block;overflow-wrap:anywhere;color:#8ff0c6;line-height:1.5}.button-link{display:block;margin-top:8px}.primary:disabled,.secondary:disabled{opacity:.68;cursor:wait}.review-dialog{display:flex;flex-direction:column;max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:min(560px,calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));overflow:hidden;padding:0}.review-header{flex:none;padding:22px 22px 12px;border-bottom:1px solid #ffffff16}.review-header h1{font-size:clamp(25px,7vw,34px)}.review-header p{margin:8px 0 0}.review-body{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:4px 22px 18px}.review-summary,.review-roster,.review-warnings{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#ffffff08}.review-label{display:block;color:#b5c0d1;font-size:12px}.review-team{display:block;margin-top:4px;font-size:19px;overflow-wrap:anywhere}.review-count{display:block;margin-top:6px;color:#d4ddea;font-size:13px}.review-roster-heading{display:flex;justify-content:space-between;gap:12px}.review-roster-heading span{color:#b5c0d1}.review-roster ul{margin:10px 0 0;padding-left:22px}.review-roster li{padding:3px 0;line-height:1.4;overflow-wrap:anywhere}.review-warnings{border-color:#f2c66d55;background:#f2c66d0d;color:#f6dda4}.review-warnings p{margin:7px 0 0;line-height:1.45}.review-empty{margin:14px 2px}.review-actions{display:grid;grid-template-columns:1fr 1.2fr;gap:9px;flex:none;padding:12px 22px calc(16px + env(safe-area-inset-bottom));border-top:1px solid #ffffff1d;background:#0d1727}.review-actions button{margin:0;min-height:50px}@media(max-width:420px){body{padding-left:8px;padding-right:8px}.registration-card,.search-panel{padding:18px;border-radius:20px}.registration-card,.search-panel,.review-dialog{margin:0 auto;border-radius:20px}.member-row{grid-template-columns:1fr}.member-actions{justify-content:flex-start}.review-header{padding:18px 16px 10px}.review-body{padding:2px 16px 14px}.review-actions{grid-template-columns:1fr;padding:10px 16px calc(12px + env(safe-area-inset-bottom))}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${TEAM_REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}html{background:#060b13}body{margin:0;min-height:100vh;min-height:100dvh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card,.search-panel,.review-dialog{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08;overflow-wrap:anywhere}h2{margin:4px 0 12px}.date,.description,.muted{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df;overflow-wrap:anywhere}.muted{color:#aebacd}.status,.capacity,.roster-section,.contact-section,.success{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.capacity{display:grid;gap:5px}.capacity span,.count{color:#b5c0d1;font-size:13px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-weight:850}.contact-section .section-heading{display:block;font-size:18px}.contact-section .muted{margin:7px 0 0}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-row>span:first-child{min-width:0;overflow-wrap:anywhere}.member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,select,textarea,button,.button-link{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}textarea{min-height:96px;resize:vertical}button,.button-link{font-weight:800;cursor:pointer;text-align:center;text-decoration:none}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,.button-link:focus-visible{outline:3px solid #74d7ff;outline-offset:2px}.primary,.button-link{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.link{border:0;background:transparent;color:#f2c66d}.danger{color:#ffb1b4}.member-actions button{width:auto;min-height:44px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message,.field-error{min-height:20px;color:#ffcc92;line-height:1.45;white-space:pre-line}.field-error{display:block;margin-top:5px;font-size:13px}.privacy-note{margin:14px 0 0;color:#aebacd;font-size:13px;line-height:1.45}.success{border-color:#5fe3ae55}.warning{color:#f2d48f;line-height:1.45}.management-link{display:block;overflow-wrap:anywhere;color:#8ff0c6;line-height:1.5}.button-link{display:block;margin-top:8px}.primary:disabled,.secondary:disabled{opacity:.68;cursor:wait}.review-dialog{display:flex;flex-direction:column;max-height:calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom));min-height:min(560px,calc(100dvh - 28px - env(safe-area-inset-top) - env(safe-area-inset-bottom)));overflow:hidden;padding:0}.review-header{flex:none;padding:22px 22px 12px;border-bottom:1px solid #ffffff16}.review-header h1{font-size:clamp(25px,7vw,34px)}.review-header p{margin:8px 0 0}.review-body{min-height:0;flex:1;overflow-y:auto;overscroll-behavior:contain;padding:4px 22px 18px}.review-summary,.review-roster,.review-warnings{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#ffffff08}.review-label{display:block;color:#b5c0d1;font-size:12px}.review-team{display:block;margin-top:4px;font-size:19px;overflow-wrap:anywhere}.review-contact-line{display:block;margin-top:5px;overflow-wrap:anywhere}.review-note{margin:10px 0 0;padding-top:9px;border-top:1px solid #ffffff17;white-space:pre-wrap;overflow-wrap:anywhere}.review-count{display:block;margin-top:6px;color:#d4ddea;font-size:13px}.review-roster-heading{display:flex;justify-content:space-between;gap:12px}.review-roster-heading span{color:#b5c0d1}.review-roster ul{margin:10px 0 0;padding-left:22px}.review-roster li{padding:3px 0;line-height:1.4;overflow-wrap:anywhere}.review-warnings{border-color:#f2c66d55;background:#f2c66d0d;color:#f6dda4}.review-warnings p{margin:7px 0 0;line-height:1.45}.review-empty{margin:14px 2px}.review-actions{display:grid;grid-template-columns:1fr 1.2fr;gap:9px;flex:none;padding:12px 22px calc(16px + env(safe-area-inset-bottom));border-top:1px solid #ffffff1d;background:#0d1727}.review-actions button{margin:0;min-height:50px}@media(max-width:420px){body{padding-left:8px;padding-right:8px}.registration-card,.search-panel{padding:18px;border-radius:20px}.registration-card,.search-panel,.review-dialog{margin:0 auto;border-radius:20px}.member-row{grid-template-columns:1fr}.member-actions{justify-content:flex-start}.review-header{padding:18px 16px 10px}.review-body{padding:2px 16px 14px}.review-actions{grid-template-columns:1fr;padding:10px 16px calc(12px + env(safe-area-inset-bottom))}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${TEAM_REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
   return new Response(html, {
     status: 200,
     headers: publicRegistrationHeaders({
@@ -3312,6 +3464,7 @@ export default {
     const registrationStatusMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/status$/);
     const registrationTokenMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/token\/rotate$/);
     const registrationEntryStatusMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/status$/);
+    const registrationEntryContactMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/contact$/);
     const registrationEntryManagementMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/management$/);
     const registrationMemberMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/members\/([^/]+)$/);
     const registrationPublicMatch = path.match(/^\/api\/event-registration\/public\/([^/]+)$/);
@@ -3328,7 +3481,7 @@ export default {
     const checkInPublicPath = !!checkInPublicApiMatch || path === "/check-in" || !!checkInPageMatch || !!checkInCodeMatch;
     const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationSummaryMatch || !!registrationImportPreviewMatch || !!registrationImportMarkMatch || !!registrationImportResetMatch
       || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
-      || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
+      || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryContactMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
     const registrationPublicPath = !!registrationPublicMatch || !!registrationPlayerLookupMatch || !!registrationSubmissionMatch
       || !!registrationPageMatch || !!registrationManagementApiMatch || !!registrationManagementPlayerMatch
       || !!registrationManagementWithdrawMatch || !!registrationManagementPageMatch;
@@ -3409,6 +3562,10 @@ export default {
       if (registrationEntryStatusMatch) {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await updateOrganizerRegistrationEntryStatus(request, env, registrationEntryStatusMatch[1], registrationEntryStatusMatch[2]);
+      }
+      if (registrationEntryContactMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await updateOrganizerRegistrationContact(request, env, registrationEntryContactMatch[1], registrationEntryContactMatch[2]);
       }
       if (registrationEntryManagementMatch) {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));

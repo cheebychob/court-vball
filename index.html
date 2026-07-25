@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260725.5">
+<meta name="court-build" content="20260725.6">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1120,9 +1120,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.24.0',
-  build: '20260725.5',
-  releaseNotes: 'Cleaner player profiles and registration controls, with exact duplicate-player conflict details.'
+  version: '0.25.0',
+  build: '20260725.6',
+  releaseNotes: 'Private registration contact details with organizer review, editing, and import visibility.'
 });
 
 function appVersionLabel(){
@@ -4623,6 +4623,15 @@ function normalizeRegistrationImportMember(value){
     updatedAt:registrationTimestamp(source.updatedAt)
   };
 }
+function normalizeRegistrationContact(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{},method=['email','phone','text','none'].includes(source.preferredMethod)?source.preferredMethod:'none';
+  const text=(raw,max)=>typeof raw==='string'?raw.trim().slice(0,max):'';
+  const contact={name:text(source.name,100),email:text(source.email,254),phone:text(source.phone,40),preferredMethod:method,notes:text(source.notes,1000)};
+  return Object.values(contact).some(Boolean)&&!(contact.preferredMethod==='none'&&!contact.name&&!contact.email&&!contact.phone&&!contact.notes)?contact:null;
+}
+function registrationContactMethodLabel(value){
+  return ({email:'Email',phone:'Phone',text:'Text',none:'No preference'})[value]||'No preference';
+}
 function normalizeRegistrationImportRecord(value){
   const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{},members=(Array.isArray(source.members)?source.members:Array.isArray(source.roster)?source.roster:[]).map(normalizeRegistrationImportMember);
   const count=(raw,role)=>Number.isInteger(Number(raw))&&Number(raw)>=0?Number(raw):members.filter(member=>member.rosterRole===role&&member.matchStatus!=='rejected').length;
@@ -4638,9 +4647,7 @@ function normalizeRegistrationImportRecord(value){
     createdAt:registrationTimestamp(source.createdAt),
     submittedAt:registrationTimestamp(source.submittedAt),
     updatedAt:registrationTimestamp(source.updatedAt),
-    registrantName:String(source.registrantName||source.contactName||'').trim().slice(0,120),
-    contactEmail:String(source.contactEmail||source.email||'').trim().slice(0,254),
-    contactPhone:String(source.contactPhone||source.phone||'').trim().slice(0,60),
+    contact:normalizeRegistrationContact(source.contact),
     capacityOverride:source.capacityOverride===true,
     revision:positiveInt(source.revision,1),
     members
@@ -10428,7 +10435,7 @@ const EventRegistration=(()=>{
   const workerUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
   const headers=()=>({'Content-Type':'application/json','X-Court-Room':Sync.cfg.code});
   const data=async response=>{try{return await response.json();}catch(_){return {};}};
-  function failure(response,body,fallback){const error=new Error(body?.message||body?.error||fallback);error.status=response.status;error.code=body?.code||'';return error;}
+  function failure(response,body,fallback){const error=new Error(body?.message||body?.error||fallback);error.status=response.status;error.code=body?.code||'';error.fieldErrors=body?.fieldErrors&&typeof body.fieldErrors==='object'?body.fieldErrors:{};return error;}
   async function request(path,{method='GET',body}={}){
     if(!configured())throw Object.assign(new Error('Set up device sync before enabling public registration.'),{code:'SYNC_REQUIRED'});
     let response;try{response=await fetch(workerUrl(path),{method,cache:'no-store',headers:headers(),body:body===undefined?undefined:JSON.stringify(body)});}
@@ -10494,6 +10501,9 @@ const EventRegistration=(()=>{
   }
   async function resetImport(ev,registrationId){
     return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-reset`,{method:'POST',body:{registrationId}});
+  }
+  async function updateContact(ev,entryId,contact,revision){
+    return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/entries/${encodeURIComponent(entryId)}/contact`,{method:'POST',body:{contact,revision}});
   }
   function syncPlayerDirectories(){
     if(playerDirectorySync)return playerDirectorySync;
@@ -10577,7 +10587,7 @@ const EventRegistration=(()=>{
     visibleEventId=eventId||null;bindVisibility();stopPoll();schedulePoll();
     if(visibleEventId)void ensureFresh(visibleEventId,{maximumAge:0});
   }
-  function entryFingerprint(entry){return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.members,entry.duplicateWarnings]);}
+  function entryFingerprint(entry){const edit=window._registrationContactEdit?.entryId===entry.id?window._registrationContactEdit:null;return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.contact,entry.members,entry.duplicateWarnings,edit?edit.renderVersion:0]);}
   function entryRowHtml(entry){
     const options=[entry.status,...(REGISTRATION_ENTRY_TRANSITIONS[entry.status]||[])].filter((value,index,array)=>array.indexOf(value)===index);
     const memberSection=(role,title)=>{
@@ -10588,10 +10598,37 @@ const EventRegistration=(()=>{
         return `<div class="registration-member-row"><span>${esc(member.displayName)} <span class="pill ${member.matchStatus==='pending'?'warn':member.matchStatus==='rejected'?'bad':'good'}">${esc(member.matchStatus.replace(/_/g,' '))}</span>${member.duplicateOverride?' <span class="tiny faint">· duplicate override</span>':''}</span><span class="registration-member-actions">${move}${review}</span></div>`;
       }).join(''):'<div class="tiny faint">None</div>'}</div>`;
     };
+    const contact=normalizeRegistrationContact(entry.contact),editing=window._registrationContactEdit?.entryId===entry.id,edit=editing?window._registrationContactEdit:null;
+    const contactHtml=contact?`<div class="registration-contact-lines">
+      ${contact.name?`<b>${esc(contact.name)}</b>`:''}
+      ${contact.email?`<a href="mailto:${esc(encodeURIComponent(contact.email))}">${esc(contact.email)}</a>`:''}
+      ${contact.phone?`<a href="tel:${esc(contact.phone.replace(/[^+0-9,;*#]/g,''))}">${esc(contact.phone)}</a>`:''}
+      <span class="tiny faint">Preferred: ${esc(registrationContactMethodLabel(contact.preferredMethod))}</span>
+      ${contact.notes?`<details><summary class="tiny">Notes to organizer</summary><div class="tiny" style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:5px">${esc(contact.notes)}</div></details>`:''}
+    </div>`:'<div class="tiny faint">Not provided</div>';
+    const contactEditHtml=editing?`<div class="registration-contact-edit" data-registration-contact-edit>
+      <label class="tiny" for="organizer-contact-name-${esc(entry.id)}">Contact name</label><input id="organizer-contact-name-${esc(entry.id)}" maxlength="100" autocomplete="name" value="${esc(edit.name)}" oninput="setOrganizerRegistrationContactField('name',this.value)">
+      <div class="tiny" role="alert" data-contact-error="contact.name">${esc(edit.fieldErrors?.['contact.name']||'')}</div>
+      <label class="tiny" for="organizer-contact-email-${esc(entry.id)}">Email address</label><input id="organizer-contact-email-${esc(entry.id)}" type="email" maxlength="254" autocomplete="email" value="${esc(edit.email)}" oninput="setOrganizerRegistrationContactField('email',this.value)">
+      <div class="tiny" role="alert" data-contact-error="contact.email">${esc(edit.fieldErrors?.['contact.email']||edit.fieldErrors?.['contact.emailOrPhone']||'')}</div>
+      <label class="tiny" for="organizer-contact-phone-${esc(entry.id)}">Phone number</label><input id="organizer-contact-phone-${esc(entry.id)}" type="tel" maxlength="40" autocomplete="tel" value="${esc(edit.phone)}" oninput="setOrganizerRegistrationContactField('phone',this.value)">
+      <div class="tiny" role="alert" data-contact-error="contact.phone">${esc(edit.fieldErrors?.['contact.phone']||'')}</div>
+      <label class="tiny" for="organizer-contact-method-${esc(entry.id)}">Preferred contact method</label><select id="organizer-contact-method-${esc(entry.id)}" onchange="setOrganizerRegistrationContactField('preferredMethod',this.value)">
+        <option value="none" ${edit.preferredMethod==='none'?'selected':''}>No preference</option>
+        <option value="email" ${edit.preferredMethod==='email'?'selected':''} ${edit.email?'':'disabled'}>Email</option>
+        <option value="phone" ${edit.preferredMethod==='phone'?'selected':''} ${edit.phone?'':'disabled'}>Phone</option>
+        <option value="text" ${edit.preferredMethod==='text'?'selected':''} ${edit.phone?'':'disabled'}>Text</option>
+      </select><div class="tiny" role="alert" data-contact-error="contact.preferredMethod">${esc(edit.fieldErrors?.['contact.preferredMethod']||'')}</div>
+      <label class="tiny" for="organizer-contact-notes-${esc(entry.id)}">Notes to organizer</label><textarea id="organizer-contact-notes-${esc(entry.id)}" maxlength="1000" rows="3" oninput="setOrganizerRegistrationContactField('notes',this.value)">${esc(edit.notes)}</textarea>
+      <div class="tiny" role="alert" data-contact-error="contact.notes">${esc(edit.fieldErrors?.['contact.notes']||'')}</div>
+      <div class="registration-actions"><button class="btn sm primary" ${edit.saving?'disabled':''} onclick="saveOrganizerRegistrationContact()">${edit.saving?'Saving…':'Save contact'}</button><button class="btn sm ghost" ${edit.saving?'disabled':''} onclick="cancelOrganizerRegistrationContact()">Cancel</button></div>
+      <div class="tiny" role="alert" aria-live="assertive">${esc(edit.error||'')}</div>
+    </div>`:'';
     return `<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry))}">
       <div class="row spread" style="gap:9px"><span style="min-width:0"><b>${esc(entry.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block">${esc(entry.registrationType)} · ${entry.activePlayerCount} active · ${entry.substituteCount} substitute${entry.substituteCount===1?'':'s'}</span></span><span class="pill ${entry.status==='accepted'?'good':entry.status==='waitlisted'||entry.status==='needs_review'?'warn':entry.status==='declined'||entry.status==='withdrawn'?'bad':''}">${esc(registrationStatusLabel(entry.status))}</span></div>
       <div class="tiny faint" style="margin-top:6px">${entry.submittedAt?`Submitted ${esc(registrationFormatTime(entry.submittedAt))}`:'Not submitted'}${entry.lastEditedAt?` · edited ${esc(registrationFormatTime(entry.lastEditedAt))}`:''}${entry.capacityOverride?' · capacity override':''}${entry.editingLocked?' · editing locked':''}${entry.managementAccessRevoked?' · management revoked':''}</div>
       ${(entry.duplicateWarnings||[]).map(warning=>`<div class="tiny" style="margin-top:6px;color:var(--sand)">⚠ ${esc(warning)}</div>`).join('')}
+      <div class="registration-roster-group"><div class="row spread" style="gap:8px"><b class="tiny">Registrant / contact</b><button class="btn sm ghost" onclick="editOrganizerRegistrationContact('${esc(entry.id)}')">${contact?'Edit contact':'Add contact'}</button></div>${contactHtml}${contactEditHtml}</div>
       ${memberSection('active','Active roster')}${memberSection('substitute','Substitutes')}
       <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status</label>
       <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
@@ -10633,7 +10670,7 @@ const EventRegistration=(()=>{
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);
     if(ev&&node&&node.dataset.registrationFingerprint!==String(registrationSummaryFingerprint(ev)))node.outerHTML=registrationSummaryHtml(ev);
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -10672,10 +10709,59 @@ function registrationDashboardHtml(ev){
     <div class="tiny" data-reg-error role="alert" aria-live="assertive" style="min-height:18px;margin-top:8px;color:var(--coral)">${esc(state?.error||'')}</div>${sheetCloseBtn('Done')}</div>`;
 }
 window.openRegistrationDashboard=evId=>{
-  const ev=evById(evId);if(!ev)return;EventRegistration.filter='all';openSheet(registrationDashboardHtml(ev),{focus:'[data-registration-dashboard] button'});EventRegistration.setModalOpen(true,evId);EventRegistration.patchDashboard();void EventRegistration.refresh(evId).finally(()=>EventRegistration.schedulePoll());
+  const ev=evById(evId);if(!ev)return;window._registrationContactEdit=null;EventRegistration.filter='all';openSheet(registrationDashboardHtml(ev),{focus:'[data-registration-dashboard] button'});EventRegistration.setModalOpen(true,evId);EventRegistration.patchDashboard();void EventRegistration.refresh(evId).finally(()=>EventRegistration.schedulePoll());
 };
 window.refreshRegistrationDashboard=()=>{const eventId=EventRegistration.modalEventId;if(eventId)void EventRegistration.refresh(eventId).finally(()=>EventRegistration.schedulePoll());};
 window.setRegistrationFilter=value=>{EventRegistration.filter=['all','pending','accepted','waitlisted','declined','withdrawn'].includes(value)?value:'all';EventRegistration.patchDashboard();};
+function validateOrganizerRegistrationContact(value){
+  const contact={name:String(value?.name||'').trim(),email:String(value?.email||'').trim(),phone:String(value?.phone||'').trim(),preferredMethod:value?.preferredMethod||'none',notes:String(value?.notes||'').trim()},fieldErrors={};
+  if(!contact.name)fieldErrors['contact.name']='Enter a contact name.';
+  if(contact.name.length>100)fieldErrors['contact.name']='Contact name must be 100 characters or fewer.';
+  if(contact.email.length>254||contact.email&&!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact.email))fieldErrors['contact.email']='Enter a valid email address.';
+  if(contact.phone.length>40||contact.phone&&!/\d/.test(contact.phone))fieldErrors['contact.phone']='Enter a phone number with at least one digit.';
+  if(!contact.email&&!contact.phone)fieldErrors['contact.emailOrPhone']='Enter an email address or phone number.';
+  if(!['email','phone','text','none'].includes(contact.preferredMethod))fieldErrors['contact.preferredMethod']='Choose a supported preferred contact method.';
+  else if(contact.preferredMethod==='email'&&!contact.email)fieldErrors['contact.preferredMethod']='Enter an email address before choosing Email.';
+  else if(['phone','text'].includes(contact.preferredMethod)&&!contact.phone)fieldErrors['contact.preferredMethod']=`Enter a phone number before choosing ${contact.preferredMethod==='text'?'Text':'Phone'}.`;
+  if(contact.notes.length>1000)fieldErrors['contact.notes']='Notes must be 1,000 characters or fewer.';
+  return {contact,fieldErrors};
+}
+window.editOrganizerRegistrationContact=entryId=>{
+  const state=EventRegistration.get(EventRegistration.modalEventId),entry=state?.entries?.find(row=>row.id===entryId);if(!entry)return;
+  const contact=normalizeRegistrationContact(entry.contact)||{name:'',email:'',phone:'',preferredMethod:'none',notes:''};
+  window._registrationContactEdit={entryId,revision:entry.revision,...contact,fieldErrors:{},error:'',saving:false,renderVersion:1};document.activeElement?.blur();EventRegistration.patchDashboard();
+  requestAnimationFrame(()=>document.querySelector(`[data-registration-entry="${CSS.escape(entryId)}"] input`)?.focus());
+};
+window.setOrganizerRegistrationContactField=(field,value)=>{
+  const edit=window._registrationContactEdit;if(!edit)return;edit[field]=value;edit.error='';delete edit.fieldErrors?.[`contact.${field}`];
+  if(field==='email'||field==='phone'){
+    delete edit.fieldErrors?.['contact.emailOrPhone'];
+    const root=document.querySelector('[data-registration-contact-edit]'),select=root?.querySelector('select');
+    if(select){select.querySelector('option[value="email"]').disabled=!String(edit.email||'').trim();select.querySelector('option[value="phone"]').disabled=!String(edit.phone||'').trim();select.querySelector('option[value="text"]').disabled=!String(edit.phone||'').trim();}
+  }
+  const errorNode=document.querySelector(`[data-contact-error="contact.${CSS.escape(field)}"]`);if(errorNode)errorNode.textContent='';
+};
+window.cancelOrganizerRegistrationContact=()=>{window._registrationContactEdit=null;document.activeElement?.blur();EventRegistration.patchDashboard();};
+window.saveOrganizerRegistrationContact=async()=>{
+  const edit=window._registrationContactEdit,eventId=EventRegistration.modalEventId,ev=eventId&&evById(eventId);if(!edit||!ev||edit.saving)return;
+  const form=document.querySelector('[data-registration-contact-edit]'),candidate={
+    name:form?.querySelector('input[id*="contact-name"]')?.value??edit.name,
+    email:form?.querySelector('input[id*="contact-email"]')?.value??edit.email,
+    phone:form?.querySelector('input[id*="contact-phone"]')?.value??edit.phone,
+    preferredMethod:form?.querySelector('select[id*="contact-method"]')?.value??edit.preferredMethod,
+    notes:form?.querySelector('textarea[id*="contact-notes"]')?.value??edit.notes
+  };
+  Object.assign(edit,candidate);const checked=validateOrganizerRegistrationContact(candidate);edit.fieldErrors=checked.fieldErrors;edit.error='';
+  if(Object.keys(checked.fieldErrors).length){
+    edit.renderVersion++;document.activeElement?.blur();EventRegistration.patchDashboard();
+    const first=['contact.name','contact.email','contact.emailOrPhone','contact.phone','contact.preferredMethod','contact.notes'].find(key=>checked.fieldErrors[key]);
+    const target=first==='contact.name'?'input[id*="contact-name"]':first==='contact.phone'?'input[id*="contact-phone"]':first==='contact.preferredMethod'?'select[id*="contact-method"]':first==='contact.notes'?'textarea[id*="contact-notes"]':'input[id*="contact-email"]';
+    requestAnimationFrame(()=>document.querySelector(`[data-registration-contact-edit] ${target}`)?.focus());return;
+  }
+  edit.saving=true;edit.renderVersion++;document.activeElement?.blur();EventRegistration.patchDashboard();
+  try{await EventRegistration.updateContact(ev,edit.entryId,checked.contact,edit.revision);window._registrationContactEdit=null;await EventRegistration.refresh(ev.id);toast('Registration contact saved');}
+  catch(error){edit.saving=false;edit.error=error.message;edit.fieldErrors=error.fieldErrors||{};edit.renderVersion++;EventRegistration.patchDashboard();}
+};
 function registrationImportActionLabel(action){
   return ({create:'Create new event entry',update:'Update imported event entry',none:'No change',skip:'Skip',blocked:'Blocked'})[action]||'Skip';
 }
@@ -10697,14 +10783,15 @@ function registrationImportReviewHtml(state){
   const rows=items.map(item=>{
     const registration=item.registration,selectable=['create','update'].includes(item.action),checked=selectable&&state.selected.has(registration.id),statusClass=item.action==='blocked'?'blocked':item.action==='update'?'updated':selectable?'ready':'';
     const matched=(registration.members||[]).filter(member=>['matched','organizer_created'].includes(member.matchStatus)).length,pending=(registration.members||[]).filter(member=>member.matchStatus==='pending').length,rejected=(registration.members||[]).filter(member=>member.matchStatus==='rejected').length;
-    const submitted=registration.submittedAt||registration.createdAt,contact=[registration.registrantName,registration.contactEmail,registration.contactPhone].filter(Boolean).join(' · ')||'Not provided';
+    const submitted=registration.submittedAt||registration.createdAt,contact=normalizeRegistrationContact(registration.contact);
     return `<div class="registration-import-row ${statusClass}" data-import-registration="${esc(registration.id)}" onclick="registrationImportCardClicked(event,'${esc(registration.id)}')">
       ${courtCheckboxHtml({id:`registration-import-${registration.id}`,label:registration.displayName||'Unnamed entry',help:`${registrationStatusLabel(registration.status)} · ${submitted?`Submitted ${registrationFormatTime(submitted)}`:'Submission time not recorded'}`,checked,disabled:!selectable,className:'registration-import-select',labelClass:'registration-import-title',helpClass:'registration-import-meta',onchange:`toggleRegistrationImport('${registration.id}',this.checked)`,inputAttrs:`data-focus-key="registration-import-${esc(registration.id)}" onclick="event.stopPropagation()"`})}
       <div class="registration-import-action"><span class="pill ${item.action==='blocked'?'bad':item.action==='update'?'warn':item.action==='none'?'good':''}">${esc(registrationImportActionLabel(item.action))}</span><span class="row" style="gap:6px">${item.localEntry?`<button class="btn sm ghost" onclick="viewImportedEventEntry('${esc(state.eventId)}','${esc(item.localEntry.id)}')">View event entry</button>`:''}${item.ack&&!item.localEntry?`<button class="btn sm danger" onclick="resetRegistrationImportMapping('${esc(registration.id)}')">Allow deliberate reimport</button>`:''}</span></div>
       <div class="registration-import-details">
         <div class="registration-import-detail"><b>Active players · ${registration.activePlayerCount}</b><span>${esc(registrationImportRosterText(registration,'active'))}</span></div>
         <div class="registration-import-detail"><b>Substitutes · ${registration.substituteCount}</b><span>${esc(registrationImportRosterText(registration,'substitute'))}</span></div>
-        <div class="registration-import-detail"><b>Registrant / contact</b><span>${esc(contact)}</span></div>
+        <div class="registration-import-detail"><b>Registrant / contact</b>${contact?`<span><b>${esc(contact.name||'Name not provided')}</b>${contact.email||contact.phone?`<br>${[contact.email,contact.phone].filter(Boolean).map(esc).join(' · ')}`:''}<br><span class="tiny faint">Preferred: ${esc(registrationContactMethodLabel(contact.preferredMethod))}</span></span>`:'<span>Not provided</span>'}</div>
+        ${contact?.notes?`<div class="registration-import-detail"><b>Notes to organizer</b><details><summary>Show note</summary><span style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(contact.notes)}</span></details></div>`:''}
       </div>
       <div class="registration-import-match"><b>${matched} matched</b> · ${pending} pending · ${rejected} rejected${item.localEntry?` · Existing event entry: <b>${esc(item.localEntry.name||item.localEntry.id)}</b>`:' · No existing event entry matched'}</div>
       ${item.diff.length||item.localDiff.length?`<div class="registration-import-messages">${item.diff.map(row=>`<div class="registration-import-message warn">Registration: ${esc(row.label)}</div>`).join('')}${item.localDiff.map(row=>`<div class="registration-import-message warn">Local entry: ${esc(row.label)}</div>`).join('')}</div>`:''}

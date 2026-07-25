@@ -78,7 +78,7 @@ async function mockPublicRegistration(page, { config = publicConfig(), failFirst
           ok: true,
           submission: {
             registrationId: 'Z'.repeat(22),
-            teamName: body.teamName,
+            teamName: body.teamName || body.displayName,
             status: 'accepted',
             activePlayerCount: body.members.filter(member => member.rosterRole === 'active').length,
             substituteCount: body.members.filter(member => member.rosterRole === 'substitute').length,
@@ -107,7 +107,79 @@ async function buildPublicRoster(page, { substitutes = 0 } = {}) {
   await page.locator('#team-name').fill('Mobile Net Results');
   for (const player of publicPlayers.slice(0, 4)) await addPublicPlayer(page, player);
   for (const player of publicPlayers.slice(4, 4 + substitutes)) await addPublicPlayer(page, player, 'substitute');
+  await page.locator('#contact-name').fill('Morgan Captain');
+  await page.locator('#contact-email').fill('morgan@example.com');
 }
+
+test('public team contact validates inline and survives review, back, and roster errors', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await mockPublicRegistration(page);
+  await page.goto(`/register/${TOKEN}`);
+  await expect(page.getByRole('region', { name: 'Team contact' })).toContainText('Used only by the event organizer');
+  await expect(page.getByText('Contact information is shared only with the event organizer and is not shown publicly.')).toBeVisible();
+  await page.locator('#team-name').fill('Contact Team');
+  for (const player of publicPlayers.slice(0, 4)) await addPublicPlayer(page, player);
+
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  await expect(page.locator('#contact-name')).toBeFocused();
+  await expect(page.locator('#contact-name-error')).toHaveText('Enter a contact name.');
+  await page.locator('#contact-name').fill('Taylor Captain');
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  await expect(page.locator('#contact-email-error')).toHaveText('Enter an email address or phone number.');
+  await page.locator('#contact-email').fill('invalid-email');
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  await expect(page.locator('#contact-email-error')).toHaveText('Enter a valid email address.');
+  await page.locator('#contact-email').fill('');
+  await page.locator('#contact-phone').fill('extension only');
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  await expect(page.locator('#contact-phone-error')).toHaveText('Enter a phone number with at least one digit.');
+
+  await page.locator('#contact-phone').fill('+1 (555) 555-0123 ext. 4');
+  await expect(page.locator('#contact-method option[value="email"]')).toBeDisabled();
+  await expect(page.locator('#contact-method option[value="phone"]')).toBeEnabled();
+  await page.locator('#contact-method').selectOption('text');
+  await page.locator('#contact-notes').fill('Please text after 5 PM.');
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  const review = page.getByRole('dialog', { name: 'Review your team' });
+  await expect(review.getByRole('region', { name: 'Team contact' })).toContainText('Taylor Captain');
+  await expect(review.getByRole('region', { name: 'Team contact' })).toContainText('+1 (555) 555-0123 ext. 4');
+  await expect(review.getByRole('region', { name: 'Team contact' })).toContainText('Preferred: Text');
+  await expect(review.getByRole('region', { name: 'Team contact' })).toContainText('Please text after 5 PM.');
+  await review.getByRole('button', { name: 'Back to edit' }).click();
+  await expect(page.locator('#contact-name')).toHaveValue('Taylor Captain');
+  await expect(page.locator('#contact-phone')).toHaveValue('+1 (555) 555-0123 ext. 4');
+  await expect(page.locator('#contact-method')).toHaveValue('text');
+  await expect(page.locator('#contact-notes')).toHaveValue('Please text after 5 PM.');
+});
+
+test('individual registration uses registrant contact labeling and accepts phone-only contact', async ({ page }) => {
+  const state = await mockPublicRegistration(page, {
+    config: publicConfig({
+      mode: 'individual',
+      allowSubstitutes: false,
+      maxSubstitutesPerTeam: 0,
+      minActivePlayersPerTeam: 1,
+      maxActivePlayersPerTeam: 1,
+    }),
+  });
+  await page.goto(`/register/${TOKEN}`);
+  await expect(page.getByRole('region', { name: 'Registrant contact' })).toBeVisible();
+  await page.locator('#team-name').fill('Jordan Entry');
+  await addPublicPlayer(page, publicPlayers[0]);
+  await page.locator('#contact-name').fill('Jordan Rivera');
+  await page.locator('#contact-phone').fill('+61 2 5550 1234');
+  await page.locator('#contact-method').selectOption('phone');
+  await page.getByRole('button', { name: 'Review and submit' }).click();
+  const review = page.getByRole('dialog', { name: 'Review registration' });
+  await expect(review.getByRole('region', { name: 'Registrant contact' })).toContainText('Jordan Rivera');
+  await review.getByRole('button', { name: 'Submit registration' }).click();
+  expect(state.submissions).toHaveLength(1);
+  expect(state.submissions[0]).toMatchObject({
+    registrationType: 'individual',
+    displayName: 'Jordan Entry',
+    contact: { name: 'Jordan Rivera', email: '', phone: '+61 2 5550 1234', preferredMethod: 'phone', notes: '' },
+  });
+});
 
 test('public review replaces native confirm, validates limits, survives retry, and submits exactly once per tap', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
@@ -123,6 +195,8 @@ test('public review replaces native confirm, validates limits, survives retry, a
   await expect(page.getByRole('dialog')).toHaveCount(0);
 
   await addPublicPlayer(page, publicPlayers[3]);
+  await page.locator('#contact-name').fill('Morgan Captain');
+  await page.locator('#contact-email').fill('morgan@example.com');
   await page.getByRole('button', { name: 'Review and submit' }).click();
   const review = page.getByRole('dialog', { name: 'Review your team' });
   await expect(review).toContainText('Too Small');
@@ -206,6 +280,8 @@ test('duplicate-player responses name every conflict safely and preserve the pop
   await expect(review.getByRole('alert')).toContainText('Remove the conflicting players');
   await review.getByRole('button', { name: 'Back to edit' }).click();
   await expect(page.locator('#team-name')).toHaveValue('Mobile Net Results');
+  await expect(page.locator('#contact-name')).toHaveValue('Morgan Captain');
+  await expect(page.locator('#contact-email')).toHaveValue('morgan@example.com');
   for (const player of publicPlayers.slice(0, 4)) await expect(page.locator('.member-row').filter({ hasText: player.displayName })).toBeVisible();
 });
 

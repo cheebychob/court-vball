@@ -149,6 +149,10 @@ Existing foundation rows are preserved. They retain revision `1`, receive no man
 
 Migration `cloudflare/migrations/0003_registration_event_imports.sql` adds `event_registration_imports`, indexed by owner/event/update time and uniquely by owner/event/local entry ID. It stores no management token, ratings, games, notes, or full event state. Foreign keys are restrictive so registration history is not silently deleted.
 
+Migration `cloudflare/migrations/0004_registration_contact.sql` adds nullable `contact_json` storage to each registration. The Worker validates and exposes it as one private nested `contact` object only on organizer dashboard and import-preview responses. Public event configuration, submission success responses, schedules, player data, and shared event output do not include it. Existing null or malformed values safely render as “Not provided” and are not rewritten on read.
+
+Imported local event entries retain their existing stable `registrationSource.registrationId` reference. Contact details are intentionally not copied into local player or event-entry records; organizers retrieve the current private contact through the organizer-only registration dashboard/import preview, avoiding stale offline snapshots and keeping contact out of schedules, ratings, and shared event data.
+
 ## Local development
 
 From the repository root:
