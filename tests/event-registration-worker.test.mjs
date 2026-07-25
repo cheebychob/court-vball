@@ -301,11 +301,15 @@ test('public registration page is standalone, mobile-safe, private-state-free, a
   assert.match(html, /Team name/);
   assert.match(html, /Add active player/);
   assert.match(html, /Can’t find this player/);
+  assert.match(html, /Review your team/);
+  assert.match(html, /Back to edit/);
+  assert.match(html, /Submit registration/);
   assert.match(html, /Share management link/);
   assert.match(html, /localStorage\.getItem/);
   assert.doesNotMatch(html, /vb:players|vb:games|seedRating|X-Court-Room|Sync\.cfg/);
   const publicScript = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(publicScript);
+  assert.doesNotMatch(publicScript, /\bconfirm\s*\(/);
   assert.doesNotThrow(() => new Function(publicScript));
 
   const managementPage = await worker.fetch(request(`/event-registration/manage/${'M'.repeat(43)}`), env);
@@ -313,9 +317,11 @@ test('public registration page is standalone, mobile-safe, private-state-free, a
   assert.equal(managementPage.status, 200);
   assert.match(managementHtml, /PRIVATE TEAM MANAGEMENT/);
   assert.match(managementHtml, /Share private link/);
+  assert.match(managementHtml, /Withdraw registration\?/);
   assert.match(managementHtml, /safe-area-inset-bottom/);
   const managementScript = managementHtml.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(managementScript);
+  assert.doesNotMatch(managementScript, /\bconfirm\s*\(/);
   assert.doesNotThrow(() => new Function(managementScript));
 
   const crossOrigin = await submit(env, created.body.publicToken, { registrationType: 'team', displayName: 'Cross origin', activePlayerCount: 4, substituteCount: 0 }, { Origin: 'https://evil.example' });
@@ -1055,6 +1061,8 @@ test('organizer import preview is owner scoped, private, D1-backed, and import m
   assert.equal(preview.entries.length, 1);
   assert.equal(preview.entries[0].id, registrationId);
   assert.equal(preview.entries[0].status, 'accepted');
+  assert.ok(preview.entries[0].createdAt);
+  assert.ok(preview.entries[0].submittedAt);
   assert.equal(preview.entries[0].members.filter(member => member.rosterRole === 'active').length, 4);
   assert.equal(preview.entries[0].members.filter(member => member.rosterRole === 'substitute').length, 1);
   assert.equal(preview.entries[0].members[0].internalPlayerId, 'import-player-1');

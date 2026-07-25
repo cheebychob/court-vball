@@ -16,7 +16,7 @@ export default defineConfig({
     },
     {
       name: 'mobile-webkit',
-      testMatch: '**/*.webkit.spec.js',
+      testMatch: ['**/*.webkit.spec.js', '**/public-registration-flow.spec.js'],
       use: { ...devices['iPhone 13'] }
     }
   ],
