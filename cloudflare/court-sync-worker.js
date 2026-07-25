@@ -19,15 +19,25 @@ const PRIVATE_HEADERS = "Content-Type, X-Court-Room, X-Management-Token, X-Photo
 const MAX_HTML_BYTES = 10 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 750 * 1024;
 const MAX_CHECK_IN_BODY_BYTES = 64 * 1024;
-const MAX_REGISTRATION_BODY_BYTES = 32 * 1024;
-const MAX_PUBLIC_REGISTRATION_BODY_BYTES = 8 * 1024;
+const MAX_REGISTRATION_BODY_BYTES = 256 * 1024;
+const MAX_PUBLIC_REGISTRATION_BODY_BYTES = 32 * 1024;
 const MAX_REGISTRATION_ENTRIES_PER_EVENT = 500;
 const REGISTRATION_PUBLIC_WRITE_WINDOW_MS = 10 * 60 * 1000;
 const REGISTRATION_PUBLIC_WRITE_LIMIT = 10;
+const REGISTRATION_LOOKUP_WINDOW_MS = 60 * 1000;
+const REGISTRATION_LOOKUP_LIMIT = 30;
+const REGISTRATION_LOOKUP_MIN_QUERY = 2;
+const REGISTRATION_LOOKUP_RESULT_LIMIT = 8;
+const REGISTRATION_PLAYER_DIRECTORY_LIMIT = 500;
+const REGISTRATION_TEAM_MEMBER_LIMIT = 20;
+const REGISTRATION_MANAGEMENT_READ_LIMIT = 120;
+const REGISTRATION_MANAGEMENT_WRITE_LIMIT = 20;
+const REGISTRATION_MANAGEMENT_GUESS_LIMIT = 60;
 const REGISTRATION_MAX_WINDOW_MS = 366 * 24 * 60 * 60 * 1000;
 const REGISTRATION_TITLE_MAX = 120;
 const REGISTRATION_DESCRIPTION_MAX = 2000;
 const REGISTRATION_DISPLAY_NAME_MAX = 100;
+const REGISTRATION_MEMBER_NAME_MAX = 100;
 const MAX_CHECK_IN_ROSTER = 250;
 const MAX_CHECK_INS_PER_SESSION = 350;
 const CHECK_IN_DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
@@ -47,6 +57,8 @@ const CHECK_IN_SHORT_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
 const REGISTRATION_SYSTEM_STATUSES = new Set(["draft", "scheduled", "open", "closed", "cancelled"]);
 const REGISTRATION_ENTRY_STATUSES = new Set(["draft", "submitted", "needs_review", "accepted", "waitlisted", "declined", "withdrawn"]);
 const REGISTRATION_MODES = new Set(["disabled", "team", "individual"]);
+const REGISTRATION_ROSTER_ROLES = new Set(["active", "substitute"]);
+const REGISTRATION_MATCH_STATUSES = new Set(["matched", "pending", "organizer_created", "rejected"]);
 const REGISTRATION_ENTRY_TRANSITIONS = Object.freeze({
   draft: new Set(["submitted", "withdrawn"]),
   submitted: new Set(["needs_review", "accepted", "waitlisted", "declined", "withdrawn"]),
@@ -1127,6 +1139,14 @@ async function d1Rows(statement) {
   return Array.isArray(result?.results) ? result.results : [];
 }
 
+async function d1Batch(db, statements) {
+  if (!statements.length) return [];
+  if (typeof db.batch === "function") return db.batch(statements);
+  const results = [];
+  for (const statement of statements) results.push(await statement.run());
+  return results;
+}
+
 function registrationInteger(value, { nullable = true, minimum = 0, maximum = 100000 } = {}) {
   if (value == null || value === "") return nullable ? null : undefined;
   const number = Number(value);
@@ -1146,6 +1166,76 @@ function cleanRegistrationText(value, maximum) {
   return clean.length <= maximum && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(clean) ? clean : null;
 }
 
+function normalizeRegistrationName(value) {
+  return String(value || "").trim().replace(/\s+/g, " ").toLocaleLowerCase();
+}
+
+function cleanRegistrationName(value, maximum = REGISTRATION_MEMBER_NAME_MAX) {
+  const clean = cleanRegistrationText(value, maximum);
+  if (!clean || /[<>]/.test(clean)) return null;
+  return clean.replace(/\s+/g, " ");
+}
+
+function normalizeRegistrationAliases(value, primaryName = "") {
+  const primary = normalizeRegistrationName(primaryName), seen = new Set(), aliases = [];
+  for (const candidate of Array.isArray(value) ? value : []) {
+    const clean = cleanRegistrationName(candidate);
+    const normalized = normalizeRegistrationName(clean);
+    if (!clean || !normalized || normalized === primary || seen.has(normalized)) continue;
+    seen.add(normalized);
+    aliases.push(normalized);
+  }
+  return aliases.slice(0, 20);
+}
+
+function likelyRegistrationNameDuplicate(left, right) {
+  const a = normalizeRegistrationName(left), b = normalizeRegistrationName(right);
+  if (!a || !b || a === b || Math.abs(a.length - b.length) > 1) return false;
+  let edits = 0, i = 0, j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) { i++; j++; continue; }
+    if (++edits > 1) return false;
+    if (a.length > b.length) i++;
+    else if (b.length > a.length) j++;
+    else { i++; j++; }
+  }
+  if (i < a.length || j < b.length) edits++;
+  return edits <= 1;
+}
+
+function validateRegistrationPlayerDirectory(value) {
+  if (!Array.isArray(value) || value.length > REGISTRATION_PLAYER_DIRECTORY_LIMIT) {
+    return { error: ["INVALID_PLAYER_DIRECTORY", "The event registration player directory is invalid or too large."] };
+  }
+  const seenIds = new Set(), seenTokens = new Set(), players = [];
+  for (const row of value) {
+    if (!row || typeof row !== "object" || Array.isArray(row)
+        || unexpectedFields(row, ["internalPlayerId", "publicPlayerToken", "displayName", "primaryName", "aliases", "eligible"]).length) {
+      return { error: ["INVALID_PLAYER_DIRECTORY", "The event registration player directory contains unsupported fields."] };
+    }
+    const internalPlayerId = typeof row.internalPlayerId === "string" ? row.internalPlayerId : "";
+    const publicPlayerToken = typeof row.publicPlayerToken === "string" ? row.publicPlayerToken : "";
+    const displayName = cleanRegistrationName(row.displayName);
+    const primaryName = cleanRegistrationName(row.primaryName);
+    if (!PLAYER_ID_PATTERN.test(internalPlayerId) || !PUBLIC_PLAYER_ID_PATTERN.test(publicPlayerToken)
+        || !displayName || !primaryName || typeof row.eligible !== "boolean"
+        || seenIds.has(internalPlayerId) || seenTokens.has(publicPlayerToken)) {
+      return { error: ["INVALID_PLAYER_DIRECTORY", "The event registration player directory contains an invalid player."] };
+    }
+    seenIds.add(internalPlayerId);
+    seenTokens.add(publicPlayerToken);
+    players.push({
+      internalPlayerId,
+      publicPlayerToken,
+      displayName,
+      normalizedPrimaryName: normalizeRegistrationName(primaryName),
+      normalizedAliases: normalizeRegistrationAliases(row.aliases, primaryName),
+      eligible: row.eligible,
+    });
+  }
+  return { value: players };
+}
+
 function registrationModeSupported({ eventFormat, entrySize, teamSize }, mode) {
   if (mode === "disabled") return true;
   if (eventFormat === "fixedTeams") return mode === "team";
@@ -1159,7 +1249,7 @@ function validateRegistrationConfigInput(body) {
     "eventName", "eventDate", "eventFormat", "entrySize", "teamSize", "enabled", "status", "mode",
     "opensAt", "closesAt", "activePlayerCapacity", "allowSubstitutes", "maxSubstitutesPerTeam",
     "minActivePlayersPerTeam", "maxActivePlayersPerTeam", "requireOrganizerApproval", "allowWaitlist",
-    "publicTitle", "publicDescription", "eventAvailable",
+    "publicTitle", "publicDescription", "eventAvailable", "players",
   ];
   const extra = unexpectedFields(body, allowed);
   if (extra.length) return { error: ["INVALID_FIELDS", `Unexpected registration fields: ${extra.join(", ")}.`] };
@@ -1202,6 +1292,8 @@ function validateRegistrationConfigInput(body) {
   if (body.mode === "individual" && (body.allowSubstitutes || (maxSubstitutesPerTeam != null && maxSubstitutesPerTeam !== 0))) {
     return { error: ["INVALID_SUBSTITUTES", "Individual registration cannot include substitutes."] };
   }
+  const playerDirectory = validateRegistrationPlayerDirectory(body.players ?? []);
+  if (playerDirectory.error) return playerDirectory;
   return {
     value: {
       eventName,
@@ -1224,6 +1316,7 @@ function validateRegistrationConfigInput(body) {
       allowWaitlist: body.allowWaitlist,
       publicTitle,
       publicDescription,
+      players: playerDirectory.value,
     },
   };
 }
@@ -1275,11 +1368,28 @@ function registrationConfigView(row, now = Date.now()) {
   };
 }
 
-function registrationEntryView(row) {
+function registrationMemberView(row, { organizer = false } = {}) {
+  const view = {
+    id: row.id,
+    rosterRole: row.roster_role,
+    displayName: row.public_display_name,
+    matchStatus: row.match_status,
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+  };
+  if (organizer) {
+    view.internalPlayerId = row.internal_player_id || null;
+    view.duplicateOverride = !!Number(row.duplicate_override);
+  }
+  return view;
+}
+
+function registrationEntryView(row, members = []) {
   return {
     id: row.id,
     registrationType: row.registration_type,
     displayName: row.display_name || "",
+    teamName: row.display_name || "",
     status: row.status,
     activePlayerCount: Number(row.active_player_count) || 0,
     substituteCount: Number(row.substitute_count) || 0,
@@ -1289,6 +1399,12 @@ function registrationEntryView(row) {
     withdrawnAt: row.withdrawn_at == null ? null : Number(row.withdrawn_at),
     organizerNote: row.organizer_note || "",
     capacityOverride: !!Number(row.capacity_override),
+    editingLocked: !!Number(row.editing_locked),
+    publicEditOverride: !!Number(row.public_edit_override),
+    managementAccessRevoked: row.management_token_revoked_at != null || !row.management_token_hash,
+    lastEditedAt: row.last_edited_at == null ? null : Number(row.last_edited_at),
+    revision: Number(row.revision) || 1,
+    members,
   };
 }
 
@@ -1364,27 +1480,82 @@ async function organizerRegistrationDashboard(request, env, url, eventId) {
   if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
   const config = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
   if (!config) return registrationJson({ ok: true, configured: false, eventId }, 200, auth.headers);
-  const [capacity, rows] = await Promise.all([
+  const [capacity, rows, memberRows] = await Promise.all([
     registrationCapacity(env.EVENT_REGISTRATION_DB, eventId, config),
     d1Rows(env.EVENT_REGISTRATION_DB.prepare(`
       SELECT id, registration_type, display_name, status, active_player_count, substitute_count,
-             created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override
+             created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override,
+             editing_locked, public_edit_override, management_token_hash, management_token_revoked_at, last_edited_at, revision
       FROM event_registrations
       WHERE event_id = ?
       ORDER BY COALESCE(submitted_at, created_at) DESC, id ASC
       LIMIT 200
     `).bind(eventId)),
+    d1Rows(env.EVENT_REGISTRATION_DB.prepare(`
+      SELECT m.*
+      FROM event_registration_members m
+      JOIN event_registrations r ON r.id = m.registration_id
+      WHERE r.event_id = ?
+      ORDER BY m.registration_id, CASE m.roster_role WHEN 'active' THEN 0 ELSE 1 END, m.created_at, m.id
+      LIMIT 3000
+    `).bind(eventId)),
   ]);
+  const membersByRegistration = new Map();
+  const pendingNameCounts = new Map();
+  for (const member of memberRows) {
+    if (!membersByRegistration.has(member.registration_id)) membersByRegistration.set(member.registration_id, []);
+    membersByRegistration.get(member.registration_id).push(registrationMemberView(member, { organizer: true }));
+    if (member.match_status === "pending") pendingNameCounts.set(member.normalized_name, (pendingNameCounts.get(member.normalized_name) || 0) + 1);
+  }
   return registrationJson({
     ok: true,
     configured: true,
     config: registrationConfigView(config),
     capacity,
-    entries: rows.map(registrationEntryView),
+    entries: rows.map(row => {
+      const members = membersByRegistration.get(row.id) || [], entry = registrationEntryView(row, members);
+      const warnings = members
+        .filter(member => member.matchStatus === "pending" && (pendingNameCounts.get(normalizeRegistrationName(member.displayName)) || 0) > 1)
+        .map(member => `Possible duplicate pending name: ${member.displayName}`);
+      const pending = members.filter(member => member.matchStatus === "pending");
+      for (let i = 0; i < pending.length; i++) for (let j = i + 1; j < pending.length; j++) {
+        if (likelyRegistrationNameDuplicate(pending[i].displayName, pending[j].displayName)) {
+          warnings.push(`Check whether ${pending[i].displayName} and ${pending[j].displayName} are the same player.`);
+        }
+      }
+      entry.duplicateWarnings = [...new Set(warnings)];
+      return entry;
+    }),
     publicUrl: null,
     publicUrlNeedsLocalToken: true,
     serverTime: Date.now(),
   }, 200, auth.headers);
+}
+
+async function replaceRegistrationPlayerDirectory(db, eventId, players, now = Date.now()) {
+  const upserts = players.map(player => db.prepare(`
+      INSERT INTO event_registration_players (
+        event_id, internal_player_id, public_player_token, public_display_name,
+        normalized_primary_name, normalized_aliases, eligible, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(event_id, internal_player_id) DO UPDATE SET
+        public_display_name = excluded.public_display_name,
+        normalized_primary_name = excluded.normalized_primary_name,
+        normalized_aliases = excluded.normalized_aliases,
+        eligible = excluded.eligible,
+        updated_at = excluded.updated_at
+    `).bind(
+      eventId, player.internalPlayerId, player.publicPlayerToken, player.displayName,
+      player.normalizedPrimaryName, JSON.stringify(player.normalizedAliases), player.eligible ? 1 : 0, now
+    ));
+  const removeStale = players.length
+    ? db.prepare(`
+        DELETE FROM event_registration_players
+        WHERE event_id = ?
+          AND internal_player_id NOT IN (${players.map(() => "?").join(", ")})
+      `).bind(eventId, ...players.map(player => player.internalPlayerId))
+    : db.prepare("DELETE FROM event_registration_players WHERE event_id = ?").bind(eventId);
+  await d1Batch(db, [...upserts, removeStale]);
 }
 
 async function saveOrganizerRegistrationConfig(request, env, url, eventId) {
@@ -1437,6 +1608,7 @@ async function saveOrganizerRegistrationConfig(request, env, url, eventId) {
       value.allowWaitlist ? 1 : 0, value.publicTitle, value.publicDescription, value.eventAvailable ? null : now, now, eventId, auth.ownerScope
     ).run();
   }
+  await replaceRegistrationPlayerDirectory(db, eventId, value.players, now);
   const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
   const capacity = await registrationCapacity(db, eventId, config);
   return registrationJson({
@@ -1447,6 +1619,22 @@ async function saveOrganizerRegistrationConfig(request, env, url, eventId) {
     publicToken,
     publicUrl: publicToken ? `${url.origin}/register/${publicToken}` : null,
   }, existing ? 200 : 201, auth.headers);
+}
+
+async function syncOrganizerRegistrationPlayers(request, env, eventId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["players"]).length) return registrationError(400, "INVALID_FIELDS", "The player-directory update contains unsupported fields.", auth.headers);
+  const validated = validateRegistrationPlayerDirectory(parsed.value.players);
+  if (validated.error) return registrationError(400, validated.error[0], validated.error[1], auth.headers);
+  const config = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const now = Date.now();
+  await replaceRegistrationPlayerDirectory(env.EVENT_REGISTRATION_DB, eventId, validated.value, now);
+  return registrationJson({ ok: true, playerCount: validated.value.filter(player => player.eligible).length, updatedAt: now }, 200, auth.headers);
 }
 
 async function updateOrganizerRegistrationStatus(request, env, eventId) {
@@ -1506,6 +1694,29 @@ async function updateOrganizerRegistrationEntryStatus(request, env, eventId, ent
   if (!current) return registrationError(404, "ENTRY_NOT_FOUND", "The registration entry was not found.", auth.headers);
   if (!canTransitionRegistrationStatus(current.status, parsed.value.status)) {
     return registrationError(409, "INVALID_STATUS_TRANSITION", `A ${current.status} entry cannot become ${parsed.value.status}.`, auth.headers);
+  }
+  if (parsed.value.status === "accepted" && current.management_token_hash) {
+    const members = await registrationMembersFor(db, current.id);
+    if (members.length) {
+      const acceptedMembers = members.filter(member => member.match_status !== "rejected");
+      if (acceptedMembers.some(member => !["matched", "organizer_created"].includes(member.match_status))) {
+        return registrationError(409, "MEMBER_REVIEW_REQUIRED", "Resolve every pending roster member before accepting the team.", auth.headers);
+      }
+      const activeCount = acceptedMembers.filter(member => member.roster_role === "active").length;
+      const substituteCount = acceptedMembers.filter(member => member.roster_role === "substitute").length;
+      const countError = validateRegistrationRosterCounts(config, activeCount, substituteCount);
+      if (countError) return registrationError(409, countError[0], countError[1], auth.headers);
+      const duplicateTeam = await d1First(db.prepare(`
+        SELECT 1 AS found FROM event_registrations
+        WHERE event_id = ? AND id <> ? AND status NOT IN ('withdrawn', 'declined')
+          AND COALESCE(normalized_team_name, lower(trim(display_name))) = ?
+        LIMIT 1
+      `).bind(eventId, current.id, current.normalized_team_name || normalizeRegistrationName(current.display_name)));
+      if (duplicateTeam) return registrationError(409, "DUPLICATE_TEAM_NAME", "Another active registration already uses this team name.", auth.headers);
+      if (await conflictingRegistrationPlayer(db, eventId, current.id, acceptedMembers.map(member => member.internal_player_id).filter(Boolean))) {
+        return registrationError(409, "PLAYER_ALREADY_REGISTERED", "A roster player is already listed on another active registration. Resolve or override the member conflict first.", auth.headers);
+      }
+    }
   }
   const before = await registrationCapacity(db, eventId, config);
   if (current.status === parsed.value.status) {
@@ -1614,9 +1825,13 @@ async function getPublicRegistration(request, env, publicToken) {
 }
 
 async function rateLimitPublicRegistration(request, env, tokenHash) {
-  const now = Date.now(), windowStart = Math.floor(now / REGISTRATION_PUBLIC_WRITE_WINDOW_MS) * REGISTRATION_PUBLIC_WRITE_WINDOW_MS;
+  return rateLimitRegistrationAction(request, env, `submission:${tokenHash}`, REGISTRATION_PUBLIC_WRITE_WINDOW_MS, REGISTRATION_PUBLIC_WRITE_LIMIT);
+}
+
+async function rateLimitRegistrationAction(request, env, scope, windowMs, limit) {
+  const now = Date.now(), windowStart = Math.floor(now / windowMs) * windowMs;
   const address = request.headers.get("CF-Connecting-IP") || "unknown";
-  const scopeHash = await sha256(`${tokenHash}:${address}`);
+  const scopeHash = await sha256(`${scope}:${address}`);
   const row = await d1First(env.EVENT_REGISTRATION_DB.prepare(`
     INSERT INTO event_registration_rate_limits (scope_hash, window_start, attempt_count, updated_at)
     VALUES (?, ?, 1, ?)
@@ -1625,15 +1840,160 @@ async function rateLimitPublicRegistration(request, env, tokenHash) {
     RETURNING attempt_count
   `).bind(scopeHash, windowStart, now));
   await env.EVENT_REGISTRATION_DB.prepare("DELETE FROM event_registration_rate_limits WHERE updated_at < ?").bind(now - 24 * 60 * 60 * 1000).run();
-  return (Number(row?.attempt_count) || 1) <= REGISTRATION_PUBLIC_WRITE_LIMIT;
+  return (Number(row?.attempt_count) || 1) <= limit;
+}
+
+async function rateLimitManagementAccess(request, env, kind, managementToken, limit) {
+  const tokenHash = await sha256(managementToken);
+  const [tokenAllowed, addressAllowed] = await Promise.all([
+    rateLimitRegistrationAction(request, env, `management-${kind}:${tokenHash}`, REGISTRATION_PUBLIC_WRITE_WINDOW_MS, limit),
+    rateLimitRegistrationAction(request, env, `management-${kind}-address`, REGISTRATION_PUBLIC_WRITE_WINDOW_MS, REGISTRATION_MANAGEMENT_GUESS_LIMIT),
+  ]);
+  return tokenAllowed && addressAllowed;
+}
+
+function registrationSearchRank(row, normalizedQuery) {
+  const primary = row.normalized_primary_name || "";
+  let aliases = [];
+  try { aliases = JSON.parse(row.normalized_aliases || "[]"); } catch {}
+  if (primary === normalizedQuery) return 0;
+  if (aliases.includes(normalizedQuery)) return 1;
+  if (primary.startsWith(normalizedQuery)) return 2;
+  if (aliases.some(alias => alias.startsWith(normalizedQuery))) return 3;
+  if (primary.includes(normalizedQuery)) return 4;
+  if (aliases.some(alias => alias.includes(normalizedQuery))) return 5;
+  return null;
+}
+
+async function registrationPlayerLookup(request, env, config, rateScope) {
+  const query = cleanRegistrationName(new URL(request.url).searchParams.get("q") || "", REGISTRATION_MEMBER_NAME_MAX);
+  const normalizedQuery = normalizeRegistrationName(query);
+  if (!query || normalizedQuery.length < REGISTRATION_LOOKUP_MIN_QUERY) {
+    return registrationError(400, "SEARCH_QUERY_TOO_SHORT", `Enter at least ${REGISTRATION_LOOKUP_MIN_QUERY} characters.`);
+  }
+  if (!(await rateLimitRegistrationAction(request, env, `lookup:${rateScope}`, REGISTRATION_LOOKUP_WINDOW_MS, REGISTRATION_LOOKUP_LIMIT))) {
+    return registrationError(429, "RATE_LIMITED", "Too many player searches. Wait a moment and try again.", { "Retry-After": "60" });
+  }
+  const rows = await d1Rows(env.EVENT_REGISTRATION_DB.prepare(`
+    SELECT public_player_token, public_display_name, normalized_primary_name, normalized_aliases
+    FROM event_registration_players
+    WHERE event_id = ? AND eligible = 1
+    ORDER BY public_display_name, public_player_token
+    LIMIT ?
+  `).bind(config.event_id, REGISTRATION_PLAYER_DIRECTORY_LIMIT));
+  const players = rows.map(row => {
+    const rank = registrationSearchRank(row, normalizedQuery);
+    return rank == null ? null : {
+      rank,
+      publicPlayerToken: row.public_player_token,
+      displayName: row.public_display_name,
+    };
+  }).filter(Boolean).sort((a, b) => a.rank - b.rank
+    || a.displayName.localeCompare(b.displayName, undefined, { sensitivity: "base" })
+    || a.publicPlayerToken.localeCompare(b.publicPlayerToken)
+  ).slice(0, REGISTRATION_LOOKUP_RESULT_LIMIT).map(({ publicPlayerToken, displayName }) => ({ publicPlayerToken, displayName }));
+  return registrationJson({ ok: true, players, minimumQueryLength: REGISTRATION_LOOKUP_MIN_QUERY, resultLimit: REGISTRATION_LOOKUP_RESULT_LIMIT });
+}
+
+async function publicRegistrationPlayerLookup(request, env, publicToken) {
+  const config = await publicRegistrationConfig(env, publicToken);
+  if (!config || !Number(config.enabled) || !Number(config.event_available) || config.status === "draft") {
+    return registrationError(404, "REGISTRATION_UNAVAILABLE", "This registration link is unavailable.");
+  }
+  if (getEffectiveRegistrationStatus(config) !== "open") return registrationError(409, "REGISTRATION_NOT_OPEN", "Player search is available while registration is open.");
+  return registrationPlayerLookup(request, env, config, await sha256(publicToken));
+}
+
+async function resolveRegistrationMembers(db, config, rawMembers, existingMembers = []) {
+  if (!Array.isArray(rawMembers) || !rawMembers.length || rawMembers.length > REGISTRATION_TEAM_MEMBER_LIMIT) {
+    return { error: ["INVALID_ROSTER", "Add the required active players before submitting."] };
+  }
+  const existingById = new Map(existingMembers.map(row => [row.id, row]));
+  const seenMemberIds = new Set(), publicTokens = [], prepared = [];
+  for (const raw of rawMembers) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)
+        || unexpectedFields(raw, ["id", "rosterRole", "publicPlayerToken", "displayName"]).length
+        || !REGISTRATION_ROSTER_ROLES.has(raw.rosterRole)) {
+      return { error: ["INVALID_ROSTER", "The roster contains an invalid member."] };
+    }
+    const requestedId = typeof raw.id === "string" && TOKEN_PATTERN.test(raw.id) ? raw.id : null;
+    if (requestedId && seenMemberIds.has(requestedId)) return { error: ["DUPLICATE_MEMBER", "A player cannot appear more than once on one team."] };
+    if (requestedId) seenMemberIds.add(requestedId);
+    const current = requestedId ? existingById.get(requestedId) : null;
+    const publicPlayerToken = typeof raw.publicPlayerToken === "string" ? raw.publicPlayerToken : "";
+    if (publicPlayerToken) {
+      if (!PUBLIC_PLAYER_ID_PATTERN.test(publicPlayerToken)) return { error: ["INVALID_PLAYER", "A selected player is no longer available. Search again."] };
+      publicTokens.push(publicPlayerToken);
+      prepared.push({ id: requestedId || randomToken(), rosterRole: raw.rosterRole, publicPlayerToken, createdAt: current?.created_at || Date.now() });
+      continue;
+    }
+    if (current?.internal_player_id && ["matched", "organizer_created"].includes(current.match_status)) {
+      prepared.push({
+        id: current.id,
+        rosterRole: raw.rosterRole,
+        internalPlayerId: current.internal_player_id,
+        displayName: current.public_display_name,
+        normalizedName: current.normalized_name,
+        matchStatus: current.match_status,
+        createdAt: current.created_at,
+      });
+      continue;
+    }
+    const displayName = cleanRegistrationName(raw.displayName);
+    if (!displayName) return { error: ["INVALID_MEMBER_NAME", "Enter a valid player name for organizer review."] };
+    prepared.push({
+      id: requestedId || randomToken(),
+      rosterRole: raw.rosterRole,
+      internalPlayerId: null,
+      displayName,
+      normalizedName: normalizeRegistrationName(displayName),
+      matchStatus: current?.match_status === "rejected" ? "pending" : "pending",
+      createdAt: current?.created_at || Date.now(),
+    });
+  }
+  const directoryRows = publicTokens.length ? await d1Rows(db.prepare(`
+    SELECT internal_player_id, public_player_token, public_display_name
+    FROM event_registration_players
+    WHERE event_id = ? AND eligible = 1
+  `).bind(config.event_id)) : [];
+  const directory = new Map(directoryRows.map(row => [row.public_player_token, row]));
+  for (const member of prepared) {
+    if (!member.publicPlayerToken) continue;
+    const row = directory.get(member.publicPlayerToken);
+    if (!row) return { error: ["INVALID_PLAYER", "A selected player is no longer available. Search again."] };
+    member.internalPlayerId = row.internal_player_id;
+    member.displayName = row.public_display_name;
+    member.normalizedName = normalizeRegistrationName(row.public_display_name);
+    member.matchStatus = "matched";
+    delete member.publicPlayerToken;
+  }
+  const identityKeys = new Set(), pendingKeys = new Set();
+  for (const member of prepared) {
+    const identityKey = member.internalPlayerId ? `id:${member.internalPlayerId}` : `name:${member.normalizedName}`;
+    if (identityKeys.has(identityKey)) return { error: ["DUPLICATE_MEMBER", "A player cannot appear more than once on one team."] };
+    identityKeys.add(identityKey);
+    if (!member.internalPlayerId) pendingKeys.add(member.normalizedName);
+  }
+  const activeCount = prepared.filter(member => member.rosterRole === "active").length;
+  const substituteCount = prepared.length - activeCount;
+  const pending = prepared.filter(member => !member.internalPlayerId), warnings = [];
+  for (let i = 0; i < pending.length; i++) for (let j = i + 1; j < pending.length; j++) {
+    if (likelyRegistrationNameDuplicate(pending[i].displayName, pending[j].displayName)) {
+      warnings.push(`Check whether ${pending[i].displayName} and ${pending[j].displayName} are the same player.`);
+    }
+  }
+  return { value: prepared, activeCount, substituteCount, hasPending: pendingKeys.size > 0, warnings };
 }
 
 function validatePublicRegistrationSubmission(body, config) {
-  const extra = unexpectedFields(body, ["registrationType", "displayName", "activePlayerCount", "substituteCount"]);
+  const extra = unexpectedFields(body, ["registrationType", "teamName", "displayName", "members", "activePlayerCount", "substituteCount", "idempotencyKey"]);
   if (extra.length) return { error: ["INVALID_FIELDS", "The registration submission contains unsupported fields."] };
-  const displayName = cleanRegistrationText(body.displayName, REGISTRATION_DISPLAY_NAME_MAX);
-  if (!displayName) return { error: ["INVALID_DISPLAY_NAME", "A team or participant display name is required."] };
   if (body.registrationType !== config.mode) return { error: ["INVALID_REGISTRATION_TYPE", "This submission type does not match the event registration mode."] };
+  const displayName = cleanRegistrationName(body.teamName ?? body.displayName, REGISTRATION_DISPLAY_NAME_MAX);
+  if (!displayName) return { error: ["INVALID_TEAM_NAME", "A valid team name is required."] };
+  const idempotencyKey = body.idempotencyKey == null ? null : String(body.idempotencyKey);
+  if (idempotencyKey != null && !TOKEN_PATTERN.test(idempotencyKey)) return { error: ["INVALID_IDEMPOTENCY_KEY", "The submission request identifier is invalid."] };
+  if (body.members != null) return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), members: body.members, idempotencyKey } };
   const activePlayerCount = registrationInteger(body.activePlayerCount, { nullable: false, minimum: 1, maximum: 1000 });
   const substituteCount = registrationInteger(body.substituteCount, { nullable: false, minimum: 0, maximum: 1000 });
   if (activePlayerCount === undefined || substituteCount === undefined) return { error: ["INVALID_ROSTER_COUNT", "Active-player and substitute counts are invalid."] };
@@ -1642,7 +2002,16 @@ function validatePublicRegistrationSubmission(body, config) {
   if (config.max_active_players_per_team != null && activePlayerCount > Number(config.max_active_players_per_team)) return { error: ["ROSTER_TOO_LARGE", "The active roster exceeds the event maximum."] };
   if (!Number(config.allow_substitutes) && substituteCount > 0) return { error: ["SUBSTITUTES_NOT_ALLOWED", "This event does not allow substitutes."] };
   if (config.max_substitutes_per_team != null && substituteCount > Number(config.max_substitutes_per_team)) return { error: ["TOO_MANY_SUBSTITUTES", "The substitute count exceeds the event limit."] };
-  return { value: { displayName, activePlayerCount, substituteCount } };
+  return { value: { displayName, normalizedTeamName: normalizeRegistrationName(displayName), activePlayerCount, substituteCount, legacyCountsOnly: true, idempotencyKey } };
+}
+
+function validateRegistrationRosterCounts(config, activePlayerCount, substituteCount) {
+  if (config.mode === "individual" && (activePlayerCount !== 1 || substituteCount !== 0)) return ["INVALID_ROSTER_COUNT", "Individual registrations contain exactly one active player and no substitutes."];
+  if (config.min_active_players_per_team != null && activePlayerCount < Number(config.min_active_players_per_team)) return ["ROSTER_TOO_SMALL", "The active roster is below the event minimum."];
+  if (config.max_active_players_per_team != null && activePlayerCount > Number(config.max_active_players_per_team)) return ["ROSTER_TOO_LARGE", "The active roster exceeds the event maximum."];
+  if (!Number(config.allow_substitutes) && substituteCount > 0) return ["SUBSTITUTES_NOT_ALLOWED", "This event does not allow substitutes."];
+  if (config.max_substitutes_per_team != null && substituteCount > Number(config.max_substitutes_per_team)) return ["TOO_MANY_SUBSTITUTES", "The substitute count exceeds the event limit."];
+  return null;
 }
 
 async function submitPublicRegistration(request, env, url, publicToken) {
@@ -1660,21 +2029,74 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   const validated = validatePublicRegistrationSubmission(parsed.value, config);
   if (validated.error) return registrationError(400, validated.error[0], validated.error[1]);
   const value = validated.value, now = Date.now(), entryId = randomToken(), db = env.EVENT_REGISTRATION_DB;
-  const row = await d1First(db.prepare(`
+  let members = [], activePlayerCount = value.activePlayerCount, substituteCount = value.substituteCount, hasPending = false, rosterWarnings = [];
+  if (!value.legacyCountsOnly) {
+    const resolved = await resolveRegistrationMembers(db, config, value.members);
+    if (resolved.error) return registrationError(400, resolved.error[0], resolved.error[1]);
+    members = resolved.value;
+    activePlayerCount = resolved.activeCount;
+    substituteCount = resolved.substituteCount;
+    hasPending = resolved.hasPending;
+    rosterWarnings = resolved.warnings;
+    const countError = validateRegistrationRosterCounts(config, activePlayerCount, substituteCount);
+    if (countError) return registrationError(400, countError[0], countError[1]);
+  }
+  const duplicateTeam = await d1First(db.prepare(`
+    SELECT 1 AS found
+    FROM event_registrations
+    WHERE event_id = ? AND status NOT IN ('withdrawn', 'declined')
+      AND COALESCE(normalized_team_name, lower(trim(display_name))) = ?
+    LIMIT 1
+  `).bind(config.event_id, value.normalizedTeamName));
+  if (duplicateTeam) return registrationError(409, "DUPLICATE_TEAM_NAME", "Another active registration already uses this team name. Add a distinguishing suffix.");
+  const matchedIds = [...new Set(members.map(member => member.internalPlayerId).filter(Boolean))];
+  if (matchedIds.length) {
+    const placeholders = matchedIds.map(() => "?").join(", ");
+    const conflict = await d1First(db.prepare(`
+      SELECT 1 AS found
+      FROM event_registration_members m
+      JOIN event_registrations r ON r.id = m.registration_id
+      WHERE r.event_id = ? AND r.status NOT IN ('declined', 'withdrawn')
+        AND m.internal_player_id IN (${placeholders})
+        AND m.match_status IN ('matched', 'organizer_created')
+        AND m.duplicate_override = 0
+      LIMIT 1
+    `).bind(config.event_id, ...matchedIds));
+    if (conflict) return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+  }
+  const managementToken = randomToken(), managementTokenHash = await sha256(managementToken);
+  const conflictClause = matchedIds.length ? `
+      AND NOT EXISTS (
+        SELECT 1
+        FROM event_registration_members member_conflict
+        JOIN event_registrations registration_conflict
+          ON registration_conflict.id = member_conflict.registration_id
+        WHERE registration_conflict.event_id = c.event_id
+          AND registration_conflict.status NOT IN ('declined', 'withdrawn')
+          AND member_conflict.internal_player_id IN (${matchedIds.map(() => "?").join(", ")})
+          AND member_conflict.match_status IN ('matched', 'organizer_created')
+          AND member_conflict.duplicate_override = 0
+      )
+  ` : "";
+  const insertRegistration = db.prepare(`
     INSERT INTO event_registrations (
       id, event_id, registration_type, display_name, status, active_player_count, substitute_count,
-      created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override
+      created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override,
+      normalized_team_name, management_token_hash, management_token_rotated_at,
+      management_token_revoked_at, editing_locked, last_edited_at, revision, last_edit_key
     )
     SELECT
       ?, c.event_id, ?, ?,
       CASE
+        WHEN ? = 1 THEN 'needs_review'
+        WHEN c.require_organizer_approval = 1 THEN 'submitted'
         WHEN c.active_player_capacity IS NOT NULL
           AND COALESCE((SELECT SUM(r.active_player_count) FROM event_registrations r WHERE r.event_id = c.event_id AND r.status = 'accepted'), 0) + ? > c.active_player_capacity
           THEN 'waitlisted'
-        WHEN c.require_organizer_approval = 1 THEN 'submitted'
         ELSE 'accepted'
       END,
-      ?, ?, ?, ?, ?, NULL, NULL, 0
+      ?, ?, ?, ?, ?, NULL, NULL, 0,
+      ?, ?, ?, NULL, 0, ?, 1, ?
     FROM event_registration_configs c
     WHERE c.public_token_hash = ? AND c.enabled = 1 AND c.event_available = 1
       AND c.status IN ('open', 'scheduled')
@@ -1686,30 +2108,58 @@ async function submitPublicRegistration(request, env, url, publicToken) {
         COALESCE((SELECT SUM(a.active_player_count) FROM event_registrations a WHERE a.event_id = c.event_id AND a.status = 'accepted'), 0) + ? <= c.active_player_capacity OR
         c.allow_waitlist = 1
       )
-    RETURNING *
+      ${conflictClause}
   `).bind(
-    entryId, config.mode, value.displayName, value.activePlayerCount,
-    value.activePlayerCount, value.substituteCount, now, now, now, tokenHash,
-    now, now, MAX_REGISTRATION_ENTRIES_PER_EVENT, value.activePlayerCount
+    entryId, config.mode, value.displayName, hasPending ? 1 : 0, activePlayerCount,
+    activePlayerCount, substituteCount, now, now, now,
+    value.normalizedTeamName, managementTokenHash, now, now, value.idempotencyKey,
+    tokenHash, now, now, MAX_REGISTRATION_ENTRIES_PER_EVENT, activePlayerCount, ...matchedIds
+  );
+  const memberStatements = members.map(member => db.prepare(`
+    INSERT INTO event_registration_members (
+      id, registration_id, roster_role, internal_player_id, public_display_name,
+      normalized_name, match_status, duplicate_override, created_at, updated_at
+    )
+    SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
+    WHERE EXISTS (SELECT 1 FROM event_registrations WHERE id = ?)
+  `).bind(
+    member.id, entryId, member.rosterRole, member.internalPlayerId, member.displayName,
+    member.normalizedName, member.matchStatus, member.createdAt, now, entryId
   ));
-  if (!row) {
+  let writeResults;
+  try {
+    writeResults = await d1Batch(db, [insertRegistration, ...memberStatements]);
+  } catch {
+    return registrationError(409, "REGISTRATION_CONFLICT", "The team could not be submitted atomically. Review the roster and try again.");
+  }
+  if (!Number(writeResults[0]?.meta?.changes)) {
     const latest = await publicRegistrationConfig(env, publicToken);
     if (!latest || getEffectiveRegistrationStatus(latest, now) !== "open") return registrationError(409, "REGISTRATION_NOT_OPEN", "Registration is no longer open.");
+    if (matchedIds.length && await conflictingRegistrationPlayer(db, latest.event_id, entryId, matchedIds)) {
+      return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+    }
     const capacity = await registrationCapacity(db, latest.event_id, latest);
-    if (capacity.remainingAcceptedCapacity != null && capacity.remainingAcceptedCapacity < value.activePlayerCount && !Number(latest.allow_waitlist)) {
+    if (capacity.remainingAcceptedCapacity != null && capacity.remainingAcceptedCapacity < activePlayerCount && !Number(latest.allow_waitlist)) {
       return registrationError(409, "REGISTRATION_FULL", "Registration is full and a waitlist is not available.");
     }
     return registrationError(429, "ENTRY_LIMIT_REACHED", "This registration cannot accept more entries.");
   }
+  const row = await d1First(db.prepare("SELECT * FROM event_registrations WHERE id = ?").bind(entryId));
   const capacity = await registrationCapacity(db, config.event_id, config);
+  const managementUrl = `${url.origin}/event-registration/manage/${managementToken}`;
   return registrationJson({
     ok: true,
     submission: {
+      registrationId: row.id,
       status: row.status,
       displayName: row.display_name,
+      teamName: row.display_name,
       activePlayerCount: Number(row.active_player_count),
       substituteCount: Number(row.substitute_count),
       submittedAt: Number(row.submitted_at),
+      managementUrl,
+      message: "Your team is registered. Save the private management link.",
+      warnings: rosterWarnings,
     },
     capacity: {
       activePlayerCapacity: capacity.capacity,
@@ -1719,11 +2169,611 @@ async function submitPublicRegistration(request, env, url, publicToken) {
   }, 201);
 }
 
+async function managementRegistrationRecord(env, managementToken) {
+  if (!hasRegistrationStorage(env) || !TOKEN_PATTERN.test(managementToken)) return null;
+  const tokenHash = await sha256(managementToken);
+  return d1First(env.EVENT_REGISTRATION_DB.prepare(`
+    SELECT r.*, c.event_name, c.event_date, c.public_title, c.public_description,
+           c.enabled, c.event_available, c.mode, c.status AS registration_status,
+           c.opens_at, c.closes_at, c.active_player_capacity, c.allow_substitutes,
+           c.max_substitutes_per_team, c.min_active_players_per_team,
+           c.max_active_players_per_team, c.require_organizer_approval, c.allow_waitlist
+    FROM event_registrations r
+    JOIN event_registration_configs c ON c.event_id = r.event_id
+    WHERE r.management_token_hash = ? AND r.management_token_revoked_at IS NULL
+    LIMIT 1
+  `).bind(tokenHash));
+}
+
+async function registrationMembersFor(db, registrationId) {
+  return d1Rows(db.prepare(`
+    SELECT * FROM event_registration_members
+    WHERE registration_id = ?
+    ORDER BY CASE roster_role WHEN 'active' THEN 0 ELSE 1 END, created_at, id
+  `).bind(registrationId));
+}
+
+function getRegistrationEditPolicy({ registrationStatus, effectiveRegistrationStatus, editingLocked, publicEditOverride = false, organizerApprovalRequired, changes = true }) {
+  if (editingLocked) return { allowed: false, nextStatus: registrationStatus, reason: "The organizer locked public editing for this registration." };
+  if (registrationStatus === "withdrawn") return { allowed: false, nextStatus: registrationStatus, reason: "Withdrawn registrations are view-only." };
+  if (registrationStatus === "declined") return { allowed: false, nextStatus: registrationStatus, reason: "Declined registrations are view-only." };
+  if (effectiveRegistrationStatus !== "open" && !publicEditOverride) return { allowed: false, nextStatus: registrationStatus, reason: "Registration editing is closed. Ask the organizer for help." };
+  if (!changes) return { allowed: true, nextStatus: registrationStatus, reason: "" };
+  if (organizerApprovalRequired) return { allowed: true, nextStatus: registrationStatus === "draft" ? "submitted" : "needs_review", reason: "" };
+  return { allowed: true, nextStatus: registrationStatus, reason: "" };
+}
+
+function managementRegistrationSerializer(row, members, now = Date.now()) {
+  const configShape = {
+    enabled: row.enabled,
+    status: row.registration_status,
+    opens_at: row.opens_at,
+    closes_at: row.closes_at,
+  };
+  const effectiveStatus = getEffectiveRegistrationStatus(configShape, now);
+  const policy = getRegistrationEditPolicy({
+    registrationStatus: row.status,
+    effectiveRegistrationStatus: effectiveStatus,
+    editingLocked: !!Number(row.editing_locked),
+    publicEditOverride: !!Number(row.public_edit_override),
+    organizerApprovalRequired: !!Number(row.require_organizer_approval),
+    changes: false,
+  });
+  const safeMembers = members.map(member => registrationMemberView(member)), pendingMembers = safeMembers.filter(member => member.matchStatus === "pending"), warnings = [];
+  for (let i = 0; i < pendingMembers.length; i++) for (let j = i + 1; j < pendingMembers.length; j++) {
+    if (likelyRegistrationNameDuplicate(pendingMembers[i].displayName, pendingMembers[j].displayName)) {
+      warnings.push(`Check whether ${pendingMembers[i].displayName} and ${pendingMembers[j].displayName} are the same player.`);
+    }
+  }
+  return {
+    event: {
+      title: row.public_title || row.event_name || "Event registration",
+      description: row.public_description || "",
+      eventDate: row.event_date,
+      registrationStatus: effectiveStatus,
+      closesAt: row.closes_at == null ? null : Number(row.closes_at),
+    },
+    registration: {
+      teamName: row.display_name || "",
+      status: row.status,
+      activePlayerCount: Number(row.active_player_count) || 0,
+      substituteCount: Number(row.substitute_count) || 0,
+      submittedAt: row.submitted_at == null ? null : Number(row.submitted_at),
+      updatedAt: Number(row.updated_at),
+      lastEditedAt: row.last_edited_at == null ? null : Number(row.last_edited_at),
+      withdrawnAt: row.withdrawn_at == null ? null : Number(row.withdrawn_at),
+      revision: Number(row.revision) || 1,
+      editingLocked: !!Number(row.editing_locked),
+      organizerEditOverride: !!Number(row.public_edit_override),
+      editable: policy.allowed,
+      editReason: policy.reason,
+      rosterRules: {
+        minActivePlayersPerTeam: row.min_active_players_per_team == null ? null : Number(row.min_active_players_per_team),
+        maxActivePlayersPerTeam: row.max_active_players_per_team == null ? null : Number(row.max_active_players_per_team),
+        allowSubstitutes: !!Number(row.allow_substitutes),
+        maxSubstitutesPerTeam: row.max_substitutes_per_team == null ? null : Number(row.max_substitutes_per_team),
+      },
+      warnings,
+      members: safeMembers,
+    },
+    serverTime: now,
+  };
+}
+
+async function getManagedRegistration(request, env, managementToken) {
+  if (!(await rateLimitManagementAccess(request, env, "read", managementToken, REGISTRATION_MANAGEMENT_READ_LIMIT))) {
+    return registrationError(429, "RATE_LIMITED", "Too many management requests. Wait a few minutes and try again.", { "Retry-After": "600" });
+  }
+  const row = await managementRegistrationRecord(env, managementToken);
+  if (!row) return registrationError(404, "MANAGEMENT_LINK_UNAVAILABLE", "This management link is unavailable.");
+  const members = await registrationMembersFor(env.EVENT_REGISTRATION_DB, row.id);
+  return registrationJson({ ok: true, ...managementRegistrationSerializer(row, members) });
+}
+
+async function managedRegistrationPlayerLookup(request, env, managementToken) {
+  if (!(await rateLimitManagementAccess(request, env, "lookup", managementToken, REGISTRATION_MANAGEMENT_READ_LIMIT))) {
+    return registrationError(429, "RATE_LIMITED", "Too many management requests. Wait a few minutes and try again.", { "Retry-After": "600" });
+  }
+  const row = await managementRegistrationRecord(env, managementToken);
+  if (!row) return registrationError(404, "MANAGEMENT_LINK_UNAVAILABLE", "This management link is unavailable.");
+  const policy = getRegistrationEditPolicy({
+    registrationStatus: row.status,
+    effectiveRegistrationStatus: getEffectiveRegistrationStatus({ enabled: row.enabled, status: row.registration_status, opens_at: row.opens_at, closes_at: row.closes_at }),
+    editingLocked: !!Number(row.editing_locked),
+    publicEditOverride: !!Number(row.public_edit_override),
+    organizerApprovalRequired: !!Number(row.require_organizer_approval),
+    changes: false,
+  });
+  if (!policy.allowed) return registrationError(423, "REGISTRATION_READ_ONLY", policy.reason);
+  return registrationPlayerLookup(request, env, { event_id: row.event_id }, await sha256(managementToken));
+}
+
+async function conflictingRegistrationPlayer(db, eventId, registrationId, internalPlayerIds) {
+  if (!internalPlayerIds.length) return false;
+  const placeholders = internalPlayerIds.map(() => "?").join(", ");
+  const row = await d1First(db.prepare(`
+    SELECT 1 AS found
+    FROM event_registration_members m
+    JOIN event_registrations r ON r.id = m.registration_id
+    WHERE r.event_id = ? AND r.id <> ? AND r.status NOT IN ('declined', 'withdrawn')
+      AND m.internal_player_id IN (${placeholders})
+      AND m.match_status IN ('matched', 'organizer_created')
+      AND m.duplicate_override = 0
+    LIMIT 1
+  `).bind(eventId, registrationId, ...internalPlayerIds));
+  return !!row;
+}
+
+async function patchManagedRegistration(request, env, managementToken) {
+  if (!publicRegistrationOriginAllowed(request, new URL(request.url))) return registrationError(403, "ORIGIN_NOT_ALLOWED", "Cross-origin registration edits are not allowed.");
+  if (!(await rateLimitManagementAccess(request, env, "write", managementToken, REGISTRATION_MANAGEMENT_WRITE_LIMIT))) {
+    return registrationError(429, "RATE_LIMITED", "Too many management changes. Wait a few minutes and try again.", { "Retry-After": "600" });
+  }
+  const row = await managementRegistrationRecord(env, managementToken);
+  if (!row) return registrationError(404, "MANAGEMENT_LINK_UNAVAILABLE", "This management link is unavailable.");
+  const parsed = await readRegistrationJson(request, MAX_PUBLIC_REGISTRATION_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["revision", "teamName", "members"]).length) {
+    return registrationError(400, "INVALID_FIELDS", "The registration edit contains unsupported fields.");
+  }
+  const revision = registrationInteger(parsed.value.revision, { nullable: false, minimum: 1, maximum: 1_000_000_000 });
+  if (revision === undefined) return registrationError(400, "INVALID_REVISION", "Reload the registration and try again.");
+  const currentMembers = await registrationMembersFor(env.EVENT_REGISTRATION_DB, row.id);
+  if (revision !== Number(row.revision)) {
+    return registrationJson({
+      ok: false,
+      code: "REGISTRATION_CONFLICT",
+      message: "This registration changed on another device. Reload and try again.",
+      current: managementRegistrationSerializer(row, currentMembers),
+    }, 409);
+  }
+  const teamName = cleanRegistrationName(parsed.value.teamName, REGISTRATION_DISPLAY_NAME_MAX);
+  if (!teamName) return registrationError(400, "INVALID_TEAM_NAME", "A valid team name is required.");
+  const config = {
+    event_id: row.event_id,
+    mode: row.mode,
+    min_active_players_per_team: row.min_active_players_per_team,
+    max_active_players_per_team: row.max_active_players_per_team,
+    allow_substitutes: row.allow_substitutes,
+    max_substitutes_per_team: row.max_substitutes_per_team,
+  };
+  const resolved = await resolveRegistrationMembers(env.EVENT_REGISTRATION_DB, config, parsed.value.members, currentMembers);
+  if (resolved.error) return registrationError(400, resolved.error[0], resolved.error[1]);
+  const countError = validateRegistrationRosterCounts(config, resolved.activeCount, resolved.substituteCount);
+  if (countError) return registrationError(400, countError[0], countError[1]);
+  if (await conflictingRegistrationPlayer(
+    env.EVENT_REGISTRATION_DB,
+    row.event_id,
+    row.id,
+    [...new Set(resolved.value.map(member => member.internalPlayerId).filter(Boolean))]
+  )) return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+  const normalizedTeamName = normalizeRegistrationName(teamName);
+  const duplicateTeam = await d1First(env.EVENT_REGISTRATION_DB.prepare(`
+    SELECT 1 AS found FROM event_registrations
+    WHERE event_id = ? AND id <> ? AND status NOT IN ('withdrawn', 'declined')
+      AND COALESCE(normalized_team_name, lower(trim(display_name))) = ?
+    LIMIT 1
+  `).bind(row.event_id, row.id, normalizedTeamName));
+  if (duplicateTeam) return registrationError(409, "DUPLICATE_TEAM_NAME", "Another active registration already uses this team name. Add a distinguishing suffix.");
+  const effectiveStatus = getEffectiveRegistrationStatus({
+    enabled: row.enabled,
+    status: row.registration_status,
+    opens_at: row.opens_at,
+    closes_at: row.closes_at,
+  });
+  const policy = getRegistrationEditPolicy({
+    registrationStatus: row.status,
+    effectiveRegistrationStatus: effectiveStatus,
+    editingLocked: !!Number(row.editing_locked),
+    publicEditOverride: !!Number(row.public_edit_override),
+    organizerApprovalRequired: !!Number(row.require_organizer_approval),
+    changes: true,
+  });
+  if (!policy.allowed) return registrationError(423, "REGISTRATION_READ_ONLY", policy.reason);
+  let nextStatus = policy.nextStatus;
+  if (resolved.hasPending) nextStatus = "needs_review";
+  if (!Number(row.require_organizer_approval) && !resolved.hasPending && row.status === "accepted") {
+    const otherAccepted = await d1First(env.EVENT_REGISTRATION_DB.prepare(`
+      SELECT COALESCE(SUM(active_player_count), 0) AS active
+      FROM event_registrations
+      WHERE event_id = ? AND status = 'accepted' AND id <> ?
+    `).bind(row.event_id, row.id));
+    const fits = row.active_player_capacity == null || Number(otherAccepted?.active || 0) + resolved.activeCount <= Number(row.active_player_capacity);
+    if (fits) nextStatus = "accepted";
+    else return registrationError(409, "CAPACITY_EXCEEDED", "The active roster would exceed event capacity.");
+  }
+  const now = Date.now(), nextRevision = revision + 1, editKey = randomToken(), db = env.EVENT_REGISTRATION_DB;
+  const memberIds = new Set(resolved.value.map(member => member.id));
+  const resolvedInternalPlayerIds = [...new Set(resolved.value.map(member => member.internalPlayerId).filter(Boolean))];
+  const editConflictClause = resolvedInternalPlayerIds.length ? `
+        AND NOT EXISTS (
+          SELECT 1
+          FROM event_registration_members member_conflict
+          JOIN event_registrations registration_conflict
+            ON registration_conflict.id = member_conflict.registration_id
+          WHERE registration_conflict.event_id = event_registrations.event_id
+            AND registration_conflict.id <> event_registrations.id
+            AND registration_conflict.status NOT IN ('declined', 'withdrawn')
+            AND member_conflict.internal_player_id IN (${resolvedInternalPlayerIds.map(() => "?").join(", ")})
+            AND member_conflict.match_status IN ('matched', 'organizer_created')
+            AND member_conflict.duplicate_override = 0
+        )
+  ` : "";
+  const statements = [
+    db.prepare(`
+      UPDATE event_registrations
+      SET display_name = ?, normalized_team_name = ?, status = ?,
+          active_player_count = ?, substitute_count = ?, updated_at = ?,
+          last_edited_at = ?, revision = ?, last_edit_key = ?, capacity_override = 0
+      WHERE id = ? AND revision = ?
+        AND NOT EXISTS (
+          SELECT 1 FROM event_registrations duplicate_team
+          WHERE duplicate_team.event_id = event_registrations.event_id
+            AND duplicate_team.id <> event_registrations.id
+            AND duplicate_team.status NOT IN ('withdrawn', 'declined')
+            AND COALESCE(duplicate_team.normalized_team_name, lower(trim(duplicate_team.display_name))) = ?
+        )
+        AND (
+          ? <> 'accepted' OR EXISTS (
+            SELECT 1 FROM event_registration_configs capacity
+            WHERE capacity.event_id = event_registrations.event_id
+              AND (
+                capacity.active_player_capacity IS NULL OR
+                COALESCE((
+                  SELECT SUM(other.active_player_count)
+                  FROM event_registrations other
+                  WHERE other.event_id = event_registrations.event_id
+                    AND other.status = 'accepted' AND other.id <> event_registrations.id
+                ), 0) + ? <= capacity.active_player_capacity
+            )
+          )
+        )
+        ${editConflictClause}
+    `).bind(
+      teamName, normalizedTeamName, nextStatus, resolved.activeCount, resolved.substituteCount,
+      now, now, nextRevision, editKey, row.id, revision, normalizedTeamName, nextStatus, resolved.activeCount,
+      ...resolvedInternalPlayerIds
+    ),
+    ...currentMembers.filter(member => !memberIds.has(member.id)).map(member =>
+      db.prepare(`
+        DELETE FROM event_registration_members
+        WHERE id = ? AND registration_id = ?
+          AND EXISTS (
+            SELECT 1 FROM event_registrations
+            WHERE id = ? AND revision = ? AND last_edit_key = ?
+          )
+      `).bind(member.id, row.id, row.id, nextRevision, editKey)
+    ),
+    ...resolved.value.map(member => db.prepare(`
+      INSERT INTO event_registration_members (
+        id, registration_id, roster_role, internal_player_id, public_display_name,
+        normalized_name, match_status, duplicate_override, created_at, updated_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, 0, ?, ?
+      WHERE EXISTS (
+        SELECT 1 FROM event_registrations WHERE id = ? AND revision = ? AND last_edit_key = ?
+      )
+      ON CONFLICT(id) DO UPDATE SET
+        roster_role = excluded.roster_role,
+        internal_player_id = excluded.internal_player_id,
+        public_display_name = excluded.public_display_name,
+        normalized_name = excluded.normalized_name,
+        match_status = excluded.match_status,
+        duplicate_override = 0,
+        updated_at = excluded.updated_at
+    `).bind(
+      member.id, row.id, member.rosterRole, member.internalPlayerId, member.displayName,
+      member.normalizedName, member.matchStatus, member.createdAt, now,
+      row.id, nextRevision, editKey
+    )),
+  ];
+  const results = await d1Batch(db, statements);
+  if (!Number(results[0]?.meta?.changes)) {
+    const current = await managementRegistrationRecord(env, managementToken);
+    if (current && Number(current.revision) === revision) {
+      if (await conflictingRegistrationPlayer(db, row.event_id, row.id, resolvedInternalPlayerIds)) {
+        return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Ask the organizer for help.");
+      }
+      const currentDuplicateTeam = await d1First(db.prepare(`
+        SELECT 1 AS found FROM event_registrations
+        WHERE event_id = ? AND id <> ? AND status NOT IN ('withdrawn', 'declined')
+          AND COALESCE(normalized_team_name, lower(trim(display_name))) = ?
+        LIMIT 1
+      `).bind(row.event_id, row.id, normalizedTeamName));
+      if (currentDuplicateTeam) return registrationError(409, "DUPLICATE_TEAM_NAME", "Another active registration already uses this team name. Add a distinguishing suffix.");
+      if (nextStatus === "accepted") {
+        const otherAccepted = await d1First(db.prepare(`
+          SELECT COALESCE(SUM(active_player_count), 0) AS active
+          FROM event_registrations
+          WHERE event_id = ? AND status = 'accepted' AND id <> ?
+        `).bind(row.event_id, row.id));
+        if (row.active_player_capacity != null
+            && Number(otherAccepted?.active || 0) + resolved.activeCount > Number(row.active_player_capacity)) {
+          return registrationError(409, "CAPACITY_EXCEEDED", "The active roster would exceed event capacity.");
+        }
+      }
+    }
+    return registrationJson({
+      ok: false,
+      code: "REGISTRATION_CONFLICT",
+      message: "This registration changed on another device. Reload and try again.",
+      current: managementRegistrationSerializer(current, await registrationMembersFor(db, row.id)),
+    }, 409);
+  }
+  const updated = await managementRegistrationRecord(env, managementToken);
+  return registrationJson({ ok: true, ...managementRegistrationSerializer(updated, await registrationMembersFor(db, row.id)) });
+}
+
+async function withdrawManagedRegistration(request, env, managementToken) {
+  if (!publicRegistrationOriginAllowed(request, new URL(request.url))) return registrationError(403, "ORIGIN_NOT_ALLOWED", "Cross-origin withdrawal requests are not allowed.");
+  if (!(await rateLimitManagementAccess(request, env, "withdraw", managementToken, REGISTRATION_MANAGEMENT_WRITE_LIMIT))) {
+    return registrationError(429, "RATE_LIMITED", "Too many management changes. Wait a few minutes and try again.", { "Retry-After": "600" });
+  }
+  const row = await managementRegistrationRecord(env, managementToken);
+  if (!row) return registrationError(404, "MANAGEMENT_LINK_UNAVAILABLE", "This management link is unavailable.");
+  const parsed = await readRegistrationJson(request, MAX_PUBLIC_REGISTRATION_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["confirm", "revision"]).length || parsed.value.confirm !== true) {
+    return registrationError(400, "WITHDRAWAL_CONFIRMATION_REQUIRED", "Confirm withdrawal before continuing.");
+  }
+  if (row.status === "withdrawn") return getManagedRegistration(request, env, managementToken);
+  const policy = getRegistrationEditPolicy({
+    registrationStatus: row.status,
+    effectiveRegistrationStatus: getEffectiveRegistrationStatus({
+      enabled: row.enabled,
+      status: row.registration_status,
+      opens_at: row.opens_at,
+      closes_at: row.closes_at,
+    }),
+    editingLocked: !!Number(row.editing_locked),
+    publicEditOverride: !!Number(row.public_edit_override),
+    organizerApprovalRequired: !!Number(row.require_organizer_approval),
+    changes: false,
+  });
+  if (!policy.allowed) return registrationError(423, "REGISTRATION_READ_ONLY", policy.reason);
+  const revision = registrationInteger(parsed.value.revision, { nullable: false, minimum: 1, maximum: 1_000_000_000 });
+  if (revision !== Number(row.revision)) {
+    return registrationError(409, "REGISTRATION_CONFLICT", "This registration changed on another device. Reload and try again.");
+  }
+  const now = Date.now();
+  const result = await env.EVENT_REGISTRATION_DB.prepare(`
+    UPDATE event_registrations
+    SET status = 'withdrawn', withdrawn_at = ?, updated_at = ?, last_edited_at = ?,
+        revision = revision + 1, capacity_override = 0
+    WHERE id = ? AND revision = ? AND status <> 'withdrawn'
+  `).bind(now, now, now, row.id, revision).run();
+  if (!Number(result?.meta?.changes)) return registrationError(409, "REGISTRATION_CONFLICT", "This registration changed on another device. Reload and try again.");
+  return getManagedRegistration(request, env, managementToken);
+}
+
+async function updateOrganizerManagementAccess(request, env, url, eventId, entryId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["action"]).length || !["rotate", "revoke", "lock", "unlock"].includes(parsed.value.action)) {
+    return registrationError(400, "INVALID_MANAGEMENT_ACTION", "The management-link action is invalid.", auth.headers);
+  }
+  const config = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const entry = await d1First(env.EVENT_REGISTRATION_DB.prepare("SELECT * FROM event_registrations WHERE id = ? AND event_id = ?").bind(entryId, eventId));
+  if (!entry) return registrationError(404, "ENTRY_NOT_FOUND", "The registration entry was not found.", auth.headers);
+  const now = Date.now(), action = parsed.value.action;
+  let managementToken = null;
+  if (action === "rotate") {
+    managementToken = randomToken();
+    await env.EVENT_REGISTRATION_DB.prepare(`
+      UPDATE event_registrations
+      SET management_token_hash = ?, management_token_rotated_at = ?, management_token_revoked_at = NULL,
+          updated_at = ?, revision = revision + 1
+      WHERE id = ? AND event_id = ?
+    `).bind(await sha256(managementToken), now, now, entryId, eventId).run();
+  } else if (action === "revoke") {
+    await env.EVENT_REGISTRATION_DB.prepare(`
+      UPDATE event_registrations
+      SET management_token_hash = NULL, management_token_revoked_at = ?, updated_at = ?, revision = revision + 1
+      WHERE id = ? AND event_id = ?
+    `).bind(now, now, entryId, eventId).run();
+  } else {
+    await env.EVENT_REGISTRATION_DB.prepare(`
+      UPDATE event_registrations
+      SET editing_locked = ?, public_edit_override = ?, updated_at = ?, revision = revision + 1
+      WHERE id = ? AND event_id = ?
+    `).bind(action === "lock" ? 1 : 0, action === "unlock" ? 1 : 0, now, entryId, eventId).run();
+  }
+  const updated = await d1First(env.EVENT_REGISTRATION_DB.prepare("SELECT * FROM event_registrations WHERE id = ?").bind(entryId));
+  return registrationJson({
+    ok: true,
+    entry: registrationEntryView(updated, (await registrationMembersFor(env.EVENT_REGISTRATION_DB, entryId)).map(member => registrationMemberView(member, { organizer: true }))),
+    managementUrl: managementToken ? `${url.origin}/event-registration/manage/${managementToken}` : null,
+  }, 200, auth.headers);
+}
+
+async function updateOrganizerRegistrationMember(request, env, eventId, entryId, memberId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["action", "internalPlayerId", "duplicateOverride", "organizerCreated", "rosterRole", "overrideCapacity"]).length
+      || !["match", "unmatch", "reject", "move"].includes(parsed.value.action)
+      || (parsed.value.duplicateOverride != null && typeof parsed.value.duplicateOverride !== "boolean")
+      || (parsed.value.organizerCreated != null && typeof parsed.value.organizerCreated !== "boolean")
+      || (parsed.value.overrideCapacity != null && typeof parsed.value.overrideCapacity !== "boolean")) {
+    return registrationError(400, "INVALID_MEMBER_ACTION", "The roster-member action is invalid.", auth.headers);
+  }
+  const db = env.EVENT_REGISTRATION_DB;
+  const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const member = await d1First(db.prepare(`
+    SELECT m.* FROM event_registration_members m
+    JOIN event_registrations r ON r.id = m.registration_id
+    WHERE m.id = ? AND r.id = ? AND r.event_id = ?
+  `).bind(memberId, entryId, eventId));
+  if (!member) return registrationError(404, "MEMBER_NOT_FOUND", "The roster member was not found.", auth.headers);
+  const now = Date.now(), action = parsed.value.action;
+  if (action === "move") {
+    if (!REGISTRATION_ROSTER_ROLES.has(parsed.value.rosterRole) || member.match_status === "rejected") {
+      return registrationError(400, "INVALID_ROSTER_ROLE", "Choose active or substitute for this roster member.", auth.headers);
+    }
+    const members = await registrationMembersFor(db, entryId), activeCount = members.filter(row => row.match_status !== "rejected" && (row.id === memberId ? parsed.value.rosterRole : row.roster_role) === "active").length;
+    const substituteCount = members.filter(row => row.match_status !== "rejected" && (row.id === memberId ? parsed.value.rosterRole : row.roster_role) === "substitute").length;
+    const countError = validateRegistrationRosterCounts(config, activeCount, substituteCount);
+    if (countError) return registrationError(409, countError[0], countError[1], auth.headers);
+    const registration = await d1First(db.prepare("SELECT * FROM event_registrations WHERE id = ? AND event_id = ?").bind(entryId, eventId));
+    if (registration?.status === "accepted") {
+      const otherAccepted = await d1First(db.prepare(`
+        SELECT COALESCE(SUM(active_player_count), 0) AS active
+        FROM event_registrations
+        WHERE event_id = ? AND status = 'accepted' AND id <> ?
+      `).bind(eventId, entryId));
+      const exceeds = config.active_player_capacity != null && Number(otherAccepted?.active || 0) + activeCount > Number(config.active_player_capacity);
+      if (exceeds && parsed.value.overrideCapacity !== true) {
+        return registrationError(409, "CAPACITY_EXCEEDED", "Moving this member to active would exceed capacity. Confirm an organizer capacity override to continue.", auth.headers);
+      }
+    }
+    await db.prepare(`
+      UPDATE event_registration_members SET roster_role = ?, updated_at = ?
+      WHERE id = ? AND registration_id = ?
+    `).bind(parsed.value.rosterRole, now, memberId, entryId).run();
+  } else if (action === "match") {
+    const internalPlayerId = typeof parsed.value.internalPlayerId === "string" ? parsed.value.internalPlayerId : "";
+    if (!PLAYER_ID_PATTERN.test(internalPlayerId)) return registrationError(400, "INVALID_PLAYER", "Choose a valid roster player.", auth.headers);
+    const player = await d1First(db.prepare(`
+      SELECT * FROM event_registration_players
+      WHERE event_id = ? AND internal_player_id = ? AND eligible = 1
+    `).bind(eventId, internalPlayerId));
+    if (!player) return registrationError(400, "INVALID_PLAYER", "Sync the player directory and choose an eligible roster player.", auth.headers);
+    const conflict = await conflictingRegistrationPlayer(db, eventId, entryId, [internalPlayerId]);
+    if (conflict && parsed.value.duplicateOverride !== true) {
+      return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Confirm an organizer override to continue.", auth.headers);
+    }
+    const matchResult = await db.prepare(`
+      UPDATE event_registration_members
+      SET internal_player_id = ?, public_display_name = ?, normalized_name = ?,
+          match_status = ?, duplicate_override = ?, updated_at = ?
+      WHERE id = ? AND registration_id = ?
+        AND (
+          ? = 1 OR NOT EXISTS (
+            SELECT 1
+            FROM event_registration_members member_conflict
+            JOIN event_registrations registration_conflict
+              ON registration_conflict.id = member_conflict.registration_id
+            WHERE registration_conflict.event_id = ?
+              AND registration_conflict.id <> ?
+              AND registration_conflict.status NOT IN ('declined', 'withdrawn')
+              AND member_conflict.internal_player_id = ?
+              AND member_conflict.match_status IN ('matched', 'organizer_created')
+              AND member_conflict.duplicate_override = 0
+          )
+        )
+    `).bind(
+      internalPlayerId, player.public_display_name, normalizeRegistrationName(player.public_display_name),
+      parsed.value.organizerCreated === true ? "organizer_created" : "matched",
+      parsed.value.duplicateOverride === true ? 1 : 0, now, memberId, entryId,
+      parsed.value.duplicateOverride === true ? 1 : 0, eventId, entryId, internalPlayerId
+    ).run();
+    if (!Number(matchResult?.meta?.changes)) {
+      return registrationError(409, "PLAYER_ALREADY_REGISTERED", "This player is already listed on another registration. Confirm an organizer override to continue.", auth.headers);
+    }
+  } else if (action === "reject") {
+    await db.prepare(`
+      UPDATE event_registration_members
+      SET internal_player_id = NULL, match_status = 'rejected', duplicate_override = 0, updated_at = ?
+      WHERE id = ? AND registration_id = ?
+    `).bind(now, memberId, entryId).run();
+  } else {
+    await db.prepare(`
+      UPDATE event_registration_members
+      SET internal_player_id = NULL, match_status = 'pending', duplicate_override = 0, updated_at = ?
+      WHERE id = ? AND registration_id = ?
+    `).bind(now, memberId, entryId).run();
+  }
+  await db.prepare(`
+    UPDATE event_registrations
+    SET status = CASE
+          WHEN ? = 'move' THEN status
+          WHEN status IN ('accepted', 'submitted') THEN 'needs_review'
+          ELSE status
+        END,
+        active_player_count = (
+          SELECT COUNT(*) FROM event_registration_members
+          WHERE registration_id = ? AND roster_role = 'active' AND match_status <> 'rejected'
+        ),
+        substitute_count = (
+          SELECT COUNT(*) FROM event_registration_members
+          WHERE registration_id = ? AND roster_role = 'substitute' AND match_status <> 'rejected'
+        ),
+        capacity_override = CASE WHEN ? = 1 THEN 1 ELSE capacity_override END,
+        updated_at = ?, revision = revision + 1
+    WHERE id = ? AND event_id = ?
+  `).bind(action, entryId, entryId, action === "move" && parsed.value.overrideCapacity === true ? 1 : 0, now, entryId, eventId).run();
+  const updated = await d1First(db.prepare("SELECT * FROM event_registration_members WHERE id = ?").bind(memberId));
+  return registrationJson({ ok: true, member: registrationMemberView(updated, { organizer: true }) }, 200, auth.headers);
+}
+
 const REGISTRATION_PAGE_SCRIPT = `(()=>{const root=document.querySelector('[data-registration-root]'),token=root?.dataset.token||'',api=token?'/api/event-registration/public/'+encodeURIComponent(token):'';const el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([key,value])=>key==='class'?node.className=value:node.setAttribute(key,value));node.textContent=text;return node};const date=value=>value?new Date(value).toLocaleString([], {dateStyle:'medium',timeStyle:'short'}):'';const eventDate=value=>{if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(value||''))return '';const [y,m,d]=value.split('-').map(Number);return new Date(y,m-1,d,12).toLocaleDateString([], {weekday:'long',month:'long',day:'numeric',year:'numeric'})};function render(data){root.replaceChildren();const card=el('main',{class:'registration-card'}),brand=el('div',{class:'brand'},'COURT · EVENT REGISTRATION');card.append(brand);if(!data){card.append(el('h1',{},'Loading registration…'),el('p',{class:'muted','aria-live':'polite'},'Checking the event’s current availability.'));root.append(card);return}if(data.error){card.append(el('h1',{},data.title||'Registration unavailable'),el('p',{class:'muted',role:'alert'},data.message||'Ask the organizer for an updated link.'));root.append(card);return}const r=data.registration,cap=r.capacity;card.append(el('h1',{},r.title),el('p',{class:'date'},eventDate(r.eventDate)));if(r.description)card.append(el('p',{class:'description'},r.description));const statusText=r.status==='open'?'Registration is open':r.status==='scheduled'?'Registration is scheduled':r.status==='cancelled'?'Registration was cancelled':'Registration is closed';card.append(el('div',{class:'status '+r.status,role:'status'},statusText));if(r.status==='scheduled'&&r.opensAt)card.append(el('p',{class:'muted'},'Opens '+date(r.opensAt)));if(r.closesAt&&r.status==='open')card.append(el('p',{class:'muted'},'Closes '+date(r.closesAt)));const capacity=el('section',{class:'capacity','aria-label':'Active player capacity'});if(cap.activePlayerCapacity==null)capacity.append(el('b',{},'Active-player capacity is not limited.'));else if(cap.full)capacity.append(el('b',{},r.allowWaitlist?'Registration is currently full. Waitlist is available.':'Registration is currently full.'));else capacity.append(el('b',{},cap.remainingActivePlayers+' active spot'+(cap.remainingActivePlayers===1?'':'s')+' remaining'));capacity.append(el('span',{},cap.acceptedActivePlayers+(cap.activePlayerCapacity==null?' accepted active players':' of '+cap.activePlayerCapacity+' active spots filled')));card.append(capacity);const details=el('section',{class:'details'}),mode=el('b',{},r.mode==='team'?'Team registration':'Individual registration');details.append(mode);if(r.minActivePlayersPerTeam!=null||r.maxActivePlayersPerTeam!=null){const range=r.minActivePlayersPerTeam===r.maxActivePlayersPerTeam?String(r.minActivePlayersPerTeam):(r.minActivePlayersPerTeam||'No minimum')+'–'+(r.maxActivePlayersPerTeam||'no maximum');details.append(el('p',{},range+' active player'+(range==='1'?'':'s')+' per entry'));}details.append(el('p',{},r.allowSubstitutes?(r.maxSubstitutesPerTeam==null?'Substitutes are allowed.':'Up to '+r.maxSubstitutesPerTeam+' substitute'+(r.maxSubstitutesPerTeam===1?'':'s')+' allowed.'):'Substitutes are not enabled.'));if(r.allowSubstitutes)details.append(el('p',{class:'muted'},'Substitutes do not count toward the active-player limit.'));card.append(details);if(r.status==='open'&&r.submissionAvailable){const button=el('button',{type:'button',disabled:'',class:'primary'},r.mode==='team'?'Team registration form coming next':'Individual registration form coming next');card.append(button,el('p',{class:'muted'},'The secure registration page and live capacity are ready. Entry creation will be enabled in the next registration step.'));}root.append(card)}async function load(){render(null);try{const response=await fetch(api,{cache:'no-store'}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.message||'Ask the organizer for an updated link.');render(data)}catch(error){render({error:true,title:'Registration unavailable',message:error.message})}}load()})();`;
+
+const TEAM_REGISTRATION_PAGE_SCRIPT = `(()=>{
+  const root=document.querySelector('[data-registration-root]'),token=root?.dataset.token||'';
+  const api='/api/event-registration/public/'+encodeURIComponent(token);
+  const storageKey='court-registration-management:'+token;
+  let config=null,members=[],addingRole='active',busy=false,searchTimer=null,submission=null,notice='';
+  const el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([key,value])=>{if(key==='class')node.className=value;else if(value!==false&&value!=null)node.setAttribute(key,value===true?'':String(value))});node.textContent=text;return node};
+  const uid=()=>{const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'')};
+  const eventDate=value=>{if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(value||''))return '';const parts=value.split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2],12).toLocaleDateString([],{weekday:'long',month:'long',day:'numeric',year:'numeric'})};
+  const say=text=>{const node=root.querySelector('[data-message]');if(node)node.textContent=text||''};
+  const statusLabel=value=>({submitted:'Submitted',needs_review:'Needs organizer review',accepted:'Accepted',waitlisted:'Waitlisted',withdrawn:'Withdrawn'})[value]||value;
+  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'Registration is unavailable.');error.code=data.code;throw error}return data}
+  function header(card){card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},config?.title||'Event registration'));if(config?.eventDate)card.append(el('p',{class:'date'},eventDate(config.eventDate)));if(config?.description)card.append(el('p',{class:'description'},config.description))}
+  function rosterRule(role){if(role==='active'){const min=config.minActivePlayersPerTeam,max=config.maxActivePlayersPerTeam;return min===max&&min!=null?String(min)+' required':(min==null?'No minimum':String(min)+' minimum')+' · '+(max==null?'no maximum':String(max)+' maximum')}return config.maxSubstitutesPerTeam==null?'Optional substitutes':'Up to '+config.maxSubstitutesPerTeam+' allowed'}
+  function memberRow(member){const row=el('div',{class:'member-row'}),copy=el('span',{},member.displayName),actions=el('span',{class:'member-actions'}),move=el('button',{type:'button','aria-label':'Move '+member.displayName+' to '+(member.rosterRole==='active'?'substitutes':'active players')},member.rosterRole==='active'?'Move to substitutes':'Move to active'),remove=el('button',{type:'button',class:'danger','aria-label':'Remove '+member.displayName},'Remove');move.addEventListener('click',()=>{member.rosterRole=member.rosterRole==='active'?'substitute':'active';notice=member.displayName+' moved to '+(member.rosterRole==='active'?'active roster.':'substitutes.');render()});remove.addEventListener('click',()=>{members=members.filter(row=>row.id!==member.id);notice=member.displayName+' removed.';render()});actions.append(move,remove);row.append(copy,actions);return row}
+  function rosterSection(card,role,title){const section=el('section',{class:'roster-section','aria-labelledby':'heading-'+role}),heading=el('div',{class:'section-heading'}),count=members.filter(member=>member.rosterRole===role).length;heading.append(el('span',{id:'heading-'+role},title),el('span',{class:'count'},count+' · '+rosterRule(role)));section.append(heading);members.filter(member=>member.rosterRole===role).forEach(member=>section.append(memberRow(member)));if(!members.some(member=>member.rosterRole===role))section.append(el('p',{class:'muted'},role==='active'?'No active players added yet.':'No substitutes added.'));const add=el('button',{type:'button',class:'secondary','data-add-role':role,'aria-label':'Add '+(role==='active'?'active player':'substitute')},role==='active'?'Add active player':'Add substitute');add.addEventListener('click',()=>openSearch(role));section.append(add);card.append(section)}
+  function render(){root.replaceChildren();const card=el('main',{class:'registration-card'});header(card);if(submission){const box=el('section',{class:'success'});box.append(el('h2',{},'Your team is registered'),el('p',{},submission.teamName+' · '+statusLabel(submission.status)),el('p',{class:'warning'},'Save this private link. Anyone with it can manage this registration.'));(submission.warnings||[]).forEach(warning=>box.append(el('p',{class:'warning'},warning)));const link=el('a',{href:submission.managementUrl,class:'management-link'},submission.managementUrl),copy=el('button',{type:'button',class:'primary'},'Copy management link'),share=el('button',{type:'button',class:'secondary'},'Share management link'),open=el('a',{href:submission.managementUrl,class:'button-link'},'Open registration');copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(submission.managementUrl);say('Management link copied.')}catch{say('Copy the link shown above.')}});share.addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'Court team registration',url:submission.managementUrl});return}catch(error){if(error?.name==='AbortError')return}}try{await navigator.clipboard.writeText(submission.managementUrl);say('Sharing is unavailable, so the management link was copied.')}catch{say('Copy the link shown above.')}});box.append(link,copy,share,open);card.append(box,el('p',{'data-message':'',class:'message',role:'status','aria-live':'polite'},notice));notice='';root.append(card);return}if(config.status!=='open'){const label=config.status==='scheduled'?'Registration has not opened yet.':config.status==='cancelled'?'Registration was cancelled.':'Registration is closed.';card.append(el('div',{class:'status'},label));root.append(card);return}if(config.mode!=='team'){card.append(el('div',{class:'status'},'This link accepts individual registrations. Team registration is not available for this event.'));root.append(card);return}const capacity=el('div',{class:'capacity'});capacity.append(el('b',{},config.capacity.activePlayerCapacity==null?'Active-player capacity is unlimited.':config.capacity.full?(config.allowWaitlist?'Active capacity is full; valid teams join the waitlist.':'Registration is full.'):config.capacity.remainingActivePlayers+' active spots remaining'),el('span',{},'Substitutes do not use active-player capacity.'));card.append(capacity);const label=el('label',{for:'team-name'},'Team name'),input=el('input',{id:'team-name',maxlength:'100',autocomplete:'organization',placeholder:'Team name',value:root.dataset.teamName||''});input.value=root.dataset.teamName||'';input.addEventListener('input',()=>root.dataset.teamName=input.value);card.append(label,input);rosterSection(card,'active','Active roster');if(config.allowSubstitutes)rosterSection(card,'substitute','Substitutes');const submit=el('button',{type:'button',class:'primary'},busy?'Submitting…':'Review and submit');submit.disabled=busy;submit.addEventListener('click',submitTeam);card.append(submit,el('p',{'data-message':'',class:'message',role:'alert','aria-live':'assertive'},notice));notice='';root.append(card)}
+  function openSearch(role){addingRole=role;const dialog=el('div',{class:'search-panel',role:'dialog','aria-modal':'true','aria-labelledby':'player-search-title'}),title=el('h2',{id:'player-search-title'},role==='active'?'Add active player':'Add substitute'),input=el('input',{type:'search',autocomplete:'off',placeholder:'Search names','aria-label':'Search Court players'}),results=el('div',{class:'search-results',role:'listbox'}),unknown=el('button',{type:'button',class:'secondary'},'Can’t find this player? Add a new name'),close=el('button',{type:'button',class:'link'},'Cancel');input.addEventListener('input',()=>{clearTimeout(searchTimer);const query=input.value.trim();if(query.length<2){results.replaceChildren(el('p',{class:'muted'},'Enter at least 2 characters.'));return}searchTimer=setTimeout(()=>search(query,results),220)});unknown.addEventListener('click',()=>unknownName(dialog));close.addEventListener('click',render);dialog.append(title,input,results,unknown,close);root.replaceChildren(dialog);input.focus()}
+  async function search(query,results){results.replaceChildren(el('p',{class:'muted'},'Searching…'));try{const data=await request('/players?q='+encodeURIComponent(query));results.replaceChildren();data.players.forEach(player=>{const button=el('button',{type:'button',role:'option',class:'search-result'},player.displayName);button.addEventListener('click',()=>{members.push({id:uid(),rosterRole:addingRole,publicPlayerToken:player.publicPlayerToken,displayName:player.displayName});notice=player.displayName+' added to '+(addingRole==='active'?'active roster.':'substitutes.');render()});results.append(button)});if(!data.players.length)results.append(el('p',{class:'muted'},'No matching players.'))}catch(error){results.replaceChildren(el('p',{class:'message',role:'alert'},error.message))}}
+  function unknownName(dialog){dialog.replaceChildren();const title=el('h2',{},'Add a name for organizer review'),input=el('input',{maxlength:'100',autocomplete:'name',placeholder:'Player name','aria-label':'New player name'}),add=el('button',{type:'button',class:'primary'},'Add pending name'),back=el('button',{type:'button',class:'link'},'Back');add.addEventListener('click',()=>{const name=input.value.trim().replace(/\\s+/g,' ');if(!name){input.focus();return}members.push({id:uid(),rosterRole:addingRole,displayName:name});notice=name+' added for organizer review.';render()});back.addEventListener('click',()=>openSearch(addingRole));dialog.append(title,el('p',{class:'muted'},'This does not create a Court player. The organizer must review the name.'),input,add,back);input.focus()}
+  async function submitTeam(){if(busy)return;const teamName=(root.dataset.teamName||'').trim();if(!teamName){say('Enter a team name.');root.querySelector('#team-name')?.focus();return}const active=members.filter(member=>member.rosterRole==='active').length,subs=members.length-active,min=config.minActivePlayersPerTeam,max=config.maxActivePlayersPerTeam,subMax=config.maxSubstitutesPerTeam;if(min!=null&&active<min){say('Add at least '+min+' active players.');return}if(max!=null&&active>max){say('Active roster cannot exceed '+max+'.');return}if(subMax!=null&&subs>subMax){say('Substitutes cannot exceed '+subMax+'.');return}if(!confirm('Submit '+teamName+' with '+active+' active player'+(active===1?'':'s')+' and '+subs+' substitute'+(subs===1?'':'s')+'?'))return;busy=true;render();try{const data=await request('/submissions',{method:'POST',body:JSON.stringify({registrationType:'team',teamName,members,idempotencyKey:uid()})});submission=data.submission;try{localStorage.setItem(storageKey,submission.managementUrl)}catch{}render()}catch(error){busy=false;render();say(error.message)}}
+  async function load(){root.replaceChildren(el('main',{class:'registration-card'},'Loading registration…'));try{let saved='';try{saved=localStorage.getItem(storageKey)||''}catch{}if(saved){const savedUrl=new URL(saved,location.origin),match=savedUrl.origin===location.origin&&savedUrl.pathname.match(/^\\/event-registration\\/manage\\/([A-Za-z0-9_-]{22,128})$/);if(match){const response=await fetch('/api/event-registration/manage/'+encodeURIComponent(match[1]),{cache:'no-store'}),data=await response.json().catch(()=>({}));if(response.ok){config={title:data.event.title,eventDate:data.event.eventDate,description:data.event.description,status:data.event.registrationStatus};submission={teamName:data.registration.teamName,status:data.registration.status,managementUrl:saved,warnings:data.registration.warnings||[]};notice='Your saved private management link was restored on this device.';render();return}}try{localStorage.removeItem(storageKey)}catch{}}const data=await request();config=data.registration;render()}catch(error){root.replaceChildren();const card=el('main',{class:'registration-card'});card.append(el('div',{class:'brand'},'COURT · EVENT REGISTRATION'),el('h1',{},'Registration unavailable'),el('p',{class:'muted',role:'alert'},error.message));root.append(card)}}
+  load();
+})();`;
 
 function registrationPage(publicToken) {
   const nonce = randomTokenBytes(16);
-  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card{width:min(100%,560px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08}.date,.description,.muted,.details p{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df}.muted{color:#9fadc1}.status,.capacity,.details{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.status{font-weight:850}.status.open{border-color:#5fe3ae55;color:#8ff0c6}.status.scheduled{border-color:#f2c66d55;color:#f2d48f}.status.cancelled{border-color:#ff7b8055;color:#ffb1b4}.capacity{display:grid;gap:5px}.capacity span{color:#aab7ca;font-size:13px}.details p{margin:7px 0 0}.primary{width:100%;min-height:52px;margin-top:18px;padding:13px;border:0;border-radius:14px;background:#f2c66d;color:#111927;font:inherit;font-weight:850}.primary:disabled{opacity:.72}@media(max-width:420px){.registration-card{padding:19px;border-radius:20px}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court event registration</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.registration-card,.search-panel{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08}h2{margin:4px 0 12px}.date,.description,.muted{line-height:1.5}.date{margin:0;color:#dbe4f0;font-weight:700}.description{white-space:pre-wrap;color:#c5d0df}.muted{color:#9fadc1}.status,.capacity,.roster-section,.success{margin-top:16px;padding:16px;border:1px solid #ffffff18;border-radius:16px;background:#ffffff08}.capacity{display:grid;gap:5px}.capacity span,.count{color:#aab7ca;font-size:13px}.section-heading{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;font-weight:850}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,button,.button-link{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}button,.button-link{font-weight:800;cursor:pointer;text-align:center;text-decoration:none}.primary,.button-link{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.link{border:0;background:transparent;color:#f2c66d}.danger{color:#ffb1b4}.member-actions button{width:auto;min-height:38px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message{min-height:20px;color:#ffcc92}.success{border-color:#5fe3ae55}.warning{color:#f2d48f;line-height:1.45}.management-link{display:block;overflow-wrap:anywhere;color:#8ff0c6;line-height:1.5}.button-link{display:block;margin-top:8px}.primary:disabled{opacity:.72}@media(max-width:420px){.registration-card,.search-panel{padding:18px;border-radius:20px}.member-row{grid-template-columns:1fr}.member-actions{justify-content:flex-start}}</style></head><body><div data-registration-root data-token="${publicToken}"></div><script nonce="${nonce}">${TEAM_REGISTRATION_PAGE_SCRIPT}</script></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: publicRegistrationHeaders({
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
+    }),
+  });
+}
+
+const REGISTRATION_MANAGEMENT_PAGE_SCRIPT = `(()=>{
+  const root=document.querySelector('[data-management-root]'),token=root?.dataset.token||'',api='/api/event-registration/manage/'+encodeURIComponent(token);
+  let state=null,members=[],teamName='',busy=false,addingRole='active',searchTimer=null,notice='';
+  const el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([key,value])=>{if(key==='class')node.className=value;else if(value!==false&&value!=null)node.setAttribute(key,value===true?'':String(value))});node.textContent=text;return node};
+  const uid=()=>{const bytes=new Uint8Array(16);crypto.getRandomValues(bytes);let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));return btoa(raw).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'')};
+  const status=value=>({submitted:'Submitted',needs_review:'Needs organizer review',accepted:'Accepted',waitlisted:'Waitlisted',declined:'Declined',withdrawn:'Withdrawn'})[value]||value;
+  const eventDate=value=>{if(!/^\\d{4}-\\d{2}-\\d{2}$/.test(value||''))return '';const parts=value.split('-').map(Number);return new Date(parts[0],parts[1]-1,parts[2],12).toLocaleDateString([],{weekday:'long',month:'long',day:'numeric',year:'numeric'})};
+  const say=text=>{const node=root.querySelector('[data-message]');if(node)node.textContent=text||''};
+  async function request(path='',options={}){const response=await fetch(api+path,{cache:'no-store',...options,headers:{...(options.body?{'Content-Type':'application/json'}:{}),...(options.headers||{})}}),data=await response.json().catch(()=>({}));if(!response.ok){const error=new Error(data.message||'This management link is unavailable.');error.code=data.code;error.current=data.current;throw error}return data}
+  function memberRow(member){const row=el('div',{class:'member-row'}),name=el('span',{},member.displayName),actions=el('span',{class:'member-actions'});if(state.registration.editable){const move=el('button',{type:'button','aria-label':'Move '+member.displayName+' to '+(member.rosterRole==='active'?'substitutes':'active players')},member.rosterRole==='active'?'Move to substitutes':'Move to active'),remove=el('button',{type:'button',class:'danger','aria-label':'Remove '+member.displayName},'Remove');move.addEventListener('click',()=>{member.rosterRole=member.rosterRole==='active'?'substitute':'active';notice=member.displayName+' moved to '+(member.rosterRole==='active'?'active roster.':'substitutes.');render()});remove.addEventListener('click',()=>{members=members.filter(row=>row.id!==member.id);notice=member.displayName+' removed.';render()});actions.append(move,remove)}row.append(name,actions);return row}
+  function section(card,role,title){const wrap=el('section',{class:'roster-section','aria-labelledby':'manage-'+role}),heading=el('div',{class:'section-heading'}),rows=members.filter(member=>member.rosterRole===role);heading.append(el('span',{id:'manage-'+role},title),el('span',{class:'count'},String(rows.length)));wrap.append(heading);rows.forEach(member=>wrap.append(memberRow(member)));if(!rows.length)wrap.append(el('p',{class:'muted'},'None listed.'));if(state.registration.editable){const add=el('button',{type:'button',class:'secondary','aria-label':'Add '+(role==='active'?'active player':'substitute')},role==='active'?'Add active player':'Add substitute');add.addEventListener('click',()=>openSearch(role));wrap.append(add)}card.append(wrap)}
+  function render(){root.replaceChildren();const card=el('main',{class:'management-card'});card.append(el('div',{class:'brand'},'COURT · PRIVATE TEAM MANAGEMENT'),el('h1',{},state?.event?.title||'Team registration'));if(!state){card.append(el('p',{class:'muted'},'Loading registration…'));root.append(card);return}card.append(el('p',{class:'date'},eventDate(state.event.eventDate)),el('div',{class:'status',role:'status'},status(state.registration.status)));if(!state.registration.editable)card.append(el('p',{class:'locked'},state.registration.editReason||'This registration is view-only.'));(state.registration.warnings||[]).forEach(warning=>card.append(el('p',{class:'locked'},warning)));const label=el('label',{for:'manage-team-name'},'Team name'),input=el('input',{id:'manage-team-name',maxlength:'100',value:teamName});input.value=teamName;input.disabled=!state.registration.editable;input.addEventListener('input',()=>teamName=input.value);card.append(label,input);section(card,'active','Active roster');if(state.registration.rosterRules.allowSubstitutes)section(card,'substitute','Substitutes');if(state.registration.editable){const save=el('button',{type:'button',class:'primary'},busy?'Saving…':'Save changes'),withdraw=el('button',{type:'button',class:'danger block'},'Withdraw registration');save.disabled=busy;withdraw.disabled=busy;save.addEventListener('click',saveChanges);withdraw.addEventListener('click',withdrawRegistration);card.append(save,withdraw)}const copy=el('button',{type:'button',class:'secondary'},'Copy private link'),share=el('button',{type:'button',class:'secondary'},'Share private link');copy.addEventListener('click',async()=>{try{await navigator.clipboard.writeText(location.href);say('Private link copied.')}catch{say('Copy the address from your browser.')}});share.addEventListener('click',async()=>{if(navigator.share){try{await navigator.share({title:'Court team registration',url:location.href});return}catch(error){if(error?.name==='AbortError')return}}try{await navigator.clipboard.writeText(location.href);say('Sharing is unavailable, so the private link was copied.')}catch{say('Copy the address from your browser.')}});card.append(copy,share,el('p',{'data-message':'',class:'message',role:'alert','aria-live':'assertive'},notice));notice='';root.append(card)}
+  function openSearch(role){addingRole=role;const panel=el('main',{class:'management-card',role:'dialog','aria-modal':'true','aria-labelledby':'manage-search-title'}),title=el('h2',{id:'manage-search-title'},role==='active'?'Add active player':'Add substitute'),input=el('input',{type:'search',autocomplete:'off',placeholder:'Search names','aria-label':'Search Court players'}),results=el('div',{class:'search-results',role:'listbox'}),unknown=el('button',{type:'button',class:'secondary'},'Add a new name for organizer review'),cancel=el('button',{type:'button',class:'link'},'Cancel');input.addEventListener('input',()=>{clearTimeout(searchTimer);const query=input.value.trim();if(query.length<2){results.replaceChildren(el('p',{class:'muted'},'Enter at least 2 characters.'));return}searchTimer=setTimeout(()=>search(query,results),220)});unknown.addEventListener('click',()=>unknownName(panel));cancel.addEventListener('click',render);panel.append(title,input,results,unknown,cancel);root.replaceChildren(panel);input.focus()}
+  async function search(query,results){results.replaceChildren(el('p',{class:'muted'},'Searching…'));try{const data=await request('/players?q='+encodeURIComponent(query));results.replaceChildren();data.players.forEach(player=>{const button=el('button',{type:'button',role:'option',class:'search-result'},player.displayName);button.addEventListener('click',()=>{members.push({id:uid(),rosterRole:addingRole,publicPlayerToken:player.publicPlayerToken,displayName:player.displayName});notice=player.displayName+' added to '+(addingRole==='active'?'active roster.':'substitutes.');render()});results.append(button)});if(!data.players.length)results.append(el('p',{class:'muted'},'No matching players.'))}catch(error){results.replaceChildren(el('p',{class:'message',role:'alert'},error.message))}}
+  function unknownName(panel){panel.replaceChildren();const title=el('h2',{},'Add a name for review'),input=el('input',{maxlength:'100',autocomplete:'name',placeholder:'Player name','aria-label':'New player name'}),add=el('button',{type:'button',class:'primary'},'Add pending name'),back=el('button',{type:'button',class:'link'},'Back');add.addEventListener('click',()=>{const name=input.value.trim().replace(/\\s+/g,' ');if(!name){input.focus();return}members.push({id:uid(),rosterRole:addingRole,displayName:name,matchStatus:'pending'});notice=name+' added for organizer review.';render()});back.addEventListener('click',()=>openSearch(addingRole));panel.append(title,el('p',{class:'muted'},'The organizer must review this name. Court will not create a player automatically.'),input,add,back);input.focus()}
+  async function saveChanges(){if(busy)return;busy=true;render();try{const data=await request('',{method:'PATCH',body:JSON.stringify({revision:state.registration.revision,teamName,members:members.map(member=>({id:member.id,rosterRole:member.rosterRole,...member.publicPlayerToken?{publicPlayerToken:member.publicPlayerToken}:{displayName:member.displayName}}))})});apply(data);render();say('Changes saved.')}catch(error){busy=false;if(error.code==='REGISTRATION_CONFLICT'&&error.current){apply(error.current);render();say(error.message)}else{render();say(error.message)}}}
+  async function withdrawRegistration(){if(busy||!confirm('Withdraw this team registration? The roster will be preserved, but the team will no longer hold active capacity.'))return;busy=true;render();try{const data=await request('/withdraw',{method:'POST',body:JSON.stringify({confirm:true,revision:state.registration.revision})});apply(data);render();say('Registration withdrawn.')}catch(error){busy=false;render();say(error.message)}}
+  function apply(data){state={event:data.event,registration:data.registration,serverTime:data.serverTime};members=state.registration.members.map(member=>({...member}));teamName=state.registration.teamName;busy=false}
+  async function load(){render();try{apply(await request());render()}catch(error){root.replaceChildren();const card=el('main',{class:'management-card'});card.append(el('div',{class:'brand'},'COURT · PRIVATE TEAM MANAGEMENT'),el('h1',{},'Management link unavailable'),el('p',{class:'muted',role:'alert'},error.message));root.append(card)}}
+  load();
+})();`;
+
+function registrationManagementPage(managementToken) {
+  const nonce = randomTokenBytes(16);
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><title>Court team management</title><style>:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.management-card{width:min(100%,600px);margin:3vh auto;padding:24px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 6px;font-size:clamp(27px,8vw,38px);line-height:1.08}h2{margin:4px 0 12px}.date,.muted{line-height:1.5}.date{color:#dbe4f0;font-weight:700}.muted{color:#9fadc1}.status,.locked,.roster-section{margin-top:14px;padding:14px;border:1px solid #ffffff18;border-radius:15px;background:#ffffff08}.status{font-weight:850}.locked{border-color:#f2c66d44;color:#f2d48f}.section-heading{display:flex;justify-content:space-between;gap:12px;font-weight:850}.count{color:#aab7ca;font-size:13px}.member-row{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid #ffffff12}.member-actions{display:flex;flex-wrap:wrap;gap:5px}label{display:block;margin-top:17px;font-weight:800}input,button{width:100%;min-height:48px;margin-top:8px;padding:11px 13px;border:1px solid #ffffff20;border-radius:13px;background:#111f32;color:inherit;font:inherit}button{font-weight:800;cursor:pointer}.primary{border-color:#f2c66d66;background:#f2c66d;color:#111927}.secondary{background:#17283e}.danger{color:#ffb1b4}.block{display:block}.link{border:0;background:transparent;color:#f2c66d}.member-actions button{width:auto;min-height:38px;margin:0;padding:7px 9px;font-size:12px}.search-results{display:grid;gap:7px;min-height:60px;max-height:48vh;overflow:auto;margin-top:10px}.search-result{text-align:left;margin:0}.message{min-height:20px;color:#ffcc92}@media(max-width:420px){.management-card{padding:18px;border-radius:20px}.member-row{grid-template-columns:1fr}}</style></head><body><div data-management-root data-token="${managementToken}"></div><script nonce="${nonce}">${REGISTRATION_MANAGEMENT_PAGE_SCRIPT}</script></body></html>`;
   return new Response(html, {
     status: 200,
     headers: publicRegistrationHeaders({
@@ -1772,19 +2822,29 @@ export default {
     const checkInCodeMatch = path.match(/^\/check-in\/code\/([^/]+)$/);
     const registrationOrganizerMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)$/);
     const registrationConfigMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/config$/);
+    const registrationOrganizerPlayersMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/players$/);
     const registrationStatusMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/status$/);
     const registrationTokenMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/token\/rotate$/);
     const registrationEntryStatusMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/status$/);
+    const registrationEntryManagementMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/management$/);
+    const registrationMemberMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/entries\/([^/]+)\/members\/([^/]+)$/);
     const registrationPublicMatch = path.match(/^\/api\/event-registration\/public\/([^/]+)$/);
+    const registrationPlayerLookupMatch = path.match(/^\/api\/event-registration\/public\/([^/]+)\/players$/);
     const registrationSubmissionMatch = path.match(/^\/api\/event-registration\/public\/([^/]+)\/submissions$/);
     const registrationPageMatch = path.match(/^\/register\/([^/]+)$/);
+    const registrationManagementApiMatch = path.match(/^\/api\/event-registration\/manage\/([^/]+)$/);
+    const registrationManagementPlayerMatch = path.match(/^\/api\/event-registration\/manage\/([^/]+)\/players$/);
+    const registrationManagementWithdrawMatch = path.match(/^\/api\/event-registration\/manage\/([^/]+)\/withdraw$/);
+    const registrationManagementPageMatch = path.match(/^\/event-registration\/manage\/([^/]+)$/);
     const photoApiPath = path === "/api/player-photos/status" || !!photoUploadMatch;
     const checkInPrivatePath = path === "/api/check-in/status" || path === "/api/check-in/sessions"
       || !!checkInReviewMatch || !!checkInCloseMatch || !!checkInDispositionMatch;
     const checkInPublicPath = !!checkInPublicApiMatch || path === "/check-in" || !!checkInPageMatch || !!checkInCodeMatch;
-    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationConfigMatch || !!registrationStatusMatch
-      || !!registrationTokenMatch || !!registrationEntryStatusMatch;
-    const registrationPublicPath = !!registrationPublicMatch || !!registrationSubmissionMatch || !!registrationPageMatch;
+    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
+      || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
+    const registrationPublicPath = !!registrationPublicMatch || !!registrationPlayerLookupMatch || !!registrationSubmissionMatch
+      || !!registrationPageMatch || !!registrationManagementApiMatch || !!registrationManagementPlayerMatch
+      || !!registrationManagementWithdrawMatch || !!registrationManagementPageMatch;
     const privateApiPath = path === "/api/public-schedules/status" || path === "/api/public-schedules" || !!publicationMatch
       || photoApiPath || checkInPrivatePath || registrationPrivatePath;
 
@@ -1831,6 +2891,10 @@ export default {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await saveOrganizerRegistrationConfig(request, env, url, registrationConfigMatch[1]);
       }
+      if (registrationOrganizerPlayersMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await syncOrganizerRegistrationPlayers(request, env, registrationOrganizerPlayersMatch[1]);
+      }
       if (registrationStatusMatch) {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await updateOrganizerRegistrationStatus(request, env, registrationStatusMatch[1]);
@@ -1843,9 +2907,21 @@ export default {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await updateOrganizerRegistrationEntryStatus(request, env, registrationEntryStatusMatch[1], registrationEntryStatusMatch[2]);
       }
+      if (registrationEntryManagementMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await updateOrganizerManagementAccess(request, env, url, registrationEntryManagementMatch[1], registrationEntryManagementMatch[2]);
+      }
+      if (registrationMemberMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await updateOrganizerRegistrationMember(request, env, registrationMemberMatch[1], registrationMemberMatch[2], registrationMemberMatch[3]);
+      }
       if (registrationPublicMatch) {
         if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
         return await getPublicRegistration(request, env, registrationPublicMatch[1]);
+      }
+      if (registrationPlayerLookupMatch) {
+        if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await publicRegistrationPlayerLookup(request, env, registrationPlayerLookupMatch[1]);
       }
       if (registrationSubmissionMatch) {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
@@ -1854,6 +2930,23 @@ export default {
       if (registrationPageMatch) {
         if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Open this registration page in a browser.");
         return registrationPage(TOKEN_PATTERN.test(registrationPageMatch[1]) ? registrationPageMatch[1] : "");
+      }
+      if (registrationManagementApiMatch) {
+        if (request.method === "GET") return await getManagedRegistration(request, env, registrationManagementApiMatch[1]);
+        if (request.method === "PATCH") return await patchManagedRegistration(request, env, registrationManagementApiMatch[1]);
+        return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+      }
+      if (registrationManagementPlayerMatch) {
+        if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await managedRegistrationPlayerLookup(request, env, registrationManagementPlayerMatch[1]);
+      }
+      if (registrationManagementWithdrawMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await withdrawManagedRegistration(request, env, registrationManagementWithdrawMatch[1]);
+      }
+      if (registrationManagementPageMatch) {
+        if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Open this management page in a browser.");
+        return registrationManagementPage(TOKEN_PATTERN.test(registrationManagementPageMatch[1]) ? registrationManagementPageMatch[1] : "");
       }
 
       if (path === "/api/check-in/status") {

@@ -23,11 +23,11 @@ test('Settings renders the centralized Court version and stays readable on mobil
     }));
     expect(info).toMatchObject({
       name: 'Court',
-      version: '0.20.0',
-      build: '20260724.6',
-      releaseNotes: 'Add secure persistent event registration settings, public availability pages, D1-backed capacity and statuses, and organizer registration management.',
+      version: '0.21.0',
+      build: '20260724.7',
+      releaseNotes: 'Add public team registration, private roster management, safe player matching, substitutes, withdrawals, and full organizer roster review.',
       frozen: true,
-      label: 'Court v0.20.0 · Build 20260724.6'
+      label: 'Court v0.21.0 · Build 20260724.7'
     });
     expect(info.renderSource).not.toContain('0.8.0');
     expect(info.renderSource).not.toContain('20260716.9');
@@ -84,7 +84,7 @@ test('Copy version uses the complete formatter label and shows success', async (
   await openSettings(page);
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
-  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.20.0 · Build 20260724.6');
+  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.21.0 · Build 20260724.7');
   await expect(page.locator('#toast')).toHaveText('Version copied');
   await expect(page.locator('#toast')).toHaveClass(/show/);
 });
@@ -102,7 +102,7 @@ test('Copy version safely falls back when the Clipboard API is unavailable or re
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
   expect(await page.evaluate(() => window.__fallbackCopies)).toEqual([
-    { command: 'copy', text: 'Court v0.20.0 · Build 20260724.6' }
+    { command: 'copy', text: 'Court v0.21.0 · Build 20260724.7' }
   ]);
   await expect(page.locator('#toast')).toHaveText('Version copied');
 
