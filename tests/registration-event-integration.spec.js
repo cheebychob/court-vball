@@ -92,13 +92,23 @@ async function mockWorker(page, state) {
       if (row) row.imported = null;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, imported: null }) });
     }
-    if (path === '/api/event-registration/organizer/event-import') {
+    if (path === '/api/event-registration/organizer/event-import' || path === '/api/event-registration/organizer/event-import/summary') {
+      const accepted = state.preview.entries.filter(row => row.status === 'accepted').length;
+      const importedCount = state.preview.entries.filter(row => row.imported).length, canonicalSummary = {
+        eventId: 'event-import', effectiveStatus: 'open',
+        entryCounts: { draft: 0, submitted: 0, needsReview: 0, accepted, waitlisted: 0, declined: 0, withdrawn: 0 },
+        playerCounts: { acceptedActive: 2, acceptedSubstitutes: 1, pendingActive: 0, pendingSubstitutes: 0, waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 1 },
+        capacity: { activePlayerCapacity: 12, acceptedActivePlayers: 2, remainingActiveSpots: 10, isUnlimited: false },
+        integration: { acceptedRegistrations: accepted, importedRegistrations: importedCount, readyToImport: Math.max(0, accepted - importedCount), blocked: 0, updatesAvailable: 0 },
+        revision: state.preview.revision, updatedAt: state.preview.revision,
+      };
       return route.fulfill({
         status: 200, contentType: 'application/json',
         body: JSON.stringify({
           ok: true, configured: true, config: { ...registration(), eventFormat: 'fixedTeams', eventId: 'event-import', effectiveStatus: 'open' },
-          capacity: { acceptedEntries: state.preview.entries.filter(row => row.status === 'accepted').length, acceptedActivePlayers: 2, pendingEntries: 0, remainingAcceptedCapacity: 10 },
-          entries: state.preview.entries, serverTime: Date.now(),
+          summary: canonicalSummary,
+          capacity: { acceptedEntries: accepted, acceptedActivePlayers: 2, pendingEntries: 0, remainingAcceptedCapacity: 10 },
+          ...(path.endsWith('/summary') ? {} : { entries: state.preview.entries }), serverTime: Date.now(),
         }),
       });
     }

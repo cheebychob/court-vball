@@ -1,0 +1,38 @@
+{
+  "$schema": "https://raw.githubusercontent.com/cloudflare/workers-sdk/main/packages/wrangler/config-schema.json",
+  "name": "court-sync",
+  "main": "court-sync-worker.js",
+  "compatibility_date": "2026-07-24",
+  "keep_vars": true,
+
+  "kv_namespaces": [
+    {
+      "binding": "COURT",
+      "id": "d484a334c9cc41a8b2d5e53536acedb8"
+    },
+    {
+      "binding": "PUBLIC_SCHEDULES",
+      "id": "9b636f2691434a87baf7dfc2efee1c45"
+    },
+    {
+      "binding": "CHECK_IN_SESSIONS",
+      "id": "2717cfd308f14cecbc5579b807563b4d"
+    }
+  ],
+
+  "r2_buckets": [
+    {
+      "binding": "PLAYER_PHOTOS",
+      "bucket_name": "court-player-photos"
+    }
+  ],
+
+  "d1_databases": [
+    {
+      "binding": "EVENT_REGISTRATION_DB",
+      "database_name": "court-event-registration",
+      "database_id": "3797a311-c819-4817-9980-8aaed1435a77",
+      "migrations_dir": "migrations"
+    }
+  ]
+}

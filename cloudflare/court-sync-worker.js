@@ -1520,6 +1520,131 @@ function registrationCapacityView(config, row) {
   return out;
 }
 
+function registrationCapacityFromSummary(summary) {
+  if (!summary) return emptyRegistrationCapacity();
+  return {
+    capacity: summary.capacity.activePlayerCapacity,
+    acceptedEntries: summary.entryCounts.accepted,
+    submittedEntries: summary.entryCounts.submitted,
+    needsReviewEntries: summary.entryCounts.needsReview,
+    pendingEntries: summary.entryCounts.submitted + summary.entryCounts.needsReview,
+    waitlistedEntries: summary.entryCounts.waitlisted,
+    declinedEntries: summary.entryCounts.declined,
+    withdrawnEntries: summary.entryCounts.withdrawn,
+    acceptedActivePlayers: summary.playerCounts.acceptedActive,
+    pendingActivePlayers: summary.playerCounts.pendingActive,
+    waitlistedActivePlayers: summary.playerCounts.waitlistedActive,
+    acceptedSubstitutePlayers: summary.playerCounts.acceptedSubstitutes,
+    totalSubstitutePlayers: summary.playerCounts.totalSubstitutes,
+    remainingAcceptedCapacity: summary.capacity.remainingActiveSpots,
+  };
+}
+
+async function getEventRegistrationSummary(db, ownerScope, eventId, knownConfig = null) {
+  const config = knownConfig || await registrationConfigForOwner(db, eventId, ownerScope);
+  if (!config || !sameHash(config.owner_scope || "", ownerScope)) return null;
+  const row = await d1First(db.prepare(`
+    SELECT
+      SUM(CASE WHEN r.status = 'draft' THEN 1 ELSE 0 END) AS draft_entries,
+      SUM(CASE WHEN r.status = 'submitted' THEN 1 ELSE 0 END) AS submitted_entries,
+      SUM(CASE WHEN r.status = 'needs_review' THEN 1 ELSE 0 END) AS needs_review_entries,
+      SUM(CASE WHEN r.status = 'accepted' THEN 1 ELSE 0 END) AS accepted_entries,
+      SUM(CASE WHEN r.status = 'waitlisted' THEN 1 ELSE 0 END) AS waitlisted_entries,
+      SUM(CASE WHEN r.status = 'declined' THEN 1 ELSE 0 END) AS declined_entries,
+      SUM(CASE WHEN r.status = 'withdrawn' THEN 1 ELSE 0 END) AS withdrawn_entries,
+      SUM(CASE WHEN r.status = 'accepted' THEN r.active_player_count ELSE 0 END) AS accepted_active_players,
+      SUM(CASE WHEN r.status IN ('submitted', 'needs_review') THEN r.active_player_count ELSE 0 END) AS pending_active_players,
+      SUM(CASE WHEN r.status = 'waitlisted' THEN r.active_player_count ELSE 0 END) AS waitlisted_active_players,
+      SUM(CASE WHEN r.status = 'accepted' THEN r.substitute_count ELSE 0 END) AS accepted_substitute_players,
+      SUM(CASE WHEN r.status IN ('submitted', 'needs_review') THEN r.substitute_count ELSE 0 END) AS pending_substitute_players,
+      SUM(CASE WHEN r.status = 'waitlisted' THEN r.substitute_count ELSE 0 END) AS waitlisted_substitute_players,
+      SUM(CASE WHEN r.status NOT IN ('declined', 'withdrawn') THEN r.substitute_count ELSE 0 END) AS total_substitute_players,
+      SUM(CASE WHEN r.status = 'accepted' AND EXISTS (
+        SELECT 1 FROM event_registration_imports i
+        WHERE i.owner_scope = ? AND i.event_id = r.event_id AND i.registration_id = r.id
+      ) THEN 1 ELSE 0 END) AS imported_registrations,
+      SUM(CASE WHEN r.status = 'accepted' AND NOT EXISTS (
+        SELECT 1 FROM event_registration_imports i
+        WHERE i.owner_scope = ? AND i.event_id = r.event_id AND i.registration_id = r.id
+      ) AND NOT EXISTS (
+        SELECT 1 FROM event_registration_members m
+        WHERE m.registration_id = r.id AND (m.match_status IN ('pending', 'rejected') OR m.internal_player_id IS NULL)
+      ) THEN 1 ELSE 0 END) AS ready_to_import,
+      SUM(CASE WHEN r.status = 'accepted' AND EXISTS (
+        SELECT 1 FROM event_registration_imports i
+        WHERE i.owner_scope = ? AND i.event_id = r.event_id AND i.registration_id = r.id
+          AND i.imported_revision < r.revision
+      ) THEN 1 ELSE 0 END) AS updates_available,
+      SUM(CASE WHEN r.status = 'accepted' AND NOT EXISTS (
+        SELECT 1 FROM event_registration_imports i
+        WHERE i.owner_scope = ? AND i.event_id = r.event_id AND i.registration_id = r.id
+      ) AND EXISTS (
+        SELECT 1 FROM event_registration_members m
+        WHERE m.registration_id = r.id AND (m.match_status IN ('pending', 'rejected') OR m.internal_player_id IS NULL)
+      ) THEN 1 ELSE 0 END) AS blocked,
+      COALESCE(MAX(r.updated_at), 0) AS registrations_updated_at,
+      COALESCE((
+        SELECT MAX(m.updated_at)
+        FROM event_registration_members m
+        JOIN event_registrations mr ON mr.id = m.registration_id
+        WHERE mr.event_id = ?
+      ), 0) AS members_updated_at,
+      COALESCE((
+        SELECT MAX(i.updated_at)
+        FROM event_registration_imports i
+        WHERE i.owner_scope = ? AND i.event_id = ?
+      ), 0) AS imports_updated_at
+    FROM event_registrations r
+    WHERE r.event_id = ?
+  `).bind(ownerScope, ownerScope, ownerScope, ownerScope, eventId, ownerScope, eventId, eventId));
+  const number = key => Number(row?.[key]) || 0;
+  const activePlayerCapacity = config.active_player_capacity == null ? null : Number(config.active_player_capacity);
+  const acceptedActive = number("accepted_active_players");
+  const updatedAt = Math.max(
+    Number(config.updated_at) || 0,
+    number("registrations_updated_at"),
+    number("members_updated_at"),
+    number("imports_updated_at")
+  );
+  return {
+    eventId,
+    effectiveStatus: getEffectiveRegistrationStatus(config),
+    entryCounts: {
+      draft: number("draft_entries"),
+      submitted: number("submitted_entries"),
+      needsReview: number("needs_review_entries"),
+      accepted: number("accepted_entries"),
+      waitlisted: number("waitlisted_entries"),
+      declined: number("declined_entries"),
+      withdrawn: number("withdrawn_entries"),
+    },
+    playerCounts: {
+      acceptedActive,
+      acceptedSubstitutes: number("accepted_substitute_players"),
+      pendingActive: number("pending_active_players"),
+      pendingSubstitutes: number("pending_substitute_players"),
+      waitlistedActive: number("waitlisted_active_players"),
+      waitlistedSubstitutes: number("waitlisted_substitute_players"),
+      totalSubstitutes: number("total_substitute_players"),
+    },
+    capacity: {
+      activePlayerCapacity,
+      acceptedActivePlayers: acceptedActive,
+      remainingActiveSpots: activePlayerCapacity == null ? null : Math.max(0, activePlayerCapacity - acceptedActive),
+      isUnlimited: activePlayerCapacity == null,
+    },
+    integration: {
+      acceptedRegistrations: number("accepted_entries"),
+      importedRegistrations: number("imported_registrations"),
+      readyToImport: number("ready_to_import"),
+      blocked: number("blocked"),
+      updatesAvailable: number("updates_available"),
+    },
+    revision: updatedAt,
+    updatedAt,
+  };
+}
+
 async function registrationCapacity(db, eventId, config) {
   const row = await d1First(db.prepare(`
     SELECT
@@ -1546,14 +1671,31 @@ async function registrationConfigForOwner(db, eventId, ownerScope) {
   return row;
 }
 
+async function organizerRegistrationSummary(request, env, eventId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const config = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
+  if (!config) return registrationJson({ ok: true, configured: false, eventId }, 200, auth.headers);
+  const summary = await getEventRegistrationSummary(env.EVENT_REGISTRATION_DB, auth.ownerScope, eventId, config);
+  return registrationJson({
+    ok: true,
+    configured: true,
+    config: registrationConfigView(config),
+    summary,
+    capacity: registrationCapacityFromSummary(summary),
+    serverTime: Date.now(),
+  }, 200, auth.headers);
+}
+
 async function organizerRegistrationDashboard(request, env, url, eventId) {
   const auth = await authorizeRegistrationOrganizer(request, env);
   if (auth.response) return auth.response;
   if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
   const config = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
   if (!config) return registrationJson({ ok: true, configured: false, eventId }, 200, auth.headers);
-  const [capacity, rows, memberRows] = await Promise.all([
-    registrationCapacity(env.EVENT_REGISTRATION_DB, eventId, config),
+  const [summary, rows, memberRows] = await Promise.all([
+    getEventRegistrationSummary(env.EVENT_REGISTRATION_DB, auth.ownerScope, eventId, config),
     d1Rows(env.EVENT_REGISTRATION_DB.prepare(`
       SELECT id, registration_type, display_name, status, active_player_count, substitute_count,
              created_at, updated_at, submitted_at, withdrawn_at, organizer_note, capacity_override,
@@ -1583,7 +1725,8 @@ async function organizerRegistrationDashboard(request, env, url, eventId) {
     ok: true,
     configured: true,
     config: registrationConfigView(config),
-    capacity,
+    summary,
+    capacity: registrationCapacityFromSummary(summary),
     entries: rows.map(row => {
       const members = membersByRegistration.get(row.id) || [], entry = registrationEntryView(row, members);
       const warnings = members
@@ -1645,7 +1788,8 @@ async function organizerRegistrationImportPreview(request, env, eventId) {
   const db = env.EVENT_REGISTRATION_DB;
   const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
   if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
-  const [rows, memberRows, importRows] = await Promise.all([
+  const [summary, rows, memberRows, importRows] = await Promise.all([
+    getEventRegistrationSummary(db, auth.ownerScope, eventId, config),
     d1Rows(db.prepare(`
       SELECT id, event_id, registration_type, display_name, status, active_player_count,
              substitute_count, capacity_override, revision, updated_at
@@ -1679,6 +1823,7 @@ async function organizerRegistrationImportPreview(request, env, eventId) {
   return registrationJson({
     ok: true,
     eventId,
+    summary,
     config: {
       eventFormat: config.event_format,
       entrySize: config.entry_size == null ? null : Number(config.entry_size),
@@ -1694,7 +1839,7 @@ async function organizerRegistrationImportPreview(request, env, eventId) {
       membersByRegistration.get(row.id) || [],
       importsByRegistration.get(row.id)
     )),
-    revision: rows.reduce((maximum, row) => Math.max(maximum, Number(row.updated_at) || 0), Number(config.updated_at) || 0),
+    revision: summary.revision,
     serverTime: Date.now(),
   }, 200, auth.headers);
 }
@@ -1875,12 +2020,13 @@ async function saveOrganizerRegistrationConfig(request, env, url, eventId) {
   }
   await replaceRegistrationPlayerDirectory(db, eventId, value.players, now);
   const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
-  const capacity = await registrationCapacity(db, eventId, config);
+  const summary = await getEventRegistrationSummary(db, auth.ownerScope, eventId, config);
   return registrationJson({
     ok: true,
     configured: true,
     config: registrationConfigView(config),
-    capacity,
+    summary,
+    capacity: registrationCapacityFromSummary(summary),
     publicToken,
     publicUrl: publicToken ? `${url.origin}/register/${publicToken}` : null,
   }, existing ? 200 : 201, auth.headers);
@@ -1925,7 +2071,8 @@ async function updateOrganizerRegistrationStatus(request, env, eventId) {
     WHERE event_id = ? AND owner_scope = ?
   `).bind(nextStatus, eventAvailable ? 1 : 0, eventAvailable ? 1 : 0, archivedAt, now, eventId, auth.ownerScope).run();
   const next = await registrationConfigForOwner(env.EVENT_REGISTRATION_DB, eventId, auth.ownerScope);
-  return registrationJson({ ok: true, config: registrationConfigView(next), capacity: await registrationCapacity(env.EVENT_REGISTRATION_DB, eventId, next) }, 200, auth.headers);
+  const summary = await getEventRegistrationSummary(env.EVENT_REGISTRATION_DB, auth.ownerScope, eventId, next);
+  return registrationJson({ ok: true, config: registrationConfigView(next), summary, capacity: registrationCapacityFromSummary(summary) }, 200, auth.headers);
 }
 
 async function rotateOrganizerRegistrationToken(request, env, url, eventId) {
@@ -1983,9 +2130,10 @@ async function updateOrganizerRegistrationEntryStatus(request, env, eventId, ent
       }
     }
   }
-  const before = await registrationCapacity(db, eventId, config);
+  const beforeSummary = await getEventRegistrationSummary(db, auth.ownerScope, eventId, config);
+  const before = registrationCapacityFromSummary(beforeSummary);
   if (current.status === parsed.value.status) {
-    return registrationJson({ ok: true, entry: registrationEntryView(current), capacity: before }, 200, auth.headers);
+    return registrationJson({ ok: true, entry: registrationEntryView(current), summary: beforeSummary, capacity: before }, 200, auth.headers);
   }
   const now = Date.now(), override = parsed.value.overrideCapacity === true;
   let updated;
@@ -2031,10 +2179,12 @@ async function updateOrganizerRegistrationEntryStatus(request, env, eventId, ent
       RETURNING *
     `).bind(parsed.value.status, now, withdrawnAt, parsed.value.status, now, entryId, eventId, eventId, auth.ownerScope));
   }
-  const after = await registrationCapacity(db, eventId, config);
+  const afterSummary = await getEventRegistrationSummary(db, auth.ownerScope, eventId, config);
+  const after = registrationCapacityFromSummary(afterSummary);
   return registrationJson({
     ok: true,
     entry: registrationEntryView(updated),
+    summary: afterSummary,
     capacity: after,
     override: override && parsed.value.status === "accepted"
       ? { used: true, beforeAcceptedActivePlayers: before.acceptedActivePlayers, afterAcceptedActivePlayers: after.acceptedActivePlayers }
@@ -3086,6 +3236,7 @@ export default {
     const checkInPageMatch = path.match(/^\/check-in\/([^/]+)$/);
     const checkInCodeMatch = path.match(/^\/check-in\/code\/([^/]+)$/);
     const registrationOrganizerMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)$/);
+    const registrationSummaryMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/summary$/);
     const registrationImportPreviewMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-preview$/);
     const registrationImportMarkMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-mark$/);
     const registrationImportResetMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-reset$/);
@@ -3108,7 +3259,7 @@ export default {
     const checkInPrivatePath = path === "/api/check-in/status" || path === "/api/check-in/sessions"
       || !!checkInReviewMatch || !!checkInCloseMatch || !!checkInDispositionMatch;
     const checkInPublicPath = !!checkInPublicApiMatch || path === "/check-in" || !!checkInPageMatch || !!checkInCodeMatch;
-    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationImportPreviewMatch || !!registrationImportMarkMatch || !!registrationImportResetMatch
+    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationSummaryMatch || !!registrationImportPreviewMatch || !!registrationImportMarkMatch || !!registrationImportResetMatch
       || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
       || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
     const registrationPublicPath = !!registrationPublicMatch || !!registrationPlayerLookupMatch || !!registrationSubmissionMatch
@@ -3155,6 +3306,10 @@ export default {
       if (registrationOrganizerMatch) {
         if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await organizerRegistrationDashboard(request, env, url, registrationOrganizerMatch[1]);
+      }
+      if (registrationSummaryMatch) {
+        if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await organizerRegistrationSummary(request, env, registrationSummaryMatch[1]);
       }
       if (registrationImportPreviewMatch) {
         if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));

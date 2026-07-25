@@ -1122,3 +1122,120 @@ test('public and management tokens cannot reach organizer import routes and regi
   assert.equal(allowed.status, 200);
   assert.equal(lists, 0);
 });
+
+test('organizer dashboard and import preview share one canonical D1 registration summary across statuses, players, capacity, and imports', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  await createConfig(env, 'event-summary', { activePlayerCapacity: 8 });
+  await createConfig(env, 'event-summary-other', { activePlayerCapacity: null });
+  const db = env.EVENT_REGISTRATION_DB.database;
+  const rows = [
+    ['a'.repeat(22), 'accepted', 4, 2, 101],
+    ['b'.repeat(22), 'submitted', 2, 1, 102],
+    ['c'.repeat(22), 'needs_review', 3, 1, 103],
+    ['d'.repeat(22), 'waitlisted', 4, 2, 104],
+    ['e'.repeat(22), 'declined', 6, 3, 105],
+    ['f'.repeat(22), 'withdrawn', 5, 4, 106],
+    ['g'.repeat(22), 'draft', 1, 1, 107],
+  ];
+  const insert = db.prepare(`
+    INSERT INTO event_registrations (
+      id, event_id, registration_type, display_name, status, active_player_count,
+      substitute_count, created_at, updated_at, revision
+    ) VALUES (?, 'event-summary', 'team', ?, ?, ?, ?, ?, ?, 1)
+  `);
+  for (const [id, status, active, substitutes, updatedAt] of rows) {
+    insert.run(id, status, status, active, substitutes, updatedAt, updatedAt);
+  }
+  db.prepare(`
+    INSERT INTO event_registrations (
+      id, event_id, registration_type, display_name, status, active_player_count,
+      substitute_count, created_at, updated_at, revision
+    ) VALUES (?, 'event-summary-other', 'team', 'Other accepted', 'accepted', 7, 0, 201, 201, 1)
+  `).run('z'.repeat(22));
+  const acceptedId = 'a'.repeat(22);
+  for (let index = 0; index < 5; index++) {
+    db.prepare(`
+      INSERT INTO event_registration_members (
+        id, registration_id, roster_role, internal_player_id, public_display_name,
+        normalized_name, match_status, duplicate_override, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'matched', 0, 100, 100)
+    `).run(
+      `${index}`.repeat(22), acceptedId, index === 4 ? 'substitute' : 'active',
+      index === 3 ? 'player-1' : `player-${index + 1}`, `Player ${index + 1}`, `player ${index + 1}`
+    );
+  }
+  const ownerScope = createHash('sha256').update('owner-a').digest('hex');
+  db.prepare(`
+    INSERT INTO event_registration_imports (
+      event_id, registration_id, owner_scope, local_entry_id,
+      imported_revision, imported_at, updated_at
+    ) VALUES ('event-summary', ?, ?, 'local-summary', 1, 108, 108)
+  `).run(acceptedId, ownerScope);
+
+  const raw = db.prepare(`
+    SELECT status, active_player_count, substitute_count
+    FROM event_registrations WHERE event_id = 'event-summary' ORDER BY status
+  `).all();
+  assert.equal(raw.length, 7);
+  assert.equal(raw.find(row => row.status === 'accepted').active_player_count, 4);
+  assert.equal(raw.find(row => row.status === 'accepted').substitute_count, 2);
+
+  const dashboardResponse = await worker.fetch(request('/api/event-registration/organizer/event-summary', organizerInit()), env);
+  const dashboard = await dashboardResponse.json();
+  assert.equal(dashboardResponse.status, 200);
+  assert.equal(dashboardResponse.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(dashboard.summary.entryCounts, {
+    draft: 1, submitted: 1, needsReview: 1, accepted: 1, waitlisted: 1, declined: 1, withdrawn: 1,
+  });
+  assert.deepEqual(dashboard.summary.playerCounts, {
+    acceptedActive: 4, acceptedSubstitutes: 2,
+    pendingActive: 5, pendingSubstitutes: 2,
+    waitlistedActive: 4, waitlistedSubstitutes: 2, totalSubstitutes: 7,
+  });
+  assert.deepEqual(dashboard.summary.capacity, {
+    activePlayerCapacity: 8, acceptedActivePlayers: 4, remainingActiveSpots: 4, isUnlimited: false,
+  });
+  assert.deepEqual(dashboard.summary.integration, {
+    acceptedRegistrations: 1, importedRegistrations: 1, readyToImport: 0, blocked: 0, updatesAvailable: 0,
+  });
+  assert.equal(dashboard.summary.eventId, 'event-summary');
+  assert.equal(dashboard.summary.effectiveStatus, 'open');
+  assert.ok(dashboard.summary.revision >= 108);
+  assert.deepEqual(dashboard.capacity, {
+    capacity: 8, acceptedEntries: 1, submittedEntries: 1, needsReviewEntries: 1,
+    pendingEntries: 2, waitlistedEntries: 1, declinedEntries: 1, withdrawnEntries: 1,
+    acceptedActivePlayers: 4, pendingActivePlayers: 5, waitlistedActivePlayers: 4,
+    acceptedSubstitutePlayers: 2, totalSubstitutePlayers: 7, remainingAcceptedCapacity: 4,
+  });
+
+  const summaryResponse = await worker.fetch(request('/api/event-registration/organizer/event-summary/summary', organizerInit()), env);
+  const summaryBody = await summaryResponse.json();
+  assert.equal(summaryResponse.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(summaryBody.summary, dashboard.summary);
+  assert.equal(Object.hasOwn(summaryBody, 'entries'), false);
+
+  const previewResponse = await worker.fetch(request('/api/event-registration/organizer/event-summary/import-preview', organizerInit()), env);
+  const preview = await previewResponse.json();
+  assert.equal(previewResponse.headers.get('cache-control'), 'no-store');
+  assert.deepEqual(preview.summary, dashboard.summary);
+  assert.equal(preview.revision, dashboard.summary.revision);
+
+  const otherOwner = await (await worker.fetch(request('/api/event-registration/organizer/event-summary', organizerInit('owner-b')), env)).json();
+  assert.deepEqual(otherOwner, { ok: true, configured: false, eventId: 'event-summary' });
+  assert.equal(dashboard.summary.entryCounts.accepted, 1);
+  assert.equal(dashboard.summary.playerCounts.acceptedActive, 4);
+
+  const unlimited = await (await worker.fetch(request('/api/event-registration/organizer/event-summary-other', organizerInit()), env)).json();
+  assert.deepEqual(unlimited.summary.capacity, {
+    activePlayerCapacity: null, acceptedActivePlayers: 7, remainingActiveSpots: null, isUnlimited: true,
+  });
+
+  const plan = db.prepare(`
+    EXPLAIN QUERY PLAN
+    SELECT status, SUM(active_player_count)
+    FROM event_registrations
+    WHERE event_id = ?
+    GROUP BY status
+  `).all('event-summary').map(row => row.detail).join(' ');
+  assert.match(plan, /idx_event_registrations_event_status/);
+});
