@@ -11,6 +11,7 @@ const workerSource = await readFile(new URL('../cloudflare/court-sync-worker.js'
 const migrationSource = [
   await readFile(new URL('../cloudflare/migrations/0001_event_registration_foundation.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0002_team_registration_portal.sql', import.meta.url), 'utf8'),
+  await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8'),
 ].join('\n');
 const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
@@ -977,4 +978,103 @@ test('accepted captain edit cannot silently waitlist an over-capacity roster', a
   assert.equal(registration.active_player_count, 4);
   assert.equal(registration.substitute_count, 1);
   assert.equal(registration.revision, before.registration.revision);
+});
+
+test('organizer import preview is owner scoped, private, D1-backed, and import marks are revision safe', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  const players = Array.from({ length: 5 }, (_, index) => ({
+    internalPlayerId: `import-player-${index + 1}`,
+    publicPlayerToken: String.fromCharCode(65 + index).repeat(22),
+    displayName: `Import Player ${index + 1}`,
+    primaryName: `Import Player ${index + 1}`,
+    aliases: [],
+    eligible: true,
+  }));
+  const created = await createConfig(env, 'event-import-preview', { players });
+  const submitted = await submit(env, created.body.publicToken, {
+    registrationType: 'team',
+    teamName: 'Import Team',
+    members: players.map((player, index) => ({
+      id: String.fromCharCode(97 + index).repeat(22),
+      rosterRole: index === 4 ? 'substitute' : 'active',
+      publicPlayerToken: player.publicPlayerToken,
+    })),
+  });
+  const registrationId = submitted.body.submission.registrationId;
+  const previewPath = '/api/event-registration/organizer/event-import-preview/import-preview';
+
+  assert.equal((await worker.fetch(request(previewPath), env)).status, 401);
+  assert.equal((await worker.fetch(request(previewPath, organizerInit('owner-b')), env)).status, 404);
+  const previewResponse = await worker.fetch(request(previewPath, organizerInit()), env);
+  const preview = await previewResponse.json();
+  assert.equal(previewResponse.status, 200);
+  assert.equal(preview.entries.length, 1);
+  assert.equal(preview.entries[0].id, registrationId);
+  assert.equal(preview.entries[0].status, 'accepted');
+  assert.equal(preview.entries[0].members.filter(member => member.rosterRole === 'active').length, 4);
+  assert.equal(preview.entries[0].members.filter(member => member.rosterRole === 'substitute').length, 1);
+  assert.equal(preview.entries[0].members[0].internalPlayerId, 'import-player-1');
+  assert.equal(preview.entries[0].imported, null);
+  assert.doesNotMatch(JSON.stringify(preview), /management|organizerNote|rating|seedRating|notes|stats|room/i);
+
+  const revision = preview.entries[0].revision;
+  const markPath = '/api/event-registration/organizer/event-import-preview/import-mark';
+  const stale = await worker.fetch(request(markPath, organizerInit('owner-a', {
+    registrationId,
+    localEntryId: 'local-team-1',
+    importedRevision: revision + 1,
+  })), env);
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).code, 'IMPORT_REVISION_CHANGED');
+
+  const marked = await worker.fetch(request(markPath, organizerInit('owner-a', {
+    registrationId,
+    localEntryId: 'local-team-1',
+    importedRevision: revision,
+  })), env);
+  const markedBody = await marked.json();
+  assert.equal(marked.status, 200);
+  assert.equal(markedBody.imported.localEntryId, 'local-team-1');
+  assert.equal(markedBody.imported.importedRevision, revision);
+
+  const repeated = await worker.fetch(request(markPath, organizerInit('owner-a', {
+    registrationId,
+    localEntryId: 'local-team-1',
+    importedRevision: revision,
+  })), env);
+  assert.equal(repeated.status, 200);
+  const stored = env.EVENT_REGISTRATION_DB.database.prepare('SELECT * FROM event_registration_imports').all();
+  assert.equal(stored.length, 1);
+  assert.equal(stored[0].owner_scope, createHash('sha256').update('owner-a').digest('hex'));
+
+  const refreshed = await (await worker.fetch(request(previewPath, organizerInit()), env)).json();
+  assert.equal(refreshed.entries[0].imported.localEntryId, 'local-team-1');
+  assert.equal(refreshed.entries[0].imported.importedRevision, revision);
+
+  const reset = await worker.fetch(request('/api/event-registration/organizer/event-import-preview/import-reset', organizerInit('owner-a', {
+    registrationId,
+  })), env);
+  assert.equal(reset.status, 200);
+  assert.equal((await reset.json()).imported, null);
+  assert.equal(env.EVENT_REGISTRATION_DB.database.prepare('SELECT COUNT(*) AS count FROM event_registration_imports').get().count, 0);
+});
+
+test('public and management tokens cannot reach organizer import routes and registration import never lists KV', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  const created = await createConfig(env, 'event-import-auth');
+  let lists = 0;
+  env.COURT.list = async () => { lists += 1; return { keys: [], list_complete: true }; };
+  const path = '/api/event-registration/organizer/event-import-auth/import-preview';
+
+  const publicTokenAttempt = await worker.fetch(request(path, {
+    headers: { Origin: ORIGIN, 'X-Court-Room': created.body.publicToken },
+  }), env);
+  assert.equal(publicTokenAttempt.status, 403);
+  const managementTokenAttempt = await worker.fetch(request(path, {
+    headers: { Origin: ORIGIN, 'X-Court-Room': 'M'.repeat(43) },
+  }), env);
+  assert.equal(managementTokenAttempt.status, 403);
+  const allowed = await worker.fetch(request(path, organizerInit()), env);
+  assert.equal(allowed.status, 200);
+  assert.equal(lists, 0);
 });

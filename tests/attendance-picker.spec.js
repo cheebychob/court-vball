@@ -140,9 +140,18 @@ test('previous attendance prefers explicit snapshots and game fallback counts ti
 });
 
 test('Same as last time excludes today, displays valid count and date, and safely loads the valid remainder', async ({ page }) => {
+  const formatLocalDate = date => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
+  const today = new Date();
+  const priorDate = new Date(today);
+  priorDate.setDate(priorDate.getDate() - 6);
   const sessions = [
-    { id: 'past', date: '2026-07-18', playerIds: ['a', 'inactive', 'missing'], createdAt: 10, updatedAt: 10, source: 'team-builder' },
-    { id: 'today', date: '2026-07-24', playerIds: ['b'], createdAt: 20, updatedAt: 20, source: 'team-builder' }
+    { id: 'past', date: formatLocalDate(priorDate), playerIds: ['a', 'inactive', 'missing'], createdAt: 10, updatedAt: 10, source: 'team-builder' },
+    { id: 'today', date: formatLocalDate(today), playerIds: ['b'], createdAt: 20, updatedAt: 20, source: 'team-builder' }
   ];
   await seed(page, {
     players: [player('a', 'Alpha'), player('b', 'Bravo'), player('inactive', 'Inactive', { active: false })],
@@ -153,7 +162,7 @@ test('Same as last time excludes today, displays valid count and date, and safel
 
   const previous = page.locator('.attendance-last');
   await expect(previous).toContainText('Use last session · 1 player');
-  await expect(previous).toContainText('Jul 18');
+  await expect(previous).toContainText(new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric' }).format(priorDate));
   await previous.click();
   expect(await page.evaluate(() => [...window._pool])).toEqual(['a']);
   await expect(page.locator('.attendance-notice[role="status"]')).toContainText('Loaded 1 player. 2 are no longer available.');

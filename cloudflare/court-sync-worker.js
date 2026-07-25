@@ -648,17 +648,18 @@ async function putCheckInRecord(storage, key, value, expiresAt) {
 
 async function listLegacyCheckInRecords(storage, prefix) {
   const records = [];
-  let cursor;
-  do {
-    // Enumeration is required only to migrate a pre-directory session once. This
-    // helper is never called by a normal poll or public/admin mutation route.
-    const result = await storage.list({ prefix, cursor, limit: 1000 });
-    for (const item of result?.keys || []) {
-      const value = await readCheckInRecord(storage, item.name);
-      if (value) records.push({ key: item.name, value });
-    }
-    cursor = result?.list_complete === false ? result.cursor : null;
-  } while (cursor);
+  // Enumeration is required only to migrate a pre-directory session once. This
+  // helper is never called by a normal poll or public/admin mutation route.
+  // Legacy sessions were capped at MAX_CHECK_INS_PER_SESSION, so one bounded
+  // page is sufficient and deliberately avoids recursive namespace listing.
+  const result = await storage.list({ prefix, limit: MAX_CHECK_INS_PER_SESSION + 1 });
+  if (!result?.list_complete || (result?.keys || []).length > MAX_CHECK_INS_PER_SESSION) {
+    throw new Error("legacy check-in directory exceeds the supported bound");
+  }
+  for (const item of result?.keys || []) {
+    const value = await readCheckInRecord(storage, item.name);
+    if (value) records.push({ key: item.name, value });
+  }
   return records;
 }
 
@@ -1601,6 +1602,180 @@ async function organizerRegistrationDashboard(request, env, url, eventId) {
     publicUrlNeedsLocalToken: true,
     serverTime: Date.now(),
   }, 200, auth.headers);
+}
+
+function registrationImportMemberView(row) {
+  return {
+    id: row.id,
+    rosterRole: row.roster_role,
+    displayName: row.public_display_name,
+    matchStatus: row.match_status,
+    internalPlayerId: row.internal_player_id || null,
+    duplicateOverride: !!Number(row.duplicate_override),
+    updatedAt: Number(row.updated_at),
+  };
+}
+
+function registrationImportEntryView(row, members, imported) {
+  return {
+    id: row.id,
+    eventId: row.event_id,
+    registrationType: row.registration_type,
+    displayName: row.display_name || "",
+    status: row.status,
+    activePlayerCount: Number(row.active_player_count) || 0,
+    substituteCount: Number(row.substitute_count) || 0,
+    capacityOverride: !!Number(row.capacity_override),
+    revision: Number(row.revision) || 1,
+    updatedAt: Number(row.updated_at),
+    members,
+    imported: imported ? {
+      localEntryId: imported.local_entry_id,
+      importedRevision: Number(imported.imported_revision),
+      importedAt: Number(imported.imported_at),
+      updatedAt: Number(imported.updated_at),
+    } : null,
+  };
+}
+
+async function organizerRegistrationImportPreview(request, env, eventId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const db = env.EVENT_REGISTRATION_DB;
+  const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const [rows, memberRows, importRows] = await Promise.all([
+    d1Rows(db.prepare(`
+      SELECT id, event_id, registration_type, display_name, status, active_player_count,
+             substitute_count, capacity_override, revision, updated_at
+      FROM event_registrations
+      WHERE event_id = ?
+      ORDER BY COALESCE(submitted_at, created_at), id
+      LIMIT 500
+    `).bind(eventId)),
+    d1Rows(db.prepare(`
+      SELECT m.*
+      FROM event_registration_members m
+      JOIN event_registrations r ON r.id = m.registration_id
+      WHERE r.event_id = ?
+      ORDER BY m.registration_id, CASE m.roster_role WHEN 'active' THEN 0 ELSE 1 END, m.created_at, m.id
+      LIMIT 10000
+    `).bind(eventId)),
+    d1Rows(db.prepare(`
+      SELECT registration_id, local_entry_id, imported_revision, imported_at, updated_at
+      FROM event_registration_imports
+      WHERE owner_scope = ? AND event_id = ?
+      ORDER BY updated_at DESC
+      LIMIT 500
+    `).bind(auth.ownerScope, eventId)),
+  ]);
+  const membersByRegistration = new Map();
+  for (const member of memberRows) {
+    if (!membersByRegistration.has(member.registration_id)) membersByRegistration.set(member.registration_id, []);
+    membersByRegistration.get(member.registration_id).push(registrationImportMemberView(member));
+  }
+  const importsByRegistration = new Map(importRows.map(row => [row.registration_id, row]));
+  return registrationJson({
+    ok: true,
+    eventId,
+    config: {
+      eventFormat: config.event_format,
+      entrySize: config.entry_size == null ? null : Number(config.entry_size),
+      teamSize: config.team_size == null ? null : Number(config.team_size),
+      mode: config.mode,
+      minActivePlayersPerTeam: config.min_active_players_per_team == null ? null : Number(config.min_active_players_per_team),
+      maxActivePlayersPerTeam: config.max_active_players_per_team == null ? null : Number(config.max_active_players_per_team),
+      allowSubstitutes: !!Number(config.allow_substitutes),
+      maxSubstitutesPerTeam: config.max_substitutes_per_team == null ? null : Number(config.max_substitutes_per_team),
+    },
+    entries: rows.map(row => registrationImportEntryView(
+      row,
+      membersByRegistration.get(row.id) || [],
+      importsByRegistration.get(row.id)
+    )),
+    revision: rows.reduce((maximum, row) => Math.max(maximum, Number(row.updated_at) || 0), Number(config.updated_at) || 0),
+    serverTime: Date.now(),
+  }, 200, auth.headers);
+}
+
+async function markOrganizerRegistrationImport(request, env, eventId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["registrationId", "localEntryId", "importedRevision"]).length) {
+    return registrationError(400, "INVALID_IMPORT_MARK", "The import acknowledgment contains unsupported fields.", auth.headers);
+  }
+  const registrationId = typeof parsed.value.registrationId === "string" ? parsed.value.registrationId : "";
+  const localEntryId = typeof parsed.value.localEntryId === "string" ? parsed.value.localEntryId : "";
+  const importedRevision = registrationInteger(parsed.value.importedRevision, { nullable: false, minimum: 1, maximum: 1_000_000_000 });
+  if (!TOKEN_PATTERN.test(registrationId) || !PLAYER_ID_PATTERN.test(localEntryId) || importedRevision === undefined) {
+    return registrationError(400, "INVALID_IMPORT_MARK", "The import acknowledgment is invalid.", auth.headers);
+  }
+  const db = env.EVENT_REGISTRATION_DB;
+  const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const registration = await d1First(db.prepare(`
+    SELECT id, status, revision
+    FROM event_registrations
+    WHERE id = ? AND event_id = ?
+  `).bind(registrationId, eventId));
+  if (!registration) return registrationError(404, "ENTRY_NOT_FOUND", "The registration entry was not found.", auth.headers);
+  if (registration.status !== "accepted") {
+    return registrationError(409, "REGISTRATION_NOT_ACCEPTED", "Only an accepted registration can be marked imported.", auth.headers);
+  }
+  if (Number(registration.revision) !== importedRevision) {
+    return registrationError(409, "IMPORT_REVISION_CHANGED", "The registration changed during import. Review the latest revision before marking it imported.", auth.headers);
+  }
+  const now = Date.now();
+  await db.prepare(`
+    INSERT INTO event_registration_imports (
+      event_id, registration_id, owner_scope, local_entry_id,
+      imported_revision, imported_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(event_id, registration_id) DO UPDATE SET
+      owner_scope = excluded.owner_scope,
+      local_entry_id = excluded.local_entry_id,
+      imported_revision = excluded.imported_revision,
+      updated_at = excluded.updated_at
+  `).bind(eventId, registrationId, auth.ownerScope, localEntryId, importedRevision, now, now).run();
+  const imported = await d1First(db.prepare(`
+    SELECT local_entry_id, imported_revision, imported_at, updated_at
+    FROM event_registration_imports
+    WHERE owner_scope = ? AND event_id = ? AND registration_id = ?
+  `).bind(auth.ownerScope, eventId, registrationId));
+  return registrationJson({
+    ok: true,
+    eventId,
+    registrationId,
+    imported: {
+      localEntryId: imported.local_entry_id,
+      importedRevision: Number(imported.imported_revision),
+      importedAt: Number(imported.imported_at),
+      updatedAt: Number(imported.updated_at),
+    },
+  }, 200, auth.headers);
+}
+
+async function resetOrganizerRegistrationImport(request, env, eventId) {
+  const auth = await authorizeRegistrationOrganizer(request, env);
+  if (auth.response) return auth.response;
+  if (!PLAYER_ID_PATTERN.test(eventId)) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  const parsed = await readRegistrationJson(request, MAX_REGISTRATION_BODY_BYTES, auth.headers);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["registrationId"]).length || !TOKEN_PATTERN.test(parsed.value.registrationId || "")) {
+    return registrationError(400, "INVALID_IMPORT_RESET", "The import reset is invalid.", auth.headers);
+  }
+  const db = env.EVENT_REGISTRATION_DB;
+  const config = await registrationConfigForOwner(db, eventId, auth.ownerScope);
+  if (!config) return registrationError(404, "REGISTRATION_NOT_FOUND", "Registration was not found.", auth.headers);
+  await db.prepare(`
+    DELETE FROM event_registration_imports
+    WHERE owner_scope = ? AND event_id = ? AND registration_id = ?
+  `).bind(auth.ownerScope, eventId, parsed.value.registrationId).run();
+  return registrationJson({ ok: true, eventId, registrationId: parsed.value.registrationId, imported: null }, 200, auth.headers);
 }
 
 async function replaceRegistrationPlayerDirectory(db, eventId, players, now = Date.now()) {
@@ -2892,6 +3067,9 @@ export default {
     const checkInPageMatch = path.match(/^\/check-in\/([^/]+)$/);
     const checkInCodeMatch = path.match(/^\/check-in\/code\/([^/]+)$/);
     const registrationOrganizerMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)$/);
+    const registrationImportPreviewMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-preview$/);
+    const registrationImportMarkMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-mark$/);
+    const registrationImportResetMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-reset$/);
     const registrationConfigMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/config$/);
     const registrationOrganizerPlayersMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/players$/);
     const registrationStatusMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/status$/);
@@ -2911,7 +3089,8 @@ export default {
     const checkInPrivatePath = path === "/api/check-in/status" || path === "/api/check-in/sessions"
       || !!checkInReviewMatch || !!checkInCloseMatch || !!checkInDispositionMatch;
     const checkInPublicPath = !!checkInPublicApiMatch || path === "/check-in" || !!checkInPageMatch || !!checkInCodeMatch;
-    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
+    const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationImportPreviewMatch || !!registrationImportMarkMatch || !!registrationImportResetMatch
+      || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
       || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
     const registrationPublicPath = !!registrationPublicMatch || !!registrationPlayerLookupMatch || !!registrationSubmissionMatch
       || !!registrationPageMatch || !!registrationManagementApiMatch || !!registrationManagementPlayerMatch
@@ -2957,6 +3136,18 @@ export default {
       if (registrationOrganizerMatch) {
         if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
         return await organizerRegistrationDashboard(request, env, url, registrationOrganizerMatch[1]);
+      }
+      if (registrationImportPreviewMatch) {
+        if (request.method !== "GET") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await organizerRegistrationImportPreview(request, env, registrationImportPreviewMatch[1]);
+      }
+      if (registrationImportMarkMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await markOrganizerRegistrationImport(request, env, registrationImportMarkMatch[1]);
+      }
+      if (registrationImportResetMatch) {
+        if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));
+        return await resetOrganizerRegistrationImport(request, env, registrationImportResetMatch[1]);
       }
       if (registrationConfigMatch) {
         if (request.method !== "POST") return registrationError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", registrationHeaders(request));

@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.8">
+<meta name="court-build" content="20260725.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -565,6 +565,21 @@
   .registration-link{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gold);font-size:11px}
   .registration-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .registration-settings-grid .field{min-width:0}
+  .registration-integration-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:11px}
+  .registration-integration-summary>div{padding:8px;border:1px solid var(--line);border-radius:11px;background:#0001}
+  .registration-integration-summary b,.registration-integration-summary span{display:block}.registration-integration-summary b{font-size:16px}.registration-integration-summary span{margin-top:2px;color:var(--soft);font-size:10px}
+  .registration-import-callout{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:11px;border:1px solid #f2c66d3d;border-radius:14px;background:#f2c66d0a}
+  .registration-import-callout span{display:block;margin-top:3px;color:var(--soft);font-size:10.5px;line-height:1.4}
+  .registration-import-list{display:grid;gap:9px;max-height:54vh;overflow:auto;overscroll-behavior:contain}
+  .registration-import-row{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07}
+  .registration-import-row.blocked{border-color:#ff7d7245}.registration-import-row.ready{border-color:#71d3a645}.registration-import-row.updated{border-color:#f2c66d55}
+  .registration-import-row label{display:flex;gap:9px;align-items:flex-start}.registration-import-row input[type=checkbox]{flex:none;margin-top:3px}
+  .registration-import-messages{display:grid;gap:4px;margin-top:8px}.registration-import-message{font-size:10.5px;line-height:1.4}.registration-import-message.block{color:var(--coral)}.registration-import-message.warn{color:var(--sand)}
+  .event-check-in-team{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07;margin-top:9px}
+  .event-check-in-player{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,auto);gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
+  .event-check-in-player select{min-height:40px}
+  .imported-marker{display:inline-block;margin-left:5px;color:var(--gold);font-size:9px;font-weight:700}
+  @media(max-width:620px){.registration-import-callout{grid-template-columns:1fr 1fr}.registration-import-callout>div{grid-column:1/-1}.event-check-in-player{grid-template-columns:1fr}.registration-actions{grid-template-columns:1fr 1fr}}
 
   .settings-section{scroll-margin-top:90px}
   .danger-zone{border-color:#ff7d7242;background:#ff7d7209}
@@ -1060,9 +1075,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.21.1',
-  build: '20260724.8',
-  releaseNotes: 'Reduce check-in polling and Cloudflare KV usage while keeping live organizer updates stable.'
+  version: '0.22.0',
+  build: '20260725.1',
+  releaseNotes: 'Preview, import, safely update, and check in accepted event registrations while preserving schedules, history, and Cloudflare KV quotas.'
 });
 
 function appVersionLabel(){
@@ -1268,6 +1283,9 @@ const DEFAULT_EVENT_REGISTRATION=Object.freeze({
   requireOrganizerApproval:true,allowWaitlist:true,publicTitle:'',publicDescription:'',
   publicToken:null,publicUrl:null,updatedAt:null
 });
+const REGISTRATION_IMPORT_SOURCE_VERSION=1;
+const EVENT_DAY_TEAM_STATUSES=Object.freeze(['not_checked_in','partially_arrived','checked_in','needs_review','no_show']);
+const EVENT_DAY_PLAYER_STATUSES=Object.freeze(['not_present','present','substitute_present','unknown_replacement','excused']);
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
 function hash32(value){
@@ -1417,7 +1435,7 @@ function getPlayerSearchTerms(player){
 }
 function playerSearchText(player){return getPlayerSearchTerms(player).join(' ');}
 function collectEventPlayerIds(value,out=new Set(),key=''){
-  const arrayKeys=new Set(['players','playerIds','roster','members','teamA','teamB']),valueKeys=new Set(['playerId','winnerPlayerId','loserPlayerId']);
+  const arrayKeys=new Set(['players','playerIds','activePlayerIds','substitutePlayerIds','roster','members','teamA','teamB']),valueKeys=new Set(['playerId','winnerPlayerId','loserPlayerId']);
   if(Array.isArray(value)){
     if(arrayKeys.has(key))value.forEach(id=>{if(typeof id==='string'||typeof id==='number')out.add(String(id));});
     value.forEach(item=>{if(item&&typeof item==='object')collectEventPlayerIds(item,out,key);});
@@ -1538,6 +1556,7 @@ function migrateEvents(){
       if(initialSeeds)ev.rotation.initialSeeds=initialSeeds;else delete ev.rotation.initialSeeds;
     }
     else if(ev.sched) ev.sched={...evSchedDefaults(),...ev.sched,...scheduleState(ev.sched,'fixed:'+ev.id)};
+    normalizeEventRegistrationIntegration(ev);
   });
 }
 function migratePlayers(){
@@ -2027,7 +2046,7 @@ function playerAppearsInGames(id){
     !!(g.log&&Object.prototype.hasOwnProperty.call(g.log,id))
   );
 }
-const PLAYER_REFERENCE_ARRAY_KEYS=new Set(['players','playerIds','roster','members','teamA','teamB']);
+const PLAYER_REFERENCE_ARRAY_KEYS=new Set(['players','playerIds','activePlayerIds','substitutePlayerIds','roster','members','teamA','teamB']);
 const PLAYER_REFERENCE_VALUE_KEYS=new Set(['playerId','winnerPlayerId','loserPlayerId']);
 function playerReferenceTreeContains(value,id,key=''){
   if(Array.isArray(value)){
@@ -4449,6 +4468,175 @@ function validateEventRegistration(config,ev){
   return {valid:true,value:r};
 }
 
+function uniqueStableIds(value){
+  const seen=new Set(),ids=[];
+  (Array.isArray(value)?value:[]).forEach(id=>{if(id==null)return;const clean=String(id).trim();if(clean&&!seen.has(clean)){seen.add(clean);ids.push(clean);}});
+  return ids;
+}
+function normalizeRegistrationImportSnapshot(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  return {
+    name:String(value.name||'').trim().slice(0,120),
+    activePlayerIds:uniqueStableIds(value.activePlayerIds),
+    substitutePlayerIds:uniqueStableIds(value.substitutePlayerIds),
+    status:REGISTRATION_ENTRY_STATUSES.includes(value.status)?value.status:'accepted'
+  };
+}
+function normalizeRegistrationSource(value){
+  if(!value||typeof value!=='object'||Array.isArray(value))return null;
+  const registrationId=typeof value.registrationId==='string'?value.registrationId.trim():'',sourceRevision=positiveInt(value.sourceRevision,0);
+  if(!registrationId||!sourceRevision)return null;
+  const importedAt=registrationTimestamp(value.importedAt),lastSyncedAt=registrationTimestamp(value.lastSyncedAt),sourceSnapshot=normalizeRegistrationImportSnapshot(value.sourceSnapshot);
+  if(!importedAt||!lastSyncedAt||!sourceSnapshot)return null;
+  return {schemaVersion:REGISTRATION_IMPORT_SOURCE_VERSION,registrationId,sourceRevision,importedAt,lastSyncedAt,sourceSnapshot};
+}
+function eventImportEntries(ev){
+  return eventFormat(ev)==='rotatingGroups'?rotatingEntries(ev):(ev?.teams||[]);
+}
+function normalizeEventDayRegistrationState(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{},entries={};
+  for(const [registrationId,row] of Object.entries(source.entries&&typeof source.entries==='object'&&!Array.isArray(source.entries)?source.entries:{})){
+    if(!registrationId||!row||typeof row!=='object'||Array.isArray(row))continue;
+    const playerStatuses={},rawStatuses=row.playerStatuses&&typeof row.playerStatuses==='object'&&!Array.isArray(row.playerStatuses)?row.playerStatuses:{};
+    for(const [playerId,status] of Object.entries(rawStatuses))if(playerId&&EVENT_DAY_PLAYER_STATUSES.includes(status))playerStatuses[playerId]=status;
+    const replacements=(Array.isArray(row.replacements)?row.replacements:[]).filter(item=>item&&typeof item==='object'&&item.playerId).map(item=>({
+      playerId:String(item.playerId),addedAt:registrationTimestamp(item.addedAt)||Date.now()
+    }));
+    entries[registrationId]={
+      teamStatus:EVENT_DAY_TEAM_STATUSES.includes(row.teamStatus)?row.teamStatus:'not_checked_in',
+      activePlayerIds:uniqueStableIds(row.activePlayerIds),
+      substitutePlayerIds:uniqueStableIds(row.substitutePlayerIds),
+      playerStatuses,replacements,updatedAt:registrationTimestamp(row.updatedAt)||null
+    };
+  }
+  return {schemaVersion:1,entries,updatedAt:registrationTimestamp(source.updatedAt)||null};
+}
+function normalizeEventRegistrationIntegration(ev){
+  const normalizeEntry=entry=>{
+    if(!entry||typeof entry!=='object')return;
+    entry.players=uniqueStableIds(entry.players);
+    entry.substitutePlayerIds=uniqueStableIds(entry.substitutePlayerIds).filter(id=>!entry.players.includes(id));
+    const source=normalizeRegistrationSource(entry.registrationSource);if(source)entry.registrationSource=source;else delete entry.registrationSource;
+  };
+  (ev?.teams||[]).forEach(normalizeEntry);(ev?.entries||ev?.pairs||[]).forEach(normalizeEntry);
+  if(ev&&Object.prototype.hasOwnProperty.call(ev,'registrationCheckIn'))ev.registrationCheckIn=normalizeEventDayRegistrationState(ev.registrationCheckIn);
+  return ev;
+}
+function getRegistrationImportCompatibility(ev,registrationConfig=eventRegistration(ev)){
+  const reasons=[],warnings=[],format=eventFormat(ev),mode=registrationConfig?.mode;
+  let importUnit=null;
+  if(format==='fixedTeams'){
+    if(mode!=='team')reasons.push('Fixed-team events require team registrations.');
+    else{
+      const min=registrationConfig?.minActivePlayersPerTeam,max=registrationConfig?.maxActivePlayersPerTeam;
+      importUnit=min===2&&max===2?'pair':'team';
+    }
+  }else{
+    const rotation=rotationSettings(ev);
+    if(rotation.entrySize===1&&mode==='individual')importUnit='individual';
+    else if(rotation.entrySize===rotation.teamSize&&mode==='team')importUnit=rotation.entrySize===2?'pair':'team';
+    else reasons.push(`${rotation.entrySize}-player groups that combine into ${rotation.teamSize}s cannot be imported safely yet.`);
+  }
+  if(ev?.done)reasons.push('Completed events cannot receive registration imports.');
+  if(registrationConfig?.eventFormat&&registrationConfig.eventFormat!==format)reasons.push('The server registration format does not match this event.');
+  if(registrationConfig?.mode&&mode!==eventRegistration(ev).mode)warnings.push('Registration mode differs from the locally saved event settings.');
+  return {supported:reasons.length===0,importUnit,reasons,warnings};
+}
+function getEventScheduleState(ev){
+  if(!ev)return {state:'none',hasSchedule:false,hasGames:false,published:false};
+  const hasGames=evGameCount(ev)>0,published=Object.values(ev.schedulePublications||{}).some(row=>row&&row.status!=='disabled'&&!row.disabledAt);
+  const hasSchedule=eventFormat(ev)==='rotatingGroups'?rotationSchedule(ev).length>0:!!ev.sched;
+  return {state:hasGames?'games_logged':published?'published':hasSchedule?'draft':'none',hasSchedule,hasGames,published};
+}
+function eventEntryImportSnapshot(entry,status='accepted'){
+  return {name:String(entry?.name||'').trim(),activePlayerIds:uniqueStableIds(entry?.players),substitutePlayerIds:uniqueStableIds(entry?.substitutePlayerIds),status};
+}
+function registrationImportSnapshot(registration){
+  const members=Array.isArray(registration?.members)?registration.members:[],resolved=member=>['matched','organizer_created'].includes(member.matchStatus)&&member.internalPlayerId;
+  return {
+    name:String(registration?.displayName||'').trim(),
+    activePlayerIds:uniqueStableIds(members.filter(member=>member.rosterRole==='active'&&resolved(member)).map(member=>member.internalPlayerId)),
+    substitutePlayerIds:uniqueStableIds(members.filter(member=>member.rosterRole==='substitute'&&resolved(member)).map(member=>member.internalPlayerId)),
+    status:REGISTRATION_ENTRY_STATUSES.includes(registration?.status)?registration.status:'accepted'
+  };
+}
+function registrationImportDiff(previous,next){
+  const before=normalizeRegistrationImportSnapshot(previous)||{name:'',activePlayerIds:[],substitutePlayerIds:[],status:'accepted'},after=normalizeRegistrationImportSnapshot(next)||before,diff=[];
+  if(before.name!==after.name)diff.push({kind:'name',label:`Team name: ${before.name||'Unnamed'} → ${after.name||'Unnamed'}`});
+  const addRemove=(key,label)=>{
+    const prior=new Set(before[key]),current=new Set(after[key]);
+    const added=after[key].filter(id=>!prior.has(id)),removed=before[key].filter(id=>!current.has(id));
+    if(added.length)diff.push({kind:key,label:`${label} added: ${added.map(id=>pById(id)?.name||id).join(', ')}`});
+    if(removed.length)diff.push({kind:key,label:`${label} removed: ${removed.map(id=>pById(id)?.name||id).join(', ')}`});
+  };
+  addRemove('activePlayerIds','Active');addRemove('substitutePlayerIds','Substitute');
+  if(before.status!==after.status)diff.push({kind:'status',label:`Status: ${registrationStatusLabel(before.status)} → ${registrationStatusLabel(after.status)}`});
+  return diff;
+}
+function registrationImportPreview(ev,server){
+  const entries=Array.isArray(server?.entries)?server.entries:[],compatibility=getRegistrationImportCompatibility(ev,server?.config||eventRegistration(ev)),localEntries=eventImportEntries(ev),schedule=getEventScheduleState(ev),acceptedOwners=new Map();
+  entries.filter(row=>row.status==='accepted').forEach(row=>(row.members||[]).forEach(member=>{
+    if(!member.internalPlayerId||!['matched','organizer_created'].includes(member.matchStatus))return;
+    if(!acceptedOwners.has(member.internalPlayerId))acceptedOwners.set(member.internalPlayerId,[]);
+    acceptedOwners.get(member.internalPlayerId).push({registrationId:row.id,override:!!member.duplicateOverride,role:member.rosterRole});
+  }));
+  const items=entries.map(registration=>{
+    const blockers=[],warnings=[...compatibility.warnings],snapshot=registrationImportSnapshot(registration),mapped=localEntries.filter(entry=>entry.registrationSource?.registrationId===registration.id),ack=registration.imported||null;
+    let localEntry=mapped[0]||null,action='skip';
+    if(!compatibility.supported)blockers.push(...compatibility.reasons);
+    if(registration.eventId&&registration.eventId!==ev.id)blockers.push('This registration belongs to another event.');
+    if(registration.status!=='accepted'){
+      if(localEntry)warnings.push(`Registration is now ${registrationStatusLabel(registration.status).toLowerCase()}; the event entry was not removed.`);
+      blockers.push(`Only accepted registrations can be imported; this one is ${registrationStatusLabel(registration.status).toLowerCase()}.`);
+    }
+    if(mapped.length>1)blockers.push('Multiple local event entries claim this registration mapping.');
+    if(!localEntry&&ack){
+      localEntry=localEntries.find(entry=>entry.id===ack.localEntryId)||null;
+      if(!localEntry)blockers.push('Another device marked this registration imported. Sync Court before importing again.');
+      else if(!localEntry.registrationSource)blockers.push('The acknowledged local entry is missing its registration mapping.');
+    }
+    const expectedType=compatibility.importUnit==='individual'?'individual':'team';
+    if(registration.registrationType!==expectedType)blockers.push(`Registration type ${registration.registrationType} does not match this ${compatibility.importUnit||'event'} import.`);
+    const members=Array.isArray(registration.members)?registration.members:[],unresolved=members.filter(member=>!['matched','organizer_created'].includes(member.matchStatus)||!member.internalPlayerId);
+    if(unresolved.length)blockers.push(`Resolve all ${unresolved.length} pending or rejected roster member${unresolved.length===1?'':'s'} first.`);
+    const rawIds=members.filter(member=>['matched','organizer_created'].includes(member.matchStatus)&&member.internalPlayerId).map(member=>String(member.internalPlayerId)),allIds=[...snapshot.activePlayerIds,...snapshot.substitutePlayerIds],duplicateIds=rawIds.filter((id,index)=>rawIds.indexOf(id)!==index);
+    if(duplicateIds.length)blockers.push('The same player appears more than once in this entry.');
+    const missing=allIds.filter(id=>!pById(id));if(missing.length)blockers.push(`${missing.length} matched player${missing.length===1?' is':'s are'} missing from this device. Sync the player directory first.`);
+    const min=server?.config?.minActivePlayersPerTeam,max=server?.config?.maxActivePlayersPerTeam;
+    if(min!=null&&snapshot.activePlayerIds.length<min)blockers.push(`Active roster needs at least ${min} players.`);
+    if(max!=null&&snapshot.activePlayerIds.length>max)blockers.push(`Active roster cannot exceed ${max} players.`);
+    if(server?.config?.allowSubstitutes===false&&snapshot.substitutePlayerIds.length)blockers.push('This registration mode does not allow substitutes.');
+    const maxSubs=server?.config?.maxSubstitutesPerTeam;if(maxSubs!=null&&snapshot.substitutePlayerIds.length>maxSubs)blockers.push(`Substitute roster cannot exceed ${maxSubs} players.`);
+    for(const id of allIds){
+      const cross=acceptedOwners.get(id)||[];
+      if(cross.some(owner=>owner.registrationId!==registration.id&&!owner.override)){
+        blockers.push(`${pById(id)?.name||'A player'} appears on another accepted registration without an organizer override.`);
+      }else if(cross.some(owner=>owner.registrationId!==registration.id))warnings.push(`${pById(id)?.name||'A player'} is shared through an explicit registration override.`);
+      const existing=localEntries.find(entry=>entry.id!==localEntry?.id&&[...(entry.players||[]),...(entry.substitutePlayerIds||[])].includes(id));
+      if(existing)blockers.push(`${pById(id)?.name||'A player'} is already assigned to ${existing.name||'another event entry'}.`);
+    }
+    if(registration.capacityOverride)warnings.push('Registration was accepted with an organizer capacity override.');
+    if(schedule.hasSchedule)warnings.push(schedule.published?'A published schedule exists; entry changes mark it for review but do not regenerate it.':'A schedule exists; entry changes mark it for review but do not regenerate it.');
+    if(schedule.hasGames)warnings.push('Logged games keep their saved participant IDs and results; updates affect future games only.');
+    let diff=[],localDiff=[];
+    if(localEntry){
+      const source=normalizeRegistrationSource(localEntry.registrationSource),current=eventEntryImportSnapshot(localEntry,source?.sourceSnapshot?.status||'accepted');
+      if(source){
+        const manualDiff=registrationImportDiff(source.sourceSnapshot,current);localDiff=manualDiff;
+        diff=registrationImportDiff(source.sourceSnapshot,snapshot);
+        if(manualDiff.length)warnings.push('The local event entry changed manually after its last registration import.');
+        if(manualDiff.length&&diff.length)blockers.push('The event entry changed manually after import. Reconcile it in the event editor before applying registration updates.');
+        if(!diff.length&&source.sourceRevision===Number(registration.revision))action='none';
+        else action='update';
+      }else blockers.push('The acknowledged event entry has no safe local registration mapping.');
+    }else action='create';
+    if(blockers.length)action='blocked';
+    return {registration,localEntry,ack,snapshot,compatibility,schedule,action,blockers:[...new Set(blockers)],warnings:[...new Set(warnings)],diff,localDiff};
+  });
+  const counts={accepted:entries.filter(row=>row.status==='accepted').length,ready:items.filter(row=>row.action==='create').length,updated:items.filter(row=>row.action==='update').length,current:items.filter(row=>row.action==='none').length,blocked:items.filter(row=>row.action==='blocked').length,imported:items.filter(row=>!!row.localEntry?.registrationSource).length};
+  return {eventId:ev.id,compatibility,schedule,items,counts,revision:Number(server?.revision)||0};
+}
+
 /* ============================================================
    EVENT RULES — schema, sanitization, revisions, and sync merge
 
@@ -4580,14 +4768,38 @@ function mergeRulesModels(localValue,remoteValue){
 }
 function mergeEventRecords(local,remote,preferRemote=true){
   const preferred=preferRemote?remote:local,fallback=preferRemote?local:remote,out={...(fallback||{}),...(preferred||{})};
+  const mergeEntries=(left,right)=>{
+    const byId=new Map(),mergeOne=(entry,incomingPreferred)=>{
+      if(!entry?.id)return;const current=byId.get(entry.id);
+      if(!current){byId.set(entry.id,entry);return;}
+      const next=incomingPreferred?{...current,...entry}:{...entry,...current};
+      const sourceCurrent=normalizeRegistrationSource(current.registrationSource),sourceIncoming=normalizeRegistrationSource(entry.registrationSource);
+      if(!sourceIncoming&&sourceCurrent)next.registrationSource=sourceCurrent;
+      if(!Object.prototype.hasOwnProperty.call(entry,'substitutePlayerIds')&&Object.prototype.hasOwnProperty.call(current,'substitutePlayerIds'))next.substitutePlayerIds=current.substitutePlayerIds;
+      byId.set(entry.id,next);
+    };
+    (left||[]).forEach(entry=>mergeOne(entry,false));(right||[]).forEach(entry=>mergeOne(entry,true));return [...byId.values()];
+  };
+  if(local?.teams||remote?.teams)out.teams=preferRemote?mergeEntries(local?.teams,remote?.teams):mergeEntries(remote?.teams,local?.teams);
+  const localEntries=local?.entries||local?.pairs,remoteEntries=remote?.entries||remote?.pairs;
+  if(localEntries||remoteEntries){
+    out.entries=preferRemote?mergeEntries(localEntries,remoteEntries):mergeEntries(remoteEntries,localEntries);
+    if(out.entries.length){delete out.pairs;}
+  }
+  if(local?.registrationCheckIn||remote?.registrationCheckIn){
+    const left=normalizeEventDayRegistrationState(local?.registrationCheckIn),right=normalizeEventDayRegistrationState(remote?.registrationCheckIn),entries={...left.entries};
+    for(const [id,row] of Object.entries(right.entries)){const current=entries[id];if(!current||(Number(row.updatedAt)||0)>=(Number(current.updatedAt)||0))entries[id]=row;}
+    out.registrationCheckIn=normalizeEventDayRegistrationState({entries,updatedAt:Math.max(Number(left.updatedAt)||0,Number(right.updatedAt)||0)||null});
+  }
   if(local?.rules||remote?.rules)out.rules=mergeRulesModels(local?.rules,remote?.rules);return out;
 }
 function duplicateEventData(source,{id=uid(),name=`${source?.name||'Event'} Copy`,now=Date.now(),eventDate=todayLocalDate(now)}={}){
   const copy=JSON.parse(JSON.stringify(source||{})),teamIds=new Map(),entryIds=new Map(),bracketIds=new Map(),matchIds=new Map(),newId=prefix=>`${prefix}-${uid()}`;
   copy.id=id;copy.name=name;copy.created=Number(now)||Date.now();copy.eventDate=normalizeEventDate(eventDate)||todayLocalDate(now);copy.done=false;delete copy.schedulePublications;
+  delete copy.registrationCheckIn;
   copy.registration={...deriveRegistrationDefaultsFromEvent(copy),enabled:false,status:'closed',publicToken:null,publicUrl:null,updatedAt:null};
-  (copy.teams||[]).forEach(team=>{const next=newId('team');teamIds.set(team.id,next);team.id=next;});
-  const entries=copy.entries||copy.pairs||[];entries.forEach(entry=>{const next=newId('entry');entryIds.set(entry.id,next);entry.id=next;});
+  (copy.teams||[]).forEach(team=>{const next=newId('team');teamIds.set(team.id,next);team.id=next;delete team.registrationSource;});
+  const entries=copy.entries||copy.pairs||[];entries.forEach(entry=>{const next=newId('entry');entryIds.set(entry.id,next);entry.id=next;delete entry.registrationSource;});
   (copy.teams||[]).forEach(team=>{if(team.playoffSource?.entryIds)team.playoffSource.entryIds=team.playoffSource.entryIds.map(value=>entryIds.get(value)||value);});
   if(copy.rotation?.initialSeeds&&typeof copy.rotation.initialSeeds==='object')copy.rotation.initialSeeds=Object.fromEntries(Object.entries(copy.rotation.initialSeeds).map(([key,value])=>[entryIds.get(key)||key,value]));
   (copy.brackets||[]).forEach(bracket=>{const next=newId('bracket');bracketIds.set(bracket.id,next);bracket.id=next;bracket.created=Number(now)||Date.now();bracket.seeds=(bracket.seeds||[]).map(seed=>teamIds.get(seed)||seed);});
@@ -6553,7 +6765,7 @@ function renderRotatingEventDetail(ev){
   }
   html+=`</section><section id="event-entries"></section><section id="event-standings" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}`;
   if(!standings.length)html+=`<div class="stat-empty">No ${typePlural.toLowerCase()} yet. Each ${typeSingular.toLowerCase()} must contain exactly ${s.entrySize} player${s.entrySize===1?'':'s'}.</div>`;
-  else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id];return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span></span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
+  else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id],substitutes=(r.entry.substitutePlayerIds||[]).map(id=>pById(id)?.name||'Historical player').map(esc).join(', ');return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}${r.entry.registrationSource?'<span class="imported-marker">Imported from registration</span>':''}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span>${substitutes?`<span class="tiny faint" style="display:block">Substitutes: ${substitutes}</span>`:''}</span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
   html+=`</section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;
 }
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
@@ -6876,7 +7088,7 @@ function renderEventDetail(ev){
       : [{label:null, rows:st}];
     const table = rows => `<div class="stand-row stand-head"><span>#</span><span>Team</span><span style="text-align:right">MW-ML · Win%</span><span style="text-align:right">Diff</span></div>`
       + rows.map((r,i)=>`<button class="stand-row pressable" onclick="openTeamSchedule('${ev.id}','${r.t.id}')"><span class="num faint small">${i+1}</span>
-        <span class="small" style="font-weight:700;min-width:0">${esc(r.t.name)}<div class="tiny faint" style="font-weight:500">${r.t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')||'guest team'}</div><div class="tiny faint" style="font-weight:500">sets ${r.sw}-${r.sl}${r.ties?` · ${r.ties} tie${r.ties===1?'':'s'}`:''} · ${r.gp} played</div></span>
+        <span class="small" style="font-weight:700;min-width:0">${esc(r.t.name)}${r.t.registrationSource?'<span class="imported-marker">Imported from registration</span>':''}<div class="tiny faint" style="font-weight:500">${r.t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')||'guest team'}</div>${(r.t.substitutePlayerIds||[]).length?`<div class="tiny faint" style="font-weight:500">Substitutes: ${(r.t.substitutePlayerIds||[]).map(id=>pById(id)?.name||'Historical player').map(esc).join(', ')}</div>`:''}<div class="tiny faint" style="font-weight:500">sets ${r.sw}-${r.sl}${r.ties?` · ${r.ties} tie${r.ties===1?'':'s'}`:''} · ${r.gp} played</div></span>
         <span class="num small" style="text-align:right;font-weight:700">${r.mw}-${r.ml}<span class="tiny faint" style="display:block">${Math.round(r.winPct*100)}%</span></span>
         <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></button>`).join('');
     html += groups.filter(g=>g.rows.length).map(g=>`${g.label?`<div class="pool-title">${esc(g.label)}</div>`:''}${table(g.rows)}`).join('');
@@ -9268,7 +9480,7 @@ window.setSkill=(k,n)=>{ captureInputs(); draft.skills[k]=n; draft.seedRating=co
 window.toggleRole=(k)=>{ captureInputs(); draft.roles[k]=!draft.roles[k]; renderPlayerSheet(); };
 window.toggleActive=()=>{ captureInputs(); draft.active = draft.active===false; renderPlayerSheet(); };
 window.restoreArchivedPlayer=()=>{captureInputs();draft.archived=false;draft.active=true;renderPlayerSheet();};
-window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId),returnToCheckIn=!!window._pendingCheckInCreationId,registrationEventId=window._pendingRegistrationMemberCreation?.eventId;window._pendingCheckInCreationId=null;window._pendingRegistrationMemberCreation=null;discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);if(returnToCheckIn)openPlayerCheckIn();else if(registrationEventId)openRegistrationDashboard(registrationEventId);}};
+window.cancelPlayerEdit=()=>{const returnToProfile=playerWindowMode==='edit'&&playerEditReturnMode==='profile'&&editId&&pById(editId),returnToCheckIn=!!window._pendingCheckInCreationId,registrationEventId=window._pendingRegistrationMemberCreation?.eventId,replacementEventId=window._eventDayReplacement?.evId;window._pendingCheckInCreationId=null;window._pendingRegistrationMemberCreation=null;window._eventDayReplacement=null;discardPlayerDraft();if(returnToProfile){playerWindowMode='profile';renderPlayerProfile();requestAnimationFrame(()=>document.querySelector('[data-focus-key="edit-profile"]')?.focus({preventScroll:true}));}else{editId=null;playerWindowMode=null;closeSheet(true);if(returnToCheckIn)openPlayerCheckIn();else if(registrationEventId)openRegistrationDashboard(registrationEventId);else if(replacementEventId)openEventDayCheckIn(replacementEventId);}};
 
 window.openLevelGuide=()=>{
   captureInputs();
@@ -9366,9 +9578,11 @@ window.savePlayer=async()=>{
   const registrationEventId=window._pendingRegistrationMemberCreation?.eventId;let registrationResolved=false,registrationResolutionError=null;
   if(registrationEventId){try{registrationResolved=await resolveCreatedRegistrationMember(savedId);}catch(error){registrationResolutionError=error;window._pendingRegistrationMemberCreation=null;window._registrationMemberReview=null;}}
   else void EventRegistration.syncPlayerDirectories();
+  const replacementEventId=window._eventDayReplacement?.evId,replacementResolved=replacementEventId?await recordEventDayReplacement(savedId):false;
   discardPlayerDraft();editId=savedId;playerWindowMode='profile';render();
   if(registrationResolved){openRegistrationDashboard(registrationEventId);toast(wasEdit?'Player saved and registration matched':'Player created and registration matched');}
   else if(registrationResolutionError){openRegistrationDashboard(registrationEventId);toast(`Player saved, but registration matching needs retry: ${registrationResolutionError.message}`);}
+  else if(replacementResolved){editId=null;playerWindowMode=null;openEventDayCheckIn(replacementEventId);toast('Event-only replacement created for event day');}
   else{renderPlayerProfile();toast(wasEdit?'Saved':'Player added');}
 };
 window.deletePlayer=async()=>{
@@ -10080,6 +10294,17 @@ const EventRegistration=(()=>{
     if(!ev||!configured()||!eventRegistration(ev).publicToken)return null;
     return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/players`,{method:'POST',body:{players:createEventRegistrationPlayerDirectory(ev)}});
   }
+  async function importPreview(ev){
+    if(!ev)throw new Error('Event is unavailable.');
+    const response=await request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-preview`);
+    return registrationImportPreview(ev,response);
+  }
+  async function markImported(ev,registrationId,localEntryId,importedRevision){
+    return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-mark`,{method:'POST',body:{registrationId,localEntryId,importedRevision}});
+  }
+  async function resetImport(ev,registrationId){
+    return request(`/api/event-registration/organizer/${encodeURIComponent(ev.id)}/import-reset`,{method:'POST',body:{registrationId}});
+  }
   function syncPlayerDirectories(){
     if(playerDirectorySync)return playerDirectorySync;
     const activeEvents=evts.filter(ev=>eventRegistration(ev).publicToken);
@@ -10192,7 +10417,7 @@ const EventRegistration=(()=>{
   function patchSummaryCard(eventId){
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);if(ev&&node)node.outerHTML=registrationSummaryHtml(ev);
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,refresh,updateLifecycle,rotateToken,setModalOpen,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,refresh,updateLifecycle,rotateToken,setModalOpen,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -10201,11 +10426,13 @@ function emptyRegistrationCapacity(capacity=null){
 }
 function registrationSummaryHtml(ev){
   const local=eventRegistration(ev),state=EventRegistration.get(ev.id),config=state?.config||local,status=config.effectiveStatus||getEffectiveEventRegistrationStatus(config),capacity=state?.capacity||emptyRegistrationCapacity(local.activePlayerCapacity),enabled=local.enabled,url=registrationPublicUrl(ev);
+  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource).length,accepted=capacity.acceptedEntries||0;
   return `<section id="event-registration" class="card registration-card" data-registration-summary="${esc(ev.id)}">
     <div class="row spread" style="gap:10px"><div><div class="stat-title" style="margin:0">Registration</div><div class="tiny faint">${enabled?`${esc(registrationStatusLabel(status))} · ${esc(local.mode==='team'?'Team entries':'Individual entries')}`:'Public registration is off'}</div></div><span class="pill ${status==='open'?'good':status==='scheduled'?'warn':status==='cancelled'?'bad':''}">${esc(registrationStatusLabel(status))}</span></div>
     ${enabled?`<div class="registration-capacity-grid"><div><b class="num">${capacity.acceptedEntries||0}</b><span>accepted entries</span></div><div><b class="num">${capacity.acceptedActivePlayers||0}</b><span>accepted active players</span></div><div><b class="num">${capacity.pendingEntries||0}</b><span>pending review</span></div><div><b class="num">${capacity.remainingAcceptedCapacity==null?'∞':capacity.remainingAcceptedCapacity}</b><span>active spots remaining</span></div></div>
       <div class="tiny faint">${esc(registrationFormatTime(local.opensAt))} → ${esc(registrationFormatTime(local.closesAt))}</div>${url?`<span class="registration-link" title="${esc(url)}">${esc(url)}</span>`:''}`:`<p class="small soft">Collect long-lived team or individual intent separately from event-day player check-in.</p>`}
-    <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">${enabled?'Registration settings':'Set up registration'}</button>${enabled?`<button class="btn primary" onclick="openRegistrationDashboard('${esc(ev.id)}')">Manage registrations</button>`:''}</div>
+    ${enabled||imported?`<div class="registration-integration-summary"><div><b>${accepted}</b><span>accepted</span></div><div><b>${imported}</b><span>imported</span></div><div><b>${Math.max(0,accepted-imported)}</b><span>to review</span></div></div>`:''}
+    <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">${enabled?'Registration settings':'Set up registration'}</button>${enabled?`<button class="btn primary" onclick="openRegistrationDashboard('${esc(ev.id)}')">Manage registrations</button><button class="btn ghost" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button>`:''}${imported?`<button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button>`:''}</div>
     <div class="tiny" data-registration-summary-error style="min-height:${state?.error?'18px':'0'};margin-top:7px;color:var(--coral)">${esc(state?.error||'')}</div>
   </section>`;
 }
@@ -10217,6 +10444,7 @@ function registrationDashboardHtml(ev){
     <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(local.opensAt)} → ${registrationFormatTime(local.closesAt)}`)}</div>
     <span class="registration-link" data-reg-link title="${esc(url)}">${esc(url||'Public link unavailable on this device')}</span>
     <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="rotateRegistrationLink('${esc(ev.id)}')">Rotate link</button><button class="btn ghost" onclick="changeRegistrationLifecycle('${esc(ev.id)}','open')">Open</button><button class="btn ghost" onclick="changeRegistrationLifecycle('${esc(ev.id)}','closed')">Close</button><button class="btn danger" onclick="changeRegistrationLifecycle('${esc(ev.id)}','cancelled')">Cancel registration</button></div>
+    <div class="registration-import-callout"><div><b>Registration entries</b><span>Preview accepted registrations before changing this event. Imports never generate a schedule or alter ratings.</span></div><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button></div>
     <div class="field" style="margin-top:14px"><label for="registrationFilter">Entries</label><select id="registrationFilter" onchange="setRegistrationFilter(this.value)"><option value="all">All statuses</option><option value="pending">Pending review</option>${['accepted','waitlisted','declined','withdrawn'].map(status=>`<option value="${status}">${esc(registrationStatusLabel(status))}</option>`).join('')}</select></div>
     <div class="registration-entry-list" data-registration-entry-list>${(state?.entries||[]).map(entry=>EventRegistration.filter==='all'?entry:null).filter(Boolean).map(entry=>`<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint=""><b>${esc(entry.displayName||'Unnamed entry')}</b></div>`).join('')||'<div data-registration-empty class="stat-empty">No registration entries yet.</div>'}</div>
     <div class="tiny" data-reg-error role="alert" aria-live="assertive" style="min-height:18px;margin-top:8px;color:var(--coral)">${esc(state?.error||'')}</div>${sheetCloseBtn('Done')}</div>`;
@@ -10226,6 +10454,178 @@ window.openRegistrationDashboard=evId=>{
 };
 window.refreshRegistrationDashboard=()=>{const eventId=EventRegistration.modalEventId;if(eventId)void EventRegistration.refresh(eventId).finally(()=>EventRegistration.schedulePoll());};
 window.setRegistrationFilter=value=>{EventRegistration.filter=['all','pending','accepted','waitlisted','declined','withdrawn'].includes(value)?value:'all';EventRegistration.patchDashboard();};
+function registrationImportActionLabel(action){
+  return ({create:'Create new event entry',update:'Update imported event entry',none:'No change',skip:'Skip',blocked:'Blocked'})[action]||'Skip';
+}
+function registrationImportReviewHtml(state){
+  const preview=state.preview,counts=preview?.counts||{accepted:0,ready:0,updated:0,current:0,blocked:0},items=preview?.items||[];
+  if(state.loading)return `<div data-registration-import-review><h3>Registration import</h3><div class="stat-empty">Loading an organizer-only preview…</div>${sheetCloseBtn('Cancel')}</div>`;
+  if(state.error)return `<div data-registration-import-review><h3>Registration import</h3><div class="schedule-warning" role="alert">${esc(state.error)}</div><button class="btn primary block" onclick="refreshRegistrationImportReview()">Try again</button>${sheetCloseBtn('Cancel')}</div>`;
+  const rows=items.map(item=>{
+    const registration=item.registration,selectable=['create','update'].includes(item.action),checked=selectable&&state.selected.has(registration.id),statusClass=item.action==='blocked'?'blocked':item.action==='update'?'updated':selectable?'ready':'';
+    const matched=(registration.members||[]).filter(member=>['matched','organizer_created'].includes(member.matchStatus)).length,pending=(registration.members||[]).filter(member=>member.matchStatus==='pending').length,rejected=(registration.members||[]).filter(member=>member.matchStatus==='rejected').length;
+    return `<div class="registration-import-row ${statusClass}" data-import-registration="${esc(registration.id)}">
+      <label><input type="checkbox" ${checked?'checked':''} ${selectable?'':'disabled'} onchange="toggleRegistrationImport('${esc(registration.id)}',this.checked)"><span style="min-width:0"><b>${esc(registration.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block;margin-top:3px">${esc(registrationStatusLabel(registration.status))} · ${registration.activePlayerCount} active · ${registration.substituteCount} substitutes · ${matched} matched · ${pending} pending · ${rejected} rejected</span></span></label>
+      <div class="row spread" style="gap:8px;margin-top:8px"><span class="pill ${item.action==='blocked'?'bad':item.action==='update'?'warn':item.action==='none'?'good':''}">${esc(registrationImportActionLabel(item.action))}</span><span class="row" style="gap:6px">${item.localEntry?`<button class="btn sm ghost" onclick="viewImportedEventEntry('${esc(state.eventId)}','${esc(item.localEntry.id)}')">View event entry</button>`:''}${item.ack&&!item.localEntry?`<button class="btn sm danger" onclick="resetRegistrationImportMapping('${esc(registration.id)}')">Allow deliberate reimport</button>`:''}</span></div>
+      ${item.diff.length||item.localDiff.length?`<div class="registration-import-messages">${item.diff.map(row=>`<div class="registration-import-message warn">Registration: ${esc(row.label)}</div>`).join('')}${item.localDiff.map(row=>`<div class="registration-import-message warn">Local entry: ${esc(row.label)}</div>`).join('')}</div>`:''}
+      ${item.blockers.length||item.warnings.length?`<div class="registration-import-messages">${item.blockers.map(message=>`<div class="registration-import-message block" role="alert">Blocked: ${esc(message)}</div>`).join('')}${item.warnings.map(message=>`<div class="registration-import-message warn">Warning: ${esc(message)}</div>`).join('')}</div>`:''}
+    </div>`;
+  }).join('');
+  const selected=state.selected.size;
+  return `<div data-registration-import-review><h3>Registration import · ${esc(evById(state.eventId)?.name||'Event')}</h3><p class="small muted" style="margin:-8px 0 12px">Preview only until you confirm. Each selected registration is applied atomically to its existing local event entry or to one new stable entry.</p>
+    <div class="registration-capacity-grid"><div><b class="num">${counts.accepted}</b><span>accepted</span></div><div><b class="num">${counts.ready}</b><span>ready to create</span></div><div><b class="num">${counts.updated}</b><span>updates available</span></div><div><b class="num">${counts.blocked}</b><span>blocked</span></div></div>
+    ${preview.compatibility.supported?'':`<div class="schedule-warning" role="alert">${preview.compatibility.reasons.map(esc).join(' ')}</div>`}
+    <div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="selectAllRegistrationImports(true)">Select ready</button><button class="btn sm ghost" onclick="selectAllRegistrationImports(false)">Clear</button><button class="btn sm ghost" onclick="refreshRegistrationImportReview()">Refresh</button></div>
+    <div class="registration-import-list">${rows||'<div class="stat-empty">No registrations are available for review.</div>'}</div>
+    <div class="tiny faint" style="margin-top:9px" aria-live="polite">${selected} selected. Import never creates games, changes ratings, or regenerates a schedule.</div>
+    <button class="btn primary block" style="margin-top:10px" ${selected&&!state.applying?'':'disabled'} onclick="applySelectedRegistrationImports()">${state.applying?'Importing…':`Import ${selected||''} selected`}</button>${sheetCloseBtn('Done')}</div>`;
+}
+function renderRegistrationImportReview(){
+  const state=window._registrationImportReview;if(!state)return;openSheet(registrationImportReviewHtml(state),{focus:'[data-registration-import-review] input:not([disabled]), [data-registration-import-review] button'});
+}
+window.openRegistrationImportReview=async evId=>{
+  const ev=evById(evId);if(!ev)return;EventRegistration.setModalOpen(false);window._registrationImportReview={eventId:evId,loading:true,error:'',preview:null,selected:new Set(),applying:false};
+  renderRegistrationImportReview();await refreshRegistrationImportReview();
+};
+window.refreshRegistrationImportReview=async()=>{
+  const state=window._registrationImportReview,ev=state&&evById(state.eventId);if(!state||!ev)return;
+  state.loading=!state.preview;state.error='';if(state.loading)renderRegistrationImportReview();
+  try{
+    const preview=await EventRegistration.importPreview(ev),nextSelected=new Set();
+    preview.items.forEach(item=>{if(['create','update'].includes(item.action)&&(state.selected.has(item.registration.id)||!state.preview))nextSelected.add(item.registration.id);});
+    state.preview=preview;state.selected=nextSelected;
+  }catch(error){state.error=error.message;}finally{state.loading=false;renderRegistrationImportReview();}
+};
+window.toggleRegistrationImport=(registrationId,value)=>{const state=window._registrationImportReview;if(!state)return;value?state.selected.add(registrationId):state.selected.delete(registrationId);renderRegistrationImportReview();};
+window.selectAllRegistrationImports=value=>{const state=window._registrationImportReview;if(!state?.preview)return;state.selected=new Set(value?state.preview.items.filter(item=>['create','update'].includes(item.action)).map(item=>item.registration.id):[]);renderRegistrationImportReview();};
+window.viewImportedEventEntry=(evId,entryId)=>{
+  const ev=evById(evId);if(!ev)return;window._registrationImportReview=null;closeSheet(true);window._evOpen=evId;tab='events';render({scroll:'top'});
+  if(eventFormat(ev)==='rotatingGroups')openEntrySchedule(evId,entryId);else openTeamSchedule(evId,entryId);
+};
+window.resetRegistrationImportMapping=async registrationId=>{
+  const state=window._registrationImportReview,ev=state&&evById(state.eventId);if(!state||!ev)return;
+  if(!(await askConfirm('Clear the cross-device import acknowledgment for this registration? Use this only after syncing and confirming the original event entry was deliberately removed.','Allow reimport')))return;
+  try{await EventRegistration.resetImport(ev,registrationId);toast('Import acknowledgment cleared');await refreshRegistrationImportReview();}catch(error){toast(error.message);}
+};
+async function applyRegistrationImportItem(ev,item){
+  if(!['create','update'].includes(item.action)||item.blockers.length)return {registrationId:item.registration.id,status:'blocked',message:item.blockers[0]||'Import is blocked.'};
+  const now=Date.now(),registration=item.registration,snapshot=item.snapshot,source={
+    schemaVersion:REGISTRATION_IMPORT_SOURCE_VERSION,registrationId:registration.id,sourceRevision:Number(registration.revision)||1,
+    importedAt:item.localEntry?.registrationSource?.importedAt||now,lastSyncedAt:now,sourceSnapshot:snapshot
+  };
+  let entry=item.localEntry,created=false;
+  if(eventFormat(ev)==='rotatingGroups')materializeRotation(ev);
+  const collection=eventFormat(ev)==='rotatingGroups'?ev.entries:ev.teams;
+  if(!entry){
+    entry={id:uid(),name:snapshot.name||'Imported entry',players:snapshot.activePlayerIds.slice(),substitutePlayerIds:snapshot.substitutePlayerIds.slice(),registrationSource:source,created:now};
+    if(eventFormat(ev)==='rotatingGroups')entry.manualSeed=collection.length+1;else entry.pool='';
+    collection.push(entry);created=true;
+  }else{
+    entry.name=snapshot.name||entry.name;entry.players=snapshot.activePlayerIds.slice();entry.substitutePlayerIds=snapshot.substitutePlayerIds.slice();entry.registrationSource=source;
+  }
+  if(item.schedule.hasSchedule)markScheduleNeedsReview(ev);
+  try{await saveEvents();}
+  catch(error){if(created)collection.splice(collection.indexOf(entry),1);throw error;}
+  let acknowledgment=null;
+  try{acknowledgment=await EventRegistration.markImported(ev,registration.id,entry.id,Number(registration.revision)||1);}
+  catch(error){return {registrationId:registration.id,status:'saved_unacknowledged',entryId:entry.id,message:`Event entry saved locally, but server acknowledgment needs retry: ${error.message}`};}
+  return {registrationId:registration.id,status:created?'created':'updated',entryId:entry.id,acknowledgment};
+}
+window.applySelectedRegistrationImports=async()=>{
+  const state=window._registrationImportReview,ev=state&&evById(state.eventId);if(!state?.preview||!ev||state.applying||!state.selected.size)return;
+  if(!(await askConfirm(`Import ${state.selected.size} selected registration${state.selected.size===1?'':'s'} into ${ev.name}? Existing schedules will be preserved and marked for review. Ratings and games will not change.`,'Import selected')))return;
+  state.applying=true;renderRegistrationImportReview();
+  try{
+    const latest=await EventRegistration.importPreview(ev),latestById=new Map(latest.items.map(item=>[item.registration.id,item])),results=[];
+    for(const registrationId of state.selected){
+      const item=latestById.get(registrationId);
+      if(!item||!['create','update'].includes(item.action)){results.push({registrationId,status:'blocked',message:'Registration changed during review.'});continue;}
+      try{results.push(await applyRegistrationImportItem(ev,item));}catch(error){results.push({registrationId,status:'failed',message:error.message});}
+    }
+    const completed=results.filter(row=>['created','updated','saved_unacknowledged'].includes(row.status)).length,failed=results.filter(row=>['blocked','failed'].includes(row.status)).length;
+    window._lastRegistrationImportResults=results;await EventRegistration.refresh(ev.id,{patch:false});toast(`${completed} registration${completed===1?'':'s'} applied${failed?` · ${failed} blocked or failed`:''}`);
+    state.selected.clear();state.preview=await EventRegistration.importPreview(ev);
+  }catch(error){state.error=error.message;}finally{state.applying=false;renderRegistrationImportReview();render();}
+};
+function eventDayStatusLabel(status){
+  return ({not_checked_in:'Not checked in',partially_arrived:'Partially arrived',checked_in:'Checked in',needs_review:'Needs review',no_show:'Withdrawn / no-show',
+    not_present:'Not present',present:'Present',substitute_present:'Substitute present',unknown_replacement:'Replacement',excused:'Excused / unavailable'})[status]||'Not present';
+}
+function eventDayCheckInEntry(ev,entry){
+  ev.registrationCheckIn=normalizeEventDayRegistrationState(ev.registrationCheckIn);
+  const registrationId=entry.registrationSource.registrationId,stored=ev.registrationCheckIn.entries[registrationId],source=entry.registrationSource.sourceSnapshot,current=stored||{
+    teamStatus:'not_checked_in',activePlayerIds:source.activePlayerIds.slice(),substitutePlayerIds:source.substitutePlayerIds.slice(),playerStatuses:{},replacements:[],updatedAt:null
+  };
+  current.activePlayerIds=uniqueStableIds(current.activePlayerIds);current.substitutePlayerIds=uniqueStableIds(current.substitutePlayerIds).filter(id=>!current.activePlayerIds.includes(id));
+  [...current.activePlayerIds,...current.substitutePlayerIds].forEach(id=>{if(!EVENT_DAY_PLAYER_STATUSES.includes(current.playerStatuses[id]))current.playerStatuses[id]='not_present';});
+  ev.registrationCheckIn.entries[registrationId]=current;return current;
+}
+function eventDayCheckInSummary(ev){
+  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource),states=imported.map(entry=>eventDayCheckInEntry(ev,entry)),arrived=states.filter(row=>['checked_in','partially_arrived'].includes(row.teamStatus)).length,present=states.reduce((sum,row)=>sum+Object.values(row.playerStatuses).filter(status=>['present','substitute_present','unknown_replacement'].includes(status)).length,0),attention=states.filter(row=>['needs_review','partially_arrived','no_show'].includes(row.teamStatus)).length;
+  return {teams:imported.length,arrived,present,attention};
+}
+function eventDayPlayerOptions(selected,isSubstitute=false){
+  const options=isSubstitute?['not_present','substitute_present','excused']:['not_present','present','excused'];
+  if(EVENT_DAY_PLAYER_STATUSES.includes(selected)&&!options.includes(selected))options.push(selected);
+  return options.map(status=>`<option value="${status}" ${selected===status?'selected':''}>${esc(eventDayStatusLabel(status))}</option>`).join('');
+}
+function eventDayCheckInHtml(ev){
+  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource),summary=eventDayCheckInSummary(ev);
+  const teams=imported.map(entry=>{
+    const registrationId=entry.registrationSource.registrationId,row=eventDayCheckInEntry(ev,entry),playersHtml=(ids,isSubstitute)=>ids.map(id=>{
+      const status=row.playerStatuses[id]||'not_present',replacement=row.replacements.some(item=>item.playerId===id);
+      return `<div class="event-check-in-player"><span><b>${esc(pById(id)?.name||'Historical player')}</b><span class="tiny faint" style="display:block">${replacement?'Last-minute replacement':isSubstitute?'Registered substitute':'Registered active player'}</span></span><select aria-label="Arrival status for ${esc(pById(id)?.name||'player')}" onchange="setEventDayPlayerStatus('${esc(ev.id)}','${esc(registrationId)}','${esc(id)}',this.value)">${eventDayPlayerOptions(status,isSubstitute&&!replacement)}</select></div>`;
+    }).join('');
+    return `<div class="event-check-in-team"><div class="row spread" style="gap:8px"><span><b>${esc(entry.name)}</b><span class="tiny faint" style="display:block">Original registration remains unchanged</span></span><select aria-label="Arrival status for ${esc(entry.name)}" onchange="setEventDayTeamStatus('${esc(ev.id)}','${esc(registrationId)}',this.value)">${EVENT_DAY_TEAM_STATUSES.map(status=>`<option value="${status}" ${row.teamStatus===status?'selected':''}>${esc(eventDayStatusLabel(status))}</option>`).join('')}</select></div>
+      <div class="tiny" style="margin-top:9px;color:var(--gold)">Active roster</div>${playersHtml(row.activePlayerIds,false)||'<div class="tiny faint">No active players.</div>'}
+      <div class="tiny" style="margin-top:9px;color:var(--gold)">Substitutes</div>${playersHtml(row.substitutePlayerIds,true)||'<div class="tiny faint">No substitutes.</div>'}
+      <div class="row" style="gap:7px;margin-top:9px">${row.substitutePlayerIds.map(id=>`<button class="btn sm ghost" onclick="promoteEventDaySubstitute('${esc(ev.id)}','${esc(registrationId)}','${esc(id)}')">Promote ${esc(pById(id)?.name||'substitute')}</button>`).join('')}<button class="btn sm ghost" onclick="openEventDayReplacementPicker('${esc(ev.id)}','${esc(registrationId)}')">Add replacement</button></div>
+    </div>`;
+  }).join('');
+  return `<div data-event-day-check-in><h3>Event-day check-in · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Arrival is separate from registration and from the event’s scheduled roster. Changes here never rewrite the D1 registration, ratings, saved games, or original import snapshot.</p>
+    <div class="registration-capacity-grid"><div><b class="num">${summary.teams}</b><span>imported teams</span></div><div><b class="num">${summary.arrived}</b><span>teams arrived</span></div><div><b class="num">${summary.present}</b><span>players present</span></div><div><b class="num">${summary.attention}</b><span>need attention</span></div></div>
+    ${teams||'<div class="stat-empty">Import accepted registrations before opening event-day check-in.</div>'}${sheetCloseBtn('Done')}</div>`;
+}
+window.openEventDayCheckIn=evId=>{const ev=evById(evId);if(!ev)return;EventRegistration.setModalOpen(false);normalizeEventRegistrationIntegration(ev);openSheet(eventDayCheckInHtml(ev),{focus:'[data-event-day-check-in] select, [data-event-day-check-in] button'});};
+async function saveEventDayCheckIn(ev){
+  ev.registrationCheckIn=normalizeEventDayRegistrationState({...ev.registrationCheckIn,updatedAt:Date.now()});await saveEvents();
+}
+window.setEventDayTeamStatus=async(evId,registrationId,status)=>{
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_TEAM_STATUSES.includes(status))return;
+  const row=eventDayCheckInEntry(ev,entry);row.teamStatus=status;row.updatedAt=Date.now();
+  if(status==='checked_in')row.activePlayerIds.forEach(id=>row.playerStatuses[id]='present');
+  if(status==='no_show')Object.keys(row.playerStatuses).forEach(id=>row.playerStatuses[id]='not_present');
+  await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
+};
+window.setEventDayPlayerStatus=async(evId,registrationId,playerId,status)=>{
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_PLAYER_STATUSES.includes(status))return;
+  const row=eventDayCheckInEntry(ev,entry);row.playerStatuses[playerId]=status;const activePresent=row.activePlayerIds.filter(id=>row.playerStatuses[id]==='present').length;
+  row.teamStatus=activePresent===row.activePlayerIds.length&&activePresent?'checked_in':activePresent?'partially_arrived':row.teamStatus==='no_show'?'no_show':'not_checked_in';row.updatedAt=Date.now();
+  await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
+};
+window.promoteEventDaySubstitute=async(evId,registrationId,playerId)=>{
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry)return;
+  const row=eventDayCheckInEntry(ev,entry);if(!row.substitutePlayerIds.includes(playerId))return;
+  row.substitutePlayerIds=row.substitutePlayerIds.filter(id=>id!==playerId);row.activePlayerIds.push(playerId);row.playerStatuses[playerId]='substitute_present';row.teamStatus='needs_review';row.updatedAt=Date.now();
+  await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);toast('Substitute promoted for event day only');
+};
+window.openEventDayReplacementPicker=(evId,registrationId)=>{
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry)return;
+  const row=eventDayCheckInEntry(ev,entry),used=new Set([...row.activePlayerIds,...row.substitutePlayerIds]),available=players.filter(player=>!isArchived(player)&&!used.has(player.id)).sort((a,b)=>a.name.localeCompare(b.name));
+  window._eventDayReplacement={evId,registrationId};
+  openSheet(`<h3>Add event-day replacement</h3><p class="small muted">This adds a separate arrival-only roster record. It does not edit the accepted registration or imported event entry.</p><div class="check-in-match-list">${available.slice(0,100).map(player=>`<button type="button" onclick="addEventDayReplacement('${esc(player.id)}')">${esc(player.name)}${player.pickupEligible===false?' · event-only':''}</button>`).join('')||'<div class="stat-empty">No other local players are available.</div>'}</div><button class="btn ghost block" onclick="createEventDayReplacement()">Create event-only replacement</button><button class="btn ghost block" style="margin-top:8px" onclick="openEventDayCheckIn('${esc(evId)}')">Back</button>`,{focus:'.check-in-match-list button, .sheet button'});
+};
+async function recordEventDayReplacement(playerId){
+  const pending=window._eventDayReplacement,ev=pending&&evById(pending.evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===pending.registrationId),player=pById(playerId);if(!ev||!entry||!player)return false;
+  const row=eventDayCheckInEntry(ev,entry);if(row.activePlayerIds.includes(playerId)||row.substitutePlayerIds.includes(playerId))return;
+  row.activePlayerIds.push(playerId);row.replacements.push({playerId,addedAt:Date.now()});row.playerStatuses[playerId]='unknown_replacement';row.teamStatus='needs_review';row.updatedAt=Date.now();
+  await saveEventDayCheckIn(ev);window._eventDayReplacement=null;return true;
+}
+window.addEventDayReplacement=async playerId=>{
+  const pending=window._eventDayReplacement;if(!pending)return;
+  if(await recordEventDayReplacement(playerId)){openEventDayCheckIn(pending.evId);toast('Replacement added for event day only');}
+};
+window.createEventDayReplacement=()=>{if(!window._eventDayReplacement)return;openPlayer(null,null,{pickupEligible:false});};
 window.copyRegistrationLink=async evId=>{const ev=evById(evId),url=ev&&registrationPublicUrl(ev);if(!url){toast('Public registration link is unavailable');return;}let copied=false;try{await navigator.clipboard.writeText(url);copied=true;}catch(_){copied=copyTextFallback(url);}toast(copied?'Registration link copied':'Could not copy the link');};
 window.shareRegistrationLink=async evId=>{const ev=evById(evId),url=ev&&registrationPublicUrl(ev);if(!url){toast('Public registration link is unavailable');return;}if(navigator.share){try{await navigator.share({title:`${ev.name} registration`,url});return;}catch(error){if(error?.name==='AbortError')return;}}await copyRegistrationLink(evId);};
 window.rotateRegistrationLink=async evId=>{const ev=evById(evId);if(!ev||!(await askConfirm('Rotate the public registration link? The old link will stop working immediately. Existing registrations remain.','Rotate link')))return;try{await EventRegistration.rotateToken(ev);toast('Registration link rotated');EventRegistration.patchDashboard();}catch(error){toast(error.message);}};

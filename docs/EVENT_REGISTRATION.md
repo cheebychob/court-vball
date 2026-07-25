@@ -4,7 +4,7 @@
 
 Court registration is a D1-backed product for pre-event intent. It is not an extension of the KV-backed six-hour player check-in session.
 
-The local event stores backward-compatible organizer settings plus the current public-token reference. D1 remains authoritative for public configuration, entries, status counts, capacity, and organizer actions. Public submissions never mutate local teams, rotating entries, schedules, games, players, ratings, backups, sync payloads, or deletion maps. Accepted registrations are not imported into an event in this foundation branch.
+The local event stores backward-compatible organizer settings plus the current public-token reference. D1 remains authoritative for public configuration, registrations, status counts, capacity, roster revisions, and organizer actions. Public submissions never mutate local teams, rotating entries, schedules, games, players, ratings, backups, sync payloads, or deletion maps. An authenticated organizer may now preview and explicitly import an accepted registration. The browser applies that reviewed change through Court's normal local save and device-sync path; the Worker never mutates local event state.
 
 Legacy events without `registration` remain valid and behave as disabled/closed when read. Loading a legacy event does not call the Worker and does not create a D1 row. Newly created events store disabled recommended defaults. Duplicating an event clears the source registration token and starts disabled so two event IDs cannot accidentally share one public capability.
 
@@ -13,6 +13,27 @@ Disabling registration sets the server configuration to disabled/closed and pres
 No automatic purge runs in this branch. Registration rows are retained for organizer review until a future explicit retention/purge policy is implemented. The rate-limit table stores only SHA-256 scopes derived from the relevant public/management capability and request address. Submission, lookup, management-read, management-write, withdrawal, and address-wide token-guess buckets are named separately. Buckets older than 24 hours are deleted during later protected actions. Raw IP addresses and device fingerprints are not stored.
 
 Backups and device sync include the event’s safe registration settings/reference, including the public token needed to share the link from another organizer device. They do not contain D1 entries. Restoring onto the same owner scope reconnects to the existing D1 row by event ID. Restoring onto another sync room cannot read or mutate the original owner’s row; the organizer must create a distinct event ID or resolve the ownership conflict with the original dataset. Restore never duplicates D1 registrations and never reopens a closed/deleted event automatically.
+
+Imported local entries carry a stable `registrationSource` mapping with the D1 registration ID, source revision, first import time, last synchronization time, and the exact imported name/active/substitute snapshot. D1 also stores a small owner-scoped acknowledgment containing the local entry ID and imported revision. The local mapping is authoritative for event gameplay; the acknowledgment prevents a second organizer device from creating a duplicate before the synced event arrives. If an acknowledged entry is genuinely removed, the organizer must sync, review the warning, and explicitly clear the acknowledgment before reimporting.
+
+## Registration-to-event integration
+
+Supported mappings:
+
+- Fixed-team events with team registration import to `event.teams`.
+- A fixed event constrained to exactly two active players is labeled and imported as a fixed pair.
+- Rotating events with `entrySize === 1` and individual registration import to `event.entries`.
+- Rotating events with `entrySize === teamSize` and team registration import to one complete rotating entry.
+
+Rotating pairs or groups that combine into a larger temporary side remain unsupported. Preview explains the incompatibility and preserves every registration.
+
+Preview is read-only. It reports create, update, no-change, blocked, and non-accepted states; matched/pending/rejected counts; D1 and local mapping state; source revision; name/active/substitute diffs; manual local edits; schedule/game warnings; and stable-player conflicts. It blocks unresolved members, roster-size violations, duplicate stable IDs, another event's registrations, non-accepted status, unsupported formats, missing local players, cross-registration conflicts without an explicit D1 override, conflicts with an existing local entry, ambiguous mappings, and unsafe reconciliation of a manually edited entry.
+
+Imports are per-registration atomic. A create/update preserves the local entry ID, keeps substitutes in `substitutePlayerIds`, writes `registrationSource`, saves through the normal event path, and then records the D1 acknowledgment. A repeated import with the same revision and snapshot performs no write. An acknowledgment failure does not roll back a successfully saved local entry; the next reviewed action can retry the acknowledgment without creating a duplicate.
+
+Schedules are never generated or regenerated by import. Existing draft/published schedules are retained and marked for review through the existing event helper. Saved games keep their captured player IDs, event-entry IDs, scores, logs, results, standings inputs, and rating effects. A reviewed update changes only the future roster/name on the same event-entry ID. Withdrawn or declined registrations never delete an imported entry automatically.
+
+Event-day arrival is stored separately in `event.registrationCheckIn`. It begins from imported active players and substitutes, tracks team/player arrival text states, supports an explicit event-day substitute promotion and replacement, and never rewrites the D1 registration, original import snapshot, event entry roster, games, or ratings. It is included automatically in backup and device sync. Public event self check-in is deliberately deferred; the existing public pickup check-in remains separate.
 
 ## Event registration schema
 
@@ -72,6 +93,9 @@ POST /api/event-registration/organizer/:eventId/token/rotate
 POST /api/event-registration/organizer/:eventId/entries/:entryId/status
 POST /api/event-registration/organizer/:eventId/entries/:entryId/management
 POST /api/event-registration/organizer/:eventId/entries/:entryId/members/:memberId
+GET  /api/event-registration/organizer/:eventId/import-preview
+POST /api/event-registration/organizer/:eventId/import-mark
+POST /api/event-registration/organizer/:eventId/import-reset
 ```
 
 Organizer responses use `Cache-Control: no-store`. Changing the event ID cannot cross owner scope. Public tokens are not accepted as organizer credentials.
@@ -123,6 +147,8 @@ Migration `cloudflare/migrations/0002_team_registration_portal.sql` additively e
 
 Existing foundation rows are preserved. They retain revision `1`, receive no management capability automatically, and remain compatible with the organizer status/capacity workflow. The additive tables and columns should not be rolled back by dropping them.
 
+Migration `cloudflare/migrations/0003_registration_event_imports.sql` adds `event_registration_imports`, indexed by owner/event/update time and uniquely by owner/event/local entry ID. It stores no management token, ratings, games, notes, or full event state. Foreign keys are restrictive so registration history is not silently deleted.
+
 ## Local development
 
 From the repository root:
@@ -148,6 +174,7 @@ Repository tests do not contact Cloudflare:
 ```sh
 npm run test:worker
 npx playwright test tests/event-registration.spec.js --project=chromium
+npx playwright test tests/registration-event-integration.spec.js --project=chromium
 npm run verify
 ```
 
