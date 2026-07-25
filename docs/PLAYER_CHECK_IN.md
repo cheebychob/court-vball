@@ -31,9 +31,12 @@ check-in:short:{shortCode}
 check-in:active:{sha256(roomCode)}
 check-in:record:{privateSessionId}:known:{publicPlayerId}
 check-in:record:{privateSessionId}:unknown:{checkInId}
+check-in:id:{privateSessionId}:{checkInId}
 check-in:device:{privateSessionId}:{sha256(sessionId + rawDeviceToken)}
 check-in:rate:{privateSessionId}:{kind}:{window}:{hashedScope}
 ```
+
+The deterministic session record stores a bounded directory of its record keys, and each organizer-facing check-in ID has a direct pointer. New sessions never enumerate the namespace. A pre-directory session is enumerated once during organizer review, then immediately gains the directory and ID pointers so later polls use only `get()`.
 
 All keys receive a TTL that covers the session expiry plus 24 hours of organizer review retention. Closing removes active-room and short-code lookups immediately. KV TTL then deletes the session snapshot, check-ins, pending names, device mappings, and lookup metadata. Rate buckets use their own short TTL.
 
@@ -143,7 +146,8 @@ The Teams attendance picker keeps one canonical `window._pool` selected-ID set.
 - An existing active room session is resumed instead of silently replaced.
 - The compact row shows open/closed state, counts, exact local expiry, and Live/Reconnecting/Offline state.
 - Share controls provide the public link, native share, copy fallback, local QR SVG, short code, and a printable QR window.
-- Organizer updates use three-second polling with bounded exponential reconnect backoff because the current Worker has no Durable Object WebSocket host.
+- Organizer updates use 15-second polling with bounded exponential reconnect backoff because the current Worker has no Durable Object WebSocket host. Polling pauses whenever the organizer sheet is closed or the document is hidden, and only one timer/request may be active.
+- Normal public and organizer check-in routes resolve deterministic session, record-directory, and check-in keys with KV `get()`. KV `list()` is prohibited in frequently polled routes because Cloudflare counts every namespace enumeration against the much smaller free-tier LIST allowance. It is reserved for the one-time compatibility migration of a session created before record directories were introduced.
 - Active known and organizer-matched entries merge additively into `_pool`; manual additions are never replaced.
 - Removing a checked-in player from attendance adds their ID to a local session suppression set. Polling does not re-add them. The review row separately offers “Attendance only” or “Remove check-in.”
 - Clear records the suppression set in the existing Undo payload, so Clear remains stable and Undo restores both attendance and suppression state.
@@ -223,4 +227,3 @@ Player:
 3. Add the public page to the Home Screen if desired.
 4. Cancel and submit a pending unknown name.
 5. Confirm no private roster fields are visible.
-

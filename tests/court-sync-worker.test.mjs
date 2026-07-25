@@ -766,6 +766,93 @@ test('public session responses are strict allowlists and never expose private ro
   assert.notEqual(data.roster[0].publicPlayerId, 'player-1');
 });
 
+test('known-session polling and normal check-in mutations use direct KV access without namespace enumeration', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const sessionId = created.body.session.sessionId;
+  const token = created.body.session.publicUrl.split('/').pop();
+  const storage = bindings.CHECK_IN_SESSIONS;
+  storage.lists.length = 0;
+
+  const firstPublic = await worker.fetch(request(`/api/check-in/public/${token}`), bindings);
+  const publicState = await firstPublic.json();
+  await worker.fetch(request(`/api/check-in/public/${token}`), bindings);
+  assert.equal(storage.lists.length, 0);
+  assert.ok(storage.gets.filter(key => key === `check-in:session:${sessionId}`).length >= 2);
+
+  const known = await publicCheckIn(bindings, token, 'K'.repeat(43), { publicPlayerId: publicState.roster[0].publicPlayerId });
+  assert.equal(known.response.status, 201);
+  const pending = await publicCheckIn(bindings, token, 'L'.repeat(43), { freeTextName: 'Pending Player' });
+  assert.equal(pending.response.status, 201);
+  assert.equal(storage.lists.length, 0);
+
+  const reviewPath = `/api/check-in/sessions/${sessionId}/review`;
+  const firstReview = await worker.fetch(request(reviewPath, { headers: organizerHeaders }), bindings);
+  const checkIns = (await firstReview.json()).checkIns;
+  await worker.fetch(request(reviewPath, { headers: organizerHeaders }), bindings);
+  assert.equal(storage.lists.length, 0);
+
+  const pendingRecord = checkIns.find(item => item.kind === 'unknown');
+  const knownRecord = checkIns.find(item => item.kind === 'known');
+  const approved = await worker.fetch(request(`/api/check-in/sessions/${sessionId}/check-ins/${pendingRecord.id}`, {
+    method: 'POST', headers: organizerHeaders, body: JSON.stringify({ action: 'match', playerId: 'player-2' })
+  }), bindings);
+  assert.equal(approved.status, 200);
+  const removed = await worker.fetch(request(`/api/check-in/sessions/${sessionId}/check-ins/${knownRecord.id}`, {
+    method: 'POST', headers: organizerHeaders, body: JSON.stringify({ action: 'remove' })
+  }), bindings);
+  assert.equal(removed.status, 200);
+  assert.equal(storage.lists.length, 0);
+
+  const unknown = await worker.fetch(request(`/api/check-in/sessions/${'Z'.repeat(43)}/review`, { headers: organizerHeaders }), bindings);
+  assert.equal(unknown.status, 404);
+  const invalid = await worker.fetch(request('/api/check-in/sessions/not-valid/review', { headers: organizerHeaders }), bindings);
+  assert.equal(invalid.status, 400);
+  assert.equal(storage.lists.length, 0);
+});
+
+test('legacy check-in records migrate once to the deterministic directory without losing signups or links', async () => {
+  const bindings = env();
+  const created = await createCheckInSession(bindings);
+  const sessionId = created.body.session.sessionId;
+  const token = created.body.session.publicUrl.split('/').pop();
+  const publicState = await (await worker.fetch(request(`/api/check-in/public/${token}`), bindings)).json();
+  await publicCheckIn(bindings, token, 'M'.repeat(43), { publicPlayerId: publicState.roster[0].publicPlayerId });
+  await publicCheckIn(bindings, token, 'N'.repeat(43), { freeTextName: 'Legacy Guest' });
+
+  const storage = bindings.CHECK_IN_SESSIONS;
+  const sessionKey = `check-in:session:${sessionId}`;
+  const legacySession = JSON.parse(storage.values.get(sessionKey));
+  delete legacySession.recordKeys;
+  delete legacySession.recordDirectoryVersion;
+  storage.values.set(sessionKey, JSON.stringify(legacySession));
+  for (const key of [...storage.values.keys()]) {
+    if (key.startsWith(`check-in:id:${sessionId}:`)) storage.values.delete(key);
+  }
+  storage.lists.length = 0;
+
+  const reviewPath = `/api/check-in/sessions/${sessionId}/review`;
+  const migrated = await worker.fetch(request(reviewPath, { headers: organizerHeaders }), bindings);
+  const migratedBody = await migrated.json();
+  assert.equal(migratedBody.checkIns.length, 2);
+  assert.ok(migratedBody.checkIns.some(item => item.freeTextName === 'Legacy Guest'));
+  assert.equal(migratedBody.session.publicUrl, created.body.session.publicUrl);
+  assert.equal(storage.lists.length, 1);
+
+  const storedSession = JSON.parse(storage.values.get(sessionKey));
+  assert.equal(storedSession.recordDirectoryVersion, 1);
+  assert.equal(storedSession.recordKeys.length, 2);
+  const repeated = await worker.fetch(request(reviewPath, { headers: organizerHeaders }), bindings);
+  assert.equal((await repeated.json()).checkIns.length, 2);
+  assert.equal(storage.lists.length, 1);
+});
+
+test('the only check-in KV list call is documented as a one-time legacy migration', () => {
+  const occurrences = [...source.matchAll(/\.list\(/g)];
+  assert.equal(occurrences.length, 1);
+  assert.match(source, /Enumeration is required only to migrate a pre-directory session once/);
+});
+
 test('known-player check-in is validated, idempotent, isolated by device, and self-cancelable', async () => {
   const bindings = env();
   const created = await createCheckInSession(bindings);

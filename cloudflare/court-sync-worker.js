@@ -628,6 +628,7 @@ function checkInActiveKey(roomHash) { return `check-in:active:${roomHash}`; }
 function checkInRecordPrefix(sessionId) { return `check-in:record:${sessionId}:`; }
 function checkInKnownKey(sessionId, publicPlayerId) { return `${checkInRecordPrefix(sessionId)}known:${publicPlayerId}`; }
 function checkInUnknownKey(sessionId, checkInId) { return `${checkInRecordPrefix(sessionId)}unknown:${checkInId}`; }
+function checkInIdKey(sessionId, checkInId) { return `check-in:id:${sessionId}:${checkInId}`; }
 function checkInDeviceKey(sessionId, deviceHash) { return `check-in:device:${sessionId}:${deviceHash}`; }
 
 async function readCheckInRecord(storage, key) {
@@ -645,10 +646,12 @@ async function putCheckInRecord(storage, key, value, expiresAt) {
   await storage.put(key, JSON.stringify(value), { expirationTtl: checkInStorageTtl(expiresAt) });
 }
 
-async function listCheckInRecords(storage, prefix) {
+async function listLegacyCheckInRecords(storage, prefix) {
   const records = [];
   let cursor;
   do {
+    // Enumeration is required only to migrate a pre-directory session once. This
+    // helper is never called by a normal poll or public/admin mutation route.
     const result = await storage.list({ prefix, cursor, limit: 1000 });
     for (const item of result?.keys || []) {
       const value = await readCheckInRecord(storage, item.name);
@@ -657,6 +660,49 @@ async function listCheckInRecords(storage, prefix) {
     cursor = result?.list_complete === false ? result.cursor : null;
   } while (cursor);
   return records;
+}
+
+function validCheckInRecordKeys(session, value) {
+  if (!Array.isArray(value) || value.length > MAX_CHECK_INS_PER_SESSION) return null;
+  const prefix = checkInRecordPrefix(session.sessionId);
+  const keys = [...new Set(value.filter(key => typeof key === "string" && key.startsWith(prefix)))];
+  return keys.length === value.length ? keys : null;
+}
+
+async function migrateLegacyCheckInDirectory(storage, session) {
+  const existing = validCheckInRecordKeys(session, session.recordKeys);
+  if (existing) return { session, recordKeys: existing, migrated: false };
+  const records = await listLegacyCheckInRecords(storage, checkInRecordPrefix(session.sessionId));
+  const recordKeys = records.map(entry => entry.key);
+  const migrated = { ...session, recordKeys, recordDirectoryVersion: 1 };
+  await Promise.all(records.map(entry =>
+    putCheckInRecord(storage, checkInIdKey(session.sessionId, entry.value.id), { recordKey: entry.key }, session.expiresAt)
+  ));
+  await putCheckInRecord(storage, checkInSessionKey(session.sessionId), migrated, session.expiresAt);
+  return { session: migrated, recordKeys, migrated: true };
+}
+
+async function addCheckInRecordToDirectory(storage, session, recordKey) {
+  if (!validCheckInRecordKeys(session, session.recordKeys)) return session;
+  let current = session;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const latest = await readCheckInRecord(storage, checkInSessionKey(session.sessionId));
+    if (latest) current = latest;
+    const keys = validCheckInRecordKeys(current, current.recordKeys);
+    if (!keys) return current;
+    if (keys.includes(recordKey)) return current;
+    if (keys.length >= MAX_CHECK_INS_PER_SESSION) return null;
+    current = { ...current, recordKeys: [...keys, recordKey], updatedAt: Date.now() };
+    await putCheckInRecord(storage, checkInSessionKey(session.sessionId), current, current.expiresAt);
+  }
+  return current;
+}
+
+async function touchCheckInSession(storage, session) {
+  const latest = await readCheckInRecord(storage, checkInSessionKey(session.sessionId)) || session;
+  const touched = { ...latest, updatedAt: Date.now() };
+  await putCheckInRecord(storage, checkInSessionKey(session.sessionId), touched, touched.expiresAt);
+  return touched;
 }
 
 async function authorizeCheckInOrganizer(request, env) {
@@ -814,6 +860,8 @@ async function createCheckInSession(request, env, url) {
     updatedAt: now,
     expiresAt,
     status: "open",
+    recordKeys: [],
+    recordDirectoryVersion: 1,
     rosterSnapshot: roster.map(row => ({
       publicPlayerId: randomTokenBytes(16),
       playerId: row.sourcePlayerId,
@@ -856,10 +904,14 @@ function organizerCheckInView(record) {
 async function reviewCheckInSession(request, env, url, sessionId) {
   const resolved = await organizerSession(request, env, sessionId);
   if (resolved.response) return resolved.response;
-  const records = await listCheckInRecords(env.CHECK_IN_SESSIONS, checkInRecordPrefix(sessionId));
+  const directory = await migrateLegacyCheckInDirectory(env.CHECK_IN_SESSIONS, resolved.session);
+  const records = (await Promise.all(directory.recordKeys.map(async key => {
+    const value = await readCheckInRecord(env.CHECK_IN_SESSIONS, key);
+    return value ? { key, value } : null;
+  }))).filter(Boolean);
   records.sort((a, b) => Number(a.value.createdAt) - Number(b.value.createdAt) || String(a.value.id).localeCompare(String(b.value.id)));
   return checkInJson({
-    ...organizerSessionView(resolved.session, url),
+    ...organizerSessionView(directory.session, url),
     checkIns: records.map(entry => organizerCheckInView(entry.value)),
   }, 200, privateCors(request));
 }
@@ -882,8 +934,10 @@ async function closeCheckInSession(request, env, url, sessionId) {
 }
 
 async function findCheckInById(storage, sessionId, checkInId) {
-  const records = await listCheckInRecords(storage, checkInRecordPrefix(sessionId));
-  return records.find(entry => entry.value.id === checkInId) || null;
+  const pointer = await readCheckInRecord(storage, checkInIdKey(sessionId, checkInId));
+  if (!pointer?.recordKey || !pointer.recordKey.startsWith(checkInRecordPrefix(sessionId))) return null;
+  const value = await readCheckInRecord(storage, pointer.recordKey);
+  return value?.id === checkInId ? { key: pointer.recordKey, value } : null;
 }
 
 async function disposeCheckIn(request, env, sessionId, checkInId) {
@@ -913,6 +967,7 @@ async function disposeCheckIn(request, env, sessionId, checkInId) {
     next = { ...next, status: "canceled", disposition: "removed" };
   }
   await putCheckInRecord(env.CHECK_IN_SESSIONS, found.key, next, resolved.session.expiresAt);
+  await touchCheckInSession(env.CHECK_IN_SESSIONS, resolved.session);
   return checkInJson({ ok: true, checkIn: organizerCheckInView(next) }, 200, privateCors(request));
 }
 
@@ -1006,6 +1061,8 @@ async function submitPublicCheckIn(request, env, url, publicToken) {
     const recordKey = checkInKnownKey(session.sessionId, player.publicPlayerId);
     const existing = await readCheckInRecord(env.CHECK_IN_SESSIONS, recordKey);
     if (existing && existing.status === "checked-in") {
+      await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInIdKey(session.sessionId, existing.id), { recordKey }, session.expiresAt);
+      await addCheckInRecordToDirectory(env.CHECK_IN_SESSIONS, session, recordKey);
       if (sameHash(existing.deviceTokenHash || "", deviceHash)) {
         await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInDeviceKey(session.sessionId, deviceHash), { recordKey }, session.expiresAt);
       }
@@ -1027,14 +1084,17 @@ async function submitPublicCheckIn(request, env, url, publicToken) {
       disposition: null,
     };
     await putCheckInRecord(env.CHECK_IN_SESSIONS, recordKey, record, session.expiresAt);
+    await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInIdKey(session.sessionId, record.id), { recordKey }, session.expiresAt);
     await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInDeviceKey(session.sessionId, deviceHash), { recordKey }, session.expiresAt);
+    await addCheckInRecordToDirectory(env.CHECK_IN_SESSIONS, session, recordKey);
     return checkInJson({ ok: true, checkIn: publicSessionView(session, record).ownCheckIn }, 201);
   }
 
   const freeTextName = cleanUnknownName(body.freeTextName);
   if (!freeTextName) return checkInError(400, "NAME_REQUIRED", "Enter the name the organizer should review.");
   if (!(await rateLimitCheckIn(env, session, deviceHash, request, "unknown"))) return checkInError(429, "RATE_LIMITED", "Too many pending-name attempts. Wait and ask the organizer for help.");
-  const count = (await env.CHECK_IN_SESSIONS.list({ prefix: checkInRecordPrefix(session.sessionId), limit: MAX_CHECK_INS_PER_SESSION + 1 })).keys?.length || 0;
+  const recordKeys = validCheckInRecordKeys(session, session.recordKeys);
+  const count = recordKeys?.length || 0;
   if (count >= MAX_CHECK_INS_PER_SESSION) return checkInError(429, "SESSION_FULL", "This check-in session cannot accept more entries.");
   const now = Date.now();
   const id = randomTokenBytes(16);
@@ -1053,7 +1113,17 @@ async function submitPublicCheckIn(request, env, url, publicToken) {
     disposition: null,
   };
   await putCheckInRecord(env.CHECK_IN_SESSIONS, recordKey, record, session.expiresAt);
+  await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInIdKey(session.sessionId, record.id), { recordKey }, session.expiresAt);
   await putCheckInRecord(env.CHECK_IN_SESSIONS, checkInDeviceKey(session.sessionId, deviceHash), { recordKey }, session.expiresAt);
+  const indexed = await addCheckInRecordToDirectory(env.CHECK_IN_SESSIONS, session, recordKey);
+  if (indexed === null) {
+    await Promise.all([
+      env.CHECK_IN_SESSIONS.delete(recordKey),
+      env.CHECK_IN_SESSIONS.delete(checkInIdKey(session.sessionId, record.id)),
+      env.CHECK_IN_SESSIONS.delete(checkInDeviceKey(session.sessionId, deviceHash)),
+    ]);
+    return checkInError(429, "SESSION_FULL", "This check-in session cannot accept more entries.");
+  }
   return checkInJson({ ok: true, checkIn: publicSessionView(session, record).ownCheckIn }, 201);
 }
 
@@ -1073,6 +1143,7 @@ async function cancelPublicCheckIn(request, env, url, publicToken) {
   const next = { ...record, status: "canceled", disposition: "self-canceled", updatedAt: Date.now() };
   await putCheckInRecord(env.CHECK_IN_SESSIONS, mapping.recordKey, next, session.expiresAt);
   await env.CHECK_IN_SESSIONS.delete(mappingKey);
+  await touchCheckInSession(env.CHECK_IN_SESSIONS, session);
   return checkInJson({ ok: true, canceled: true });
 }
 
