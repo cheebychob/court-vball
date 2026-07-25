@@ -59,9 +59,9 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 **Expected branch:** `fix/event-navigation-and-touch`
 **Next item after completion:** EUX-03
 
-EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting pull request
-and merge. Its pull-request and merge-commit fields stay `Pending` until those
-values exist.
+EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting merge of
+https://github.com/cheebychob/court-vball/pull/40. Its merge-commit field stays
+`Pending` until that value exists.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -148,7 +148,7 @@ information and actions without adding a stored lifecycle field.
 ## Completion record
 
 * **Completed date:** 2026-07-25
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/40
 * **Merge commit:** Pending
 * **Version/build:** 0.26.0 / 20260725.7 (from 0.25.0 / 20260725.6)
 * **Tests run:** `npm test` (275 passed, chromium + mobile-webkit),
@@ -682,7 +682,7 @@ Add one entry after each completed roadmap item.
 ### 2026-07-25 — EUX-01 completed
 
 * **Branch:** `feat/event-lifecycle-ui`
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/40
 * **Version/build:** 0.26.0 / 20260725.7
 * **Summary:** Added the derived `eventLifecycleState(ev)` helper and made the
   fixed and rotating event pages state-appropriate: overview and next action
