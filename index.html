@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260724.7">
+<meta name="court-build" content="20260724.8">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1060,9 +1060,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.21.0',
-  build: '20260724.7',
-  releaseNotes: 'Add public team registration, private roster management, safe player matching, substitutes, withdrawals, and full organizer roster review.'
+  version: '0.21.1',
+  build: '20260724.8',
+  releaseNotes: 'Reduce check-in polling and Cloudflare KV usage while keeping live organizer updates stable.'
 });
 
 function appVersionLabel(){
@@ -1253,8 +1253,8 @@ const SAVED_CREW_NAME_MAX = 60;
 const SAVED_CREW_VISIBLE_LIMIT = 6;
 const SAVED_CREW_USE_TOUCH_MS = 15000;
 const CHECK_IN_DEFAULT_EXPIRY_MS = 6*60*60*1000;
-const CHECK_IN_POLL_MIN_MS = 3000;
-const CHECK_IN_POLL_MAX_MS = 15000;
+const CHECK_IN_POLL_MIN_MS = 15000;
+const CHECK_IN_POLL_MAX_MS = 60000;
 const CHECK_IN_PUBLIC_ROSTER_MAX = 250;
 const REGISTRATION_MAX_WINDOW_MS = 366*24*60*60*1000;
 const REGISTRATION_POLL_VISIBLE_MS = 5000;
@@ -3409,7 +3409,7 @@ window.closeRecap=()=>{ closeSheet(); tab='players'; render(); };
 
 /* ---------- TEAMS ---------- */
 const PlayerCheckIn=(()=>{
-  let session=null,checkIns=[],connection='closed',busy=false,discovering=false,pollTimer=null,pollDelay=CHECK_IN_POLL_MIN_MS,lastSessionId='',modalOpen=false,refreshPromise=null,reviewSequence=0,lastAppliedReview=0,stateGeneration=0,lastAttendanceSignature='';
+  let session=null,checkIns=[],connection='closed',busy=false,discovering=false,pollTimer=null,pollDelay=CHECK_IN_POLL_MIN_MS,lastSessionId='',modalOpen=false,refreshPromise=null,reviewSequence=0,lastAppliedReview=0,stateGeneration=0,lastAttendanceSignature='',lastReviewSignature='',reviewRequests=0,pollRequests=0,surfaceUpdates=0;
   const apiUrl=path=>`${normalizedWorkerBaseUrl(Sync.cfg.url)}${path}`;
   const organizerHeaders=(json=false)=>({...json?{'Content-Type':'application/json'}:{},'X-Court-Room':Sync.cfg.code});
   const responseJson=async response=>{try{return await response.json();}catch(_){return {};}};
@@ -3431,6 +3431,7 @@ const PlayerCheckIn=(()=>{
     current.outerHTML=checkInStatusHtml();
   }
   function refreshSurface(){
+    surfaceUpdates++;
     replaceStatus();
     if(document.querySelector('[data-check-in-sheet]'))patchPlayerCheckInSheet();
   }
@@ -3447,7 +3448,7 @@ const PlayerCheckIn=(()=>{
   function checkInSessionEnded(){return !session||session.status==='closed'||session.status==='expired'||Number(session.expiresAt)<=Date.now();}
   function applySession(next){
     const nextId=next?.sessionId||'';
-    if(nextId&&lastSessionId&&nextId!==lastSessionId){window._checkInSuppressed=new Set();checkIns=[];lastAttendanceSignature='';}
+    if(nextId&&lastSessionId&&nextId!==lastSessionId){window._checkInSuppressed=new Set();checkIns=[];lastAttendanceSignature='';lastReviewSignature='';}
     session=next||null;if(nextId){lastSessionId=nextId;session.status=Number(session.expiresAt)<=Date.now()&&session.status==='open'?'expired':session.status;}
   }
   async function discover({silent=false}={}){
@@ -3475,18 +3476,23 @@ const PlayerCheckIn=(()=>{
   function schedulePoll(){
     if(pollTimer)clearTimeout(pollTimer);pollTimer=null;
     if(!modalOpen||document.hidden||!session||checkInSessionEnded())return;
-    pollTimer=setTimeout(()=>refresh({schedule:true}),pollDelay);
+    pollTimer=setTimeout(()=>refresh({schedule:true,poll:true}),pollDelay);
   }
-  function refresh({schedule=false}={}){
+  function refresh({schedule=false,poll=false}={}){
     if(!session||!configured()){if(schedule)schedulePoll();return Promise.resolve(null);}
     if(refreshPromise){if(schedule)refreshPromise.finally(schedulePoll);return refreshPromise;}
     const requestedSessionId=session.sessionId,sequence=++reviewSequence,generation=stateGeneration;
     refreshPromise=(async()=>{
       try{
+        reviewRequests++;if(poll)pollRequests++;
         const response=await fetch(apiUrl(`/api/check-in/sessions/${encodeURIComponent(requestedSessionId)}/review`),{method:'GET',headers:organizerHeaders(),cache:'no-store'}),data=await responseJson(response);
         if(!response.ok)throw new Error(errorMessage(response,data));
         if(sequence<=lastAppliedReview||generation!==stateGeneration||session?.sessionId!==requestedSessionId)return null;
-        lastAppliedReview=sequence;applySession(data.session);checkIns=normalizeOrganizerCheckIns(data.checkIns);connection=checkInSessionEnded()?'closed':'live';pollDelay=CHECK_IN_POLL_MIN_MS;mergeAttendance();refreshSurface();return data;
+        lastAppliedReview=sequence;
+        const normalized=normalizeOrganizerCheckIns(data.checkIns),signature=JSON.stringify([data.session,normalized]),nextConnection=data.session?.status==='open'&&Number(data.session.expiresAt)>Date.now()?'live':'closed',unchanged=signature===lastReviewSignature&&connection===nextConnection;
+        pollDelay=CHECK_IN_POLL_MIN_MS;
+        if(unchanged)return data;
+        lastReviewSignature=signature;applySession(data.session);checkIns=normalized;connection=nextConnection;mergeAttendance();refreshSurface();return data;
       }catch(error){
         if(generation!==stateGeneration||session?.sessionId!==requestedSessionId)return null;
         connection=navigator.onLine===false?'offline':'reconnecting';pollDelay=Math.min(CHECK_IN_POLL_MAX_MS,Math.max(CHECK_IN_POLL_MIN_MS,pollDelay*1.7));refreshSurface();return null;
@@ -3533,7 +3539,7 @@ const PlayerCheckIn=(()=>{
   }
   document.addEventListener('visibilitychange',()=>{if(document.hidden){if(pollTimer)clearTimeout(pollTimer);pollTimer=null;}else if(modalOpen&&session&&!checkInSessionEnded())refresh({schedule:true});});
   window.addEventListener('online',()=>{if(modalOpen&&session)refresh({schedule:true});});
-  return {discover,create,refresh,close,disposition,suppress,unsuppress,isCheckedIn,resetForNew,configured,setModalOpen,get session(){return session;},get checkIns(){return checkIns.slice();},get connection(){return connection;},get busy(){return busy;},get known(){return activeRecords();},get pending(){return pendingRecords();},get pollState(){return {modalOpen,scheduled:!!pollTimer,inFlight:!!refreshPromise,sequence:reviewSequence,lastApplied:lastAppliedReview};}};
+  return {discover,create,refresh,close,disposition,suppress,unsuppress,isCheckedIn,resetForNew,configured,setModalOpen,get session(){return session;},get checkIns(){return checkIns.slice();},get connection(){return connection;},get busy(){return busy;},get known(){return activeRecords();},get pending(){return pendingRecords();},get pollState(){return {modalOpen,scheduled:!!pollTimer,inFlight:!!refreshPromise,sequence:reviewSequence,lastApplied:lastAppliedReview};},get instrumentation(){return {reviewRequests,pollRequests,surfaceUpdates};}};
 })();
 function normalizeOrganizerCheckIns(items){
   return (Array.isArray(items)?items:[]).slice().sort((a,b)=>(Number(a.createdAt)||0)-(Number(b.createdAt)||0)||String(a.id||'').localeCompare(String(b.id||'')));

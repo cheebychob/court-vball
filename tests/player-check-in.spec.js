@@ -124,6 +124,7 @@ test('public roster projection is allowlisted and organizer can open, share, and
   await expect(page.getByRole('heading', { name: 'Open player check-in' })).toBeVisible();
   await page.locator('#scrim').getByRole('button', { name: 'Open check-in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Player check-in', exact: true, level: 3 })).toBeVisible();
+  expect(await page.evaluate(() => CHECK_IN_POLL_MIN_MS)).toBe(15_000);
   await expect(page.getByLabel('Player check-in link', { exact: true })).toHaveValue(state.session.publicUrl);
   await expect(page.getByLabel('Short code 7KMFQ')).toBeVisible();
   await expect(page.locator('.check-in-qr svg')).toBeVisible();
@@ -229,6 +230,14 @@ test('organizer polling patches stable modal, QR, counts, and keyed rows in plac
     };
   })).toEqual({ shell: 'shell', qr: 'qr', row: 'known-0', connection: 'connection', scrollTop: 120, focused: true });
 
+  const unchangedUpdates = await page.evaluate(async () => {
+    await PlayerCheckIn.refresh();
+    const before = PlayerCheckIn.instrumentation.surfaceUpdates;
+    await PlayerCheckIn.refresh();
+    return { before, after: PlayerCheckIn.instrumentation.surfaceUpdates };
+  });
+  expect(unchangedUpdates.after).toBe(unchangedUpdates.before);
+
   state.session = { ...state.session, rosterCount: 56, updatedAt: 2 };
   await page.evaluate(() => PlayerCheckIn.refresh());
   await expect(page.locator('[data-check-in-roster-count]')).toHaveText('56');
@@ -313,6 +322,12 @@ test('organizer modal owns one non-overlapping poller, pauses hidden, and ignore
     document.dispatchEvent(new Event('visibilitychange'));
   });
   await expect.poll(() => page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ scheduled: true });
+  const pollMetrics = await page.evaluate(async () => {
+    const before = PlayerCheckIn.instrumentation.pollRequests;
+    await PlayerCheckIn.refresh({ poll: true });
+    return { before, after: PlayerCheckIn.instrumentation.pollRequests };
+  });
+  expect(pollMetrics.after).toBe(pollMetrics.before + 1);
 
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await page.evaluate(() => PlayerCheckIn.pollState)).toMatchObject({ modalOpen: false, scheduled: false });
@@ -366,13 +381,17 @@ test('organizer row actions preserve attendance intent and still remove, dismiss
   await knownRow.getByRole('button', { name: 'Attendance only', exact: true }).click();
   expect(await page.evaluate(() => window._pool.has('a'))).toBe(false);
   await expect(knownRow).toBeVisible();
+  const reviewsBeforeRemove = await page.evaluate(() => PlayerCheckIn.instrumentation.reviewRequests);
   await knownRow.getByRole('button', { name: 'Remove check-in', exact: true }).click();
   await expect(knownRow).toHaveCount(0);
+  expect(await page.evaluate(() => PlayerCheckIn.instrumentation.reviewRequests)).toBe(reviewsBeforeRemove + 1);
   expect(state.checkIns.find(item => item.id === 'known-a').status).toBe('canceled');
 
   const dismissRow = page.locator('[data-check-in-id="pending-dismiss"]');
+  const reviewsBeforeDismiss = await page.evaluate(() => PlayerCheckIn.instrumentation.reviewRequests);
   await dismissRow.getByRole('button', { name: 'Dismiss', exact: true }).click();
   await expect(dismissRow).toHaveCount(0);
+  expect(await page.evaluate(() => PlayerCheckIn.instrumentation.reviewRequests)).toBe(reviewsBeforeDismiss + 1);
   expect(state.checkIns.find(item => item.id === 'pending-dismiss').status).toBe('dismissed');
 
   await page.locator('[data-check-in-id="pending-create"]').getByRole('button', { name: 'Create player', exact: true }).click();
