@@ -34,6 +34,7 @@ function importEntry(overrides = {}) {
     id: 'A'.repeat(22), eventId: 'event-import', registrationType: 'team',
     displayName: 'Net Results', status: 'accepted', activePlayerCount: 2, substituteCount: 1,
     capacityOverride: false, revision: 1, createdAt: 8, submittedAt: 9, updatedAt: 10, imported: null,
+    contact: { name: 'Riley Captain', email: 'riley@example.com', phone: '(555) 555-0101', preferredMethod: 'text', notes: 'Please text after 5 PM.' },
     members: [
       { id: 'm1', rosterRole: 'active', displayName: 'Alex', matchStatus: 'matched', internalPlayerId: 'p1', duplicateOverride: false },
       { id: 'm2', rosterRole: 'active', displayName: 'Blair', matchStatus: 'matched', internalPlayerId: 'p2', duplicateOverride: false },
@@ -198,6 +199,10 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   await expect(candidate).toContainText('Substitutes · 1');
   await expect(candidate).toContainText('Casey');
   await expect(candidate).toContainText('Registrant / contact');
+  await expect(candidate).toContainText('Riley Captain');
+  await expect(candidate).toContainText('riley@example.com · (555) 555-0101');
+  await expect(candidate).toContainText('Preferred: Text');
+  await expect(candidate).toContainText('Notes to organizer');
   await page.getByRole('button', { name: 'Select ready' }).click();
   await page.getByRole('button', { name: /Review import · 1 create · 0 update/ }).click();
   await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Apply 1 import' }).click();
@@ -213,6 +218,7 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   });
   expect(first).toMatchObject({ count: 1, name: 'Net Results', players: ['p1', 'p2'], substitutes: ['p3'], games: 0 });
   expect(first.source).toMatchObject({ registrationId: 'A'.repeat(22), sourceRevision: 1 });
+  expect(JSON.stringify(first)).not.toContain('riley@example.com');
   expect(first.ratings).toEqual([50, 50, 50, 50]);
   expect(state.marks).toHaveLength(1);
 

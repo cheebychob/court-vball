@@ -6,7 +6,8 @@ import test from 'node:test';
 const foundationMigration = await readFile(new URL('../cloudflare/migrations/0001_event_registration_foundation.sql', import.meta.url), 'utf8');
 const teamMigration = await readFile(new URL('../cloudflare/migrations/0002_team_registration_portal.sql', import.meta.url), 'utf8');
 const integrationMigration = await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8');
-const migration = `${foundationMigration}\n${teamMigration}\n${integrationMigration}`;
+const contactMigration = await readFile(new URL('../cloudflare/migrations/0004_registration_contact.sql', import.meta.url), 'utf8');
+const migration = `${foundationMigration}\n${teamMigration}\n${integrationMigration}\n${contactMigration}`;
 
 test('registration migration applies cleanly with tables, indexes, foreign keys, and uniqueness constraints', () => {
   const database = new DatabaseSync(':memory:');
@@ -18,6 +19,7 @@ test('registration migration applies cleanly with tables, indexes, foreign keys,
   assert.ok(tables.includes('event_registration_members'));
   assert.ok(tables.includes('event_registration_players'));
   assert.ok(tables.includes('event_registration_imports'));
+  assert.ok(database.prepare("PRAGMA table_info('event_registrations')").all().some(row => row.name === 'contact_json'));
   const indexes = database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name").all().map(row => row.name);
   for (const name of [
     'idx_event_registration_configs_owner',
@@ -118,5 +120,26 @@ test('registration event import migration is additive, owner scoped, and preserv
       imported_revision, imported_at, updated_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run('event-import', 'registration-import', 'owner-a', 'local-team-2', 3, now, now));
+  database.close();
+});
+
+test('registration contact migration is additive and leaves old registrations untouched', () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec(foundationMigration);
+  database.exec(teamMigration);
+  database.exec(integrationMigration);
+  database.exec(`
+    INSERT INTO event_registration_configs (
+      event_id, owner_scope, event_name, event_date, event_format, enabled, event_available,
+      mode, status, allow_substitutes, require_organizer_approval, allow_waitlist,
+      public_token_hash, created_at, updated_at
+    ) VALUES ('event-contact', 'owner', 'Cup', '2026-08-15', 'fixedTeams', 1, 1, 'team', 'open', 1, 1, 1, '${'c'.repeat(64)}', 1, 1);
+    INSERT INTO event_registrations (
+      id, event_id, registration_type, display_name, status, active_player_count,
+      substitute_count, created_at, updated_at
+    ) VALUES ('old-registration', 'event-contact', 'team', 'Legacy Team', 'submitted', 4, 0, 1, 1);
+  `);
+  database.exec(contactMigration);
+  assert.equal(database.prepare('SELECT contact_json FROM event_registrations WHERE id = ?').get('old-registration').contact_json, null);
   database.close();
 });

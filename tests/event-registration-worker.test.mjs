@@ -12,6 +12,7 @@ const migrationSource = [
   await readFile(new URL('../cloudflare/migrations/0001_event_registration_foundation.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0002_team_registration_portal.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8'),
+  await readFile(new URL('../cloudflare/migrations/0004_registration_contact.sql', import.meta.url), 'utf8'),
 ].join('\n');
 const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
@@ -109,10 +110,13 @@ async function createConfig(env, eventId = 'event-1', overrides = {}, room = 'ow
 }
 
 async function submit(env, token, body, extraHeaders = {}) {
+  const payload = body.contact === undefined
+    ? { ...body, contact: { name: 'Test Captain', email: 'captain@example.com', phone: '', preferredMethod: 'email', notes: '' } }
+    : body;
   const response = await worker.fetch(request(`/api/event-registration/public/${token}/submissions`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': `203.0.113.${Math.floor(Math.random() * 100) + 1}`, ...extraHeaders },
-    body: JSON.stringify(body),
+    body: JSON.stringify(payload),
   }), env);
   return { response, body: await response.json() };
 }
@@ -218,6 +222,106 @@ test('public submissions atomically count active players, exclude substitutes, w
   assert.equal(rejected.response.status, 409);
   assert.equal(rejected.body.code, 'REGISTRATION_FULL');
   assert.equal(env.EVENT_REGISTRATION_DB.database.prepare('SELECT COUNT(*) AS count FROM event_registrations WHERE event_id = ?').get('event-no-waitlist').count, 1);
+});
+
+test('registration contact validation is structured, practical, and stores one nested private object', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  const created = await createConfig(env, 'event-contact-validation', { activePlayerCapacity: null });
+  const token = created.body.publicToken;
+  const base = { registrationType: 'team', activePlayerCount: 4, substituteCount: 0 };
+  const validContacts = [
+    { name: 'Email Captain', email: 'Captain@Example.com', phone: '', preferredMethod: 'email', notes: '' },
+    { name: 'Phone Captain', email: '', phone: '+44 20 7946 0958 ext. 2', preferredMethod: 'text', notes: 'Text after 5 PM.' },
+    { name: 'Both Captain', email: 'both@example.com', phone: '(555) 555-1234', preferredMethod: 'none', notes: '' },
+  ];
+  for (const [index, contact] of validContacts.entries()) {
+    const result = await submit(env, token, { ...base, displayName: `Contact Team ${index}`, contact });
+    assert.equal(result.response.status, 201);
+    assert.equal(Object.hasOwn(result.body.submission, 'contact'), false);
+  }
+  const stored = env.EVENT_REGISTRATION_DB.database.prepare('SELECT contact_json FROM event_registrations WHERE display_name = ?').get('Contact Team 0');
+  assert.deepEqual(JSON.parse(stored.contact_json), {
+    name: 'Email Captain', email: 'captain@example.com', phone: '', preferredMethod: 'email', notes: '',
+  });
+
+  const invalidCases = [
+    [{ name: '', email: 'a@example.com', phone: '', preferredMethod: 'email', notes: '' }, 'contact.name'],
+    [{ name: 'Missing routes', email: '', phone: '', preferredMethod: 'none', notes: '' }, 'contact.emailOrPhone'],
+    [{ name: 'Bad email', email: 'not-an-email', phone: '', preferredMethod: 'none', notes: '' }, 'contact.email'],
+    [{ name: 'Bad phone', email: '', phone: 'extension only', preferredMethod: 'none', notes: '' }, 'contact.phone'],
+    [{ name: 'Bad method', email: 'a@example.com', phone: '', preferredMethod: 'carrier-pigeon', notes: '' }, 'contact.preferredMethod'],
+    [{ name: 'Email mismatch', email: '', phone: '555-1234', preferredMethod: 'email', notes: '' }, 'contact.preferredMethod'],
+    [{ name: 'Phone mismatch', email: 'a@example.com', phone: '', preferredMethod: 'phone', notes: '' }, 'contact.preferredMethod'],
+    [{ name: 'Text mismatch', email: 'a@example.com', phone: '', preferredMethod: 'text', notes: '' }, 'contact.preferredMethod'],
+    [{ name: 'Long notes', email: 'a@example.com', phone: '', preferredMethod: 'email', notes: 'n'.repeat(1001) }, 'contact.notes'],
+    [{ name: 'n'.repeat(101), email: 'a@example.com', phone: '', preferredMethod: 'email', notes: '' }, 'contact.name'],
+  ];
+  for (const [index, [contact, field]] of invalidCases.entries()) {
+    const result = await submit(env, token, { ...base, displayName: `Invalid Contact ${index}`, contact });
+    assert.equal(result.response.status, 400);
+    assert.equal(result.body.error, 'VALIDATION_ERROR');
+    assert.equal(result.body.code, 'VALIDATION_ERROR');
+    assert.equal(typeof result.body.fieldErrors[field], 'string');
+  }
+  const missing = await submit(env, token, { ...base, displayName: 'Missing Contact', contact: null });
+  assert.equal(missing.response.status, 400);
+  assert.equal(missing.body.fieldErrors['contact.name'], 'Enter a contact name.');
+  assert.equal(missing.body.fieldErrors['contact.emailOrPhone'], 'Enter an email address or phone number.');
+  assert.equal(env.EVENT_REGISTRATION_DB.database.prepare("SELECT COUNT(*) AS count FROM event_registrations WHERE display_name LIKE 'Invalid Contact %' OR display_name = 'Missing Contact'").get().count, 0);
+
+  const publicBody = await (await worker.fetch(request(`/api/event-registration/public/${token}`), env)).text();
+  assert.doesNotMatch(publicBody, /Email Captain|captain@example\.com|contact_json/i);
+});
+
+test('organizer contact edits are revision-safe and do not alter roster, status, or old registrations', async t => {
+  const env = bindings(); t.after(() => env.EVENT_REGISTRATION_DB.close());
+  const created = await createConfig(env, 'event-contact-edit');
+  const submitted = await submit(env, created.body.publicToken, {
+    registrationType: 'team',
+    displayName: 'Contact Edit Team',
+    activePlayerCount: 4,
+    substituteCount: 0,
+    contact: { name: 'Original Captain', email: 'original@example.com', phone: '', preferredMethod: 'email', notes: '' },
+  });
+  assert.equal(submitted.response.status, 201);
+  const entryId = submitted.body.submission.registrationId;
+  const before = env.EVENT_REGISTRATION_DB.database.prepare('SELECT * FROM event_registrations WHERE id = ?').get(entryId);
+  const path = `/api/event-registration/organizer/event-contact-edit/entries/${entryId}/contact`;
+  const edited = await worker.fetch(request(path, organizerInit('owner-a', {
+    revision: before.revision,
+    contact: { name: 'Updated Captain', email: '', phone: '+1 (555) 555-0199', preferredMethod: 'text', notes: 'Please text.' },
+  })), env);
+  assert.equal(edited.status, 200);
+  const editedBody = await edited.json();
+  assert.deepEqual(editedBody.entry.contact, {
+    name: 'Updated Captain', email: '', phone: '+1 (555) 555-0199', preferredMethod: 'text', notes: 'Please text.',
+  });
+  const after = env.EVENT_REGISTRATION_DB.database.prepare('SELECT * FROM event_registrations WHERE id = ?').get(entryId);
+  assert.equal(after.display_name, before.display_name);
+  assert.equal(after.status, before.status);
+  assert.equal(after.active_player_count, before.active_player_count);
+  assert.equal(after.substitute_count, before.substitute_count);
+  assert.equal(after.revision, before.revision + 1);
+
+  const stale = await worker.fetch(request(path, organizerInit('owner-a', {
+    revision: before.revision,
+    contact: { name: 'Stale Captain', email: 'stale@example.com', phone: '', preferredMethod: 'email', notes: '' },
+  })), env);
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).code, 'REGISTRATION_CONFLICT');
+  assert.equal(JSON.parse(env.EVENT_REGISTRATION_DB.database.prepare('SELECT contact_json FROM event_registrations WHERE id = ?').get(entryId).contact_json).name, 'Updated Captain');
+
+  env.EVENT_REGISTRATION_DB.database.prepare('UPDATE event_registrations SET contact_json = ? WHERE id = ?').run('{"name":42}', entryId);
+  const safe = await worker.fetch(request('/api/event-registration/organizer/event-contact-edit', organizerInit()), env);
+  assert.equal((await safe.json()).entries[0].contact, null);
+  env.EVENT_REGISTRATION_DB.database.prepare('UPDATE event_registrations SET contact_json = ? WHERE id = ?').run('{"email":"legacy@example.com"}', entryId);
+  const partial = await worker.fetch(request('/api/event-registration/organizer/event-contact-edit', organizerInit()), env);
+  assert.deepEqual((await partial.json()).entries[0].contact, {
+    name: '', email: 'legacy@example.com', phone: '', preferredMethod: 'none', notes: '',
+  });
+  env.EVENT_REGISTRATION_DB.database.prepare('UPDATE event_registrations SET contact_json = NULL WHERE id = ?').run(entryId);
+  const legacy = await worker.fetch(request('/api/event-registration/organizer/event-contact-edit', organizerInit()), env);
+  assert.equal((await legacy.json()).entries[0].contact, null);
 });
 
 test('approval submissions stay pending, organizer transitions are explicit, acceptance rechecks capacity, and override is audited', async t => {
@@ -933,7 +1037,7 @@ test('organizer matches, creates, and rejects pending members before acceptance'
   assert.equal(entry.members.some(member => member.matchStatus === 'organizer_created'), true);
   assert.equal(entry.members.some(member => member.matchStatus === 'rejected'), true);
   assert.equal(entry.members.some(member => member.matchStatus === 'pending'), false);
-  assert.doesNotMatch(JSON.stringify(entry), /rating|notes|aliases|history/i);
+  assert.doesNotMatch(JSON.stringify(entry), /rating|aliases|history/i);
 });
 
 test('organizer roster moves revalidate capacity, audit overrides, and preserve accepted status', async t => {
@@ -1085,7 +1189,7 @@ test('organizer import preview is owner scoped, private, D1-backed, and import m
   assert.equal(preview.entries[0].members.filter(member => member.rosterRole === 'substitute').length, 1);
   assert.equal(preview.entries[0].members[0].internalPlayerId, 'import-player-1');
   assert.equal(preview.entries[0].imported, null);
-  assert.doesNotMatch(JSON.stringify(preview), /management|organizerNote|rating|seedRating|notes|stats|room/i);
+  assert.doesNotMatch(JSON.stringify(preview), /management|organizerNote|rating|seedRating|stats|room/i);
 
   const revision = preview.entries[0].revision;
   const markPath = '/api/event-registration/organizer/event-import-preview/import-mark';

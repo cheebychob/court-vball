@@ -44,6 +44,7 @@ function organizerState() {
         activePlayerCount: 4, substituteCount: 1, createdAt: 10, updatedAt: 10, submittedAt: 10,
         withdrawnAt: null, organizerNote: '', capacityOverride: false, editingLocked: false,
         managementAccessRevoked: false, lastEditedAt: 10, revision: 1, duplicateWarnings: [],
+        contact: { name: 'Alex Captain', email: 'alex@example.com', phone: '(555) 555-0100', preferredMethod: 'text', notes: 'Text after work.' },
         members: [
           { id: 'member-a', rosterRole: 'active', displayName: 'Alex A', matchStatus: 'matched', internalPlayerId: 'p1', createdAt: 10, updatedAt: 10 },
           { id: 'member-b', rosterRole: 'substitute', displayName: 'New Player', matchStatus: 'pending', internalPlayerId: null, createdAt: 10, updatedAt: 10 },
@@ -71,6 +72,7 @@ function organizerState() {
     failOrganizer: false,
     summary: null,
     configPosts: 0,
+    contactPosts: [],
     lastConfigInput: null,
     failConfig: false,
   };
@@ -161,6 +163,12 @@ async function mockWorker(page, state) {
         state.capacity.remainingAcceptedCapacity = state.capacity.capacity - state.capacity.acceptedActivePlayers;
       }
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, entry, capacity: state.capacity, override: { used: false } }) });
+    }
+    if (path.endsWith('/contact') && path.includes('/entries/')) {
+      const entryId = path.split('/').at(-2), input = request.postDataJSON(), entry = state.entries.find(row => row.id === entryId);
+      state.contactPosts.push(input);
+      entry.contact = input.contact;entry.revision++;entry.updatedAt++;entry.lastEditedAt=Date.now();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, entry }) });
     }
     if (path.includes('/api/event-registration/') && path.endsWith('/status')) {
       const input = request.postDataJSON();state.config.status = input.status;state.config.effectiveStatus = input.status;
@@ -362,7 +370,7 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Active roster · 1');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Substitutes · 1');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('New Player');
-  await expect(page.locator('[data-registration-entry="entry-alpha"]')).not.toContainText(/rating|seed|notes|stats/i);
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).not.toContainText(/rating|seed|stats/i);
   await expect(page.getByRole('button', { name: 'Move New Player to active players' })).toBeVisible();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Review New Player' })).toBeVisible();
@@ -403,6 +411,67 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await page.evaluate(() => ({ modal: EventRegistration.modalEventId, timer: EventRegistration._pollTimer }))).toMatchObject({ modal: null });
+});
+
+test('organizer registration details show, link, and edit private contact without changing roster or status', async ({ page }) => {
+  const state = organizerState();
+  state.config = {
+    eventId: 'registration-event',
+    eventName: 'Summer Sand',
+    eventDate: '2026-08-15',
+    eventFormat: 'fixedTeams',
+    enabled: true,
+    status: 'open',
+    effectiveStatus: 'open',
+    mode: 'team',
+    opensAt: null,
+    closesAt: null,
+    activePlayerCapacity: 12,
+    allowSubstitutes: true,
+    maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4,
+    maxActivePlayersPerTeam: 4,
+    requireOrganizerApproval: true,
+    allowWaitlist: true,
+  };
+  state.summary = canonicalSummary();
+  await seed(page, [fixedEvent({ registration: {
+    enabled: true, status: 'open', mode: 'team', opensAt: null, closesAt: null,
+    activePlayerCapacity: 12, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: 10,
+  } })]);
+  await mockWorker(page, state);
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+
+  const alpha = page.locator('[data-registration-entry="entry-alpha"]');
+  await expect(alpha).toContainText('Registrant / contact');
+  await expect(alpha).toContainText('Alex Captain');
+  await expect(alpha.getByRole('link', { name: 'alex@example.com' })).toHaveAttribute('href', 'mailto:alex%40example.com');
+  await expect(alpha.getByRole('link', { name: '(555) 555-0100' })).toHaveAttribute('href', 'tel:5555550100');
+  await expect(alpha).toContainText('Preferred: Text');
+  await expect(page.locator('[data-registration-entry="entry-bravo"]')).toContainText('Not provided');
+
+  const originalMembers = structuredClone(state.entries[0].members), originalStatus = state.entries[0].status;
+  await alpha.getByRole('button', { name: 'Edit contact' }).click();
+  await alpha.locator('input[id*="contact-name"]').fill('Updated Captain');
+  await alpha.locator('input[id*="contact-email"]').fill('');
+  await alpha.locator('input[id*="contact-phone"]').fill('+1 555 555 0199');
+  await alpha.locator('select[id*="contact-method"]').selectOption('phone');
+  await alpha.locator('textarea[id*="contact-notes"]').fill('Call in the evening.');
+  await alpha.getByRole('button', { name: 'Save contact' }).click();
+  await expect(alpha).toContainText('Updated Captain');
+  await expect(alpha).toContainText('+1 555 555 0199');
+  expect(state.contactPosts).toHaveLength(1);
+  expect(state.contactPosts[0]).toMatchObject({
+    revision: 1,
+    contact: { name: 'Updated Captain', email: '', phone: '+1 555 555 0199', preferredMethod: 'phone', notes: 'Call in the evening.' },
+  });
+  expect(state.entries[0].members).toEqual(originalMembers);
+  expect(state.entries[0].status).toBe(originalStatus);
 });
 
 test('failed registration persistence leaves the event unchanged and shows a retryable error', async ({ page }) => {
