@@ -55,9 +55,13 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-01
-**Expected branch:** `feat/event-lifecycle-ui`
-**Next item after completion:** EUX-02
+**Current item:** EUX-02
+**Expected branch:** `fix/event-navigation-and-touch`
+**Next item after completion:** EUX-03
+
+EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting merge of
+https://github.com/cheebychob/court-vball/pull/40. Its merge-commit field stays
+`Pending` until that value exists.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -66,8 +70,8 @@ is completed. Only one item should normally be In Progress.
 
 | Done | ID     | Work item                                           | Branch                                     | Depends on     | Status  |
 | ---- | ------ | --------------------------------------------------- | ------------------------------------------ | -------------- | ------- |
-| [ ]  | EUX-01 | Event lifecycle and state-appropriate UI            | `feat/event-lifecycle-ui`                  | None           | Ready   |
-| [ ]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Planned |
+| [x]  | EUX-01 | Event lifecycle and state-appropriate UI            | `feat/event-lifecycle-ui`                  | None           | Done    |
+| [ ]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Ready   |
 | [ ]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Planned |
 | [ ]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Planned |
 | [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Planned |
@@ -83,7 +87,7 @@ is completed. Only one item should normally be In Progress.
 
 **Branch:** `feat/event-lifecycle-ui`
 **Risk:** Medium
-**Status:** Ready
+**Status:** Done
 
 ## Objective
 
@@ -143,13 +147,49 @@ information and actions without adding a stored lifecycle field.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
-* **Tests run:**
+* **Completed date:** 2026-07-25
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/40
+* **Merge commit:** Pending
+* **Version/build:** 0.26.0 / 20260725.7 (from 0.25.0 / 20260725.6)
+* **Tests run:** `npm test` (275 passed, chromium + mobile-webkit),
+  `npm run test:worker` (65 passed), `npm run test:version-check` (10 passed),
+  `npm run check:version`
 * **Important implementation notes:**
+  * `eventLifecycleState(ev, {gameList, sc})` is pure and derived from teams,
+    entries, schedules, saved games, and bracket state. Supporting helpers:
+    `eventLifecycleFacts`, `eventLifecycleMeta`, `eventBracketProgress`,
+    `eventIsComplete` (a cheap `done`/all-brackets-complete check used by the
+    registration card and its background patcher), and `eventLifecycleStarted`.
+    Nothing is persisted, so stored events and older backups are unchanged.
+  * `complete` is `ev.done` or every bracket having a champion; `playoffs`
+    requires a bracket plus a started bracket or completed pool play;
+    `poolsComplete` requires a schedule with every match resulted; `scheduled`
+    requires a schedule or a bracket; otherwise `draft`.
+  * `championsStripHtml(ev, state)` now returns nothing before any game is
+    played, a compact `[data-event-progress]` "Results so far" card while play
+    is under way, and the trophy finale (`eventFinaleHtml`) only for a saved
+    champion or a completed event. `[data-event-finale]` still marks both
+    in-play and final cards so existing selectors keep working.
+  * Overview and next action moved above the finale, rules, and registration on
+    both fixed and rotating event pages. Fixed events keep one game-logging
+    control (`[data-event-next-action]` "Log next result"); the duplicate
+    bottom "Log a game" button is gone. Rotating events gained a lifecycle next
+    action ("Log next match" / "Set up schedule").
+  * Fixed-team setup controls moved into `fixedEventSetupActionsHtml`
+    (`[data-event-setup-actions]`, `data-demoted`): promoted directly under the
+    overview before play, demoted below standings under an "Event setup"
+    heading once results exist. Every control stays present and enabled.
+  * Disabled registration collapses to a compact row
+    (`[data-registration-display="compact"]`); completed events hide
+    registration setup (`"final"`) and drop the section plus its navigation
+    destination entirely when registration was never used.
 * **Remaining follow-up:**
+  * The overview's primary logging action hides once every bracket has a
+    champion even if `ev.done` is false; per-match logging in the schedule
+    section is unaffected.
+  * Rotating setup controls still live in the schedule and entries sections;
+    only fixed-team setup actions are demoted. EUX-02's shared section
+    definition is the right place to revisit this.
 
 ---
 
@@ -157,7 +197,7 @@ information and actions without adding a stored lifecycle field.
 
 **Branch:** `fix/event-navigation-and-touch`
 **Risk:** Medium
-**Status:** Planned
+**Status:** Ready
 **Depends on:** EUX-01
 
 ## Objective
@@ -638,6 +678,29 @@ An item may be marked Done only after all applicable boxes are satisfied:
 # Progress log
 
 Add one entry after each completed roadmap item.
+
+### 2026-07-25 — EUX-01 completed
+
+* **Branch:** `feat/event-lifecycle-ui`
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/40
+* **Version/build:** 0.26.0 / 20260725.7
+* **Summary:** Added the derived `eventLifecycleState(ev)` helper and made the
+  fixed and rotating event pages state-appropriate: overview and next action
+  lead the page, the finale card is hidden before any game is played, an active
+  event gets a compact progress card, the trophy treatment is reserved for a
+  champion or a completed event, disabled registration collapses, completed
+  events hide registration setup, setup actions are demoted after play starts,
+  and the duplicate "Log a game" control was removed.
+* **Tests:** New `tests/event-lifecycle.spec.js` (8 tests: state derivation for
+  every state across both formats, draft/live/complete presentation, compact and
+  final registration, rotating coverage, 320 px and 1280 px layout). Full suite:
+  `npm test` 275 passed, `npm run test:worker` 65 passed,
+  `npm run test:version-check` 10 passed, `npm run check:version` passed.
+* **Manual checks:** Mobile (375 px) and desktop (1280 px) event pages in
+  draft, live, and completed states, plus a scheduled rotating event; no console
+  errors and no horizontal overflow.
+* **Known follow-up:** See the EUX-01 completion record.
+* **Next item:** EUX-02
 
 ## Entry template
 
