@@ -33,7 +33,7 @@ function importEntry(overrides = {}) {
   return {
     id: 'A'.repeat(22), eventId: 'event-import', registrationType: 'team',
     displayName: 'Net Results', status: 'accepted', activePlayerCount: 2, substituteCount: 1,
-    capacityOverride: false, revision: 1, updatedAt: 10, imported: null,
+    capacityOverride: false, revision: 1, createdAt: 8, submittedAt: 9, updatedAt: 10, imported: null,
     members: [
       { id: 'm1', rosterRole: 'active', displayName: 'Alex', matchStatus: 'matched', internalPlayerId: 'p1', duplicateOverride: false },
       { id: 'm2', rosterRole: 'active', displayName: 'Blair', matchStatus: 'matched', internalPlayerId: 'p2', duplicateOverride: false },
@@ -190,9 +190,17 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   await page.goto('/');
   await openEvent(page);
   await page.getByRole('button', { name: 'Review import' }).click();
-  await expect(page.locator('[data-import-registration]')).toContainText('Create new event entry');
-  await page.getByRole('button', { name: /Import 1 selected/ }).click();
-  await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Import selected' }).click();
+  const candidate = page.locator('[data-import-registration]');
+  await expect(candidate).toContainText('Create new event entry');
+  await expect(candidate).toContainText('Submitted');
+  await expect(candidate).toContainText('Active players · 2');
+  await expect(candidate).toContainText('Alex, Blair');
+  await expect(candidate).toContainText('Substitutes · 1');
+  await expect(candidate).toContainText('Casey');
+  await expect(candidate).toContainText('Registrant / contact');
+  await page.getByRole('button', { name: 'Select ready' }).click();
+  await page.getByRole('button', { name: /Review import · 1 create · 0 update/ }).click();
+  await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Apply 1 import' }).click();
   await expect(page.locator('[data-import-registration]')).toContainText('No change');
 
   const first = await page.evaluate(() => {
@@ -215,8 +223,8 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   await expect(page.locator('[data-import-registration]')).toContainText('Update imported event entry');
   await expect(page.locator('[data-import-registration]')).toContainText('Team name');
   await page.locator('[data-import-registration] input[type="checkbox"]').check();
-  await page.getByRole('button', { name: /Import 1 selected/ }).click();
-  await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Import selected' }).click();
+  await page.getByRole('button', { name: /Review import · 0 create · 1 update/ }).click();
+  await page.locator('[role="alertdialog"]').getByRole('button', { name: 'Apply 1 import' }).click();
   await expect(page.locator('[data-import-registration]')).toContainText('No change');
   const updated = await page.evaluate(() => {
     const entry = evById('event-import').teams[0];
@@ -224,6 +232,84 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   });
   expect(updated).toEqual({ count: 1, id: first.id, name: 'Net Results Updated', revision: 2 });
   expect(state.marks).toHaveLength(2);
+});
+
+test('import cards render legacy-safe details, block incomplete records, preserve stable-ID selection, and remain usable at 320px', async ({ page }) => {
+  const first = importEntry({
+    substituteCount: 0,
+    members: importEntry().members.slice(0, 2),
+  });
+  const second = importEntry({
+    id: 'B'.repeat(22),
+    displayName: 'Block Party',
+    substituteCount: 0,
+    members: [
+      { id: 'm4', rosterRole: 'active', displayName: 'Casey', matchStatus: 'matched', internalPlayerId: 'p3', duplicateOverride: false },
+      { id: 'm5', rosterRole: 'active', displayName: 'Devon', matchStatus: 'matched', internalPlayerId: 'p4', duplicateOverride: false },
+    ],
+  });
+  const legacy = {
+    id: 'C'.repeat(22),
+    eventId: 'event-import',
+    registrationType: 'team',
+    teamName: 'Legacy Spikers',
+    status: 'accepted',
+    activePlayerCount: 2,
+    substituteCount: 0,
+    revision: 1,
+    members: [],
+    imported: null,
+  };
+  const state = { preview: preview([first, second, legacy]), previewGets: 0, marks: [] };
+  await seed(page);
+  await mockWorker(page, state);
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await page.getByRole('dialog', { name: /Registration · Import Cup/ }).getByRole('button', { name: 'Review import' }).click();
+
+  const cards = page.locator('[data-import-registration]');
+  await expect(cards).toHaveCount(3);
+  const legacyCard = page.locator(`[data-import-registration="${'C'.repeat(22)}"]`);
+  await expect(legacyCard).toContainText('Legacy Spikers');
+  await expect(legacyCard).toContainText('Submission time not recorded');
+  await expect(legacyCard).toContainText('Roster details are unavailable');
+  await expect(legacyCard.getByRole('checkbox')).toBeDisabled();
+
+  const firstCheckbox = page.locator(`[data-import-registration="${'A'.repeat(22)}"] input[type="checkbox"]`);
+  const secondCheckbox = page.locator(`[data-import-registration="${'B'.repeat(22)}"] input[type="checkbox"]`);
+  await firstCheckbox.check();
+  await page.getByRole('button', { name: 'Refresh' }).click();
+  await expect(firstCheckbox).toBeChecked();
+  await expect(secondCheckbox).not.toBeChecked();
+  await page.getByRole('button', { name: 'Select ready' }).click();
+  await expect(firstCheckbox).toBeChecked();
+  await expect(secondCheckbox).toBeChecked();
+  await expect(legacyCard.getByRole('checkbox')).not.toBeChecked();
+  await expect(page.locator('.registration-import-selected')).toContainText('2 selected · 2 to create · 0 to update');
+  await page.getByRole('button', { name: 'Clear' }).click();
+  await expect(firstCheckbox).not.toBeChecked();
+  await expect(secondCheckbox).not.toBeChecked();
+  await page.locator(`[data-import-registration="${'B'.repeat(22)}"] .registration-import-detail`).first().click();
+  await expect(secondCheckbox).toBeChecked();
+
+  const layout = await page.evaluate(() => {
+    const sheet = document.querySelector('.sheet'), title = document.querySelector('.registration-import-title b');
+    return {
+      sheetOverflow: sheet.scrollWidth - sheet.clientWidth,
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      titleColor: getComputedStyle(title).color,
+    };
+  });
+  expect(layout.sheetOverflow).toBeLessThanOrEqual(0);
+  expect(layout.documentOverflow).toBeLessThanOrEqual(0);
+  expect(layout.titleColor).not.toBe('rgba(0, 0, 0, 0)');
+
+  await page.getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await page.getByRole('dialog', { name: /Registration · Import Cup/ }).getByRole('button', { name: 'Review import' }).click();
+  await expect(page.locator('[data-import-registration]')).toHaveCount(3);
 });
 
 test('schedule/game warnings preserve history and manual local conflicts block destructive updates', async ({ page }) => {
@@ -271,6 +357,45 @@ test('schedule/game warnings preserve history and manual local conflicts block d
   expect(blocked.action).toBe('blocked');
   expect(blocked.blockers.join(' ')).toMatch(/changed manually/);
   expect(await page.evaluate(() => JSON.stringify(games[0]))).toBe(historicalBefore);
+});
+
+test('a failed import persistence rolls back the complete event entry and schedule-review state atomically', async ({ page }) => {
+  const imported = event({
+    sched: { start: '09:00', courts: 1, setMin: 20, matchMin: 45, breakMin: 10, seed: 'stable-seed', revision: 1 },
+    teams: [{
+      id: 'stable-team',
+      name: 'Net Results',
+      players: ['p1', 'p2'],
+      substitutePlayerIds: ['p3'],
+      registrationSource: {
+        schemaVersion: 1,
+        registrationId: 'A'.repeat(22),
+        sourceRevision: 1,
+        importedAt: 10,
+        lastSyncedAt: 10,
+        sourceSnapshot: { name: 'Net Results', activePlayerIds: ['p1', 'p2'], substitutePlayerIds: ['p3'], status: 'accepted' },
+      },
+    }],
+  });
+  const changed = importEntry({
+    displayName: 'Renamed Registration',
+    revision: 2,
+    updatedAt: 20,
+    imported: { localEntryId: 'stable-team', importedRevision: 1, importedAt: 10, updatedAt: 10 },
+  });
+  await seed(page, [imported]);
+  await mockWorker(page, { preview: preview([changed]), previewGets: 0, marks: [] });
+  await page.goto('/');
+  const result = await page.evaluate(async server => {
+    const ev = evById('event-import'), item = registrationImportPreview(ev, server).items[0], before = JSON.stringify(ev), originalSave = saveEvents;
+    let message = '';
+    saveEvents = async () => { throw new Error('Persistence failed'); };
+    try { await applyRegistrationImportItem(ev, item); }
+    catch (error) { message = error.message; }
+    finally { saveEvents = originalSave; }
+    return { message, unchanged: JSON.stringify(ev) === before };
+  }, preview([changed]));
+  expect(result).toEqual({ message: 'Persistence failed', unchanged: true });
 });
 
 test('event-day arrival, substitute promotion, and existing or event-only replacements persist separately on mobile', async ({ page }) => {

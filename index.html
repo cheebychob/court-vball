@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260725.3">
+<meta name="court-build" content="20260725.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -565,21 +565,57 @@
   .registration-link{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gold);font-size:11px}
   .registration-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
   .registration-settings-grid .field{min-width:0}
+  .registration-settings-section{margin-top:12px;padding:13px;border:1px solid var(--line);border-radius:15px;background:#ffffff07}
+  .registration-settings-section h4{margin:0 0 10px;color:var(--text);font-size:14px}
+  .registration-settings-section .field:last-child{margin-bottom:0}
+  .registration-toggle{display:flex!important;align-items:flex-start;gap:10px;min-height:44px;margin:0!important;padding:8px 7px;border:1px solid transparent;border-radius:12px;color:var(--text)!important;cursor:pointer}
+  .registration-toggle:hover{background:#ffffff06}
+  .registration-toggle:focus-within{outline:2px solid var(--cyan);outline-offset:2px}
+  .registration-toggle input[type=checkbox]{width:20px!important;height:20px!important;min-height:20px!important;flex:0 0 20px;margin:2px 0 0!important;padding:0!important;accent-color:var(--gold)}
+  .registration-toggle-copy{display:block;min-width:0;flex:1}
+  .registration-toggle-copy b{display:block;color:var(--text);font-size:13px;line-height:1.35}
+  .registration-toggle-copy span{display:block;margin-top:3px;color:var(--muted);font-size:11px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
+  .registration-toggle:has(input:disabled){cursor:not-allowed;opacity:.56}
+  .registration-settings-section :is(input,select,textarea):disabled{cursor:not-allowed;opacity:.58}
+  .registration-sharing{display:grid;gap:9px}
+  .registration-sharing-status{min-width:0;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0002}
+  .registration-sharing-status b,.registration-sharing-status span{display:block;overflow-wrap:anywhere}
+  .registration-sharing-status span{margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45}
+  .registration-settings-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
+  .registration-settings-counts>div{padding:8px;border:1px solid var(--line);border-radius:11px;background:#0001}
+  .registration-settings-counts b,.registration-settings-counts span{display:block}.registration-settings-counts span{margin-top:2px;color:var(--muted);font-size:10px}
+  .registration-modal-footer{position:sticky;z-index:2;bottom:calc(-20px - env(safe-area-inset-bottom));margin:14px -16px calc(-20px - env(safe-area-inset-bottom));padding:11px 16px calc(20px + env(safe-area-inset-bottom));border-top:1px solid var(--line-strong);background:#111a2cf2;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
   .registration-integration-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:11px}
   .registration-integration-summary>div{padding:8px;border:1px solid var(--line);border-radius:11px;background:#0001}
   .registration-integration-summary b,.registration-integration-summary span{display:block}.registration-integration-summary b{font-size:16px}.registration-integration-summary span{margin-top:2px;color:var(--soft);font-size:10px}
   .registration-import-callout{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;align-items:center;margin:12px 0;padding:11px;border:1px solid #f2c66d3d;border-radius:14px;background:#f2c66d0a}
   .registration-import-callout span{display:block;margin-top:3px;color:var(--soft);font-size:10.5px;line-height:1.4}
-  .registration-import-list{display:grid;gap:9px;max-height:54vh;overflow:auto;overscroll-behavior:contain}
-  .registration-import-row{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07}
+  .registration-import-list{display:grid;gap:10px}
+  .registration-import-row{min-width:0;padding:12px;border:1px solid var(--line);border-radius:15px;background:#ffffff08;color:var(--text);overflow-wrap:anywhere}
   .registration-import-row.blocked{border-color:#ff7d7245}.registration-import-row.ready{border-color:#71d3a645}.registration-import-row.updated{border-color:#f2c66d55}
-  .registration-import-row label{display:flex;gap:9px;align-items:flex-start}.registration-import-row input[type=checkbox]{flex:none;margin-top:3px}
+  .registration-import-select{display:flex!important;align-items:flex-start;gap:10px;min-height:44px;margin:0!important;padding:4px;border-radius:11px;color:var(--text)!important;cursor:pointer}
+  .registration-import-select:focus-within{outline:2px solid var(--cyan);outline-offset:2px}
+  .registration-import-select input[type=checkbox]{width:20px!important;height:20px!important;min-height:20px!important;flex:0 0 20px;margin:2px 0 0!important;padding:0!important;accent-color:var(--gold)}
+  .registration-import-select:has(input:disabled){cursor:not-allowed;opacity:.72}
+  .registration-import-title{display:block;min-width:0;flex:1}.registration-import-title b{display:block;color:var(--text);font-size:14px;line-height:1.35;overflow-wrap:anywhere}
+  .registration-import-meta{display:block;margin-top:4px;color:var(--muted);font-size:11px;font-weight:550;line-height:1.45;overflow-wrap:anywhere}
+  .registration-import-action{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-top:9px}
+  .registration-import-details{display:grid;gap:8px;margin-top:10px}
+  .registration-import-detail{padding:9px;border:1px solid var(--line);border-radius:11px;background:#0002}
+  .registration-import-detail b{display:block;color:var(--text);font-size:11px}
+  .registration-import-detail span{display:block;margin-top:4px;color:var(--muted);font-size:11px;line-height:1.45;overflow-wrap:anywhere}
+  .registration-import-match{margin-top:8px;color:var(--muted);font-size:11px;line-height:1.45}.registration-import-match b{color:var(--text)}
   .registration-import-messages{display:grid;gap:4px;margin-top:8px}.registration-import-message{font-size:10.5px;line-height:1.4}.registration-import-message.block{color:var(--coral)}.registration-import-message.warn{color:var(--sand)}
+  .registration-import-toolbar{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+  .registration-import-selected{margin-top:10px;padding:9px 11px;border:1px solid #74d7ff35;border-radius:12px;background:#74d7ff0b;color:var(--muted);font-size:12px;line-height:1.4}
+  .registration-import-selected b{color:var(--text);font-size:15px}
+  .registration-import-footer{position:sticky;z-index:2;bottom:calc(-20px - env(safe-area-inset-bottom));margin:12px -16px calc(-20px - env(safe-area-inset-bottom));padding:10px 16px calc(20px + env(safe-area-inset-bottom));border-top:1px solid var(--line-strong);background:#111a2cf2;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
   .event-check-in-team{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07;margin-top:9px}
   .event-check-in-player{display:grid;grid-template-columns:minmax(0,1fr) minmax(130px,auto);gap:8px;align-items:center;padding:7px 0;border-top:1px solid var(--line)}
   .event-check-in-player select{min-height:40px}
   .imported-marker{display:inline-block;margin-left:5px;color:var(--gold);font-size:9px;font-weight:700}
-  @media(max-width:620px){.registration-import-callout{grid-template-columns:1fr 1fr}.registration-import-callout>div{grid-column:1/-1}.event-check-in-player{grid-template-columns:1fr}.registration-actions{grid-template-columns:1fr 1fr}}
+  @media(max-width:620px){.registration-import-callout{grid-template-columns:1fr 1fr}.registration-import-callout>div{grid-column:1/-1}.event-check-in-player{grid-template-columns:1fr}.registration-actions{grid-template-columns:1fr 1fr}.registration-settings-grid{grid-template-columns:1fr}.registration-import-action{align-items:flex-start;flex-direction:column}.registration-settings-counts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:360px){.registration-settings-counts{grid-template-columns:1fr}.registration-import-toolbar .btn{flex:1}.registration-import-footer,.registration-modal-footer{margin-left:-16px;margin-right:-16px}}
 
   .settings-section{scroll-margin-top:90px}
   .danger-zone{border-color:#ff7d7242;background:#ff7d7209}
@@ -1075,9 +1111,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.22.2',
-  build: '20260725.3',
-  releaseNotes: 'Keep event registration counts consistent across organizer views.'
+  version: '0.23.0',
+  build: '20260725.4',
+  releaseNotes: 'Review registrations in-app and import complete roster details with clearer mobile controls.'
 });
 
 function appVersionLabel(){
@@ -4562,6 +4598,41 @@ function registrationImportSnapshot(registration){
     status:REGISTRATION_ENTRY_STATUSES.includes(registration?.status)?registration.status:'accepted'
   };
 }
+function normalizeRegistrationImportMember(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{},rosterRole=source.rosterRole||source.role,matchStatus=source.matchStatus||source.status;
+  return {
+    id:String(source.id||source.memberId||'').trim(),
+    rosterRole:['active','substitute'].includes(rosterRole)?rosterRole:'active',
+    displayName:String(source.displayName||source.name||'').trim().slice(0,100),
+    matchStatus:['matched','pending','organizer_created','rejected'].includes(matchStatus)?matchStatus:'pending',
+    internalPlayerId:source.internalPlayerId==null&&source.playerId==null?null:String(source.internalPlayerId||source.playerId).trim()||null,
+    duplicateOverride:source.duplicateOverride===true,
+    updatedAt:registrationTimestamp(source.updatedAt)
+  };
+}
+function normalizeRegistrationImportRecord(value){
+  const source=value&&typeof value==='object'&&!Array.isArray(value)?value:{},members=(Array.isArray(source.members)?source.members:Array.isArray(source.roster)?source.roster:[]).map(normalizeRegistrationImportMember);
+  const count=(raw,role)=>Number.isInteger(Number(raw))&&Number(raw)>=0?Number(raw):members.filter(member=>member.rosterRole===role&&member.matchStatus!=='rejected').length;
+  return {
+    ...source,
+    id:String(source.id||source.registrationId||'').trim(),
+    eventId:String(source.eventId||'').trim(),
+    registrationType:source.registrationType||source.type||'team',
+    displayName:String(source.displayName||source.teamName||source.entryName||'').trim().slice(0,120),
+    status:REGISTRATION_ENTRY_STATUSES.includes(source.status)?source.status:String(source.status||''),
+    activePlayerCount:count(source.activePlayerCount,'active'),
+    substituteCount:count(source.substituteCount,'substitute'),
+    createdAt:registrationTimestamp(source.createdAt),
+    submittedAt:registrationTimestamp(source.submittedAt),
+    updatedAt:registrationTimestamp(source.updatedAt),
+    registrantName:String(source.registrantName||source.contactName||'').trim().slice(0,120),
+    contactEmail:String(source.contactEmail||source.email||'').trim().slice(0,254),
+    contactPhone:String(source.contactPhone||source.phone||'').trim().slice(0,60),
+    capacityOverride:source.capacityOverride===true,
+    revision:positiveInt(source.revision,1),
+    members
+  };
+}
 function registrationImportDiff(previous,next){
   const before=normalizeRegistrationImportSnapshot(previous)||{name:'',activePlayerIds:[],substitutePlayerIds:[],status:'accepted'},after=normalizeRegistrationImportSnapshot(next)||before,diff=[];
   if(before.name!==after.name)diff.push({kind:'name',label:`Team name: ${before.name||'Unnamed'} → ${after.name||'Unnamed'}`});
@@ -4576,7 +4647,7 @@ function registrationImportDiff(previous,next){
   return diff;
 }
 function registrationImportPreview(ev,server){
-  const entries=Array.isArray(server?.entries)?server.entries:[],compatibility=getRegistrationImportCompatibility(ev,server?.config||eventRegistration(ev)),localEntries=eventImportEntries(ev),schedule=getEventScheduleState(ev),acceptedOwners=new Map();
+  const entries=(Array.isArray(server?.entries)?server.entries:[]).map(normalizeRegistrationImportRecord),compatibility=getRegistrationImportCompatibility(ev,server?.config||eventRegistration(ev)),localEntries=eventImportEntries(ev),schedule=getEventScheduleState(ev),acceptedOwners=new Map();
   entries.filter(row=>row.status==='accepted').forEach(row=>(row.members||[]).forEach(member=>{
     if(!member.internalPlayerId||!['matched','organizer_created'].includes(member.matchStatus))return;
     if(!acceptedOwners.has(member.internalPlayerId))acceptedOwners.set(member.internalPlayerId,[]);
@@ -4586,6 +4657,8 @@ function registrationImportPreview(ev,server){
     const blockers=[],warnings=[...compatibility.warnings],snapshot=registrationImportSnapshot(registration),mapped=localEntries.filter(entry=>entry.registrationSource?.registrationId===registration.id),ack=registration.imported||null;
     let localEntry=mapped[0]||null,action='skip';
     if(!compatibility.supported)blockers.push(...compatibility.reasons);
+    if(!registration.id)blockers.push('This record has no stable registration ID.');
+    if(!snapshot.name)blockers.push('This record has no team or entry name.');
     if(registration.eventId&&registration.eventId!==ev.id)blockers.push('This registration belongs to another event.');
     if(registration.status!=='accepted'){
       if(localEntry)warnings.push(`Registration is now ${registrationStatusLabel(registration.status).toLowerCase()}; the event entry was not removed.`);
@@ -4600,7 +4673,10 @@ function registrationImportPreview(ev,server){
     const expectedType=compatibility.importUnit==='individual'?'individual':'team';
     if(registration.registrationType!==expectedType)blockers.push(`Registration type ${registration.registrationType} does not match this ${compatibility.importUnit||'event'} import.`);
     const members=Array.isArray(registration.members)?registration.members:[],unresolved=members.filter(member=>!['matched','organizer_created'].includes(member.matchStatus)||!member.internalPlayerId);
+    if(!members.length)blockers.push('Roster details are unavailable for this record.');
     if(unresolved.length)blockers.push(`Resolve all ${unresolved.length} pending or rejected roster member${unresolved.length===1?'':'s'} first.`);
+    const detailedActive=members.filter(member=>member.rosterRole==='active'&&member.matchStatus!=='rejected').length,detailedSubstitutes=members.filter(member=>member.rosterRole==='substitute'&&member.matchStatus!=='rejected').length;
+    if(registration.activePlayerCount!==detailedActive||registration.substituteCount!==detailedSubstitutes)blockers.push('Roster details are incomplete or do not match the recorded player counts.');
     const rawIds=members.filter(member=>['matched','organizer_created'].includes(member.matchStatus)&&member.internalPlayerId).map(member=>String(member.internalPlayerId)),allIds=[...snapshot.activePlayerIds,...snapshot.substitutePlayerIds],duplicateIds=rawIds.filter((id,index)=>rawIds.indexOf(id)!==index);
     if(duplicateIds.length)blockers.push('The same player appears more than once in this entry.');
     const missing=allIds.filter(id=>!pById(id));if(missing.length)blockers.push(`${missing.length} matched player${missing.length===1?' is':'s are'} missing from this device. Sync the player directory first.`);
@@ -10590,6 +10666,17 @@ window.setRegistrationFilter=value=>{EventRegistration.filter=['all','pending','
 function registrationImportActionLabel(action){
   return ({create:'Create new event entry',update:'Update imported event entry',none:'No change',skip:'Skip',blocked:'Blocked'})[action]||'Skip';
 }
+function registrationImportSelectionCounts(state){
+  const selected=state?.selected||new Set(),items=state?.preview?.items||[];
+  return {
+    create:items.filter(item=>item.action==='create'&&selected.has(item.registration.id)).length,
+    update:items.filter(item=>item.action==='update'&&selected.has(item.registration.id)).length
+  };
+}
+function registrationImportRosterText(registration,role){
+  const names=(registration.members||[]).filter(member=>member.rosterRole===role&&member.matchStatus!=='rejected').map(member=>member.displayName||'Unnamed player');
+  return names.length?names.join(', '):'None';
+}
 function registrationImportReviewHtml(state){
   const preview=state.preview,counts=preview?.counts||{accepted:0,ready:0,updated:0,current:0,blocked:0},items=preview?.items||[];
   if(state.loading)return `<div data-registration-import-review><h3>Registration import</h3><div class="stat-empty">Loading an organizer-only preview…</div>${sheetCloseBtn('Cancel')}</div>`;
@@ -10597,24 +10684,31 @@ function registrationImportReviewHtml(state){
   const rows=items.map(item=>{
     const registration=item.registration,selectable=['create','update'].includes(item.action),checked=selectable&&state.selected.has(registration.id),statusClass=item.action==='blocked'?'blocked':item.action==='update'?'updated':selectable?'ready':'';
     const matched=(registration.members||[]).filter(member=>['matched','organizer_created'].includes(member.matchStatus)).length,pending=(registration.members||[]).filter(member=>member.matchStatus==='pending').length,rejected=(registration.members||[]).filter(member=>member.matchStatus==='rejected').length;
-    return `<div class="registration-import-row ${statusClass}" data-import-registration="${esc(registration.id)}">
-      <label><input type="checkbox" ${checked?'checked':''} ${selectable?'':'disabled'} onchange="toggleRegistrationImport('${esc(registration.id)}',this.checked)"><span style="min-width:0"><b>${esc(registration.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block;margin-top:3px">${esc(registrationStatusLabel(registration.status))} · ${registration.activePlayerCount} active · ${registration.substituteCount} substitutes · ${matched} matched · ${pending} pending · ${rejected} rejected</span></span></label>
-      <div class="row spread" style="gap:8px;margin-top:8px"><span class="pill ${item.action==='blocked'?'bad':item.action==='update'?'warn':item.action==='none'?'good':''}">${esc(registrationImportActionLabel(item.action))}</span><span class="row" style="gap:6px">${item.localEntry?`<button class="btn sm ghost" onclick="viewImportedEventEntry('${esc(state.eventId)}','${esc(item.localEntry.id)}')">View event entry</button>`:''}${item.ack&&!item.localEntry?`<button class="btn sm danger" onclick="resetRegistrationImportMapping('${esc(registration.id)}')">Allow deliberate reimport</button>`:''}</span></div>
+    const submitted=registration.submittedAt||registration.createdAt,contact=[registration.registrantName,registration.contactEmail,registration.contactPhone].filter(Boolean).join(' · ')||'Not provided';
+    return `<div class="registration-import-row ${statusClass}" data-import-registration="${esc(registration.id)}" onclick="registrationImportCardClicked(event,'${esc(registration.id)}')">
+      <label class="registration-import-select" for="registration-import-${esc(registration.id)}"><input id="registration-import-${esc(registration.id)}" data-focus-key="registration-import-${esc(registration.id)}" type="checkbox" ${checked?'checked':''} ${selectable?'':'disabled'} onclick="event.stopPropagation()" onchange="toggleRegistrationImport('${esc(registration.id)}',this.checked)"><span class="registration-import-title"><b>${esc(registration.displayName||'Unnamed entry')}</b><span class="registration-import-meta">${esc(registrationStatusLabel(registration.status))} · ${submitted?`Submitted ${esc(registrationFormatTime(submitted))}`:'Submission time not recorded'}</span></span></label>
+      <div class="registration-import-action"><span class="pill ${item.action==='blocked'?'bad':item.action==='update'?'warn':item.action==='none'?'good':''}">${esc(registrationImportActionLabel(item.action))}</span><span class="row" style="gap:6px">${item.localEntry?`<button class="btn sm ghost" onclick="viewImportedEventEntry('${esc(state.eventId)}','${esc(item.localEntry.id)}')">View event entry</button>`:''}${item.ack&&!item.localEntry?`<button class="btn sm danger" onclick="resetRegistrationImportMapping('${esc(registration.id)}')">Allow deliberate reimport</button>`:''}</span></div>
+      <div class="registration-import-details">
+        <div class="registration-import-detail"><b>Active players · ${registration.activePlayerCount}</b><span>${esc(registrationImportRosterText(registration,'active'))}</span></div>
+        <div class="registration-import-detail"><b>Substitutes · ${registration.substituteCount}</b><span>${esc(registrationImportRosterText(registration,'substitute'))}</span></div>
+        <div class="registration-import-detail"><b>Registrant / contact</b><span>${esc(contact)}</span></div>
+      </div>
+      <div class="registration-import-match"><b>${matched} matched</b> · ${pending} pending · ${rejected} rejected${item.localEntry?` · Existing event entry: <b>${esc(item.localEntry.name||item.localEntry.id)}</b>`:' · No existing event entry matched'}</div>
       ${item.diff.length||item.localDiff.length?`<div class="registration-import-messages">${item.diff.map(row=>`<div class="registration-import-message warn">Registration: ${esc(row.label)}</div>`).join('')}${item.localDiff.map(row=>`<div class="registration-import-message warn">Local entry: ${esc(row.label)}</div>`).join('')}</div>`:''}
       ${item.blockers.length||item.warnings.length?`<div class="registration-import-messages">${item.blockers.map(message=>`<div class="registration-import-message block" role="alert">Blocked: ${esc(message)}</div>`).join('')}${item.warnings.map(message=>`<div class="registration-import-message warn">Warning: ${esc(message)}</div>`).join('')}</div>`:''}
     </div>`;
   }).join('');
-  const selected=state.selected.size;
+  const selection=registrationImportSelectionCounts(state),selected=selection.create+selection.update;
   return `<div data-registration-import-review><h3>Registration import · ${esc(evById(state.eventId)?.name||'Event')}</h3><p class="small muted" style="margin:-8px 0 12px">Preview only until you confirm. Each selected registration is applied atomically to its existing local event entry or to one new stable entry.</p>
     <div class="registration-capacity-grid"><div><b class="num">${counts.accepted}</b><span>accepted</span></div><div><b class="num">${counts.ready}</b><span>ready to create</span></div><div><b class="num">${counts.updated}</b><span>updates available</span></div><div><b class="num">${counts.blocked}</b><span>blocked</span></div></div>
     ${preview.compatibility.supported?'':`<div class="schedule-warning" role="alert">${preview.compatibility.reasons.map(esc).join(' ')}</div>`}
-    <div class="row" style="gap:8px;margin-bottom:10px"><button class="btn sm ghost" onclick="selectAllRegistrationImports(true)">Select ready</button><button class="btn sm ghost" onclick="selectAllRegistrationImports(false)">Clear</button><button class="btn sm ghost" onclick="refreshRegistrationImportReview()">Refresh</button></div>
+    <div class="registration-import-toolbar"><button class="btn sm ghost" onclick="selectAllRegistrationImports(true)">Select ready</button><button class="btn sm ghost" onclick="selectAllRegistrationImports(false)">Clear</button><button class="btn sm ghost" onclick="refreshRegistrationImportReview()">Refresh</button></div>
     <div class="registration-import-list">${rows||'<div class="stat-empty">No registrations are available for review.</div>'}</div>
-    <div class="tiny faint" style="margin-top:9px" aria-live="polite">${selected} selected. Import never creates games, changes ratings, or regenerates a schedule.</div>
-    <button class="btn primary block" style="margin-top:10px" ${selected&&!state.applying?'':'disabled'} onclick="applySelectedRegistrationImports()">${state.applying?'Importing…':`Import ${selected||''} selected`}</button>${sheetCloseBtn('Done')}</div>`;
+    <div class="registration-import-selected" aria-live="polite"><b>${selected} selected</b> · ${selection.create} to create · ${selection.update} to update<br>Import never creates games, changes ratings, or regenerates a schedule.</div>
+    <div class="registration-import-footer"><button class="btn primary block" ${selected&&!state.applying?'':'disabled'} onclick="applySelectedRegistrationImports()">${state.applying?'Importing…':`Review import · ${selection.create} create · ${selection.update} update`}</button>${sheetCloseBtn('Done')}</div></div>`;
 }
 function renderRegistrationImportReview(){
-  const state=window._registrationImportReview;if(!state)return;openSheet(registrationImportReviewHtml(state),{focus:'[data-registration-import-review] input:not([disabled]), [data-registration-import-review] button'});
+  const state=window._registrationImportReview;if(!state)return;openSheet(registrationImportReviewHtml(state),{focus:'[data-registration-import-review] input:not([disabled]), [data-registration-import-review] button'});window._sheetBeforeClose=()=>!state.applying;
 }
 window.openRegistrationImportReview=async evId=>{
   const ev=evById(evId);if(!ev)return;EventRegistration.setModalOpen(false);window._registrationImportReview={eventId:evId,loading:true,error:'',preview:null,selected:new Set(),applying:false};
@@ -10625,11 +10719,12 @@ window.refreshRegistrationImportReview=async()=>{
   state.loading=!state.preview;state.error='';if(state.loading)renderRegistrationImportReview();
   try{
     const preview=await EventRegistration.importPreview(ev),nextSelected=new Set();
-    preview.items.forEach(item=>{if(['create','update'].includes(item.action)&&(state.selected.has(item.registration.id)||!state.preview))nextSelected.add(item.registration.id);});
+    preview.items.forEach(item=>{if(['create','update'].includes(item.action)&&state.selected.has(item.registration.id))nextSelected.add(item.registration.id);});
     state.preview=preview;state.selected=nextSelected;
   }catch(error){state.error=error.message;}finally{state.loading=false;renderRegistrationImportReview();}
 };
-window.toggleRegistrationImport=(registrationId,value)=>{const state=window._registrationImportReview;if(!state)return;value?state.selected.add(registrationId):state.selected.delete(registrationId);renderRegistrationImportReview();};
+window.toggleRegistrationImport=(registrationId,value)=>{const state=window._registrationImportReview,item=state?.preview?.items.find(row=>row.registration.id===registrationId);if(!state||!item)return;if(value&&['create','update'].includes(item.action))state.selected.add(registrationId);else state.selected.delete(registrationId);renderRegistrationImportReview();};
+window.registrationImportCardClicked=(event,registrationId)=>{if(event.target.closest('button,a,input,label'))return;const state=window._registrationImportReview,item=state?.preview?.items.find(row=>row.registration.id===registrationId);if(!item||!['create','update'].includes(item.action))return;toggleRegistrationImport(registrationId,!state.selected.has(registrationId));};
 window.selectAllRegistrationImports=value=>{const state=window._registrationImportReview;if(!state?.preview)return;state.selected=new Set(value?state.preview.items.filter(item=>['create','update'].includes(item.action)).map(item=>item.registration.id):[]);renderRegistrationImportReview();};
 window.viewImportedEventEntry=(evId,entryId)=>{
   const ev=evById(evId);if(!ev)return;window._registrationImportReview=null;closeSheet(true);window._evOpen=evId;tab='events';render({scroll:'top'});
@@ -10642,7 +10737,7 @@ window.resetRegistrationImportMapping=async registrationId=>{
 };
 async function applyRegistrationImportItem(ev,item){
   if(!['create','update'].includes(item.action)||item.blockers.length)return {registrationId:item.registration.id,status:'blocked',message:item.blockers[0]||'Import is blocked.'};
-  const now=Date.now(),registration=item.registration,snapshot=item.snapshot,source={
+  const eventBefore=structuredClone(ev),now=Date.now(),registration=item.registration,snapshot=item.snapshot,source={
     schemaVersion:REGISTRATION_IMPORT_SOURCE_VERSION,registrationId:registration.id,sourceRevision:Number(registration.revision)||1,
     importedAt:item.localEntry?.registrationSource?.importedAt||now,lastSyncedAt:now,sourceSnapshot:snapshot
   };
@@ -10658,7 +10753,7 @@ async function applyRegistrationImportItem(ev,item){
   }
   if(item.schedule.hasSchedule)markScheduleNeedsReview(ev);
   try{await saveEvents();}
-  catch(error){if(created)collection.splice(collection.indexOf(entry),1);throw error;}
+  catch(error){Object.keys(ev).forEach(key=>delete ev[key]);Object.assign(ev,eventBefore);throw error;}
   let acknowledgment=null;
   try{acknowledgment=await EventRegistration.markImported(ev,registration.id,entry.id,Number(registration.revision)||1);}
   catch(error){return {registrationId:registration.id,status:'saved_unacknowledged',entryId:entry.id,message:`Event entry saved locally, but server acknowledgment needs retry: ${error.message}`};}
@@ -10666,7 +10761,9 @@ async function applyRegistrationImportItem(ev,item){
 }
 window.applySelectedRegistrationImports=async()=>{
   const state=window._registrationImportReview,ev=state&&evById(state.eventId);if(!state?.preview||!ev||state.applying||!state.selected.size)return;
-  if(!(await askConfirm(`Import ${state.selected.size} selected registration${state.selected.size===1?'':'s'} into ${ev.name}? Existing schedules will be preserved and marked for review. Ratings and games will not change.`,'Import selected')))return;
+  const selection=registrationImportSelectionCounts(state),selected=selection.create+selection.update;
+  if(!selected)return;
+  if(!(await askConfirm(`Apply ${selected} selected registration${selected===1?'':'s'} to ${ev.name}? This will create ${selection.create} new event entr${selection.create===1?'y':'ies'} and update ${selection.update} existing entr${selection.update===1?'y':'ies'}. Existing schedules are preserved and marked for review; ratings and games do not change.`,`Apply ${selected} import${selected===1?'':'s'}`,false)))return;
   state.applying=true;renderRegistrationImportReview();
   try{
     const latest=await EventRegistration.importPreview(ev),latestById=new Map(latest.items.map(item=>[item.registration.id,item])),results=[];
@@ -10761,6 +10858,7 @@ window.addEventDayReplacement=async playerId=>{
 window.createEventDayReplacement=()=>{if(!window._eventDayReplacement)return;openPlayer(null,null,{pickupEligible:false});};
 window.copyRegistrationLink=async evId=>{const ev=evById(evId),url=ev&&registrationPublicUrl(ev);if(!url){toast('Public registration link is unavailable');return;}let copied=false;try{await navigator.clipboard.writeText(url);copied=true;}catch(_){copied=copyTextFallback(url);}toast(copied?'Registration link copied':'Could not copy the link');};
 window.shareRegistrationLink=async evId=>{const ev=evById(evId),url=ev&&registrationPublicUrl(ev);if(!url){toast('Public registration link is unavailable');return;}if(navigator.share){try{await navigator.share({title:`${ev.name} registration`,url});return;}catch(error){if(error?.name==='AbortError')return;}}await copyRegistrationLink(evId);};
+window.openRegistrationLink=evId=>{const ev=evById(evId),url=ev&&registrationPublicUrl(ev);if(!url){toast('Public registration link is unavailable');return;}if(!window.open(url,'_blank','noopener,noreferrer'))toast('Allow pop-ups to open the public registration page');};
 window.rotateRegistrationLink=async evId=>{const ev=evById(evId);if(!ev||!(await askConfirm('Rotate the public registration link? The old link will stop working immediately. Existing registrations remain.','Rotate link')))return;try{await EventRegistration.rotateToken(ev);toast('Registration link rotated');EventRegistration.patchDashboard();}catch(error){toast(error.message);}};
 window.changeRegistrationLifecycle=async(evId,status)=>{const ev=evById(evId);if(!ev)return;if(['closed','cancelled'].includes(status)&&!(await askConfirm(status==='cancelled'?'Cancel registration? The public page will show that registration was cancelled. Existing entries remain.':'Close registration now? Existing entries remain available. ',status==='cancelled'?'Cancel registration':'Close registration')))return;try{await EventRegistration.updateLifecycle(ev,status);toast(`Registration ${status}`);render();if(document.querySelector('[data-registration-dashboard]')){openRegistrationDashboard(evId);}}catch(error){toast(error.message);EventRegistration.patchDashboard();}};
 window.changeRegistrationEntryStatus=async(entryId,status)=>{const evId=EventRegistration.modalEventId,ev=evId&&evById(evId),state=evId&&EventRegistration.get(evId),entry=state?.entries?.find(row=>row.id===entryId);if(!ev||!entry||!canTransitionRegistrationStatus(entry.status,status))return;try{
@@ -10827,29 +10925,42 @@ function registrationSettingsDraft(ev){
 }
 window.openRegistrationSettings=evId=>{
   const ev=evById(evId);if(!ev)return;window._registrationDraft=registrationSettingsDraft(ev);
-  const r=window._registrationDraft,supported=getSupportedRegistrationModesForEvent(ev),modes=supported.filter(row=>row.supported&&row.mode!=='disabled'),unsupported=supported.filter(row=>!row.supported).map(row=>row.reason),completed=ev.done===true;
-  openSheet(`<div data-registration-settings><h3>Registration · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 14px">Registration can stay open for weeks or months. Event-day player check-in remains a separate six-hour attendance tool.</p>
-    <div class="field"><label for="registrationEnabled"><input id="registrationEnabled" type="checkbox" ${r.enabled?'checked':''} ${completed?'disabled':''} onchange="registrationSettingsChanged()"> Enable public registration</label><div class="tiny faint">Disabling public registration closes new submissions but preserves server records.</div></div>
-    <div class="field"><label for="registrationMode">Mode</label><select id="registrationMode" onchange="registrationSettingsChanged()">${modes.length?modes.map(row=>`<option value="${row.mode}" ${row.mode===r.mode?'selected':''}>${row.mode==='team'?'Team registration':'Individual registration'}</option>`).join(''):'<option value="disabled">Not available for this format</option>'}</select><div class="tiny faint">${esc(modes.find(row=>row.mode===r.mode)?.reason||unsupported[0]||'Choose how entries register.')}</div></div>
-    <div class="field"><label for="registrationStatus">Registration status</label><select id="registrationStatus">${REGISTRATION_SYSTEM_STATUSES.map(status=>`<option value="${status}" ${status===r.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select></div>
-    <div class="registration-settings-grid"><div class="field"><label for="registrationOpens">Registration opens</label><input id="registrationOpens" type="datetime-local" value="${esc(registrationLocalDateTimeValue(r.opensAt))}"></div><div class="field"><label for="registrationCloses">Registration closes</label><input id="registrationCloses" type="datetime-local" value="${esc(registrationLocalDateTimeValue(r.closesAt))}"></div></div>
-    <div class="field"><label for="registrationCapacity">Active-player capacity</label><input id="registrationCapacity" type="number" inputmode="numeric" min="1" value="${r.activePlayerCapacity??''}" placeholder="Unlimited"><div class="tiny faint">Only accepted active players use capacity. Pending, waitlisted, declined, withdrawn, and substitute positions do not fill active spots.</div></div>
-    <div class="registration-settings-grid"><div class="field"><label for="registrationMinActive">Minimum active players per entry</label><input id="registrationMinActive" type="number" inputmode="numeric" min="1" value="${r.minActivePlayersPerTeam??''}" placeholder="No minimum"></div><div class="field"><label for="registrationMaxActive">Maximum active players per entry</label><input id="registrationMaxActive" type="number" inputmode="numeric" min="1" value="${r.maxActivePlayersPerTeam??''}" placeholder="No maximum"></div></div>
-    <div class="field"><label for="registrationAllowSubstitutes"><input id="registrationAllowSubstitutes" type="checkbox" ${r.allowSubstitutes?'checked':''} onchange="registrationSettingsChanged()"> Allow substitutes</label><div class="tiny faint">Substitutes are tracked separately and never consume active-player capacity.</div></div>
-    <div class="field"><label for="registrationMaxSubstitutes">Maximum substitutes per team</label><input id="registrationMaxSubstitutes" type="number" inputmode="numeric" min="0" value="${r.maxSubstitutesPerTeam??''}" placeholder="No limit"></div>
-    <div class="field"><label for="registrationApproval"><input id="registrationApproval" type="checkbox" ${r.requireOrganizerApproval?'checked':''}> Require organizer approval</label></div>
-    <div class="field"><label for="registrationWaitlist"><input id="registrationWaitlist" type="checkbox" ${r.allowWaitlist?'checked':''}> Allow waitlist</label></div>
-    <div class="field"><label for="registrationPublicTitle">Public title · optional</label><input id="registrationPublicTitle" maxlength="120" value="${esc(r.publicTitle)}" placeholder="${esc(ev.name)}"></div>
-    <div class="field"><label for="registrationPublicDescription">Public description · optional</label><textarea id="registrationPublicDescription" rows="4" maxlength="2000">${esc(r.publicDescription)}</textarea></div>
+  const r=window._registrationDraft,supported=getSupportedRegistrationModesForEvent(ev),modes=supported.filter(row=>row.supported&&row.mode!=='disabled'),unsupported=supported.filter(row=>!row.supported).map(row=>row.reason),completed=ev.done===true,state=EventRegistration.get(evId),summary=state?.summary,url=registrationPublicUrl(ev);
+  openSheet(`<div data-registration-settings data-registration-completed="${completed}"><h3>Registration · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 14px">Configure persistent event registration. Event-day player check-in remains a separate attendance tool.</p>
+    <section class="registration-settings-section" aria-labelledby="registration-availability-heading"><h4 id="registration-availability-heading">Availability</h4>
+      <label class="registration-toggle" for="registrationEnabled"><input id="registrationEnabled" type="checkbox" ${r.enabled?'checked':''} ${completed?'disabled':''} onchange="registrationSettingsChanged()"><span class="registration-toggle-copy"><b>Public registration enabled</b><span>Turning this off closes new submissions while preserving all server records.</span></span></label>
+      <div class="field"><label for="registrationStatus">Registration status</label><select id="registrationStatus">${REGISTRATION_SYSTEM_STATUSES.map(status=>`<option value="${status}" ${status===r.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select></div>
+      <div class="registration-settings-grid"><div class="field"><label for="registrationOpens">Opens</label><input id="registrationOpens" type="datetime-local" value="${esc(registrationLocalDateTimeValue(r.opensAt))}"></div><div class="field"><label for="registrationCloses">Closes</label><input id="registrationCloses" type="datetime-local" value="${esc(registrationLocalDateTimeValue(r.closesAt))}"></div></div>
+    </section>
+    <section class="registration-settings-section" aria-labelledby="registration-format-heading"><h4 id="registration-format-heading">Entry format</h4>
+      <div class="field"><label for="registrationMode">Registration mode</label><select id="registrationMode" onchange="registrationSettingsChanged()">${modes.length?modes.map(row=>`<option value="${row.mode}" ${row.mode===r.mode?'selected':''}>${row.mode==='team'?'Team registration':'Individual registration'}</option>`).join(''):'<option value="disabled">Not available for this format</option>'}</select><div class="tiny muted">${esc(modes.find(row=>row.mode===r.mode)?.reason||unsupported[0]||'Choose how entries register.')}</div></div>
+      <div class="registration-settings-grid"><div class="field"><label for="registrationMinActive">Minimum active players</label><input id="registrationMinActive" type="number" inputmode="numeric" min="1" value="${r.minActivePlayersPerTeam??''}" placeholder="No minimum"></div><div class="field"><label for="registrationMaxActive">Maximum active players</label><input id="registrationMaxActive" type="number" inputmode="numeric" min="1" value="${r.maxActivePlayersPerTeam??''}" placeholder="No maximum"></div></div>
+      <div class="field"><label for="registrationCapacity">Active-player capacity</label><input id="registrationCapacity" type="number" inputmode="numeric" min="1" value="${r.activePlayerCapacity??''}" placeholder="Unlimited" aria-describedby="registration-capacity-help"><div id="registration-capacity-help" class="tiny muted">Only accepted active players use capacity. Pending, waitlisted, declined, withdrawn, and substitute positions do not fill active spots.</div></div>
+      <label class="registration-toggle" for="registrationApproval"><input id="registrationApproval" type="checkbox" ${r.requireOrganizerApproval?'checked':''}><span class="registration-toggle-copy"><b>Require organizer approval</b><span>New entries remain pending until an organizer reviews them.</span></span></label>
+      <label class="registration-toggle" for="registrationWaitlist"><input id="registrationWaitlist" type="checkbox" ${r.allowWaitlist?'checked':''}><span class="registration-toggle-copy"><b>Allow waitlist</b><span>Complete entries can waitlist when accepted active-player capacity is full.</span></span></label>
+    </section>
+    <section class="registration-settings-section" aria-labelledby="registration-substitutes-heading"><h4 id="registration-substitutes-heading">Substitutes</h4>
+      <label class="registration-toggle" for="registrationAllowSubstitutes"><input id="registrationAllowSubstitutes" type="checkbox" ${r.allowSubstitutes?'checked':''} onchange="registrationSettingsChanged()"><span class="registration-toggle-copy"><b>Allow substitutes</b><span>Substitutes stay separate from the active roster and never consume active-player capacity.</span></span></label>
+      <div class="field"><label for="registrationMaxSubstitutes">Maximum substitutes per team</label><input id="registrationMaxSubstitutes" type="number" inputmode="numeric" min="0" value="${r.maxSubstitutesPerTeam??''}" placeholder="No limit"></div>
+    </section>
+    <section class="registration-settings-section" aria-labelledby="registration-sharing-heading"><h4 id="registration-sharing-heading">Sharing and management</h4>
+      <div class="registration-sharing"><div class="registration-sharing-status"><b>${r.enabled?esc(registrationStatusLabel(getEffectiveEventRegistrationStatus(r))):'Registration disabled'}</b><span>${url?esc(url):'The public link becomes available after registration is saved.'}</span></div>
+      <div class="registration-actions"><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="openRegistrationLink('${esc(ev.id)}')">Open public page</button></div>
+      <div class="registration-settings-counts"><div><b>${summary?.entryCounts.accepted??'—'}</b><span>accepted</span></div><div><b>${summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:'—'}</b><span>pending</span></div><div><b>${summary?.entryCounts.waitlisted??'—'}</b><span>waitlisted</span></div></div></div>
+      <div class="field" style="margin-top:12px"><label for="registrationPublicTitle">Public title · optional</label><input id="registrationPublicTitle" maxlength="120" value="${esc(r.publicTitle)}" placeholder="${esc(ev.name)}"></div>
+      <div class="field"><label for="registrationPublicDescription">Public description · optional</label><textarea id="registrationPublicDescription" rows="4" maxlength="2000">${esc(r.publicDescription)}</textarea></div>
+    </section>
     ${completed?'<div class="unkline">Reopen the event before changing registration. Reopening does not automatically reopen its public registration.</div>':!modes.length?`<div class="unkline">${esc(unsupported[0]||'Registration is not yet supported for this rotating group format.')}</div>`:''}
     <div data-registration-settings-error role="alert" aria-live="assertive" class="tiny" style="min-height:18px;color:var(--coral);margin-bottom:8px"></div>
-    <button data-save-registration class="btn primary block" ${modes.length&&!completed?'':'disabled'} onclick="saveRegistrationSettings('${esc(ev.id)}')">Save registration</button>${sheetCloseBtn()}</div>`,{focus:'#registrationEnabled'});registrationSettingsChanged();
+    <div class="registration-modal-footer"><button data-save-registration class="btn primary block" ${modes.length&&!completed?'':'disabled'} onclick="saveRegistrationSettings('${esc(ev.id)}')">Save registration</button>${sheetCloseBtn()}</div></div>`,{focus:'#registrationEnabled'});registrationSettingsChanged();
 };
 window.registrationSettingsChanged=()=>{
-  const root=document.querySelector('[data-registration-settings]');if(!root)return;const enabled=$('#registrationEnabled')?.checked===true,mode=$('#registrationMode')?.value,individual=mode==='individual';
+  const root=document.querySelector('[data-registration-settings]');if(!root)return;const enabled=$('#registrationEnabled')?.checked===true&&root.dataset.registrationCompleted!=='true',mode=$('#registrationMode')?.value,individual=mode==='individual';
   root.querySelectorAll('input:not(#registrationEnabled),select:not(#registrationMode),textarea').forEach(control=>control.disabled=!enabled);
   if($('#registrationMode'))$('#registrationMode').disabled=!enabled;
-  if(individual){const subs=$('#registrationAllowSubstitutes'),max=$('#registrationMaxSubstitutes');if(subs){subs.checked=false;subs.disabled=true;}if(max){max.value='0';max.disabled=true;}}
+  const subs=$('#registrationAllowSubstitutes'),max=$('#registrationMaxSubstitutes');
+  if(individual){if(subs){subs.checked=false;subs.disabled=true;}if(max){max.value='0';max.disabled=true;}}
+  else if(enabled&&max)max.disabled=subs?.checked!==true;
 };
 window.saveRegistrationSettings=async evId=>{
   const ev=evById(evId),errorBox=document.querySelector('[data-registration-settings-error]'),button=document.querySelector('[data-save-registration]');if(!ev)return;

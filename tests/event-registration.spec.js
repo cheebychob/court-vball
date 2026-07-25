@@ -603,5 +603,13 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   await expect(page.locator('[data-registration-settings]')).toBeVisible();
   const settingsOverflow = await page.evaluate(() => document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth);
   expect(settingsOverflow).toBeLessThanOrEqual(0);
-  await expect(page.locator('#registrationEnabled')).toHaveAccessibleName(/Enable public registration/);
+  await expect(page.locator('#registrationEnabled')).toHaveAccessibleName(/Public registration enabled/);
+  const substituteToggle = page.locator('#registrationAllowSubstitutes');
+  await expect(substituteToggle).toHaveAccessibleName(/Allow substitutes/);
+  await page.locator('label[for="registrationAllowSubstitutes"]').click();
+  await expect(substituteToggle).not.toBeChecked();
+  await expect(page.locator('#registrationMaxSubstitutes')).toBeDisabled();
+  await page.locator('label[for="registrationAllowSubstitutes"]').click();
+  await expect(substituteToggle).toBeChecked();
+  await expect(page.locator('#registrationMaxSubstitutes')).toBeEnabled();
 });
