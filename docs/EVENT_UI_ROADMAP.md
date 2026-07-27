@@ -62,9 +62,9 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 EUX-01 through EUX-04 are merged into `master`; their merge-commit fields are
 now recorded in their completion records.
 
-EUX-05 is implemented on `fix/event-responsive-standings-brackets`. Its pull
-request has not been opened yet, so its pull-request and merge-commit fields
-stay `Pending` until those values exist.
+EUX-05 is implemented on `fix/event-responsive-standings-brackets` and is
+awaiting merge of https://github.com/cheebychob/court-vball/pull/44. Its
+merge-commit field stays `Pending` until that value exists.
 
 EUX-06 is now `Ready`; its dependency EUX-03 is merged. EUX-07 has no
 dependencies but stays `Planned` until EUX-06 is complete.
@@ -566,7 +566,7 @@ Remove the two major hidden horizontal-scroll areas from mobile event pages.
 ## Completion record
 
 * **Completed date:** 2026-07-27
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/44
 * **Merge commit:** Pending
 * **Version/build:** 0.30.0 / 20260727.3 (from 0.29.0 / 20260727.2)
 * **Tests run:** `npm test` (302 passed, chromium + mobile-webkit, including the
@@ -1047,7 +1047,7 @@ Add one entry after each completed roadmap item.
 ### 2026-07-27 — EUX-05 completed
 
 * **Branch:** `fix/event-responsive-standings-brackets`
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/44
 * **Version/build:** 0.30.0 / 20260727.3
 * **Summary:** Removed the two hidden horizontal scrollers from mobile event
   pages. Below 760 px the rotating standings table becomes stacked rows —
