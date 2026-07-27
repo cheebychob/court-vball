@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260725.7">
+<meta name="court-build" content="20260725.8">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -434,13 +434,18 @@
   .perf::after{content:" perf";font-size:9px;font-weight:650;color:var(--soft);display:block;letter-spacing:.03em}
 
   /* ---------- event command center ---------- */
-  :root{--event-sticky-offset:126px}
+  :root{--event-sticky-offset:132px}
   .event-subnav{position:sticky;top:calc(66px + env(safe-area-inset-top));z-index:20;display:flex;gap:6px;
     overflow-x:auto;margin:0 -4px 12px;padding:6px 4px;background:linear-gradient(180deg,#090e19f8,#090e19dc 75%,transparent);scrollbar-width:none}
   .event-subnav::-webkit-scrollbar{display:none}
-  .event-subnav button{min-height:40px;padding:8px 12px;border-radius:12px;white-space:nowrap;color:var(--muted);
+  .event-subnav button{min-height:44px;padding:9px 13px;border-radius:12px;white-space:nowrap;color:var(--muted);
     background:#121b2b;border:1px solid #ffffff16;font-size:12px;font-weight:750}
+  .event-subnav button.on{color:var(--gold);background:#f2c66d16;border-color:#f2c66d59}
   .event-subnav button:focus-visible{color:var(--gold);border-color:#f2c66d55}
+  /* Fade whichever edge still hides destinations so the strip reads as scrollable. */
+  .event-subnav[data-overflow="end"]{-webkit-mask-image:linear-gradient(90deg,#000 calc(100% - 40px),#0000003d);mask-image:linear-gradient(90deg,#000 calc(100% - 40px),#0000003d)}
+  .event-subnav[data-overflow="start"]{-webkit-mask-image:linear-gradient(90deg,#0000003d,#000 40px);mask-image:linear-gradient(90deg,#0000003d,#000 40px)}
+  .event-subnav[data-overflow="both"]{-webkit-mask-image:linear-gradient(90deg,#0000003d,#000 40px,#000 calc(100% - 40px),#0000003d);mask-image:linear-gradient(90deg,#0000003d,#000 40px,#000 calc(100% - 40px),#0000003d)}
   [id^="event-"]{scroll-margin-top:calc(var(--event-sticky-offset) + env(safe-area-inset-top))}
   .selector-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 2px 0}
   .selector-clear{border:0;background:none;color:var(--gold);font-size:12px;padding:4px 2px}
@@ -540,12 +545,21 @@
   }
   .entry-table{overflow-x:auto}.entry-table .stand-row{min-width:570px;grid-template-columns:34px minmax(145px,1fr) 48px 70px 64px 76px 72px}
   .rotation-match{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:start;gap:10px;margin-top:8px}.rotation-match>div:last-child{text-align:right}.versus{align-self:center;color:var(--faint);font-size:11px}.rotation-side{display:grid;gap:6px;margin-top:5px}.rotation-side>div,.rotation-side>button{display:block;width:100%;text-align:inherit;padding:7px;border-radius:10px;background:#ffffff08;border:1px solid #ffffff10;color:inherit;font:inherit}.rotation-side>button:active{background:var(--tap);border-color:#f2c66d44}.rotation-side b,.rotation-side span{display:block;overflow-wrap:anywhere}.rotation-side span{margin-top:2px;color:var(--soft);font-size:10px;font-weight:500}
-  .name-link{color:var(--text);font:inherit;font-weight:700;padding:2px 0;text-align:inherit}
+  .name-link{color:var(--text);font:inherit;font-weight:700;padding:4px 0;text-align:inherit;overflow-wrap:anywhere}
   .name-link:active{color:var(--gold)}
+  /* Long team and participant names wrap instead of ellipsizing the opponent away. */
+  .match-teams{display:block;min-width:0;line-height:1.45;overflow-wrap:anywhere}
   @media(max-width:420px){.rotation-match{grid-template-columns:1fr}.rotation-match>div:last-child{text-align:left}.rotation-match .versus{text-align:center}}
-  main.event-detail{overflow-x:clip}
-  main.event-detail::after{content:"";display:block;height:calc(100vh - var(--event-sticky-offset) + var(--mobile-nav-h))}
-  @media(min-width:900px){:root{--event-sticky-offset:118px}}
+  main.event-detail{overflow-x:clip;padding-bottom:calc(var(--mobile-nav-h) + var(--safe-bottom) + 18px)}
+  /* Enough runway for the last destination to reach the sticky navigation
+     without leaving a full empty screen under short events. */
+  main.event-detail::after{content:"";display:block;height:min(34vh,280px)}
+  main.event-detail .btn.sm{min-height:44px;padding:9px 12px}
+  main.event-detail .btn.sm.log-match{min-height:46px;min-width:96px}
+  main.event-detail .stand-row span{overflow-wrap:anywhere}
+  @media(min-width:760px){main.event-detail{padding-bottom:44px}}
+  @media(min-width:900px){:root{--event-sticky-offset:124px}}
+  @media(min-width:1060px){main.event-detail{padding-bottom:52px}}
   .event-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
   .event-metric{padding:11px;border-radius:15px;background:#ffffff09;border:1px solid #ffffff14}
   .event-metric b{display:block;font-size:19px}.event-metric span{display:block;margin-top:4px;color:var(--soft);font-size:10.5px}
@@ -1126,9 +1140,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.26.0',
-  build: '20260725.7',
-  releaseNotes: 'Event pages now follow the event lifecycle: setup, live progress, and final results each lead with the right actions.'
+  version: '0.27.0',
+  build: '20260725.8',
+  releaseNotes: 'Event navigation now highlights where you are, every destination leads somewhere real, and event controls and long names are easier to use on a phone.'
 });
 
 function appVersionLabel(){
@@ -6921,26 +6935,26 @@ function renderRotatingEventDetail(ev){
   const nextMatch=complete?null:schedule.find(m=>!linkedRotationGame(ev,m));
   const nextAction=nextMatch?`<button class="btn primary block" data-event-next-action onclick="openRotationScore('${ev.id}','${nextMatch.id}')">Log next match</button>`
     :(!complete&&!schedule.length)?`<button class="btn ghost block" data-event-next-action onclick="openRotationSettings('${ev.id}')">Set up schedule</button>`:'';
-  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(`Rotating Groups · ${meta.label}`,esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}<nav class="event-subnav" aria-label="Event sections">${[['overview','Overview'],...(showRegistration?[['registration','Registration']]:[]),['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['entries','Entries']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}</nav>
+  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(`Rotating Groups · ${meta.label}`,esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}${eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}))}
     <section id="event-overview" class="card" data-event-lifecycle="${state}"><div class="row spread"><div><div class="stat-title" style="margin:0">${meta.title}</div><div class="small soft" style="margin-top:5px">${meta.blurb}</div></div><span class="pill ${meta.tone}">${meta.label}</span></div><p class="small soft">${esc(rotatingFormatDescription(s.entrySize,s.teamSize))} Each side contains ${validation.valid?validation.entriesPerSide:'—'} ${typePlural.toLowerCase()}.</p><div class="event-overview"><div class="event-metric"><b class="num">${entries.length}</b><span>${typePlural.toLowerCase()}</span></div><div class="event-metric"><b class="num">${s.teamSize}s</b><span>players per side</span></div><div class="event-metric"><b class="num">${validation.valid?validation.entriesPerSide:'—'}</b><span>entries per side</span></div><div class="event-metric"><b class="num">${completed}</b><span>completed</span></div><div class="event-metric"><b class="num">${Math.max(0,schedule.length-completed)}</b><span>remaining</span></div><div class="event-metric"><b>${leader?esc(leader.entry.name):'—'}</b><span>leader</span></div></div><div class="tiny faint">${s.rounds} rounds · ${s.courts} courts · Win ${s.winPoints} · tie ${s.tiePoints} · loss ${s.lossPoints}. ${esc(entryRulesLabel(ev))}</div>${tl?`<div class="tiny" style="margin-top:7px;color:var(--gold)">Planned pool play ends ${fmtScheduleTime(ev,tl.poolsEnd)}${tl.playoff?` · playoffs ${fmtScheduleTime(ev,tl.playoff[0].est)} · awards ${fmtScheduleTime(ev,tl.awards)}`:''}</div>`:''}${quality?`<div class="unkline" style="margin-top:9px">Games per ${typeSingular.toLowerCase()}: ${quality.gamesMin}–${quality.gamesMax} · byes ${quality.byesMin}–${quality.byesMax} · repeated teammate combinations ${quality.repeatedTeammates??quality.repeatedPartnerships??0} · repeated opponent combinations ${quality.repeatedOpponents||0} · back-to-back assignments ${quality.backToBack||0} · incomplete rounds ${quality.invalidRounds||0}${settings.hideRatings?'':` · average seed spread ${(quality.seedSpread||0).toFixed(1)}`}</div>`:''}${placementNote?`<div class="tiny faint" style="margin-top:6px">${esc(placementNote)}</div>`:''}${nextAction}</section>
     ${championsStripHtml(ev,state)}${rulesEntryActionHtml(ev)}${showRegistration?registrationSummaryHtml(ev,complete):''}`;
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
   if(!schedule.length) html+=`<div class="stat-empty">${validation.valid?(entries.length<validation.entriesPerMatch?`At least ${validation.entriesPerMatch} complete ${typePlural.toLowerCase()} are required for one match.`:'Choose rounds and courts, then generate a deterministic rotation.'):esc(validation.error)}</div><button class="btn ghost block" style="margin-top:10px" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn primary block" style="margin-top:8px" ${!validation.valid||entries.length<(validation.entriesPerMatch||Infinity)?'disabled':''} onclick="generateRotationSchedule('${ev.id}')">Generate schedule</button>`;
-  else {const standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),rounds=[...new Set(standard.map(m=>m.round))],matchCard=(m,time)=>{const res=rotationMatchResult(ev,m),extra=!isStandardScheduleMatch(m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${time?` · ${fmtScheduleTime(ev,time)}`:''}</span><span class="row" style="gap:5px">${extra?`<span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span>`:''}<span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button>${extra?`<button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button>`:''}</div>`}</div>`;};html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${standard.filter(m=>m.round===round).map(m=>matchCard(m,tl?.roundEst?.[round])).join('')}`).join('');if(extras.length){const blocks=[...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))];html+=`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed entries participate</span></div>`+blocks.map(block=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches${tl?.makeupEst?.[block]?` · ${fmtScheduleTime(ev,tl.makeupEst[block])}`:''}</div>${extras.filter(m=>positiveInt(m.makeupBlock,1)===block).map(m=>matchCard(m,tl?.makeupEst?.[block])).join('')}`).join('');}html+=scheduleFairnessAuditHtml(quality,typeSingular.toLowerCase());if(quality?.gameDifference>0)html+=`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`;html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>`;}
+  else {const standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),rounds=[...new Set(standard.map(m=>m.round))],matchCard=(m,time)=>{const res=rotationMatchResult(ev,m),extra=!isStandardScheduleMatch(m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${time?` · ${fmtScheduleTime(ev,time)}`:''}</span><span class="row" style="gap:5px">${extra?`<span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span>`:''}<span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary log-match" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button>${extra?`<button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button>`:''}</div>`}</div>`;};html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${standard.filter(m=>m.round===round).map(m=>matchCard(m,tl?.roundEst?.[round])).join('')}`).join('');if(extras.length){const blocks=[...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))];html+=`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed entries participate</span></div>`+blocks.map(block=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches${tl?.makeupEst?.[block]?` · ${fmtScheduleTime(ev,tl.makeupEst[block])}`:''}</div>${extras.filter(m=>positiveInt(m.makeupBlock,1)===block).map(m=>matchCard(m,tl?.makeupEst?.[block])).join('')}`).join('');}html+=scheduleFairnessAuditHtml(quality,typeSingular.toLowerCase());if(quality?.gameDifference>0)html+=`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`;html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>`;}
   html+=`</section><section id="event-playoffs">`;
   html+=bracketCardsHtml(ev);
   const playoffTeams=ev.teams||[];
   if(playoffTeams.length){
     html+=`<div class="card" style="margin-top:12px"><div class="row spread"><div class="stat-title" style="margin:0">Playoff teams${ev.done?'':' <span class="tiny faint" style="font-weight:500">· tap to rename / sub</span>'}</div>${ev.done?'':`<button class="btn sm ghost" onclick="openRotationPlayoffs('${ev.id}')">Rebuild</button>`}</div>`
-      +playoffTeams.map(t=>`<button class="ev-team pressable" onclick="openEventTeam('${ev.id}','${t.id}')"><span class="small" style="font-weight:700;white-space:nowrap">${esc(t.name)}</span><span class="tiny faint">${t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')}</span></button>`).join('')
+      +playoffTeams.map(t=>`<button class="ev-team pressable" onclick="openEventTeam('${ev.id}','${t.id}')"><span class="small match-teams" style="font-weight:700">${esc(t.name)}</span><span class="tiny faint">${t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')}</span></button>`).join('')
       +`${!ev.done&&!(ev.brackets||[]).length?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add playoff bracket</button>`:''}</div>`;
   } else if(!(ev.brackets||[]).length){
     html+=`<div class="card" style="margin-top:12px"><div class="stat-title">Playoffs</div><div class="stat-empty">Finish pool play, then combine ${typePlural.toLowerCase()} into fixed playoff teams and run a bracket. Winners advance automatically; entry pool standings never mix with bracket results.</div>${!ev.done?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" ${entries.length>=2*(validation.entriesPerSide||2)?'':'disabled'} onclick="openRotationPlayoffs('${ev.id}')">${icons.trophy} Build playoff teams</button>`:''}</div>`;
   }
-  html+=`</section><section id="event-entries"></section><section id="event-standings" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}`;
+  html+=`</section><section id="event-entries" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}<div id="event-standings">`;
   if(!standings.length)html+=`<div class="stat-empty">No ${typePlural.toLowerCase()} yet. Each ${typeSingular.toLowerCase()} must contain exactly ${s.entrySize} player${s.entrySize===1?'':'s'}.</div>`;
   else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id],substitutes=(r.entry.substitutePlayerIds||[]).map(id=>pById(id)?.name||'Historical player').map(esc).join(', ');return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}${r.entry.registrationSource?'<span class="imported-marker">Imported from registration</span>':''}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span>${substitutes?`<span class="tiny faint" style="display:block">Substitutes: ${substitutes}</span>`:''}</span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
-  html+=`</section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;
+  html+=`</div></section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;mountEventNav();
 }
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
 function entryDraftCapture(){const d=window._entryDraft,n=$('#entryName'),seed=$('#entryManualSeed');if(n)d.name=n.value;if(seed)d.manualSeed=positiveInt(seed.value,d.manualSeed);return d;}
@@ -7183,7 +7197,7 @@ window.openPairEditor=window.openEntryEditor;window.openPairSettings=window.open
 function fixedLinkedScheduleGame(ev,match){return games.find(g=>g.evId===ev.id&&(g.evMatchId===match.id||(!g.evMatchId&&((g.evA===match.a&&g.evB===match.b)||(g.evA===match.b&&g.evB===match.a)))));}
 function fixedPendingRoundScheduleHtml(ev,sc){
   if(!sc.plannedSlots.length)return `<div class="tiny" style="color:var(--mint);padding:4px 0">No standard matches scheduled.</div>`;
-  return sc.plannedSlots.map(slot=>{const number=(slot[0]?.slot??0)+1,time=slot[0]?.est;return `<div class="pool-title">Round ${number}${time?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,time)}</span>`:''}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m),game=fixedLinkedScheduleGame(ev,m);return `<div class="ev-team" style="padding:7px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="tiny faint" style="display:block">${esc(courtLabel(sc.s,m.court))}${m.pool?` · Pool ${esc(m.pool)}`:''} · <span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span><span class="small" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${game?.id||''}')">Final · ${esc(res.display)}</button>`:`<button class="btn sm ghost" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)} · `:''}Round ${number}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button>`}</div>`;}).join('')}`;}).join('');
+  return sc.plannedSlots.map(slot=>{const number=(slot[0]?.slot??0)+1,time=slot[0]?.est;return `<div class="pool-title">Round ${number}${time?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,time)}</span>`:''}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m),game=fixedLinkedScheduleGame(ev,m);return `<div class="ev-team" style="padding:7px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="tiny faint" style="display:block">${esc(courtLabel(sc.s,m.court))}${m.pool?` · Pool ${esc(m.pool)}`:''} · <span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span><span class="small match-teams"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${game?.id||''}')">Final · ${esc(res.display)}</button>`:`<button class="btn sm ghost log-match" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)} · `:''}Round ${number}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button>`}</div>`;}).join('')}`;}).join('');
 }
 /* Field-and-bracket setup for fixed-team events. Before play it sits directly
    under the overview; once results exist it keeps every control but moves below
@@ -7215,9 +7229,7 @@ function renderEventDetail(ev){
   const setupHtml=fixedEventSetupActionsHtml(ev,started);
   let html = `<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>`;
   html += screenHead(`Event · ${meta.label}`, esc(ev.name),eventTimingSummary(ev));
-  html += `<nav class="event-subnav" aria-label="Event sections">
-    ${[['overview','Overview'],...(showRegistration?[['registration','Registration']]:[]),['schedule','Schedule'],['playoffs','Playoffs'],['standings','Standings'],['teams','Teams']].map(([id,label])=>`<button data-event-tab="${id}" onclick="eventSection('${id}')">${label}</button>`).join('')}
-  </nav>`;
+  html += eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}));
   html += `<section id="event-overview" class="card" data-event-lifecycle="${state}" style="border-color:${complete?'#ffffff20':'#5fe3ae42'}">
     <div class="row spread"><div><div class="stat-title" style="margin:0">${meta.title}</div><div class="small soft" style="margin-top:5px">${canLog||complete?meta.blurb:'Add at least two teams before logging a result.'}</div></div><span class="pill ${meta.tone}">${meta.label}</span></div>
     <div class="event-overview">
@@ -7246,12 +7258,12 @@ function renderEventDetail(ev){
           return `<div class="ev-team" style="padding:7px 0;gap:8px">
             <span style="min-width:0;display:block;flex:1">
               ${m.pool?`<span class="tiny faint" style="display:block">Pool ${esc(m.pool)}</span>`:''}
-              <span class="small" style="display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?ta.name:'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?tb.name:'?')}</button></span>
+              <span class="small match-teams"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?ta.name:'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?tb.name:'?')}</button></span>
             </span>
-            <button class="btn sm ghost" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)}`:'Scheduled match'}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button></div>`;
+            <button class="btn sm ghost log-match" style="white-space:nowrap" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${m.pool?`Pool ${esc(m.pool)}`:'Scheduled match'}','set','${m.id||''}')"><span class="tiny num">${fmtScheduleTime(ev,m.est)}</span> · log ›</button></div>`;
         }).join('') : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}
       `).join('') : `<div class="tiny" style="color:var(--mint);padding:4px 0">Pool play complete ✓</div>`}
-      ${sc.makeupSlots?.length?`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed teams participate</span></div>${sc.makeupSlots.map((slot,blockIndex)=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches · ${slot[0]?.est?fmtScheduleTime(ev,slot[0].est):'Time TBD'}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m);return `<div class="ev-team" style="padding:8px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span><span class="small" style="display:block;margin-top:4px"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${games.find(g=>g.evId===ev.id&&g.evMatchId===m.id)?.id||''}')">Final · ${esc(res.display)}</button>`:`<span class="row" style="gap:5px"><button class="btn sm primary" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${esc(m.label||'Makeup match')}','set','${m.id}')">Log</button><button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button></span>`}</div>`;}).join('')}`).join('')}`:''}
+      ${sc.makeupSlots?.length?`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed teams participate</span></div>${sc.makeupSlots.map((slot,blockIndex)=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches · ${slot[0]?.est?fmtScheduleTime(ev,slot[0].est):'Time TBD'}</div>${slot.map(m=>{const ta=evTeamById(ev,m.a),tb=evTeamById(ev,m.b),res=fixedScheduleResult(ev,m);return `<div class="ev-team" style="padding:8px 0;gap:8px"><span style="min-width:0;display:block;flex:1"><span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span><span class="small match-teams" style="margin-top:4px"><button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.a}')">${esc(ta?.name||'?')}</button> <span class="faint">vs</span> <button class="name-link" onclick="openTeamSchedule('${ev.id}','${m.b}')">${esc(tb?.name||'?')}</button></span></span>${res?`<button class="btn sm ghost" onclick="viewGame('${games.find(g=>g.evId===ev.id&&g.evMatchId===m.id)?.id||''}')">Final · ${esc(res.display)}</button>`:`<span class="row" style="gap:5px"><button class="btn sm primary log-match" onclick="openEventGame('${ev.id}','${m.a}','${m.b}','${esc(m.label||'Makeup match')}','set','${m.id}')">Log</button><button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button></span>`}</div>`;}).join('')}`).join('')}`:''}
       ${scheduleFairnessAuditHtml(sc.fairnessAudit,'team')}
       ${sc.fairnessAudit?.gameDifference>0?`<div class="schedule-warning">Teams have different scheduled opportunities. Rankings use match win percentage first.</div>`:''}
       ${sc.playoff
@@ -7270,9 +7282,10 @@ function renderEventDetail(ev){
     html += `<div class="card" style="margin-top:12px"><div class="stat-title">Playoffs</div><div class="stat-empty">No playoff bracket yet. A bracket turns seeded teams into live matchups; winners advance automatically from saved results.</div>${!ev.done&&canLog?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add playoff bracket</button>`:''}</div>`;
   }
   html += `</section>`;
-  html += `<section id="event-teams"></section><section id="event-standings" class="card" style="margin-top:12px">
+  html += `<section id="event-teams" class="card" style="margin-top:12px">
     <div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">Teams &amp; standings</div>
-      <span class="tiny faint">tap for schedule · edit inside</span></div>`;
+      <span class="tiny faint">tap for schedule · edit inside</span></div>
+    <div id="event-standings">`;
   if(!st.length) html+=`<div class="stat-empty">No teams yet. Add fixed rosters or guest teams to begin.</div>${!ev.done?`<button class="btn ghost block" style="margin-top:10px" onclick="openEventTeam('${ev.id}')">${icons.plus} Add first team</button>`:''}`;
   else {
     const poolVals=[...new Set((ev.teams||[]).map(t=>t.pool||''))];
@@ -7287,7 +7300,7 @@ function renderEventDetail(ev){
         <span class="num small" style="text-align:right;font-weight:700;color:${r.diff>0?'var(--good)':r.diff<0?'var(--bad)':'var(--faint)'}">${r.diff>0?'+':''}${r.diff}</span></button>`).join('');
     html += groups.filter(g=>g.rows.length).map(g=>`${g.label?`<div class="pool-title">${esc(g.label)}</div>`:''}${table(g.rows)}`).join('');
   }
-  html += `</section>`;
+  html += `</div></section>`;
   if(started) html += setupHtml;
   if(gs.length){
     html += `<div class="card" style="margin-top:12px"><div class="stat-title">Games</div>`
@@ -7305,20 +7318,93 @@ function renderEventDetail(ev){
     <button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button>
     <button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;
   main.innerHTML=html;
+  mountEventNav();
 }
+/* ---------- shared event section definition ----------
+   One definition drives destination order, labels, visibility, and the default
+   destination for both event formats, so the navigation can never list a
+   section the page does not render or order them differently. */
+const EVENT_SECTION_LABELS={overview:'Overview',registration:'Registration',schedule:'Schedule',playoffs:'Playoffs',teams:'Teams',entries:'Entries',standings:'Standings'};
+function eventSectionModel(ev,{state,showRegistration}={}){
+  const ids=['overview',...(showRegistration?['registration']:[]),'schedule','playoffs',
+    eventFormat(ev)==='rotatingGroups'?'entries':'teams','standings'];
+  const lifecycle=state||eventLifecycleState(ev);
+  const working=lifecycle==='live'||lifecycle==='poolsComplete'||lifecycle==='playoffs';
+  return {ids,sections:ids.map(id=>({id,label:EVENT_SECTION_LABELS[id]})),
+    defaultId:lifecycle==='complete'?'standings':working?'schedule':'overview'};
+}
+function eventSubnavHtml(model){
+  return `<nav class="event-subnav" aria-label="Event sections" data-event-default="${model.defaultId}">`
+    + model.sections.map(s=>`<button data-event-tab="${s.id}" onclick="eventSection('${s.id}')">${s.label}</button>`).join('')
+    + `</nav>`;
+}
+function eventStickyOffset(){
+  return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--event-sticky-offset'))||126;
+}
+function eventSubnavEl(){ return document.querySelector('.event-subnav'); }
+function eventSectionIds(){ return [...(eventSubnavEl()?.querySelectorAll('[data-event-tab]')||[])].map(b=>b.dataset.eventTab); }
+/* The destination the reader is actually looking at: the last section whose top
+   has passed under the sticky navigation. */
+function eventSectionAtScroll(){
+  const ids=eventSectionIds(); if(!ids.length) return null;
+  const limit=eventStickyOffset()+12;
+  let active=null;
+  for(const id of ids){
+    const el=document.getElementById('event-'+id);
+    if(el&&el.getBoundingClientRect().top<=limit) active=id;
+  }
+  return active||ids[0];
+}
+/* A tapped destination stays highlighted at the position it landed on — even
+   when the page cannot scroll far enough — and releases the moment the reader
+   scrolls somewhere else. */
+function syncEventNav(){
+  const nav=eventSubnavEl(); if(!nav) return;
+  const pin=window._eventSectionPin;
+  const pinned=pin&&Math.abs(window.scrollY-pin.y)<=3&&document.getElementById('event-'+pin.id);
+  if(!pinned) window._eventSectionPin=null;
+  const active=pinned?pin.id:eventSectionAtScroll();
+  window._eventSection=active;
+  nav.querySelectorAll('[data-event-tab]').forEach(button=>{
+    const on=button.dataset.eventTab===active;
+    button.classList.toggle('on',on);
+    if(on) button.setAttribute('aria-current','location'); else button.removeAttribute('aria-current');
+  });
+  const overflow=Math.max(0,nav.scrollWidth-nav.clientWidth);
+  nav.dataset.overflow=overflow<=1?'none':nav.scrollLeft<=1?'end':nav.scrollLeft>=overflow-1?'start':'both';
+}
+let eventNavFrame=0;
+function scheduleEventNavSync(){
+  if(eventNavFrame) return;
+  eventNavFrame=requestAnimationFrame(()=>{ eventNavFrame=0; syncEventNav(); });
+}
+/* The navigation markup is rebuilt on every event render, so the active state
+   and overflow cue are recomputed against the live layout each time. */
+function mountEventNav(){
+  const nav=eventSubnavEl(); if(!nav) return;
+  nav.addEventListener('scroll',scheduleEventNavSync,{passive:true});
+  syncEventNav(); scheduleEventNavSync();
+}
+window.addEventListener('scroll',()=>{ if(eventSubnavEl()) scheduleEventNavSync(); },{passive:true});
+window.addEventListener('resize',()=>{ if(eventSubnavEl()) scheduleEventNavSync(); });
 function scrollToEventSection(id){
   const target=document.getElementById('event-'+id); if(!target) return;
-  const offset=parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--event-sticky-offset'))||126;
+  const offset=eventStickyOffset();
   window.scrollTo({top:Math.max(0,target.getBoundingClientRect().top+window.scrollY-offset),behavior:'auto'});
-  const nav=document.querySelector('.event-subnav'), button=nav?.querySelector(`[data-event-tab="${CSS.escape(id)}"]`);
+  const nav=eventSubnavEl(), button=nav?.querySelector(`[data-event-tab="${CSS.escape(id)}"]`);
   if(nav&&button){ const left=button.offsetLeft-(nav.clientWidth-button.offsetWidth)/2; nav.scrollTo({left:Math.max(0,left),behavior:'smooth'}); }
+  window._eventSectionPin={id,y:window.scrollY};
+  syncEventNav();
 }
 window.eventSection=(id)=>{
-  if(window._eventSection===id) return;
-  window._eventSection=id; scrollToEventSection(id);
+  /* Always re-scroll: selecting the current destination again after scrolling
+     away has to bring it back. A destination that no longer exists falls back
+     to the shared default section. */
+  const target=document.getElementById('event-'+id)?id:(eventSubnavEl()?.dataset.eventDefault||id);
+  scrollToEventSection(target);
 };
-window.openEvent=(id)=>{ window._evOpen=id; window._eventSection=null; tab='events'; render({scroll:'top'}); };
-window.closeEvent=()=>{ window._evOpen=null; window._eventSection=null; render({scroll:'top'}); };
+window.openEvent=(id)=>{ window._evOpen=id; window._eventSection=null; window._eventSectionPin=null; tab='events'; render({scroll:'top'}); };
+window.closeEvent=()=>{ window._evOpen=null; window._eventSection=null; window._eventSectionPin=null; render({scroll:'top'}); };
 window.openNewEvent=()=>{
   openSheet(`<h3>New event</h3>
     <div class="field"><label>Event name</label><input id="evName" placeholder="e.g. Spring Smash · July 18"></div>
@@ -7383,7 +7469,7 @@ window.deleteEvent=async(id)=>{
   games=filterDeletedGames(games,Sync.deletionState());
   evts=evts.filter(e=>e.id!==id);
   await saveEvents(); await saveGames();
-  window._evOpen=null; window._eventSection=null; closeSheet(); toast('Event deleted · games kept'); render();
+  window._evOpen=null; window._eventSection=null; window._eventSectionPin=null; closeSheet(); toast('Event deleted · games kept'); render();
 };
 /* --- event team editor (add / rename / sub players) --- */
 function cleanPoolLabel(v){ return (v||'').trim().toUpperCase().replace(/[^A-Z0-9]/g,''); }

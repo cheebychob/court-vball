@@ -55,13 +55,16 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-02
-**Expected branch:** `fix/event-navigation-and-touch`
-**Next item after completion:** EUX-03
+**Current item:** EUX-03
+**Expected branch:** `fix/event-sheet-share-layout`
+**Next item after completion:** EUX-04
 
 EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting merge of
 https://github.com/cheebychob/court-vball/pull/40. Its merge-commit field stays
 `Pending` until that value exists.
+
+EUX-02 is implemented on `fix/event-navigation-and-touch`. Its pull-request and
+merge-commit fields stay `Pending` until those values exist.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -71,8 +74,8 @@ is completed. Only one item should normally be In Progress.
 | Done | ID     | Work item                                           | Branch                                     | Depends on     | Status  |
 | ---- | ------ | --------------------------------------------------- | ------------------------------------------ | -------------- | ------- |
 | [x]  | EUX-01 | Event lifecycle and state-appropriate UI            | `feat/event-lifecycle-ui`                  | None           | Done    |
-| [ ]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Ready   |
-| [ ]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Planned |
+| [x]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Done    |
+| [ ]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Ready   |
 | [ ]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Planned |
 | [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Planned |
 | [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Planned |
@@ -197,7 +200,7 @@ information and actions without adding a stored lifecycle field.
 
 **Branch:** `fix/event-navigation-and-touch`
 **Risk:** Medium
-**Status:** Ready
+**Status:** Done
 **Depends on:** EUX-01
 
 ## Objective
@@ -243,13 +246,60 @@ screens without yet changing the page into mobile section views.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
-* **Tests run:**
+* **Completed date:** 2026-07-25
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.27.0 / 20260725.8 (from 0.26.0 / 20260725.7)
+* **Tests run:** `npm test` (285 passed, chromium + mobile-webkit, including the
+  new `tests/event-navigation.spec.js`), `npm run test:worker` (65 passed),
+  `npm run test:version-check` (10 passed), `npm run check:version`
 * **Important implementation notes:**
+  * `eventSectionModel(ev,{state,showRegistration})` is the single definition of
+    destination order, labels, visibility, and the default section. Both
+    renderers build their navigation from `eventSubnavHtml(model)`, so the strip
+    can no longer list a destination the page does not render or order them
+    differently. `defaultId` is `standings` for a complete event, `schedule`
+    while play is under way, otherwise `overview`; EUX-04 should reuse it for
+    mobile section defaults.
+  * The zero-height `#event-teams` / `#event-entries` anchors are gone. The
+    "Teams &amp; standings" / "Entries &amp; standings" card now carries that id and
+    the standings table inside it carries `#event-standings`, so every
+    destination has real content and navigation order matches document order
+    (Overview → Registration → Schedule → Playoffs → Teams/Entries → Standings).
+  * `syncEventNav()` marks the active destination with `.on` plus
+    `aria-current="location"`, derived from scroll position on a passive,
+    rAF-throttled `scroll`/`resize` listener and re-applied by `mountEventNav()`
+    after every event render. A tapped destination is pinned at the position it
+    landed on (`window._eventSectionPin`), so it stays highlighted even when the
+    page cannot scroll far enough, and releases as soon as the reader scrolls
+    more than 3 px away.
+  * `eventSection(id)` no longer returns early when the requested destination is
+    already active, so re-selecting it after scrolling away returns to it. An id
+    with no rendered section falls back to the model's default destination.
+  * The subnav sets `data-overflow="none|start|end|both"` and fades the edge that
+    still hides destinations.
+  * Touch targets: subnav buttons and every `.btn.sm` inside `main.event-detail`
+    are at least 44 px; per-match logging controls carry `.log-match`
+    (46 px tall, 96 px minimum width). The change is scoped to event contexts, so
+    small buttons elsewhere are untouched. `--event-sticky-offset` moved
+    126 → 132 px (900 px and up: 118 → 124 px) to match the taller strip.
+  * Long names wrap through the new `.match-teams` class (fixed schedule rows,
+    makeup rows, rotating playoff teams) plus `overflow-wrap:anywhere` on
+    `.name-link` and event standings cells; no schedule row ellipsizes its
+    opponent any more.
+  * Trailing space shrank from `100vh - offset + dock` to `min(34vh,280px)`, and
+    `main.event-detail` gained explicit dock and safe-area bottom padding
+    (44 px at 760 px and up, 52 px at 1060 px and up where the dock is hidden).
+  * No stored event data, backup, sync, rating, scheduling, seeding, or
+    registration behavior changed.
 * **Remaining follow-up:**
+  * The Teams/Entries and Standings destinations sit in the same card, roughly
+    one header apart. EUX-04's mobile section views are the right place to decide
+    whether they should become separate views.
+  * The rotating standings table still scrolls horizontally inside
+    `.entry-table`; that is EUX-05's scope.
+  * Rotating setup controls still live in the schedule and entries sections
+    (carried over from EUX-01); demoting them was not part of this item.
 
 ---
 
@@ -257,7 +307,7 @@ screens without yet changing the page into mobile section views.
 
 **Branch:** `fix/event-sheet-share-layout`
 **Risk:** Low–Medium
-**Status:** Planned
+**Status:** Ready
 
 ## Objective
 
@@ -701,6 +751,39 @@ Add one entry after each completed roadmap item.
   errors and no horizontal overflow.
 * **Known follow-up:** See the EUX-01 completion record.
 * **Next item:** EUX-02
+
+### 2026-07-25 — EUX-02 completed
+
+* **Branch:** `fix/event-navigation-and-touch`
+* **Pull request:** Pending
+* **Version/build:** 0.27.0 / 20260725.8
+* **Summary:** Added `eventSectionModel`/`eventSubnavHtml` as the one shared
+  event section definition (order, labels, visibility, default destination) used
+  by both event formats; replaced the zero-height Teams and Entries anchors with
+  the real participants card and moved `#event-standings` onto the standings
+  table inside it so navigation order matches document order; added a visible
+  active state with `aria-current="location"` that follows manual scrolling,
+  pins a tapped destination, and returns to it when re-selected; added a
+  horizontal-overflow cue to the strip; raised event navigation, event `.btn.sm`
+  controls, and per-match logging targets to at least 44 px within event
+  contexts only; let long team and entry names wrap instead of ellipsizing the
+  opponent away; and added dock/safe-area bottom padding while cutting the
+  trailing event-page spacer.
+* **Tests:** New `tests/event-navigation.spec.js` (10 tests: destination
+  content and order for fixed and rotating events, completed-event destination
+  set, active state and sticky clearance after selection, scroll-driven active
+  state and repeated selection, default-section fallback, overflow cue, touch
+  targets, long-name wrapping at 320 px and 375 px with no document overflow,
+  dock clearance and trailing space, desktop behavior). Full suite: `npm test`
+  285 passed, `npm run test:worker` 65 passed, `npm run test:version-check`
+  10 passed, `npm run check:version` passed. `tests/version.spec.js` and
+  `tests/app-updates.spec.js` updated for the new version and build.
+* **Manual checks:** Fixed and rotating event pages at 375 px and 1280 px —
+  active navigation state, overflow fade, sticky clearance, wrapped long names,
+  dock clearance at the bottom of the page, no console errors, no horizontal
+  overflow.
+* **Known follow-up:** See the EUX-02 completion record.
+* **Next item:** EUX-03
 
 ## Entry template
 
