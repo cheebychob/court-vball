@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260725.8">
+<meta name="court-build" content="20260727.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -816,11 +816,11 @@
   body.modal-open{overflow:hidden;touch-action:none}
   .scrim{position:fixed;inset:0;z-index:60;display:flex;align-items:flex-end;justify-content:center;
     background:#000000a1;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding-top:56px;}
-  .sheet{width:100%;max-width:620px;max-height:88vh;overflow:auto;overscroll-behavior:contain;
+  .sheet{--sheet-pad-x:16px;width:100%;max-width:620px;max-height:88vh;overflow:auto;overscroll-behavior:contain;
     border-radius:26px 26px 0 0;background:linear-gradient(150deg,#182236,#0f1626);
     border:1px solid #ffffff24;border-bottom:0;
     box-shadow:0 -18px 64px #000000a0, inset 0 1px 0 #ffffff1e;
-    padding:10px 16px calc(20px + env(safe-area-inset-bottom));
+    padding:10px var(--sheet-pad-x) calc(20px + env(safe-area-inset-bottom));
     animation:sheetUp .2s ease-out;}
   @keyframes sheetUp{from{transform:translateY(22px);opacity:.4}to{transform:none;opacity:1}}
   .grab{width:42px;height:5px;border-radius:999px;background:#ffffff2a;margin:4px auto 15px}
@@ -829,6 +829,36 @@
   .sheet p{color:var(--muted);font-size:13px;line-height:1.5}
   .sheet-x{position:sticky;z-index:2;top:0;float:right;width:44px;height:44px;margin:-2px -4px 2px 8px;
     display:grid;place-items:center;border-radius:14px;background:#1b2639;border:1px solid #ffffff20;color:var(--muted);font-size:21px}
+
+  /* Reusable sheet chrome. The header keeps the close control in normal flow so
+     it can never sit on top of a preview or a form, the sticky footer keeps the
+     primary actions reachable without scrolling a long preview, and the preview
+     frame gives exported-document previews a neutral, collapsible surround.
+     Sheets opt in by including these elements; every other sheet keeps the
+     original floating close button. */
+  .sheet-head{display:flex;align-items:flex-start;gap:10px;margin:0 0 12px}
+  .sheet-head-copy{flex:1;min-width:0}
+  .sheet-head-copy h3{margin:0;overflow-wrap:anywhere}
+  .sheet-head-copy p{margin:6px 0 0}
+  .sheet-head-actions{flex:none;display:flex;align-items:center}
+  .sheet-head .sheet-x{position:static;float:none;margin:0}
+  .sheet:has(.sheet-foot){padding-bottom:0}
+  .sheet-foot{position:sticky;bottom:0;z-index:3;display:grid;gap:8px;
+    margin:16px calc(-1 * var(--sheet-pad-x)) 0;
+    padding:12px var(--sheet-pad-x) calc(14px + env(safe-area-inset-bottom));
+    background:#0f1626f2;backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);
+    border-top:1px solid #ffffff1f}
+  .sheet-foot .btn{margin-top:0}
+  .sheet-foot .schedule-actions{grid-template-columns:1fr;margin-top:0}
+  .sheet-preview{margin-top:12px;border:1px solid #ffffff1d;border-radius:16px;background:#00000020;overflow:hidden}
+  .sheet-preview>summary{display:flex;align-items:center;justify-content:space-between;gap:10px;min-height:44px;padding:10px 12px;
+    cursor:pointer;list-style:none;color:var(--muted);font-size:12px;font-weight:750}
+  .sheet-preview>summary::-webkit-details-marker{display:none}
+  .sheet-preview>summary::after{content:'Hide preview';flex:none;color:var(--gold);font-size:11px;font-weight:800}
+  .sheet-preview:not([open])>summary::after{content:'Show preview'}
+  .sheet-preview-body{padding:0 8px 8px}
+  .sheet-preview-body>.schedule-preview{margin-top:0}
+  .sheet-preview-note{text-align:center;color:var(--faint);font-size:11px;line-height:1.45;margin:9px 0 0}
 
   /* Participant-facing schedule preview. The exported HTML document uses the
      same hierarchy, so the in-app review matches the one-file artifact. */
@@ -879,7 +909,6 @@
   .public-player-photos{display:inline-flex!important;align-items:center;gap:4px;margin-top:6px!important}.public-player-photo{position:relative;display:grid!important;width:30px;height:30px;place-items:center;border-radius:10px;border:1px solid #cfd8e5;background:#e8edf4;color:#526079;font-size:10px;font-weight:850;overflow:hidden}.public-player-photo>span{display:block!important;margin:0!important}.public-player-photo img{position:absolute;inset:0;width:100%;height:100%;display:block;border:0;border-radius:inherit;object-fit:cover;background:transparent;color:transparent;font-size:0}
   .schedule-match-label{margin-top:7px;color:#66738a;font-size:10px;line-height:1.4}
   .schedule-preview-foot{text-align:center;margin-top:18px;padding-top:12px;border-top:1px solid #dce3ef;color:#9a6c16;font-size:10px;font-weight:850;letter-spacing:.18em;text-transform:uppercase}
-  .schedule-file-note{text-align:center;color:var(--faint);font-size:11px;line-height:1.45;margin:9px 0 0}
   .public-schedule-panel{margin-top:14px;padding:14px;border:1px solid #ffffff1d;border-radius:15px;background:#00000020}
   .public-schedule-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .public-schedule-head b{font-size:14px}.public-schedule-status{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.45}
@@ -1044,7 +1073,7 @@
     .hero h2{font-size:34px;max-width:640px}
     .screen-head h2{font-size:30px}
     .scrim{align-items:center;padding:24px}
-    .sheet{border-radius:26px;border-bottom:1px solid #ffffff24;padding:18px 20px 20px}
+    .sheet{--sheet-pad-x:20px;border-radius:26px;border-bottom:1px solid #ffffff24;padding:18px var(--sheet-pad-x) 20px}
     .grab{display:none}
     .track-setup-grid{grid-template-columns:minmax(0,.8fr) minmax(300px,1.35fr) minmax(0,.8fr);align-items:start}
     .selection-panel.A{grid-column:1}.selection-panel.available{grid-column:2;grid-row:1}.selection-panel.B{grid-column:3;grid-row:1}
@@ -1140,9 +1169,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.27.0',
-  build: '20260725.8',
-  releaseNotes: 'Event navigation now highlights where you are, every destination leads somewhere real, and event controls and long names are easier to use on a phone.'
+  version: '0.28.0',
+  build: '20260727.1',
+  releaseNotes: 'Share and results sheets now keep the close button clear of the content, put the download and sharing actions in a sticky footer, and let long previews collapse.'
 });
 
 function appVersionLabel(){
@@ -6508,13 +6537,13 @@ function scheduleShareActionsHtml(evId,subjectType='',subjectId=''){
 }
 window.openScheduleShare=(evId)=>{
   const ev=evById(evId),model=deriveFullScheduleExportModel(ev);if(!model){toast('Generate a usable schedule before sharing');return;}
-  openSheet(`<h3>Save / Share Schedule</h3><p class="small muted" style="margin:-8px 0 12px">Review the complete participant schedule below. Exporting is read-only and creates one self-contained document.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Download one self-contained HTML file, or print and save the schedule as one PDF file.</div>${SchedulePublications.sectionHtml(ev.id)}${scheduleShareActionsHtml(ev.id)}${sheetCloseBtn('Close')}`);
+  openSheet(`${sheetHeadHtml('Save / Share Schedule',{subtitle:'Review the complete participant schedule below. Exporting is read-only and creates one self-contained document.'})}${SchedulePublications.sectionHtml(ev.id)}${sheetPreviewHtml(scheduleExportPreviewHtml(model),{label:'Schedule preview',note:'Download one self-contained HTML file, or print and save the schedule as one PDF file.'})}${sheetFootHtml(scheduleShareActionsHtml(ev.id))}`);
   window._schedulePreviewImagePromise=settlePublicPlayerPhotos($('#scrim'));
   void SchedulePublications.refresh(ev.id);
 };
 window.openParticipantScheduleShare=(evId,subjectType,subjectId)=>{
   const ev=evById(evId),model=deriveParticipantScheduleExportModel(ev,subjectType,subjectId);if(!model){toast('No participant schedule is available to share yet');return;}
-  openSheet(`<h3>Save / Share ${model.exportTitle}</h3><p class="small muted" style="margin:-8px 0 12px">A compact, read-only schedule for ${esc(model.subjectName)}.</p>${scheduleExportPreviewHtml(model)}<div class="schedule-file-note">Download this self-contained schedule as HTML, or print and save it as one PDF file.</div>${SchedulePublications.sectionHtml(ev.id,subjectType,subjectId)}${scheduleShareActionsHtml(ev.id,subjectType,subjectId)}${sheetCloseBtn('Close')}`);
+  openSheet(`${sheetHeadHtml(`Save / Share ${esc(model.exportTitle)}`,{subtitle:`A compact, read-only schedule for ${esc(model.subjectName)}.`})}${SchedulePublications.sectionHtml(ev.id,subjectType,subjectId)}${sheetPreviewHtml(scheduleExportPreviewHtml(model),{label:'Schedule preview',note:'Download this self-contained schedule as HTML, or print and save it as one PDF file.'})}${sheetFootHtml(scheduleShareActionsHtml(ev.id,subjectType,subjectId))}`);
   window._schedulePreviewImagePromise=settlePublicPlayerPhotos($('#scrim'));
   void SchedulePublications.refresh(ev.id,subjectType,subjectId);
 };
@@ -6758,7 +6787,7 @@ function drawEventResultsCard(canvas, d){
 }
 window.openEventResults=(evId)=>{
   const ev=evById(evId);if(!ev)return;const mode=window._eventResultsMode||'recap',d=eventResultsData(ev,mode);
-  openSheet(`<h3>Full event results</h3><div class="seg" style="margin-bottom:12px"><button class="${mode==='recap'?'on':''}" onclick="setEventResultsMode('${ev.id}','recap')">Event recap</button><button class="${mode==='compact'?'on':''}" onclick="setEventResultsMode('${ev.id}','compact')">Compact results</button></div>${eventResultsHtml(ev,d)}<canvas id="resultsCanvas" aria-hidden="true" style="position:absolute;left:-100000px;width:1px;height:1px"></canvas><div class="tiny faint" style="margin-top:8px;text-align:center">Results are rebuilt from saved games whenever this view opens.</div><button class="btn primary block" style="margin-top:12px" onclick="shareEventResults('${ev.id}')">Save / share ${mode==='compact'?'compact results':'event recap'}</button>${sheetCloseBtn('Close')}`);
+  openSheet(`${sheetHeadHtml('Full event results')}<div class="seg" style="margin-bottom:12px"><button class="${mode==='recap'?'on':''}" onclick="setEventResultsMode('${ev.id}','recap')">Event recap</button><button class="${mode==='compact'?'on':''}" onclick="setEventResultsMode('${ev.id}','compact')">Compact results</button></div>${sheetPreviewHtml(eventResultsHtml(ev,d),{label:mode==='compact'?'Compact results preview':'Event recap preview',note:'Results are rebuilt from saved games whenever this view opens.'})}<canvas id="resultsCanvas" aria-hidden="true" style="position:absolute;left:-100000px;width:1px;height:1px"></canvas>${sheetFootHtml(`<button class="btn primary block" onclick="shareEventResults('${ev.id}')">Save / share ${mode==='compact'?'compact results':'event recap'}</button>`)}`);
   const canvas=document.getElementById('resultsCanvas');if(canvas?.getContext)drawEventResultsCard(canvas,d);
 };
 window.setEventResultsMode=(evId,mode)=>{window._eventResultsMode=mode==='compact'?'compact':'recap';openEventResults(evId);};
@@ -6773,7 +6802,7 @@ function eventResultsShareOptionsHtml(ev,state={},syncConfigured=Sync.configured
 }
 function renderEventResultsShareOptions(evId){const ev=evById(evId),target=document.querySelector('[data-results-share-options]');if(ev&&target)target.outerHTML=eventResultsShareOptionsHtml(ev,eventResultsShareStates.get(evId)||{});}
 async function refreshEventResultsShareOptions(evId){if(!Sync.configured())return;const state=eventResultsShareStates.get(evId)||{};try{const prepared=await SchedulePublications.prepare(evId,'results','');eventResultsShareStates.set(evId,{...state,contentHash:prepared.contentHash,error:'',busy:''});}catch(error){eventResultsShareStates.set(evId,{...state,error:error?.message||'Could not inspect the recap',busy:''});}renderEventResultsShareOptions(evId);}
-window.shareEventResults=evId=>{const ev=evById(evId);if(!ev)return;eventResultsShareStates.set(evId,{});openSheet(`<h3>Save / share event recap</h3><p class="small muted" style="margin:-8px 0 12px">Publish a browser link to the full recap or save the current ${window._eventResultsMode==='compact'?'compact':'recap'} image.</p>${eventResultsShareOptionsHtml(ev)}${sheetCloseBtn('Close')}`);if(Sync.configured())void refreshEventResultsShareOptions(evId);};
+window.shareEventResults=evId=>{const ev=evById(evId);if(!ev)return;eventResultsShareStates.set(evId,{});openSheet(`${sheetHeadHtml('Save / share event recap',{subtitle:`Publish a browser link to the full recap or save the current ${window._eventResultsMode==='compact'?'compact':'recap'} image.`})}${eventResultsShareOptionsHtml(ev)}${sheetFootHtml()}`);if(Sync.configured())void refreshEventResultsShareOptions(evId);};
 async function managePublicResultsLink(evId,kind){const state=eventResultsShareStates.get(evId)||{};eventResultsShareStates.set(evId,{...state,busy:kind,error:''});renderEventResultsShareOptions(evId);await SchedulePublications[kind](evId,'results','');eventResultsShareStates.set(evId,{...(eventResultsShareStates.get(evId)||{}),busy:''});await refreshEventResultsShareOptions(evId);}
 window.createPublicResultsLink=evId=>managePublicResultsLink(evId,'create');
 window.updatePublicResultsLink=evId=>managePublicResultsLink(evId,'update');
@@ -10019,8 +10048,31 @@ window.roleGuideCancel=()=>{ roleGuideI=null; renderPlayerSheet(); };
 /* Every sheet gets a visible close action via this helper — tapping the
    scrim still works, but is never the only way out. "Cancel" for forms,
    "Done" for read-only detail sheets. */
-function sheetCloseBtn(label='Cancel'){
-  return `<button class="btn ghost block sheet-close" style="margin-top:8px" onclick="closeSheet()">${label}</button>`;
+function sheetCloseBtn(label='Cancel',options={}){
+  return `<button class="btn ghost block sheet-close"${options.flush?'':' style="margin-top:8px"'} onclick="closeSheet()">${label}</button>`;
+}
+
+/* Reusable, opt-in sheet chrome (EUX-03).
+
+   `sheetHeadHtml` renders a non-floating header; openSheet moves its own
+   close button into the header slot, so the focus trap, Escape handling, and
+   any dirty-close guard are exactly the same as for an unmigrated sheet. The
+   header sits in normal flow, so the close control can never overlap the
+   content beneath it — at the top of the sheet or after scrolling.
+
+   `sheetFootHtml` pins the primary actions and the visible Close action to a
+   sticky footer so they stay reachable above a long preview.
+
+   `sheetPreviewHtml` wraps an exported-document preview in a neutral,
+   collapsible frame. Sheets that do not use these helpers are unchanged. */
+function sheetHeadHtml(title,{subtitle=''}={}){
+  return `<header class="sheet-head" data-sheet-head><div class="sheet-head-copy"><h3>${title}</h3>${subtitle?`<p class="small muted">${subtitle}</p>`:''}</div><span class="sheet-head-actions" data-sheet-head-actions></span></header>`;
+}
+function sheetFootHtml(actionsHtml='',{closeLabel='Close'}={}){
+  return `<div class="sheet-foot" data-sheet-foot>${actionsHtml}${sheetCloseBtn(closeLabel,{flush:true})}</div>`;
+}
+function sheetPreviewHtml(bodyHtml,{label='Preview',note='',open=true}={}){
+  return `<details class="sheet-preview" data-sheet-preview ${open?'open':''}><summary><span>${esc(label)}</span></summary><div class="sheet-preview-body">${bodyHtml}</div></details>${note?`<p class="sheet-preview-note">${note}</p>`:''}`;
 }
 function openSheet(html,options={}){
   const priorScrim=$('#scrim'),prior=priorScrim?.querySelector('.sheet'),priorFocus=document.activeElement,returnFocus=prior?window._sheetReturnFocus:(priorFocus instanceof HTMLElement?priorFocus:null);
@@ -10033,6 +10085,10 @@ function openSheet(html,options={}){
   s.setAttribute('role','presentation');
   s.innerHTML=`<div class="sheet" role="dialog" aria-modal="true"><div class="grab"></div><button type="button" class="sheet-x" aria-label="Close dialog" onclick="requestCloseSheet()">×</button>${html}</div>`;
   const dialog=s.querySelector('.sheet'), heading=dialog.querySelector('h3');
+  /* Sheets built with sheetHeadHtml take the same close button into their
+     header slot instead of floating it over the content. */
+  const headSlot=dialog.querySelector('[data-sheet-head-actions]');
+  if(headSlot)headSlot.appendChild(dialog.querySelector('.sheet-x'));
   if(options.className)String(options.className).split(/\s+/).filter(Boolean).forEach(name=>dialog.classList.add(name));
   if(heading){ heading.id='sheet-title-'+Date.now(); dialog.setAttribute('aria-labelledby',heading.id); }
   else dialog.setAttribute('aria-label','Court dialog');
