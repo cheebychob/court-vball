@@ -59,6 +59,12 @@ async function openEvent(page, section) {
   if (section) await page.evaluate(id => eventSection(id), section);
 }
 
+/* Mobile brackets show one round at a time (EUX-05), so a test that reaches
+   into an earlier round has to select it first. */
+async function bracketRound(page, index, brId = 'champ') {
+  await page.evaluate(({ brId, index }) => setBracketRound(brId, index), { brId, index });
+}
+
 test('completed fixed event finale and full recap derive champion, runner-up, score, journey, standings, and supported highlights', async ({ page }) => {
   const { event, games } = completeFourTeamEvent({ done: true, longName: true });
   await seed(page, { events: [event], games }); await openEvent(page);
@@ -118,6 +124,7 @@ test('an unfinished final never declares a champion and older optional fields re
 test('ready and completed matchup cards stay interactive, expose details, set scores, close, and keyboard focus return', async ({ page }) => {
   const { event, games } = completeFourTeamEvent({ includeFinal: false });
   await seed(page, { events: [event], games }); await openEvent(page, 'playoffs');
+  await bracketRound(page, 0);
   const completed = page.getByRole('button', { name: /Open completed semifinal: Alpha defeated Delta/i });
   await completed.focus(); await page.keyboard.press('Enter');
   const sheet = page.locator('.sheet');
@@ -127,6 +134,7 @@ test('ready and completed matchup cards stay interactive, expose details, set sc
   await sheet.getByRole('button', { name: 'Close', exact: true }).click();
   await expect(completed).toBeFocused();
 
+  await bracketRound(page, 1);
   const final = page.getByRole('button', { name: /Open Championship Final: seed 1 Alpha versus seed 2 Bravo/i });
   await final.click();
   await expect(page.locator('.sheet').getByRole('heading', { name: /Log a game/ })).toBeVisible();
@@ -177,6 +185,7 @@ test('editing an upstream winner reuses saved game IDs and tombstones impossible
   const originalSemiIds = games.filter(g => g.id.startsWith('semi-a')).map(g => g.id);
   const finalIds = games.filter(g => g.id.startsWith('final')).map(g => g.id);
   await seed(page, { events: [event], games }); await openEvent(page, 'playoffs');
+  await bracketRound(page, 0);
   await page.getByRole('button', { name: /Open completed semifinal: Alpha defeated Delta/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Edit result' }).click();
   await page.locator('#evs1A').fill('14'); await page.locator('#evs1B').fill('25');
@@ -261,7 +270,9 @@ test('large recap and compact exports stay readable, bounded, and free of intern
   expect(await page.evaluate(() => getEventResultHighlights(evts[0]).every(h => !/\b0\b/.test(h.text)))).toBe(true);
 });
 
-test('a 16-team bracket contains horizontal overflow without clipping the page or shrinking tap targets', async ({ page }) => {
+/* EUX-05 replaced the mobile bracket scroller with one round at a time; the
+   horizontal presentation now belongs to wide screens only. */
+test('a 16-team bracket shows one round on phones and contains its overflow on desktop', async ({ page }) => {
   const roster = teams(Array.from({ length: 16 }, (_, i) => `Seed ${i + 1}`));
   const event = { id: 'wide', name: 'Wide Bracket', eventDate: '2026-07-16', created: 1, done: false, teams: roster,
     brackets: [{ id: 'wide-bracket', name: 'Championship', created: 100, seeds: roster.map(t => t.id) }] };
@@ -271,9 +282,12 @@ test('a 16-team bracket contains horizontal overflow without clipping the page o
     return { inner: innerWidth, pageWidth: document.documentElement.scrollWidth, scrollClient: scroll.clientWidth, scrollWidth: scroll.scrollWidth, cardWidth: card.getBoundingClientRect().width, cardHeight: card.getBoundingClientRect().height };
   });
   expect(mobile.pageWidth).toBeLessThanOrEqual(mobile.inner + 1);
-  expect(mobile.scrollWidth).toBeGreaterThan(mobile.scrollClient);
+  expect(mobile.scrollWidth).toBeLessThanOrEqual(mobile.scrollClient + 1);
   expect(mobile.cardWidth).toBeGreaterThanOrEqual(170); expect(mobile.cardHeight).toBeGreaterThanOrEqual(80);
+  await expect(page.locator('.br-col[data-round-active="true"]:visible')).toHaveCount(1);
   await expect(page.locator('.br-match.ready')).toHaveCount(8);
   await page.setViewportSize({ width: 1280, height: 800 });
   expect(await page.locator('.bracket-scroll').evaluate(el => el.getBoundingClientRect().width)).toBeGreaterThan(800);
+  expect(await page.locator('.bracket-scroll').evaluate(el => el.scrollWidth - el.clientWidth)).toBeGreaterThan(0);
+  await expect(page.locator('.br-col:visible')).toHaveCount(5);
 });
