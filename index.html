@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.3">
+<meta name="court-build" content="20260727.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -590,9 +590,27 @@
   .registration-capacity-grid>div{padding:10px;border:1px solid var(--line);border-radius:13px;background:#ffffff08}
   .registration-capacity-grid b{display:block;font-size:17px}.registration-capacity-grid span{display:block;margin-top:3px;color:var(--soft);font-size:10.5px}
   .registration-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
-  .registration-entry-list{display:grid;gap:8px;max-height:48vh;overflow:auto;overscroll-behavior:contain}
+  /* EUX-06: the dashboard sheet owns vertical scrolling. The entry list stays
+     in ordinary document flow so touch and wheel input never enter a nested
+     vertical scroller. */
+  .registration-entry-list{display:grid;gap:8px}
   .registration-entry-row{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07}
   .registration-entry-row select{min-height:42px;margin-top:8px}
+  .registration-dashboard-headlines{margin:10px 0}
+  .registration-dashboard-filter{margin:10px 0}
+  .registration-dashboard-summary{margin-top:12px;border:1px solid var(--line);border-radius:14px;background:#0002;overflow:hidden}
+  .registration-dashboard-summary>summary{min-height:44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 11px;cursor:pointer;list-style:none;color:var(--muted);font-size:12px;font-weight:800}
+  .registration-dashboard-summary>summary::-webkit-details-marker{display:none}
+  .registration-dashboard-summary>summary::after{content:"Show";color:var(--gold);font-size:11px}
+  .registration-dashboard-summary[open]>summary::after{content:"Hide"}
+  .registration-dashboard-summary-body{padding:0 11px 11px}
+  .registration-dashboard-summary .registration-capacity-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 10px}
+  .registration-dashboard-footer-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .registration-dashboard-footer-actions .btn,.registration-dashboard-more-actions>summary{min-width:0;min-height:44px;padding:8px 6px;white-space:normal}
+  .registration-dashboard-more-actions{position:relative;min-width:0}
+  .registration-dashboard-more-actions>summary{display:grid;place-items:center;border:1px solid #ffffff20;border-radius:14px;background:#ffffff0a;color:var(--muted);cursor:pointer;list-style:none;font-size:12px;font-weight:800;text-align:center}
+  .registration-dashboard-more-actions>summary::-webkit-details-marker{display:none}
+  .registration-dashboard-more-menu{position:absolute;z-index:4;right:0;bottom:calc(100% + 8px);display:grid;gap:8px;width:min(260px,calc(100vw - 44px));padding:9px;border:1px solid var(--line-strong);border-radius:15px;background:#111a2c;box-shadow:0 14px 36px #000a}
   .registration-roster-group{margin-top:9px;padding:9px;border:1px solid var(--line);border-radius:11px;background:#0001}
   .registration-member-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
   .registration-member-row:last-child{border-bottom:0}
@@ -1203,9 +1221,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.30.0',
-  build: '20260727.3',
-  releaseNotes: 'Rotating standings stack into readable rows on phones and brackets show one round at a time, so neither hides behind a sideways scroll; wide screens keep the full table and multi-column bracket.'
+  version: '0.31.0',
+  build: '20260727.4',
+  releaseNotes: 'Registration management now uses one smooth sheet scroll, leads with filters and entries, keeps key actions pinned, and preserves your place during refreshes.'
 });
 
 function appVersionLabel(){
@@ -10241,7 +10259,7 @@ function sheetPreviewHtml(bodyHtml,{label='Preview',note='',open=true}={}){
 function openSheet(html,options={}){
   const priorScrim=$('#scrim'),prior=priorScrim?.querySelector('.sheet'),priorFocus=document.activeElement,returnFocus=prior?window._sheetReturnFocus:(priorFocus instanceof HTMLElement?priorFocus:null);
   if(priorScrim?.querySelector('[data-check-in-sheet]')&&!String(html).includes('data-check-in-sheet'))PlayerCheckIn.setModalOpen(false);
-  if(priorScrim?.querySelector('[data-registration-dashboard]')&&!String(html).includes('data-registration-dashboard'))EventRegistration.setModalOpen(false);
+  if(priorScrim?.querySelector('[data-registration-modal]')&&!String(html).includes('data-registration-modal'))EventRegistration.setModalOpen(false);
   const sheetState=prior?{top:prior.scrollTop,key:priorFocus?.dataset?.focusKey,start:priorFocus?.selectionStart,end:priorFocus?.selectionEnd}:null;
   if(priorScrim){priorScrim.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;}
   window._sheetReturnFocus=returnFocus;
@@ -10279,7 +10297,8 @@ function closeSheet(force=false){
   if(!force&&window._sheetBeforeClose){requestCloseSheet();return;}
   const s=$('#scrim'); if(!s){if(force)window._sheetBeforeClose=null;return;}
   if(s.querySelector('[data-check-in-sheet]'))PlayerCheckIn.setModalOpen(false);
-  if(s.querySelector('[data-registration-dashboard]'))EventRegistration.setModalOpen(false);
+  if(s.querySelector('[data-registration-modal]'))EventRegistration.setModalOpen(false);
+  if(s.querySelector('[data-registration-member-review]')){window._registrationMemberReview=null;window._registrationDashboardInteraction=null;}
   s.remove();window._scheduleDownloadChoice=null;window._sheetBeforeClose=null;
   if(!document.querySelector('.scrim')) document.body.classList.remove('modal-open');
   const back=window._sheetReturnFocus; window._sheetReturnFocus=null;
@@ -10912,9 +10931,6 @@ const EventRegistration=(()=>{
     if(active)return details&&!active.details?active.promise.then(()=>refresh(eventId,{patch,details:true})):active.promise;
     const current=baseState(eventId),sequence=(current.requestSequence||0)+1;
     states.set(eventId,{...current,loading:true,error:'',requestSequence:sequence});
-    const interactionRoot=patch&&modalEventId===eventId?document.querySelector('[data-registration-dashboard]'):null,interactionFocus=interactionRoot?.contains(document.activeElement)?document.activeElement?.dataset?.focusKey||'':'',interactionScroll=interactionRoot?.querySelector('[data-registration-entry-list]')?.scrollTop||0;
-    const restoreInteraction=()=>{if(!interactionRoot?.isConnected)return;const focus=interactionFocus&&interactionRoot.querySelector(`[data-focus-key="${CSS.escape(interactionFocus)}"]`);if(focus)focus.focus({preventScroll:true});const list=interactionRoot.querySelector('[data-registration-entry-list]');if(list)list.scrollTop=interactionScroll;};
-    const restoreInteractionAfterPaint=()=>{restoreInteraction();requestAnimationFrame(restoreInteraction);};
     if(modalEventId===eventId)patchDashboard();
     const operation=(async()=>{
       try{
@@ -10926,19 +10942,19 @@ const EventRegistration=(()=>{
         const existing=baseState(eventId),received=normalizedSummary(ev,response);
         if(existing.summary&&received.revision&&existing.summary.revision>received.revision){
           const preserved={...existing,loading:false,error:'',fetchedAt:Date.now()};states.set(eventId,preserved);
-          if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);return preserved;
+          if(modalEventId===eventId)patchModalSurface();patchSummaryCard(eventId);return preserved;
         }
         const next=applyResponse(ev,response);
         if(response.config){
           const local=eventRegistration(ev),updated=normalizeEventRegistration({...local,...response.config},ev);
           if(JSON.stringify(updated)!==JSON.stringify(local)){ev.registration=updated;await saveEvents();}
         }
-        if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);
+        if(modalEventId===eventId)patchModalSurface();patchSummaryCard(eventId);
         return next;
       }catch(error){
         if(baseState(eventId).requestSequence!==sequence)return get(eventId);
         const next={...baseState(eventId),loading:false,error:error.message,fetchedAt:Date.now()};states.set(eventId,next);
-        if(modalEventId===eventId){patchDashboard();restoreInteractionAfterPaint();}patchSummaryCard(eventId);return next;
+        if(modalEventId===eventId)patchModalSurface();patchSummaryCard(eventId);return next;
       }finally{
         if(refreshes.get(eventId)?.promise===operation)refreshes.delete(eventId);
       }
@@ -11018,7 +11034,7 @@ const EventRegistration=(()=>{
       <div class="registration-actions"><button class="btn sm primary" ${edit.saving?'disabled':''} onclick="saveOrganizerRegistrationContact()">${edit.saving?'Saving…':'Save contact'}</button><button class="btn sm ghost" ${edit.saving?'disabled':''} onclick="cancelOrganizerRegistrationContact()">Cancel</button></div>
       <div class="tiny" role="alert" aria-live="assertive">${esc(edit.error||'')}</div>
     </div>`:'';
-    return `<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry))}">
+    return `<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry))}" tabindex="-1">
       <div class="row spread" style="gap:9px"><span style="min-width:0"><b>${esc(entry.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block">${esc(entry.registrationType)} · ${entry.activePlayerCount} active · ${entry.substituteCount} substitute${entry.substituteCount===1?'':'s'}</span></span><span class="pill ${entry.status==='accepted'?'good':entry.status==='waitlisted'||entry.status==='needs_review'?'warn':entry.status==='declined'||entry.status==='withdrawn'?'bad':''}">${esc(registrationStatusLabel(entry.status))}</span></div>
       <div class="tiny faint" style="margin-top:6px">${entry.submittedAt?`Submitted ${esc(registrationFormatTime(entry.submittedAt))}`:'Not submitted'}${entry.lastEditedAt?` · edited ${esc(registrationFormatTime(entry.lastEditedAt))}`:''}${entry.capacityOverride?' · capacity override':''}${entry.editingLocked?' · editing locked':''}${entry.managementAccessRevoked?' · management revoked':''}</div>
       ${(entry.duplicateWarnings||[]).map(warning=>`<div class="tiny" style="margin-top:6px;color:var(--sand)">⚠ ${esc(warning)}</div>`).join('')}
@@ -11033,9 +11049,31 @@ const EventRegistration=(()=>{
     const entries=state?.entries||[];return filter==='all'?entries:filter==='pending'?entries.filter(row=>['submitted','needs_review'].includes(row.status)):entries.filter(row=>row.status===filter);
   }
   function setText(root,selector,value){const node=root.querySelector(selector);if(node&&node.textContent!==String(value))node.textContent=String(value);}
+  function dashboardInteraction(root=document.querySelector('[data-registration-dashboard]')){
+    if(!root)return null;
+    const active=root.contains(document.activeElement)?document.activeElement:null,row=active?.closest?.('[data-registration-entry]'),focusable=row?[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')]:[];
+    return {
+      eventId:root.dataset.eventId||modalEventId,
+      sheetScroll:root.closest('.sheet')?.scrollTop||0,
+      filter,
+      focusKey:active?.dataset?.focusKey||'',
+      focusedEntry:row?.dataset.registrationEntry||'',
+      entryFocusIndex:active?focusable.indexOf(active):-1
+    };
+  }
+  function restoreDashboardInteraction(root,interaction){
+    if(!root||!interaction)return;
+    const select=root.querySelector('#registrationFilter');if(select)select.value=filter;
+    let target=interaction.focusKey&&root.querySelector(`[data-focus-key="${CSS.escape(interaction.focusKey)}"]`);
+    const row=interaction.focusedEntry&&root.querySelector(`[data-registration-entry="${CSS.escape(interaction.focusedEntry)}"]`);
+    if(!target&&row&&interaction.entryFocusIndex>=0)target=[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')][interaction.entryFocusIndex];
+    if(!target&&row)target=row;
+    if(target&&document.activeElement!==target)target.focus({preventScroll:true});
+    const sheet=root.closest('.sheet');if(sheet)sheet.scrollTop=interaction.sheetScroll;
+  }
   function patchDashboard(){
     const root=document.querySelector('[data-registration-dashboard]'),ev=modalEventId&&evById(modalEventId);if(!root||!ev)return;
-    const focused=root.contains(document.activeElement)?document.activeElement:null,focusKey=focused?.dataset?.focusKey||'',priorList=root.querySelector('[data-registration-entry-list]'),priorScroll=priorList?.scrollTop||0;
+    const interaction=dashboardInteraction(root);
     const state=get(ev.id),summary=state?.summary,config=state?.config||eventRegistration(ev),url=registrationPublicUrl(ev),entries=filteredEntries(state),unloaded='—';
     setText(root,'[data-reg-status]',registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(config)));
     setText(root,'[data-reg-accepted]',summary?.entryCounts.accepted??unloaded);setText(root,'[data-reg-pending]',summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded);
@@ -11057,8 +11095,11 @@ const EventRegistration=(()=>{
     });
     if(!entries.length&&!list.querySelector('[data-registration-empty]'))list.innerHTML=`<div data-registration-empty class="stat-empty">No registration entries match this filter.</div>`;
     else if(entries.length)list.querySelector('[data-registration-empty]')?.remove();
-    if(focusKey){const nextFocus=root.querySelector(`[data-focus-key="${CSS.escape(focusKey)}"]`);if(nextFocus&&document.activeElement!==nextFocus)nextFocus.focus({preventScroll:true});}
-    list.scrollTop=priorScroll;
+    restoreDashboardInteraction(root,interaction);
+  }
+  function patchModalSurface(){
+    if(document.querySelector('[data-registration-dashboard]'))patchDashboard();
+    else if(document.querySelector('[data-registration-member-review]')&&window._registrationMemberReview)renderRegistrationMemberReview();
   }
   function patchSummaryCard(eventId){
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);
@@ -11068,7 +11109,7 @@ const EventRegistration=(()=>{
       syncEventNav();
     }
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,dashboardInteraction,restoreDashboardInteraction,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -11104,19 +11145,30 @@ function registrationSummaryHtml(ev,complete=eventIsComplete(ev)){
 }
 function registrationDashboardHtml(ev){
   const state=EventRegistration.get(ev.id),local=eventRegistration(ev),config=state?.config||local,summary=state?.summary,url=registrationPublicUrl(ev),unloaded='—';
-  return `<div data-registration-dashboard data-event-id="${esc(ev.id)}"><h3>Registration · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Persistent registrations are separate from event-day player check-in. Ratings and private roster data never appear here.</p>
-    <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" onclick="refreshRegistrationDashboard()">Refresh</button></div>
-    <div class="registration-capacity-grid"><div><b class="num" data-reg-accepted>${summary?.entryCounts.accepted??unloaded}</b><span>accepted entries</span></div><div><b class="num" data-reg-active>${summary?.playerCounts.acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num" data-reg-pending>${summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded}</b><span>pending review</span></div><div><b class="num" data-reg-waitlisted>${summary?.entryCounts.waitlisted??unloaded}</b><span>waitlisted</span></div><div><b class="num" data-reg-declined>${summary?.entryCounts.declined??unloaded}</b><span>declined</span></div><div><b class="num" data-reg-withdrawn>${summary?.entryCounts.withdrawn??unloaded}</b><span>withdrawn</span></div><div><b class="num" data-reg-subs>${summary?.playerCounts.acceptedSubstitutes??unloaded}</b><span>accepted substitutes</span></div><div><b class="num" data-reg-remaining>${summary?(summary.capacity.isUnlimited?'Unlimited':summary.capacity.remainingActiveSpots):unloaded}</b><span>active spots remaining</span></div></div>
-    <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(config.opensAt)} → ${registrationFormatTime(config.closesAt)}`)}</div>
-    <div class="registration-link-card" aria-label="Public registration link"><span class="registration-link" data-reg-link title="${esc(url)}">${esc(url||'Public link unavailable on this device')}</span></div>
-    <div class="registration-actions" style="margin-top:10px"><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button></div>
-    <div class="registration-import-callout"><div><b>Registration entries</b><span>Preview accepted registrations before changing this event. Imports never generate a schedule or alter ratings.</span></div><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button></div>
-    <div class="field" style="margin-top:14px"><label for="registrationFilter">Entries</label><select id="registrationFilter" onchange="setRegistrationFilter(this.value)"><option value="all">All statuses</option><option value="pending">Pending review</option>${['accepted','waitlisted','declined','withdrawn'].map(status=>`<option value="${status}">${esc(registrationStatusLabel(status))}</option>`).join('')}</select></div>
-    <div class="registration-entry-list" data-registration-entry-list>${(state?.entries||[]).map(entry=>EventRegistration.filter==='all'?entry:null).filter(Boolean).map(entry=>`<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint=""><b>${esc(entry.displayName||'Unnamed entry')}</b></div>`).join('')||'<div data-registration-empty class="stat-empty">No registration entries yet.</div>'}</div>
-    <div class="tiny" data-reg-error role="alert" aria-live="assertive" style="min-height:18px;margin-top:8px;color:var(--coral)">${esc(state?.error||'')}</div>${sheetCloseBtn('Done')}</div>`;
+  const pending=summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded,filter=EventRegistration.filter;
+  const filterOption=(value,label)=>`<option value="${value}" ${filter===value?'selected':''}>${label}</option>`;
+  const footerActions=`<div class="registration-dashboard-footer-actions" data-registration-dashboard-actions><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button><details class="registration-dashboard-more-actions"><summary>More actions</summary><div class="registration-dashboard-more-menu"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button></div></details></div>`;
+  return `<div data-registration-dashboard data-registration-modal data-event-id="${esc(ev.id)}">
+    ${sheetHeadHtml(`Registration · ${esc(ev.name)}`,{subtitle:'Persistent registrations stay separate from event-day check-in. Ratings and private roster data never appear here.'})}
+    <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" data-focus-key="registration-refresh" onclick="refreshRegistrationDashboard()">Refresh</button></div>
+    <div class="registration-capacity-grid registration-dashboard-headlines" data-registration-headlines><div><b class="num" data-reg-accepted>${summary?.entryCounts.accepted??unloaded}</b><span>accepted entries</span></div><div><b class="num" data-reg-pending>${pending}</b><span>pending review</span></div></div>
+    <div class="field registration-dashboard-filter"><label for="registrationFilter">Entries</label><select id="registrationFilter" data-focus-key="registration-filter" onchange="setRegistrationFilter(this.value)">${filterOption('all','All statuses')}${filterOption('pending','Pending review')}${['accepted','waitlisted','declined','withdrawn'].map(status=>filterOption(status,esc(registrationStatusLabel(status)))).join('')}</select></div>
+    <div class="registration-entry-list" data-registration-entry-list>${(state?.entries||[]).map(entry=>filter==='all'?entry:null).filter(Boolean).map(entry=>`<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="" tabindex="-1"><b>${esc(entry.displayName||'Unnamed entry')}</b></div>`).join('')||'<div data-registration-empty class="stat-empty">No registration entries yet.</div>'}</div>
+    <div class="tiny" data-reg-error role="alert" aria-live="assertive" style="min-height:18px;margin-top:8px;color:var(--coral)">${esc(state?.error||'')}</div>
+    <details class="registration-dashboard-summary" data-registration-secondary-summary><summary>More registration details</summary><div class="registration-dashboard-summary-body">
+      <div class="registration-capacity-grid"><div><b class="num" data-reg-active>${summary?.playerCounts.acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num" data-reg-waitlisted>${summary?.entryCounts.waitlisted??unloaded}</b><span>waitlisted</span></div><div><b class="num" data-reg-declined>${summary?.entryCounts.declined??unloaded}</b><span>declined</span></div><div><b class="num" data-reg-withdrawn>${summary?.entryCounts.withdrawn??unloaded}</b><span>withdrawn</span></div><div><b class="num" data-reg-subs>${summary?.playerCounts.acceptedSubstitutes??unloaded}</b><span>accepted substitutes</span></div><div><b class="num" data-reg-remaining>${summary?(summary.capacity.isUnlimited?'Unlimited':summary.capacity.remainingActiveSpots):unloaded}</b><span>active spots remaining</span></div></div>
+      <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(config.opensAt)} → ${registrationFormatTime(config.closesAt)}`)}</div>
+      <div class="registration-link-card" aria-label="Public registration link"><span class="registration-link" data-reg-link title="${esc(url)}">${esc(url||'Public link unavailable on this device')}</span></div>
+    </div></details>
+    ${sheetFootHtml(footerActions,{closeLabel:'Done'})}</div>`;
 }
 window.openRegistrationDashboard=evId=>{
-  const ev=evById(evId);if(!ev)return;window._registrationContactEdit=null;EventRegistration.filter='all';openSheet(registrationDashboardHtml(ev),{focus:'[data-registration-dashboard] button'});EventRegistration.setModalOpen(true,evId);EventRegistration.patchDashboard();void EventRegistration.refresh(evId).finally(()=>EventRegistration.schedulePoll());
+  const ev=evById(evId);if(!ev)return;window._registrationContactEdit=null;
+  const preserve=window._registrationDashboardInteraction?.eventId===evId&&(EventRegistration.modalEventId===evId||window._registrationMemberReview?.eventId===evId),interaction=preserve?window._registrationDashboardInteraction:null;
+  if(!preserve){EventRegistration.filter='all';window._registrationDashboardInteraction=null;}
+  openSheet(registrationDashboardHtml(ev),{focus:'#registrationFilter'});EventRegistration.setModalOpen(true,evId);EventRegistration.patchDashboard();
+  if(interaction)requestAnimationFrame(()=>EventRegistration.restoreDashboardInteraction(document.querySelector('[data-registration-dashboard]'),interaction));
+  void EventRegistration.refresh(evId).finally(()=>EventRegistration.schedulePoll());
 };
 window.refreshRegistrationDashboard=()=>{const eventId=EventRegistration.modalEventId;if(eventId)void EventRegistration.refresh(eventId).finally(()=>EventRegistration.schedulePoll());};
 window.setRegistrationFilter=value=>{EventRegistration.filter=['all','pending','accepted','waitlisted','declined','withdrawn'].includes(value)?value:'all';EventRegistration.patchDashboard();};
@@ -11388,9 +11440,9 @@ function registrationMemberState(entryId,memberId){
 function renderRegistrationMemberReview(){
   const review=window._registrationMemberReview;if(!review)return;const current=registrationMemberState(review.entryId,review.memberId);if(!current)return;
   const roster=players.filter(eventRegistrationPlayerEligible),labels=buildUniquePlayerDisplayLabels(roster),rows=normalizeSearchText(review.query)?rankAttendanceSearch(review.query,roster,{participationIndex:buildPlayerParticipationIndex(roster,games,evts),displayLabels:labels}):roster.slice().sort((a,b)=>String(labels.get(a.id)).localeCompare(String(labels.get(b.id))));
-  openSheet(`<h3>Review ${esc(current.member.displayName)}</h3><p class="small muted">Search private names and aliases. The captain sees only the selected player’s public display label.</p><div class="search-wrap">${icons.search}<input type="search" data-focus-key="registration-member-search" aria-label="Search private roster" value="${esc(review.query)}" placeholder="Search names or aliases…" oninput="registrationMemberSearch(this.value)"></div><div class="check-in-match-list">${rows.slice(0,60).map(row=>{const player=row.player||row;return `<button type="button" onclick="confirmRegistrationMemberMatch('${esc(player.id)}')">${esc(labels.get(player.id)||player.name)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>'}</div><div class="registration-actions"><button class="btn ghost" onclick="createPlayerFromRegistrationMember(false)">Create normal player</button><button class="btn ghost" onclick="createPlayerFromRegistrationMember(true)">Create event-only participant</button><button class="btn danger" onclick="rejectRegistrationMember()">Reject member</button></div>${sheetCloseBtn('Cancel')}`,{focus:'[data-focus-key="registration-member-search"]'});
+  openSheet(`<div data-registration-member-review data-registration-modal><h3>Review ${esc(current.member.displayName)}</h3><p class="small muted">Search private names and aliases. The captain sees only the selected player’s public display label.</p><div class="search-wrap">${icons.search}<input type="search" data-focus-key="registration-member-search" aria-label="Search private roster" value="${esc(review.query)}" placeholder="Search names or aliases…" oninput="registrationMemberSearch(this.value)"></div><div class="check-in-match-list">${rows.slice(0,60).map(row=>{const player=row.player||row;return `<button type="button" onclick="confirmRegistrationMemberMatch('${esc(player.id)}')">${esc(labels.get(player.id)||player.name)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>'}</div><div class="registration-actions"><button class="btn ghost" onclick="createPlayerFromRegistrationMember(false)">Create normal player</button><button class="btn ghost" onclick="createPlayerFromRegistrationMember(true)">Create event-only participant</button><button class="btn danger" onclick="rejectRegistrationMember()">Reject member</button></div>${sheetCloseBtn('Cancel')}</div>`,{focus:'[data-focus-key="registration-member-search"]'});
 }
-window.reviewRegistrationMember=(entryId,memberId)=>{const current=registrationMemberState(entryId,memberId);if(!current)return;window._registrationMemberReview={eventId:current.evId,entryId,memberId,query:current.member.displayName};renderRegistrationMemberReview();};
+window.reviewRegistrationMember=(entryId,memberId)=>{const current=registrationMemberState(entryId,memberId);if(!current)return;window._registrationDashboardInteraction=EventRegistration.dashboardInteraction();window._registrationMemberReview={eventId:current.evId,entryId,memberId,query:current.member.displayName};renderRegistrationMemberReview();};
 window.registrationMemberSearch=value=>{if(!window._registrationMemberReview)return;window._registrationMemberReview.query=value;renderRegistrationMemberReview();};
 window.confirmRegistrationMemberMatch=async(playerId,duplicateOverride=false)=>{
   const review=window._registrationMemberReview,current=review&&registrationMemberState(review.entryId,review.memberId),player=pById(playerId);if(!current||!player)return;

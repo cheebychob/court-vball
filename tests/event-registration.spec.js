@@ -392,11 +392,11 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
     root.__identity = 'dashboard';
     const row = root.querySelector('[data-registration-entry="entry-alpha"]');
     row.__identity = 'alpha';
-    const list = root.querySelector('[data-registration-entry-list]');
-    list.style.height = '80px';
+    const sheet = root.closest('.sheet');
+    sheet.style.maxHeight = '320px';
     row.querySelector('select').focus({ preventScroll: true });
-    list.scrollTop = 25;
-    return { scrollTop: list.scrollTop };
+    sheet.scrollTop = 180;
+    return { scrollTop: sheet.scrollTop };
   });
   const organizerGetsBeforeRefresh = state.organizerGets;
   await page.evaluate(() => Promise.all([
@@ -408,11 +408,168 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
     dashboard: document.querySelector('[data-registration-dashboard]').__identity,
     row: document.querySelector('[data-registration-entry="entry-alpha"]').__identity,
     focused: document.activeElement === document.querySelector('[data-registration-entry="entry-alpha"] select'),
-    scrollTop: document.querySelector('[data-registration-entry-list]').scrollTop,
+    scrollTop: document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop,
   }))).toEqual({ dashboard: 'dashboard', row: 'alpha', focused: true, scrollTop: passiveState.scrollTop });
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await page.evaluate(() => ({ modal: EventRegistration.modalEventId, timer: EventRegistration._pollTimer }))).toMatchObject({ modal: null });
+});
+
+test('registration dashboard uses one scroller, leads with entries, and preserves filter, sheet position, focus, and member review', async ({ page }) => {
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: Date.now() - 1000, closesAt: Date.now() + 100000,
+    activePlayerCapacity: 28, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: Date.now(),
+  };
+  const rotatingRegistration = { ...registration, mode: 'individual', minActivePlayersPerTeam: 1, maxActivePlayersPerTeam: 1 };
+  const rotating = fixedEvent({
+    id: 'registration-rotating',
+    name: 'Rotating Registration',
+    format: 'rotatingGroups',
+    teams: [],
+    entries: [],
+    rotation: { entrySize: 1, teamSize: 4 },
+    registration: rotatingRegistration,
+  });
+  const state = organizerState();
+  state.entries.push(...Array.from({ length: 6 }, (_, index) => ({
+    ...structuredClone(state.entries[1]),
+    id: `entry-extra-${index}`,
+    displayName: `Accepted Entry ${index + 1}`,
+    updatedAt: 20 + index,
+  })));
+  state.config = {
+    ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventDate: '2026-08-15',
+    eventFormat: 'fixedTeams', eventAvailable: true, effectiveStatus: 'open',
+  };
+  state.summary = canonicalSummary({
+    entryCounts: { draft: 0, submitted: 1, needsReview: 0, accepted: 7, waitlisted: 0, declined: 0, withdrawn: 0 },
+    playerCounts: {
+      acceptedActive: 28, acceptedSubstitutes: 2, pendingActive: 4, pendingSubstitutes: 1,
+      waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 3,
+    },
+    capacity: { activePlayerCapacity: 28, acceptedActivePlayers: 28, remainingActiveSpots: 0, isUnlimited: false },
+    revision: 20,
+  });
+  state.organizers = {
+    'registration-rotating': {
+      config: {
+        ...rotatingRegistration, eventId: 'registration-rotating', eventName: rotating.name,
+        eventDate: '2026-08-15', eventFormat: 'rotatingGroups', eventAvailable: true, effectiveStatus: 'open',
+      },
+      summary: canonicalSummary({ eventId: 'registration-rotating', revision: 21 }),
+      capacity: state.capacity,
+      entries: structuredClone(state.entries),
+    },
+  };
+  await seed(page, [fixedEvent({ registration }), rotating], [
+    { id: 'p1', name: 'Alex A', active: true, archived: false, pickupEligible: true, aliases: [] },
+  ]);
+  await mockWorker(page, state);
+  await page.setViewportSize({ width: 375, height: 667 });
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await expect(page.locator('[data-registration-entry]')).toHaveCount(8);
+
+  const mobileLayout = await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-dashboard]');
+    const sheet = root.closest('.sheet'), list = root.querySelector('[data-registration-entry-list]');
+    const first = list.querySelector('[data-registration-entry]'), footer = root.querySelector('[data-sheet-foot]');
+    const sheetBox = sheet.getBoundingClientRect(), firstBox = first.getBoundingClientRect(), footerBox = footer.getBoundingClientRect();
+    return {
+      headlineCount: root.querySelectorAll('[data-registration-headlines] > div').length,
+      secondaryOpen: root.querySelector('[data-registration-secondary-summary]').open,
+      entriesBeforeSecondary: !!(list.compareDocumentPosition(root.querySelector('[data-registration-secondary-summary]')) & Node.DOCUMENT_POSITION_FOLLOWING),
+      listOverflowY: getComputedStyle(list).overflowY,
+      listOwnsScroll: list.scrollHeight > list.clientHeight + 1,
+      sheetOwnsScroll: sheet.scrollHeight > sheet.clientHeight + 1,
+      firstUseful: firstBox.top >= sheetBox.top && firstBox.top < footerBox.top,
+      footerPosition: getComputedStyle(footer).position,
+      footerInSheet: footerBox.top >= sheetBox.top && footerBox.bottom <= sheetBox.bottom + 1,
+    };
+  });
+  expect(mobileLayout).toEqual({
+    headlineCount: 2,
+    secondaryOpen: false,
+    entriesBeforeSecondary: true,
+    listOverflowY: 'visible',
+    listOwnsScroll: false,
+    sheetOwnsScroll: true,
+    firstUseful: true,
+    footerPosition: 'sticky',
+    footerInSheet: true,
+  });
+  await page.setViewportSize({ width: 320, height: 568 });
+  expect(await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-dashboard]');
+    const sheet = root.closest('.sheet'), list = root.querySelector('[data-registration-entry-list]');
+    const first = list.querySelector('[data-registration-entry]'), footer = root.querySelector('[data-sheet-foot]');
+    const firstBox = first.getBoundingClientRect(), footerBox = footer.getBoundingClientRect();
+    return {
+      sheetOverflow: sheet.scrollWidth - sheet.clientWidth,
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      firstUseful: firstBox.top >= sheet.getBoundingClientRect().top && firstBox.top < footerBox.top,
+      footerVisible: footerBox.bottom <= sheet.getBoundingClientRect().bottom + 1,
+    };
+  })).toEqual({ sheetOverflow: 0, documentOverflow: 0, firstUseful: true, footerVisible: true });
+  await expect(page.locator('[data-reg-active]')).toBeHidden();
+  await page.locator('[data-registration-secondary-summary] summary').click();
+  await expect(page.locator('[data-reg-active]')).toBeVisible();
+  for (const action of ['Review import', 'Event-day check-in']) {
+    await expect(page.locator('[data-registration-dashboard-actions]').getByRole('button', { name: action, exact: true })).toBeVisible();
+  }
+  await page.locator('.registration-dashboard-more-actions > summary').click();
+  for (const action of ['Settings', 'Share link', 'Copy link']) {
+    await expect(page.locator('[data-registration-dashboard-actions]').getByRole('button', { name: action, exact: true })).toBeVisible();
+  }
+  await page.locator('.registration-dashboard-more-actions > summary').click();
+
+  await page.locator('#registrationFilter').selectOption('pending');
+  await expect(page.locator('[data-registration-entry]')).toHaveCount(1);
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toBeVisible();
+  const interaction = await page.evaluate(() => {
+    const sheet = document.querySelector('[data-registration-dashboard]').closest('.sheet');
+    const select = document.querySelector('[data-registration-entry="entry-alpha"] select');
+    select.focus({ preventScroll: true });
+    sheet.scrollTop = Math.min(220, sheet.scrollHeight - sheet.clientHeight);
+    return { scrollTop: sheet.scrollTop };
+  });
+  await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
+  await expect(page.locator('#registrationFilter')).toHaveValue('pending');
+  await expect(page.locator('[data-registration-entry="entry-alpha"] select')).toBeFocused();
+  await expect.poll(() => page.evaluate(() => document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop)).toBe(interaction.scrollTop);
+
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  const reviewSearch = page.getByRole('searchbox', { name: 'Search private roster' });
+  await reviewSearch.fill('Alex');
+  await expect(reviewSearch).toBeFocused();
+  await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
+  await expect(page.locator('[data-registration-member-review]')).toBeVisible();
+  await expect(reviewSearch).toHaveValue('Alex');
+  await expect(reviewSearch).toBeFocused();
+  expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
+  await page.keyboard.press('Escape');
+  expect(await page.evaluate(() => EventRegistration.modalEventId)).toBeNull();
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.evaluate(() => { window._evOpen = null; render({ scroll: 'top' }); });
+  await page.getByRole('button', { name: /Rotating Registration/ }).click();
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await expect(page.locator('[data-registration-entry]')).toHaveCount(8);
+  const desktopLayout = await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-dashboard]');
+    const sheet = root.closest('.sheet'), list = root.querySelector('[data-registration-entry-list]');
+    return {
+      listOverflowY: getComputedStyle(list).overflowY,
+      listOwnsScroll: list.scrollHeight > list.clientHeight + 1,
+      sheetOverflowY: getComputedStyle(sheet).overflowY,
+      footerPosition: getComputedStyle(root.querySelector('[data-sheet-foot]')).position,
+    };
+  });
+  expect(desktopLayout).toEqual({ listOverflowY: 'visible', listOwnsScroll: false, sheetOverflowY: 'auto', footerPosition: 'sticky' });
 });
 
 test('organizer registration details show, link, and edit private contact without changing roster or status', async ({ page }) => {
@@ -672,7 +829,11 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   for (const removed of ['Rotate link', 'Open', 'Close', 'Cancel registration']) {
     await expect(dashboard.getByRole('button', { name: removed, exact: true })).toHaveCount(0);
   }
-  for (const retained of ['Share link', 'Copy link', 'Settings', 'Review import', 'Event-day check-in']) {
+  for (const retained of ['Review import', 'Event-day check-in']) {
+    await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
+  }
+  await dashboard.locator('.registration-dashboard-more-actions > summary').click();
+  for (const retained of ['Share link', 'Copy link', 'Settings']) {
     await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
   }
   const dashboardOverflow = await page.evaluate(() => document.querySelector('.sheet').scrollWidth - document.querySelector('.sheet').clientWidth);
