@@ -256,6 +256,8 @@ test('event schedule spreads fewer pools across available courts', async ({ page
 
   await clickNav(page, 'Events');
   await page.locator('.ev-row').filter({ hasText: 'Schedule UI Cup' }).click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('schedule'));
   const scheduleCard = page.locator('.card').filter({
     has: page.locator('.stat-title', { hasText: /^Schedule$/ })
   }).first();
@@ -321,10 +323,12 @@ test('event schedule keeps planned times after the start and after results', asy
   await clickNav(page, 'Events');
 
   await page.locator('.ev-row').filter({ hasText: 'Passed Start Cup' }).click();
+  await page.evaluate(() => eventSection('schedule'));
   await expect(page.getByText('Planned from 10:00 AM.')).toBeVisible();
 
   await page.getByRole('button', { name: '‹ All events', exact: true }).click();
   await page.locator('.ev-row').filter({ hasText: 'Progress Cup' }).click();
+  await page.evaluate(() => eventSection('schedule'));
   await expect(page.getByText('Planned from 10:00 AM.')).toBeVisible();
 });
 
@@ -349,6 +353,7 @@ test('event schedule clamps extreme custom court saves', async ({ page }) => {
   await page.goto('/');
   await clickNav(page, 'Events');
   await page.locator('.ev-row').filter({ hasText: 'Extreme Courts Cup' }).click();
+  await page.evaluate(() => eventSection('schedule'));
   await page.getByRole('button', { name: 'Schedule settings', exact: true }).click();
   await page.locator('#evsCourts').evaluate(input => {
     input.value = '1000000000';

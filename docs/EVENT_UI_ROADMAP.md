@@ -55,19 +55,20 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-04
-**Expected branch:** `feat/event-mobile-section-views`
-**Next item after completion:** EUX-05
+**Current item:** EUX-05
+**Expected branch:** `fix/event-responsive-standings-brackets`
+**Next item after completion:** EUX-06
 
-EUX-01 and EUX-02 are merged into `master`; their merge-commit fields are now
-recorded in their completion records.
+EUX-01, EUX-02, and EUX-03 are merged into `master`; their merge-commit fields
+are now recorded in their completion records.
 
-EUX-03 is implemented on `fix/event-sheet-share-layout` and is awaiting merge
-of https://github.com/cheebychob/court-vball/pull/42. Its merge-commit field
-stays `Pending` until that value exists.
+EUX-04 is implemented on `feat/event-mobile-section-views` and is awaiting a
+pull request; its pull-request and merge-commit fields stay `Pending` until
+those values exist.
 
-EUX-06 depends only on EUX-03 and is now unblocked, but EUX-04 is the next item
-in sequence; EUX-06 stays `Planned` until EUX-04 and EUX-05 are complete.
+EUX-05 is now `Ready`. EUX-06 depends only on EUX-03 and is unblocked, but
+EUX-05 is the next item in sequence; EUX-06 stays `Planned` until EUX-05 is
+complete.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -79,8 +80,8 @@ is completed. Only one item should normally be In Progress.
 | [x]  | EUX-01 | Event lifecycle and state-appropriate UI            | `feat/event-lifecycle-ui`                  | None           | Done    |
 | [x]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Done    |
 | [x]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Done    |
-| [ ]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Ready   |
-| [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Planned |
+| [x]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Done    |
+| [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Ready   |
 | [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Planned |
 | [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Planned |
 | [ ]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Planned |
@@ -344,7 +345,7 @@ actions immediately reachable.
 
 * **Completed date:** 2026-07-27
 * **Pull request:** https://github.com/cheebychob/court-vball/pull/42
-* **Merge commit:** Pending
+* **Merge commit:** 2917c62
 * **Version/build:** 0.28.0 / 20260727.1 (from 0.27.0 / 20260725.8)
 * **Tests run:** `npm test` (289 passed, chromium + mobile-webkit, including the
   new `tests/event-sheet-share-layout.spec.js`), `npm run test:worker`
@@ -404,7 +405,7 @@ actions immediately reachable.
 
 **Branch:** `feat/event-mobile-section-views`
 **Risk:** Medium–High
-**Status:** Ready
+**Status:** Done
 **Depends on:** EUX-01, EUX-02
 
 ## Objective
@@ -445,13 +446,82 @@ a time while retaining the desktop long-page workflow.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
-* **Tests run:**
-* **Physical-device checks:**
+* **Completed date:** 2026-07-27
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.29.0 / 20260727.2 (from 0.28.0 / 20260727.1)
+* **Tests run:** `npm test` (295 passed, chromium + mobile-webkit, including the
+  new `tests/event-mobile-section-views.spec.js`), `npm run test:worker`
+  (65 passed), `npm run test:version-check` (10 passed), `npm run check:version`
+* **Physical-device checks:** Not yet performed. See "Manual checks still
+  required" below — physical iPhone Safari, tablet portrait/landscape, and the
+  mobile keyboard during score and event editing are outstanding.
 * **Important implementation notes:**
+  * The breakpoint is declared once, in CSS: `--event-view-mode` is `sections`
+    by default and `page` from 760 px up (the width the rest of the event page
+    already uses). `eventViewMode()` reads that custom property, so the layout
+    and the script can never disagree and a resize across the breakpoint simply
+    re-runs the existing rAF-throttled `syncEventNav()`.
+  * `applyEventSectionViews(view)` toggles `.event-view-hidden`
+    (`display:none!important`) plus the `hidden` attribute on the top-level
+    blocks of `main.event-detail`. Membership comes from `eventViewGroups()`:
+    a block belongs to the destination section it follows, unless it carries an
+    explicit `data-event-view` (space-separated, so a block may appear in more
+    than one view). Everything above the first destination — the back button,
+    `screenHead`, the subnav, and the status strip — is chrome and stays
+    visible. `main` carries `data-event-view-mode` and `data-event-view`.
+  * Explicit memberships: `data-event-view="overview"` on the fixed-team setup
+    actions (so the demoted position below standings still belongs to
+    Overview) and on the four event-management buttons (mark complete, details,
+    duplicate, delete). `championsStripHtml`'s progress and finale cards use
+    `eventResultsViewIds(ev)` — `overview` plus `teams`/`entries` — so a
+    completed event opening on Results leads with the trophy above its
+    standings table.
+  * `eventSectionModel` now returns a `viewId` per destination. Standings live
+    inside the participants card, so `standings` maps to the `teams`/`entries`
+    view and the subnav button carries `data-event-view`; both destinations
+    reveal the same card. Section ids, labels, order, and `defaultId` are
+    unchanged, so EUX-02's shared definition is still the only source.
+  * In section views `syncEventNav()` no longer derives the active destination
+    from scroll position; it keeps the explicit selection in
+    `window._eventSection`, falling back to the model's `defaultId`. Because
+    that variable already survives `render()`, section selection survives
+    ordinary rerenders and a sheet closing without any new state. Above the
+    breakpoint the original pin/scroll logic is untouched.
+  * `eventStatusStripHtml(meta,actionHtml)` renders
+    `[data-event-status]` — the lifecycle title, the state pill, and a second
+    copy of the primary action marked `data-event-status-action`. It is hidden
+    on desktop and on the Overview view, where the full card already carries
+    both, so exactly one logging control is ever on screen. Both renderers now
+    build their next action through a `nextActionHtml(marker)` helper so the two
+    copies can never drift.
+  * `scrollToEventSection` anchors on the visible status strip in section views
+    so selecting a destination cannot scroll the status and primary action out
+    from under the sticky navigation.
+  * `EventRegistration.patchSummaryCard` re-applies the active view after it
+    replaces the summary node, so a background registration refresh cannot leak
+    the registration card into another section.
+  * No stored event data, backup, sync, rating, scheduling, seeding, or
+    registration behavior changed; nothing about the section view is persisted.
+* **Test updates in this branch:** twelve existing specs now select the section
+  they exercise (`eventSection(id)`) after opening an event, because the default
+  Playwright viewport is 390 px and therefore in section views. EUX-02's
+  long-page assertions (destination heights and order, scroll-driven active
+  state) moved to a desktop viewport, where that behavior now lives;
+  `tests/improvements.spec.js`'s sticky-clearance check measures against the
+  navigation strip instead of an absolute pixel window, since a short mobile
+  section cannot always scroll up to it.
+* **Remaining follow-up:**
+  * Crossing the breakpoint to desktop and back re-derives the mobile
+    destination from the desktop reading position rather than restoring the
+    previously tapped one. That is coherent, but a dedicated remembered mobile
+    selection would be friendlier.
+  * The trailing `main.event-detail::after` spacer is still sized for the long
+    page, so a short mobile section carries more empty space below it than it
+    needs.
+  * Teams/Entries and Standings still resolve to one view because they are one
+    card. Splitting them is only worth revisiting if EUX-05's responsive
+    standings work makes the standings table a separate block.
 
 ---
 
@@ -459,7 +529,7 @@ a time while retaining the desktop long-page workflow.
 
 **Branch:** `fix/event-responsive-standings-brackets`
 **Risk:** Medium
-**Status:** Planned
+**Status:** Ready
 **Depends on:** EUX-02
 
 ## Objective
@@ -869,6 +939,47 @@ Add one entry after each completed roadmap item.
   horizontal overflow.
 * **Known follow-up:** See the EUX-03 completion record.
 * **Next item:** EUX-04
+
+### 2026-07-27 — EUX-04 completed
+
+* **Branch:** `feat/event-mobile-section-views`
+* **Pull request:** Pending
+* **Version/build:** 0.29.0 / 20260727.2
+* **Summary:** Below 760 px the event page now shows one destination at a time
+  instead of a single very long scroll. The breakpoint is declared once in CSS
+  (`--event-view-mode`) and read by `eventViewMode()`; `applyEventSectionViews`
+  hides every top-level block that does not belong to the active view, deriving
+  membership from the destination each block follows plus explicit
+  `data-event-view` overrides for the setup actions, the event-management
+  buttons, and the progress/finale cards. A compact `[data-event-status]` strip
+  above the sections keeps the lifecycle state and the primary action in reach
+  from every view and stands down on Overview, so only one logging control is
+  ever on screen. Selection is explicit in section views, so it survives
+  rerenders and returns after a sheet closes; a draft event opens on Overview,
+  an event under way on Schedule, and a completed event on Results, reusing
+  EUX-02's `defaultId`. At 760 px and up the scroll-aware long page is
+  unchanged.
+* **Tests:** New `tests/event-mobile-section-views.spec.js` (6 tests: one
+  destination at a time with every destination reachable for fixed and rotating
+  events, lifecycle-appropriate defaults for draft/live/complete, selection
+  surviving a rerender and a sheet round trip, the status strip and single
+  visible primary action at 320 px, the desktop long page with scroll-aware
+  navigation, and a mobile/desktop/mobile resize round trip). Full suite:
+  `npm test` 295 passed, `npm run test:worker` 65 passed,
+  `npm run test:version-check` 10 passed, `npm run check:version` passed.
+  Twelve existing specs now select the section they exercise; EUX-02's
+  long-page assertions moved to a desktop viewport. `tests/version.spec.js` and
+  `tests/app-updates.spec.js` updated for the new version, build, and release
+  notes.
+* **Manual checks:** Fixed-team and rotating event pages at 390 px — every
+  destination shows only its own section with no document overflow, the status
+  strip sits under the sticky navigation after each switch, Overview carries the
+  setup actions and event-management buttons, and Teams/Standings leads with the
+  results card. Desktop at 1280 px keeps every section rendered with
+  scroll-driven active navigation. No console errors.
+* **Known follow-up:** See the EUX-04 completion record. Physical iPhone Safari,
+  tablet portrait/landscape, and mobile-keyboard checks are still outstanding.
+* **Next item:** EUX-05
 
 ## Entry template
 

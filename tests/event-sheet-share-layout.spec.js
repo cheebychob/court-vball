@@ -195,6 +195,8 @@ test('migrated sheets keep focus trapping, Escape, close guards, and leave other
   await seed(page); await page.goto('/');
   await page.locator('[data-tab="events"]:visible').first().click();
   await page.locator('.ev-row').filter({ hasText: 'Sheet Chrome Classic' }).click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('schedule'));
   const trigger = page.getByRole('button', { name: 'Save / Share Schedule', exact: true });
   await trigger.click();
   const sheet = page.locator('.sheet');

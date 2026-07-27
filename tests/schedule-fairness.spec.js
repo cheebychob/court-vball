@@ -33,7 +33,8 @@ async function seed(page) {
 test('rotating mobile flow requires a policy, adds one makeup match, and can keep exactly five rounds', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await seed(page);
-  await page.evaluate(() => { openEvent('rot-fair'); openRotationSettings('rot-fair'); });
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => { openEvent('rot-fair'); eventSection('schedule'); openRotationSettings('rot-fair'); });
 
   const sheet = page.locator('.sheet');
   await expect(sheet).toContainText('Equal games require 1 makeup match');

@@ -74,8 +74,15 @@ test('event subtabs place section starts below sticky navigation without vertica
     await page.locator('.ev-row').click();
     for (const label of ['Schedule', 'Standings', 'Playoffs', 'Teams']) {
       await page.getByRole('navigation', { name: 'Event sections' }).getByRole('button', { name: label, exact: true }).click();
-      const top = await page.locator(`#event-${label.toLowerCase()}`).evaluate(el => el.getBoundingClientRect().top);
-      expect(top).toBeGreaterThan(95); expect(top).toBeLessThan(150);
+      /* The selected section starts below the sticky navigation and on screen.
+         EUX-04 mobile section views cannot always scroll a short page up to the
+         navigation, so the clearance is measured against the strip itself. */
+      const geometry = await page.evaluate(id => {
+        const section = document.getElementById(id).getBoundingClientRect();
+        return { top: section.top, navBottom: document.querySelector('.event-subnav').getBoundingClientRect().bottom, viewport: window.innerHeight };
+      }, `event-${label.toLowerCase()}`);
+      expect(geometry.top, `${viewport.width}px ${label} clears the sticky navigation`).toBeGreaterThanOrEqual(geometry.navBottom - 1);
+      expect(geometry.top, `${viewport.width}px ${label} stays on screen`).toBeLessThan(geometry.viewport - 40);
     }
     const y = await page.evaluate(() => window.scrollY);
     await page.getByRole('navigation', { name: 'Event sections' }).getByRole('button', { name: 'Teams', exact: true }).click();
@@ -236,6 +243,8 @@ test('generalized rotating score saves a normal 6v6 game, derives entry standing
     rotationSchedule: [{ id:'groups-r1-c1',round:1,court:1,sideAEntryIds:['e0','e1','e2'],sideBEntryIds:['e3','e4','e5'],status:'pending' }] };
   await seed(page, { playerCount: 12, events: [event] }); await page.goto('/'); await nav(page, 'Events');
   await page.locator('.ev-row').click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('schedule'));
   await page.getByRole('button', { name: 'Log final score', exact: true }).click();
   await page.getByRole('spinbutton', { name: 'Side A score' }).fill('25');
   await page.getByRole('spinbutton', { name: 'Side B score' }).fill('20');

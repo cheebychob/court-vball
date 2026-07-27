@@ -66,6 +66,15 @@ async function openEvent(page, id) {
   await expect(page.locator('.event-subnav button.on')).toHaveCount(1);
 }
 
+/* EUX-04 keeps the scrollable long page above the mobile breakpoint, so the
+   scroll-driven navigation behaviour is asserted at a desktop width. Mobile
+   section views are covered by tests/event-mobile-section-views.spec.js. */
+const DESKTOP = { width: 1280, height: 900 };
+
+async function showSection(page, id) {
+  await page.evaluate(section => eventSection(section), id);
+}
+
 /* Every destination the navigation offers, with the geometry needed to prove it
    leads to real content in the rendered order. */
 function destinations(page) {
@@ -83,6 +92,7 @@ function destinations(page) {
 }
 
 test('event navigation destinations all lead to rendered content in navigation order', async ({ page }) => {
+  await page.setViewportSize(DESKTOP);
   await seed(page, { events: [fixedEvent(), rotatingEvent()] });
 
   for (const [eventId, participants] of [['fixed', 'Teams'], ['rot', 'Entries']]) {
@@ -100,6 +110,7 @@ test('event navigation destinations all lead to rendered content in navigation o
 });
 
 test('a completed event drops the registration destination and keeps the rest reachable', async ({ page }) => {
+  await page.setViewportSize(DESKTOP);
   await seed(page, { events: [fixedEvent({ done: true })], games: [poolGame('done', 't1', 't2', 100)] });
   await openEvent(page, 'fixed');
 
@@ -142,6 +153,7 @@ test('selecting a destination marks it active and keeps it under the sticky navi
 });
 
 test('the active destination follows manual scrolling and a repeated selection returns to it', async ({ page }) => {
+  await page.setViewportSize(DESKTOP);
   await seed(page, { events: [fixedEvent()] });
   await openEvent(page, 'fixed');
   const nav = page.getByRole('navigation', { name: 'Event sections' });
@@ -203,6 +215,8 @@ test('event navigation and per-match controls meet the 44 px touch target minimu
 
   for (const eventId of ['fixed', 'rot']) {
     await openEvent(page, eventId);
+    /* Per-match logging lives in the schedule destination. */
+    await showSection(page, 'schedule');
     const measurements = await page.evaluate(() => {
       const visible = el => el.getBoundingClientRect().height > 0;
       const measure = selector => [...document.querySelectorAll(selector)].filter(visible)
@@ -231,6 +245,7 @@ test('long team and entry names wrap without hiding the opponent at 320 px and 3
     /* Fixed schedules render match rows; rotating schedules render entry sides. */
     for (const [eventId, selector] of [['fixed', '.match-teams'], ['rot', '.rotation-side b']]) {
       await openEvent(page, eventId);
+      await showSection(page, 'schedule');
       const report = await page.evaluate(({ long, opponent, selector }) => {
         const rows = [...document.querySelectorAll(`main.event-detail ${selector}`)];
         return {

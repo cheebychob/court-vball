@@ -49,6 +49,8 @@ async function materializeRotation(page, eventId = 'rotating-actions') {
 
 async function openEvent(page, eventId) {
   await page.evaluate(id => openEvent(id), eventId);
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('schedule'));
 }
 
 async function expectPrimaryScheduleActions(page) {

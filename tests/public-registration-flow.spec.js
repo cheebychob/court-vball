@@ -439,6 +439,8 @@ test('mobile public submission flows through organizer refresh, accepted import 
   await page.goto('/');
   await page.locator('[data-tab="events"]:visible').first().click();
   await page.getByRole('button', { name: /Import Cup/ }).click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('registration'));
   await page.getByRole('button', { name: 'Manage registrations' }).click();
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('dialog', { name: /Registration · Import Cup/ }).getByRole('button', { name: 'Review import' }).click();

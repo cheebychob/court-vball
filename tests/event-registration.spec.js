@@ -33,6 +33,8 @@ async function seed(page, events = [fixedEvent()], playerList = []) {
 async function openEvent(page) {
   await page.locator('[data-tab="events"]:visible').first().click();
   await page.getByRole('button', { name: /Summer Sand/ }).click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('registration'));
 }
 
 function organizerState() {
