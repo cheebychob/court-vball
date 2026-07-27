@@ -79,14 +79,14 @@ test('newer remote data unions records by id and wins id collisions', async ({ p
     data: JSON.stringify(syncPayload({
       players: [player('p-shared', 'Remote Shared', 60), player('p-remote', 'Remote Only', 55)],
       games: [game('g-shared', 2, { label: 'remote game' }), game('g-remote', 3)],
-      events: [{ id: 'e-shared', name: 'Remote Event' }, { id: 'e-remote', name: 'Remote Only Event' }],
+      events: [{ id: 'e-shared', name: 'Remote Event', venue: 'Remote Arena' }, { id: 'e-remote', name: 'Remote Only Event', venue: 'Remote Fieldhouse' }],
       settings: { hideRatings: true, eloK: 8 }
     }))
   }]]);
   await seedDevice(page, {
     players: [player('p-local', 'Local Only'), player('p-shared', 'Local Shared')],
     games: [game('g-local', 1), game('g-shared', 2, { label: 'local game' })],
-    events: [{ id: 'e-local', name: 'Local Event' }, { id: 'e-shared', name: 'Local Event Name' }],
+    events: [{ id: 'e-local', name: 'Local Event', venue: 'Local Gym' }, { id: 'e-shared', name: 'Local Event Name', venue: 'Local Arena' }],
     settings: { hideRatings: false, eloK: 3 },
     sync: { url: WORKER_URL, code, on: true },
     syncTs: 10
@@ -101,6 +101,7 @@ test('newer remote data unions records by id and wins id collisions', async ({ p
     events: evts.map(e => e.id).sort(),
     sharedGame: games.find(g => g.id === 'g-shared')?.label,
     sharedEvent: evts.find(e => e.id === 'e-shared')?.name,
+    eventVenues: Object.fromEntries(evts.map(event => [event.id, event.venue])),
     settings: { hideRatings: settings.hideRatings, eloK: settings.eloK }
   }));
   expect(merged).toEqual({
@@ -109,6 +110,7 @@ test('newer remote data unions records by id and wins id collisions', async ({ p
     events: ['e-local', 'e-remote', 'e-shared'],
     sharedGame: 'remote game',
     sharedEvent: 'Remote Event',
+    eventVenues: { 'e-local': 'Local Gym', 'e-shared': 'Remote Arena', 'e-remote': 'Remote Fieldhouse' },
     settings: { hideRatings: true, eloK: 8 }
   });
 });
