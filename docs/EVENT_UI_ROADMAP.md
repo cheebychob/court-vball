@@ -55,9 +55,9 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-06
-**Expected branch:** `fix/registration-dashboard-single-scroll`
-**Next item after completion:** EUX-07
+**Current item:** EUX-07
+**Expected branch:** `feat/event-venue`
+**Next item after completion:** EUX-08
 
 EUX-01 through EUX-04 are merged into `master`; their merge-commit fields are
 now recorded in their completion records.
@@ -70,8 +70,12 @@ EUX-06 is implemented and verified on its designated branch, but remains
 `In Progress` until its pull request is merged and the remaining physical
 device checks are completed. One unrelated pre-existing public-registration
 typing test also remains flaky under parallel load; see the EUX-06 completion
-record. EUX-07 has no dependencies but stays `Planned` until EUX-06 is
-complete.
+record.
+
+EUX-07 is implemented and verified on its designated branch. It remains
+`In Progress` until its pull request is merged and physical iPhone Safari and
+Android/Chrome checks are completed. EUX-08 depends on EUX-07 and therefore
+stays `Planned`.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -86,7 +90,7 @@ is completed. Only one item should normally be In Progress.
 | [x]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Done    |
 | [x]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Done    |
 | [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | In Progress |
-| [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Planned |
+| [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | In Progress |
 | [ ]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Planned |
 | [ ]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Planned |
 | [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | Planned |
@@ -740,7 +744,7 @@ before secondary metrics.
 
 **Branch:** `feat/event-venue`
 **Risk:** Low
-**Status:** Planned
+**Status:** In Progress
 
 ## Objective
 
@@ -768,12 +772,46 @@ Add an optional event venue/location field and surface it consistently.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
+* **Completed date:** Pending
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.32.0 / 20260727.5 (from 0.31.0 / 20260727.4)
 * **Tests run:**
+  * `npx playwright test tests/event-venue.spec.js --project=chromium`
+    (4 passed).
+  * Focused Chromium regression run covering event venue, date, schedule
+    sharing, public schedule links, results/playoffs, rules, sync, mobile
+    event sections, event navigation, version, and app updates (110 passed).
+  * `npm test` (307 passed, including Chromium and mobile WebKit),
+    `npm run test:worker` (65 passed), `npm run test:version-check` (10
+    passed), and `npm run check:version` passed.
+  * `git diff --check` passed.
 * **Important implementation notes:**
+  * New-event creation and Event details now accept an optional
+    `#evVenue`. Values are trimmed, empty values are omitted, and clearing
+    the field also clears the legacy `location` alias.
+  * `eventVenue`, `eventSummaryText`, and `eventSummaryHtml` provide one
+    escaped read path with `venue` first and legacy `location` fallback.
+    Venue appears in fixed and rotating organizer summaries and event-list
+    rows through `[data-event-venue]`.
+  * Full and participant schedule models carry venue into previews, print
+    documents, and exports. Public event and draft-rules headers, event
+    results documents, and recap images include it only when populated.
+  * Focused coverage verifies new-event creation and editing, legacy events
+    without venue, backup/restore, worker synchronization and merge,
+    duplication, long and special-character values, clean empty output,
+    both event formats, and 320 px / 1280 px layouts.
+  * Stored event compatibility is preserved: no schema migration or new
+    dependency was added, and existing generic backup, restore, sync, and
+    duplication paths carry the optional property unchanged.
+* **Remaining before Done:**
+  * Complete physical iPhone Safari and Android/Chrome checks. Automated
+    Chromium mobile/desktop layout checks and visual review are complete.
+  * Create and merge the pull request, then fill the pull-request,
+    merge-commit, and completed-date fields.
+  * Only after those gates are complete, mark EUX-07 `Done`, change its
+    summary checkbox to `[x]`, add its dated Progress-log entry, and move
+    EUX-08 from `Planned` to `Ready`.
 
 ---
 
