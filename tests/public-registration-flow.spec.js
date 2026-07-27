@@ -442,6 +442,29 @@ test('mobile public submission flows through organizer refresh, accepted import 
   /* Mobile event pages show one section at a time (EUX-04). */
   await page.evaluate(() => eventSection('registration'));
   await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await expect(page.locator('[data-registration-entry]')).toBeVisible();
+  const dashboardScrollLayout = await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-dashboard]');
+    const sheet = root.closest('.sheet'), list = root.querySelector('[data-registration-entry-list]');
+    const entry = list.querySelector('[data-registration-entry]'), footer = root.querySelector('[data-sheet-foot]');
+    const sheetBox = sheet.getBoundingClientRect(), entryBox = entry.getBoundingClientRect(), footerBox = footer.getBoundingClientRect();
+    return {
+      listOverflowY: getComputedStyle(list).overflowY,
+      listOwnsScroll: list.scrollHeight > list.clientHeight + 1,
+      sheetOwnsScroll: sheet.scrollHeight > sheet.clientHeight + 1,
+      entryInFirstUsefulViewport: entryBox.top >= sheetBox.top && entryBox.top < footerBox.top,
+      footerPosition: getComputedStyle(footer).position,
+      footerVisible: footerBox.top >= sheetBox.top && footerBox.bottom <= sheetBox.bottom + 1,
+    };
+  });
+  expect(dashboardScrollLayout).toEqual({
+    listOverflowY: 'visible',
+    listOwnsScroll: false,
+    sheetOwnsScroll: true,
+    entryInFirstUsefulViewport: true,
+    footerPosition: 'sticky',
+    footerVisible: true,
+  });
   await page.getByRole('button', { name: 'Refresh', exact: true }).click();
   await page.getByRole('dialog', { name: /Registration · Import Cup/ }).getByRole('button', { name: 'Review import' }).click();
   const candidate = page.locator('[data-import-registration]');

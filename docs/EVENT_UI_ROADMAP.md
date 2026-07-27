@@ -66,8 +66,12 @@ EUX-05 is implemented on `fix/event-responsive-standings-brackets` and is
 awaiting merge of https://github.com/cheebychob/court-vball/pull/44. Its
 merge-commit field stays `Pending` until that value exists.
 
-EUX-06 is now `Ready`; its dependency EUX-03 is merged. EUX-07 has no
-dependencies but stays `Planned` until EUX-06 is complete.
+EUX-06 is implemented and verified on its designated branch, but remains
+`In Progress` until its pull request is merged and the remaining physical
+device checks are completed. One unrelated pre-existing public-registration
+typing test also remains flaky under parallel load; see the EUX-06 completion
+record. EUX-07 has no dependencies but stays `Planned` until EUX-06 is
+complete.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -81,7 +85,7 @@ is completed. Only one item should normally be In Progress.
 | [x]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Done    |
 | [x]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Done    |
 | [x]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Done    |
-| [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Ready   |
+| [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | In Progress |
 | [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Planned |
 | [ ]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Planned |
 | [ ]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Planned |
@@ -642,7 +646,7 @@ Remove the two major hidden horizontal-scroll areas from mobile event pages.
 
 **Branch:** `fix/registration-dashboard-single-scroll`
 **Risk:** Medium
-**Status:** Ready
+**Status:** In Progress
 **Depends on:** EUX-03
 
 ## Objective
@@ -678,12 +682,57 @@ before secondary metrics.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
+* **Completed date:** Pending
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.31.0 / 20260727.4 (from 0.30.0 / 20260727.3)
 * **Tests run:**
+  * `npx playwright test tests/event-registration.spec.js --project=chromium`
+    (10 passed)
+  * `npx playwright test tests/public-registration-flow.spec.js:306`
+    (2 passed: chromium + mobile-webkit)
+  * `npx playwright test tests/registration-event-integration.spec.js
+    tests/event-sheet-share-layout.spec.js tests/version.spec.js
+    tests/app-updates.spec.js --project=chromium` (22 passed)
+  * `npm run test:version-check` (10 passed), `npm run test:worker` (65
+    passed), and `npm run check:version` passed as part of `npm run verify`.
+  * The full `npm test` run completed 302 of 303 tests. Its only failure was the
+    existing first test in `tests/public-registration-flow.spec.js`, which
+    intermittently loses/truncates typed public contact data under parallel
+    load. The test passed in both Chromium and mobile WebKit when rerun
+    directly, but a five-repeat stress run reproduced the unrelated flake
+    (7 passed, 3 failed). EUX-06 does not change the public registration form.
 * **Important implementation notes:**
+  * `.registration-entry-list` no longer has a height cap or overflow, so the
+    dashboard `.sheet` is the only vertical scrolling surface.
+  * `registrationDashboardHtml` now uses EUX-03's `sheetHeadHtml` and
+    `sheetFootHtml`. Accepted entries and pending review are the two headline
+    counts; the filter and entries follow immediately; six secondary counts,
+    the registration window, and the public link live in a collapsed
+    `[data-registration-secondary-summary]`.
+  * Review import and event-day check-in remain visible in the sticky footer.
+    Settings, share, and copy stay in the same footer behind a compact
+    "More actions" control so entries remain visible at 320 px.
+  * `EventRegistration.dashboardInteraction` /
+    `restoreDashboardInteraction` preserve the sheet scroll position, active
+    filter, focus key, and focused entry while keyed rows patch in place.
+    `[data-registration-modal]` keeps polling active across member-review
+    rerenders, and the review query, focus, and dashboard return context
+    survive refreshes without persistence.
+  * Fixed-team and rotating dashboards are covered at 320 px, 375 px, and
+    1280 px. The public submission-to-dashboard path supplies mobile WebKit
+    scroll regression coverage.
+  * No stored event/registration shape, backup, sync, rating, scheduling,
+    seeding, import, check-in, or public registration behavior changed.
+* **Remaining before Done:**
+  * Resolve or formally accept the unrelated parallel public-registration test
+    flake, then record a fully passing `npm test` run.
+  * Complete physical iPhone Safari and Android/Chrome checks; automated
+    Chromium and mobile WebKit coverage is complete.
+  * Create and merge the pull request, then fill the PR and merge-commit fields.
+    Only then mark the item `Done`, change its summary checkbox to `[x]`, add
+    the completed Progress-log entry, move EUX-07 to `Ready`, and update Current
+    work to EUX-07.
 
 ---
 
