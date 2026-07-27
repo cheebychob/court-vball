@@ -62,9 +62,9 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 EUX-01, EUX-02, and EUX-03 are merged into `master`; their merge-commit fields
 are now recorded in their completion records.
 
-EUX-04 is implemented on `feat/event-mobile-section-views` and is awaiting a
-pull request; its pull-request and merge-commit fields stay `Pending` until
-those values exist.
+EUX-04 is implemented on `feat/event-mobile-section-views` and is awaiting
+merge of https://github.com/cheebychob/court-vball/pull/43. Its merge-commit
+field stays `Pending` until that value exists.
 
 EUX-05 is now `Ready`. EUX-06 depends only on EUX-03 and is unblocked, but
 EUX-05 is the next item in sequence; EUX-06 stays `Planned` until EUX-05 is
@@ -447,7 +447,7 @@ a time while retaining the desktop long-page workflow.
 ## Completion record
 
 * **Completed date:** 2026-07-27
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/43
 * **Merge commit:** Pending
 * **Version/build:** 0.29.0 / 20260727.2 (from 0.28.0 / 20260727.1)
 * **Tests run:** `npm test` (295 passed, chromium + mobile-webkit, including the
@@ -943,7 +943,7 @@ Add one entry after each completed roadmap item.
 ### 2026-07-27 — EUX-04 completed
 
 * **Branch:** `feat/event-mobile-section-views`
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/43
 * **Version/build:** 0.29.0 / 20260727.2
 * **Summary:** Below 760 px the event page now shows one destination at a time
   instead of a single very long scroll. The breakpoint is declared once in CSS
