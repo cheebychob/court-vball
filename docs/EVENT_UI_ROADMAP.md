@@ -55,17 +55,18 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-03
-**Expected branch:** `fix/event-sheet-share-layout`
-**Next item after completion:** EUX-04
+**Current item:** EUX-04
+**Expected branch:** `feat/event-mobile-section-views`
+**Next item after completion:** EUX-05
 
-EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting merge of
-https://github.com/cheebychob/court-vball/pull/40. Its merge-commit field stays
-`Pending` until that value exists.
+EUX-01 and EUX-02 are merged into `master`; their merge-commit fields are now
+recorded in their completion records.
 
-EUX-02 is implemented on `fix/event-navigation-and-touch` and is awaiting merge
-of https://github.com/cheebychob/court-vball/pull/41. Its merge-commit field
-stays `Pending` until that value exists.
+EUX-03 is implemented on `fix/event-sheet-share-layout`. Its pull-request and
+merge-commit fields stay `Pending` until those values exist.
+
+EUX-06 depends only on EUX-03 and is now unblocked, but EUX-04 is the next item
+in sequence; EUX-06 stays `Planned` until EUX-04 and EUX-05 are complete.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -76,8 +77,8 @@ is completed. Only one item should normally be In Progress.
 | ---- | ------ | --------------------------------------------------- | ------------------------------------------ | -------------- | ------- |
 | [x]  | EUX-01 | Event lifecycle and state-appropriate UI            | `feat/event-lifecycle-ui`                  | None           | Done    |
 | [x]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Done    |
-| [ ]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Ready   |
-| [ ]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Planned |
+| [x]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Done    |
+| [ ]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Ready   |
 | [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Planned |
 | [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Planned |
 | [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Planned |
@@ -153,7 +154,7 @@ information and actions without adding a stored lifecycle field.
 
 * **Completed date:** 2026-07-25
 * **Pull request:** https://github.com/cheebychob/court-vball/pull/40
-* **Merge commit:** Pending
+* **Merge commit:** 78282cbb89549a6f7bf756dcbe642656d119138f
 * **Version/build:** 0.26.0 / 20260725.7 (from 0.25.0 / 20260725.6)
 * **Tests run:** `npm test` (275 passed, chromium + mobile-webkit),
   `npm run test:worker` (65 passed), `npm run test:version-check` (10 passed),
@@ -249,7 +250,7 @@ screens without yet changing the page into mobile section views.
 
 * **Completed date:** 2026-07-25
 * **Pull request:** https://github.com/cheebychob/court-vball/pull/41
-* **Merge commit:** Pending
+* **Merge commit:** dc98a382f192fe7fa56d1f460c869565bd95fcef
 * **Version/build:** 0.27.0 / 20260725.8 (from 0.26.0 / 20260725.7)
 * **Tests run:** `npm test` (285 passed, chromium + mobile-webkit, including the
   new `tests/event-navigation.spec.js`), `npm run test:worker` (65 passed),
@@ -308,7 +309,7 @@ screens without yet changing the page into mobile section views.
 
 **Branch:** `fix/event-sheet-share-layout`
 **Risk:** Low–Medium
-**Status:** Ready
+**Status:** Done
 
 ## Objective
 
@@ -340,13 +341,61 @@ actions immediately reachable.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
-* **Tests run:**
+* **Completed date:** 2026-07-27
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.28.0 / 20260727.1 (from 0.27.0 / 20260725.8)
+* **Tests run:** `npm test` (289 passed, chromium + mobile-webkit, including the
+  new `tests/event-sheet-share-layout.spec.js`), `npm run test:worker`
+  (65 passed), `npm run test:version-check` (10 passed), `npm run check:version`
 * **Important implementation notes:**
+  * Three opt-in helpers define the reusable chrome: `sheetHeadHtml(title,
+    {subtitle})` renders `header.sheet-head[data-sheet-head]`,
+    `sheetFootHtml(actionsHtml,{closeLabel})` renders
+    `div.sheet-foot[data-sheet-foot]`, and `sheetPreviewHtml(bodyHtml,
+    {label,note,open})` renders `details.sheet-preview[data-sheet-preview]`.
+    Sheets that do not call them are byte-for-byte unchanged.
+  * `openSheet` still creates the one `.sheet-x` button itself and only *moves*
+    that same node into `[data-sheet-head-actions]` when the sheet supplies a
+    header. Because it is the same element with the same
+    `requestCloseSheet()` handler, `trapDialogTab`, Escape, scrim behavior, the
+    `.sheet-x` focus fallback, and `window._sheetBeforeClose` dirty-close guards
+    all behave exactly as before. `.sheet-head .sheet-x` drops
+    `position:sticky` and `float:right`, so the close control sits in normal
+    flow and cannot cover content at the top or after scrolling.
+  * `.sheet-foot` is `position:sticky;bottom:0` and bleeds to the sheet edges
+    through `--sheet-pad-x` (16 px, 20 px at 760 px and up) with
+    `.sheet:has(.sheet-foot){padding-bottom:0}`, so its border box exactly
+    matches the sheet's padding box and adds no horizontal overflow. It carries
+    the safe-area bottom inset. `.sheet-foot .schedule-actions` is forced to one
+    column so the footer's primary action spans the sheet at every width; the
+    event-page `.schedule-actions` rows are untouched.
+  * Migrated sheets: `openScheduleShare`, `openParticipantScheduleShare`,
+    `openEventResults`, and `shareEventResults`. For the two schedule sheets the
+    public-link panel now sits *above* the preview and the Download action sits
+    in the footer, so neither sharing path requires scrolling the preview.
+    `openEventResults` moves "Save / share …" into the footer.
+  * `sheetCloseBtn` gained an optional `{flush:true}` that omits its inline
+    `margin-top`; the default call signature and output are unchanged.
+  * `.schedule-file-note` was replaced by the generic `.sheet-preview-note`
+    (same visual token) and its now-unused rule was removed. `#resultsCanvas`
+    stays outside the collapsible frame so recap image export is unaffected.
+  * Headings, the single "Close" button name, `[data-schedule-preview]`,
+    `[data-participant-schedule-preview]`, `[data-public-schedule-section]`,
+    `[data-results-share-options]`, and `[data-download-schedule]` are all
+    preserved, so every existing publication, schedule-share, and results-share
+    test passes unchanged.
+  * No stored-data, backup, sync, rating, scheduling, seeding, or registration
+    behavior changed. `esc()` was added to the participant sheet's
+    `model.exportTitle` heading, which was previously interpolated raw.
 * **Remaining sheets requiring migration:**
+  * Every other sheet still uses the original floating `.sheet-x`, deliberately.
+    The highest-value follow-ups are the registration dashboard (EUX-06 already
+    covers its layout and should adopt `sheetHeadHtml`/`sheetFootHtml`), the
+    rules hub/editor/publish sheets (long previews with a bottom action), the
+    player profile and player editor sheets (which position their own controls
+    against the floating close button), and the courts/schedule settings and
+    rotation settings sheets (long forms with a bottom Save).
 
 ---
 
@@ -354,7 +403,7 @@ actions immediately reachable.
 
 **Branch:** `feat/event-mobile-section-views`
 **Risk:** Medium–High
-**Status:** Planned
+**Status:** Ready
 **Depends on:** EUX-01, EUX-02
 
 ## Objective
@@ -785,6 +834,40 @@ Add one entry after each completed roadmap item.
   overflow.
 * **Known follow-up:** See the EUX-02 completion record.
 * **Next item:** EUX-03
+
+### 2026-07-27 — EUX-03 completed
+
+* **Branch:** `fix/event-sheet-share-layout`
+* **Pull request:** Pending
+* **Version/build:** 0.28.0 / 20260727.1
+* **Summary:** Added reusable, opt-in sheet chrome — `sheetHeadHtml` (a
+  non-floating header that hosts openSheet's own close button),
+  `sheetFootHtml` (a sticky action footer that bleeds to the sheet edges and
+  carries the safe-area inset), and `sheetPreviewHtml` (a neutral, collapsible
+  preview frame) — and migrated the full schedule share, participant schedule
+  share, full event results, and event recap share sheets to it. The close
+  control now sits in normal flow instead of floating over the content, the
+  public-link panel moved above the schedule preview, and the Download /
+  Save-and-share actions moved into the sticky footer, so sharing no longer
+  requires scrolling through the whole preview. Every other sheet keeps the
+  original floating close button.
+* **Tests:** New `tests/event-sheet-share-layout.spec.js` (4 tests: full
+  schedule share at 320/390/1280 px with hit-tested close and download controls
+  before and after scrolling, rotating participant share with a collapsible
+  framed preview and the public-link panel above it, fixed completed-event
+  results and recap sharing on mobile and desktop, and focus trapping, Escape,
+  header dirty-close guard, focus return, plus a guard that unmigrated sheets
+  still use the floating chrome). Full suite: `npm test` 289 passed,
+  `npm run test:worker` 65 passed, `npm run test:version-check` 10 passed,
+  `npm run check:version` passed. `tests/version.spec.js` and
+  `tests/app-updates.spec.js` updated for the new version and build.
+* **Manual checks:** Fixed-team schedule share and completed-event results
+  sheets at 375 px and 1280 px — header close clear of the content at the top
+  and after scrolling to the bottom, sticky footer pinned with the primary
+  action full width, preview collapse and expand, no console errors, no
+  horizontal overflow.
+* **Known follow-up:** See the EUX-03 completion record.
+* **Next item:** EUX-04
 
 ## Entry template
 
