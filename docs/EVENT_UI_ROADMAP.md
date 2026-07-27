@@ -55,20 +55,19 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-05
-**Expected branch:** `fix/event-responsive-standings-brackets`
-**Next item after completion:** EUX-06
+**Current item:** EUX-06
+**Expected branch:** `fix/registration-dashboard-single-scroll`
+**Next item after completion:** EUX-07
 
-EUX-01, EUX-02, and EUX-03 are merged into `master`; their merge-commit fields
-are now recorded in their completion records.
+EUX-01 through EUX-04 are merged into `master`; their merge-commit fields are
+now recorded in their completion records.
 
-EUX-04 is implemented on `feat/event-mobile-section-views` and is awaiting
-merge of https://github.com/cheebychob/court-vball/pull/43. Its merge-commit
-field stays `Pending` until that value exists.
+EUX-05 is implemented on `fix/event-responsive-standings-brackets` and is
+awaiting merge of https://github.com/cheebychob/court-vball/pull/44. Its
+merge-commit field stays `Pending` until that value exists.
 
-EUX-05 is now `Ready`. EUX-06 depends only on EUX-03 and is unblocked, but
-EUX-05 is the next item in sequence; EUX-06 stays `Planned` until EUX-05 is
-complete.
+EUX-06 is now `Ready`; its dependency EUX-03 is merged. EUX-07 has no
+dependencies but stays `Planned` until EUX-06 is complete.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -81,8 +80,8 @@ is completed. Only one item should normally be In Progress.
 | [x]  | EUX-02 | Event navigation, anchors, touch targets, and names | `fix/event-navigation-and-touch`           | EUX-01         | Done    |
 | [x]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Done    |
 | [x]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Done    |
-| [ ]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Ready   |
-| [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Planned |
+| [x]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Done    |
+| [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Ready   |
 | [ ]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Planned |
 | [ ]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Planned |
 | [ ]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Planned |
@@ -448,7 +447,7 @@ a time while retaining the desktop long-page workflow.
 
 * **Completed date:** 2026-07-27
 * **Pull request:** https://github.com/cheebychob/court-vball/pull/43
-* **Merge commit:** Pending
+* **Merge commit:** 355fb2fab4d79ff32260bfca9379b0dacd2bc240
 * **Version/build:** 0.29.0 / 20260727.2 (from 0.28.0 / 20260727.1)
 * **Tests run:** `npm test` (295 passed, chromium + mobile-webkit, including the
   new `tests/event-mobile-section-views.spec.js`), `npm run test:worker`
@@ -529,7 +528,7 @@ a time while retaining the desktop long-page workflow.
 
 **Branch:** `fix/event-responsive-standings-brackets`
 **Risk:** Medium
-**Status:** Ready
+**Status:** Done
 **Depends on:** EUX-02
 
 ## Objective
@@ -566,12 +565,76 @@ Remove the two major hidden horizontal-scroll areas from mobile event pages.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
-* **Tests run:**
+* **Completed date:** 2026-07-27
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/44
+* **Merge commit:** Pending
+* **Version/build:** 0.30.0 / 20260727.3 (from 0.29.0 / 20260727.2)
+* **Tests run:** `npm test` (302 passed, chromium + mobile-webkit, including the
+  new `tests/event-responsive-standings-brackets.spec.js`), `npm run test:worker`
+  (65 passed), `npm run test:version-check` (10 passed), `npm run check:version`
+* **Physical-device checks:** Not yet performed. See "Manual checks still
+  required" below.
 * **Important implementation notes:**
+  * Both halves reuse EUX-04's single breakpoint. The base (mobile-first) rules
+    are now the stacked/one-round presentation and the existing
+    `@media (min-width:760px)` block restores the table and the multi-column
+    bracket, so there is still exactly one declaration of where the event page
+    changes shape.
+  * **Rotating standings.** `ENTRY_STANDING_STATS` is the single definition of
+    the five stat columns (`played`, `record`, `points`, `diff`, `pfpa`) with
+    their labels and value functions; `entryStandingsHeadHtml()` and
+    `entryStandingStatsHtml(r)` build the header and the row cells from it, so
+    the header and the rows can no longer drift apart. Each value carries its
+    own `.entry-stat-label`, hidden from 760 px up where the header row returns.
+  * On phones `.entry-table .stand-row` becomes `display:flex;flex-wrap:wrap`:
+    `.entry-rank` (22 px) and `.entry-name` share the first line and each
+    `.entry-stat` takes `calc((100% - 20px)/3)`, so the five values land in a
+    tidy 3 + 2 grid whose columns line up. `.entry-table`'s `overflow-x:auto`
+    and the `min-width:570px` row moved into the 760 px block, so there is no
+    scroller below the breakpoint. Row markup, `data-scroll-key`, the
+    `openEntrySchedule` handler, and the `<b>` entry name are unchanged, so row
+    activation and the participant schedule sheet behave exactly as before.
+  * **Brackets.** `bracketCardsHtml` now emits a `.seg.bracket-rounds` switcher
+    (the app's existing segmented-control pattern, `role="group"` +
+    `aria-pressed`) listing each round name plus `Champion`, and tags every
+    `.br-col` with `data-round-index` / `data-round-active`. CSS hides
+    `[data-round-active="false"]` below 760 px and reveals every column above
+    it, where the switcher is `display:none` — so the selection is inert on
+    desktop and the horizontal scroller is unchanged there.
+  * `bracketDefaultRoundIndex` opens the card on the first round with an
+    unresolved match, or the champion column once every match is resolved.
+    `setBracketRound(brId,index)` stores the choice in `window._bracketRound`
+    (keyed by bracket id, never persisted) and patches the card in place rather
+    than rerendering, so switching rounds cannot move the reader's scroll
+    position. Because the generator reads that same store, the selection also
+    survives the `render()` that follows logging or editing a result.
+  * Every match control is still the same `<button class="br-match">` with the
+    same `openPlayoffMatch` handler and `aria-label`, so touch, keyboard, and
+    focus-return behaviour are untouched; hidden rounds are `display:none` and
+    therefore stay out of the tab order. Seeding, `bracketState`, and
+    `getPlayoffMatchState` were not modified.
+  * `poolPlayIncompleteNote(ev)` adds a `[data-pool-incomplete]` warning to the
+    bracket setup sheet when a schedule exists and some matches have no result.
+    It is derived from `eventLifecycleFacts` and is purely advisory — the
+    Create bracket button, seeding controls, and every other action stay
+    enabled. The `N>32` note no longer claims phones scroll the bracket
+    sideways.
+  * No stored event data, backup, sync, rating, scheduling, seeding, or
+    registration behaviour changed, and no public/shared output was touched
+    (`publicBracketHtml` remains EUX-09's scope).
+* **Test updates in this branch:** `tests/event-results-playoffs.spec.js`'s
+  16-team bracket test previously asserted the mobile scroller overflowed —
+  the behaviour EUX-05 removes — and now asserts one round on phones plus the
+  multi-column scroller on desktop; two tests that reach into an earlier round
+  select it first through a new `bracketRound()` helper. The EUX-02 touch-target
+  test compared a control sized at exactly 44 px against `>= 44`, which measures
+  `44 ± 1.5e-5` depending on the fractional scroll offset and failed
+  intermittently on `master` as well; it now allows sub-pixel noise.
+* **Manual checks still required:**
+  * Physical iPhone Safari for both the stacked standings and the round
+    switcher.
+  * Tablet portrait and landscape around the 760 px breakpoint.
+  * A bracket with more than 16 teams, where the switcher wraps to several rows.
 
 ---
 
@@ -579,7 +642,7 @@ Remove the two major hidden horizontal-scroll areas from mobile event pages.
 
 **Branch:** `fix/registration-dashboard-single-scroll`
 **Risk:** Medium
-**Status:** Planned
+**Status:** Ready
 **Depends on:** EUX-03
 
 ## Objective
@@ -980,6 +1043,43 @@ Add one entry after each completed roadmap item.
 * **Known follow-up:** See the EUX-04 completion record. Physical iPhone Safari,
   tablet portrait/landscape, and mobile-keyboard checks are still outstanding.
 * **Next item:** EUX-05
+
+### 2026-07-27 — EUX-05 completed
+
+* **Branch:** `fix/event-responsive-standings-brackets`
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/44
+* **Version/build:** 0.30.0 / 20260727.3
+* **Summary:** Removed the two hidden horizontal scrollers from mobile event
+  pages. Below 760 px the rotating standings table becomes stacked rows —
+  rank and entry on the first line, then the five stat values in a labelled
+  3 + 2 grid built from the new single `ENTRY_STANDING_STATS` definition — and
+  a bracket shows one round at a time behind a `.seg` round switcher listing
+  each round plus Champion. The card opens on the first round with an
+  unresolved match, or the champion column once everything is decided; the
+  choice is patched in place, kept in memory per bracket id, and survives the
+  rerender after logging a result. At 760 px and up the wide table and the
+  multi-column bracket scroller are unchanged. The bracket setup sheet now
+  warns when pool play is unfinished without disabling anything.
+* **Tests:** New `tests/event-responsive-standings-brackets.spec.js` (7 tests:
+  no standings scroller and no clipped values at 320 px and 375 px, row
+  activation still opening the participant schedule, every bracket round
+  reachable one at a time with no overflow, match opening by touch and by
+  keyboard with focus return plus round selection surviving a rerender, the
+  desktop table and side-by-side rounds, and the non-blocking pool-play warning
+  appearing and standing down). Full suite: `npm test` 302 passed,
+  `npm run test:worker` 65 passed, `npm run test:version-check` 10 passed,
+  `npm run check:version` passed. `tests/event-results-playoffs.spec.js`,
+  `tests/event-navigation.spec.js`, `tests/version.spec.js`, and
+  `tests/app-updates.spec.js` updated.
+* **Manual checks:** Rotating and fixed-team event pages at 375 px — standings
+  values readable in aligned columns with no horizontal scroll, round switcher
+  labels unclipped, tapping Champion revealing only that column, selection
+  surviving `render()`, no document overflow. Desktop at 1280 px — round
+  switcher hidden, four 190 px bracket columns side by side, standings back to
+  the grid table with labels hidden.
+* **Known follow-up:** See the EUX-05 completion record. Physical iPhone Safari,
+  tablet widths around the breakpoint, and a >16-team bracket are outstanding.
+* **Next item:** EUX-06
 
 ## Entry template
 
