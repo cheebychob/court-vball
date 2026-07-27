@@ -70,6 +70,12 @@ async function openEvent(page, id) {
   await page.evaluate(eventId => { tab = 'events'; openEvent(eventId); }, id);
 }
 
+/* EUX-04 shows one event section at a time on mobile, so a lifecycle assertion
+   about a non-default section has to select that destination first. */
+async function showSection(page, id) {
+  await page.evaluate(section => eventSection(section), id);
+}
+
 test('lifecycle derivation covers every supported state for fixed and rotating events without storing a status', async ({ page }) => {
   await seed(page, { events: [fixedEvent()] });
   await page.goto('/');
@@ -161,6 +167,7 @@ test('a draft fixed event leads with setup and never shows results or championsh
 test('a live fixed event shows the compact progress treatment, one logging control, and demoted setup', async ({ page }) => {
   await seed(page, { events: [fixedEvent({ sched: SCHED })], games: [poolGame('pool-live', 't1', 't2', 100)] });
   await openEvent(page, 'fixed');
+  await showSection(page, 'overview');
 
   await expect(page.locator('#event-overview')).toHaveAttribute('data-event-lifecycle', 'live');
   await expect(page.locator('#event-overview .pill')).toHaveText('live');
@@ -225,6 +232,7 @@ test('a completed event that never used registration drops the section and its d
 test('an in-play event collapses disabled registration into a secondary row that still reaches setup', async ({ page }) => {
   await seed(page, { events: [fixedEvent({ sched: SCHED })], games: [poolGame('pool-live', 't1', 't2', 100)] });
   await openEvent(page, 'fixed');
+  await showSection(page, 'registration');
 
   const card = page.locator('#event-registration');
   await expect(card).toHaveAttribute('data-registration-display', 'compact');
@@ -242,8 +250,11 @@ test('rotating events follow the same lifecycle and keep every format control', 
   await expect(page.locator('#event-overview .pill')).toHaveText('scheduled');
   await expect(page.locator('[data-event-finale]')).toHaveCount(0);
   await expect(page.locator('[data-event-next-action]')).toHaveText('Log next match');
+  await showSection(page, 'schedule');
   await expect(page.getByRole('button', { name: 'Log final score', exact: true })).toBeVisible();
+  await showSection(page, 'entries');
   await expect(page.getByRole('button', { name: 'Add entry', exact: true })).toBeVisible();
+  await showSection(page, 'overview');
 
   await page.evaluate(game => { games.push(game); render(); }, rotatingGame());
   await expect(page.locator('#event-overview')).toHaveAttribute('data-event-lifecycle', 'poolsComplete');
@@ -262,6 +273,7 @@ test('lifecycle sections stay usable at 320 px and on desktop widths', async ({ 
   for (const viewport of [{ width: 320, height: 700 }, { width: 1280, height: 800 }]) {
     await page.setViewportSize(viewport);
     await openEvent(page, 'fixed');
+    await showSection(page, 'overview');
     await expect(page.locator('[data-event-progress]')).toBeVisible();
     await expect(page.locator('[data-event-setup-actions]')).toBeVisible();
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

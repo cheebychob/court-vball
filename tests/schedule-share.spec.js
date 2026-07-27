@@ -20,6 +20,9 @@ async function openEvent(page, name) {
   await page.goto('/');
   await page.locator('[data-tab="events"]:visible').first().click();
   await page.locator('.ev-row').filter({ hasText: name }).click();
+  /* Mobile event pages show one section at a time (EUX-04); schedule sharing
+     lives in the schedule destination. */
+  await page.evaluate(() => eventSection('schedule'));
 }
 
 function fixedEvent(overrides = {}) {
@@ -435,6 +438,8 @@ test('rotating preview shows the complete schedule responsively and downloads on
   await page.locator('[data-tab="events"]:visible').first().click(); await page.locator('.ev-row').click();
   for (const viewport of [{ width: 320, height: 700 }, { width: 390, height: 844 }, { width: 768, height: 900 }, { width: 1100, height: 800 }]) {
     await page.setViewportSize(viewport);
+    /* Crossing the EUX-04 breakpoint re-derives the active event section. */
+    await page.evaluate(() => eventSection('schedule'));
     await page.getByRole('button', { name: 'Save / Share Schedule', exact: true }).click();
     const preview = page.locator('[data-schedule-preview]');
     await expect(preview).not.toContainText('Rotating Groups'); await expect(preview).toContainText('Pair 1'); await expect(preview).toContainText('Player 01');

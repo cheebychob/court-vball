@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.1">
+<meta name="court-build" content="20260727.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -560,6 +560,14 @@
   @media(min-width:760px){main.event-detail{padding-bottom:44px}}
   @media(min-width:900px){:root{--event-sticky-offset:124px}}
   @media(min-width:1060px){main.event-detail{padding-bottom:52px}}
+  /* Mobile event section views: below the breakpoint the event page shows one
+     destination at a time; wider screens keep the scrollable long page. The
+     breakpoint lives here so the layout and the script cannot disagree. */
+  :root{--event-view-mode:sections}
+  @media(min-width:760px){:root{--event-view-mode:page}}
+  .event-view-hidden{display:none!important}
+  .event-status-strip{padding:11px 12px}
+  .event-status-strip .btn{margin-top:9px}
   .event-overview{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px}
   .event-metric{padding:11px;border-radius:15px;background:#ffffff09;border:1px solid #ffffff14}
   .event-metric b{display:block;font-size:19px}.event-metric span{display:block;margin-top:4px;color:var(--soft);font-size:10.5px}
@@ -1169,9 +1177,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.28.0',
-  build: '20260727.1',
-  releaseNotes: 'Share and results sheets now keep the close button clear of the content, put the download and sharing actions in a sticky footer, and let long previews collapse.'
+  version: '0.29.0',
+  build: '20260727.2',
+  releaseNotes: 'Event pages now show one section at a time on phones, with the status and next action always in reach; wider screens keep the full scrolling page.'
 });
 
 function appVersionLabel(){
@@ -2886,6 +2894,7 @@ function render(options={}){
   renderNav();
   if(tab!=='teams')document.querySelector('body > [data-attendance-actions]')?.remove();
   main.classList.remove('event-detail','attendance-screen');
+  delete main.dataset.eventViewMode; delete main.dataset.eventView;
   const roster = players.filter(p=>!isArchived(p));
   const act = roster.filter(p=>p.active);
   const todayN = games.filter(g=>isToday(g.date)).length;
@@ -6685,12 +6694,15 @@ function getEventResultSummary(ev){
   const leader=rotating?entryStandings(ev).find(r=>r.played):eventStandings(ev,poolGames).find(r=>r.matchesPlayed),leaderName=leader?(rotating?leader.entry.name:leader.t.name):null,matchCount=eventMatchGroups(ev).length,entryCount=rotating?rotatingEntries(ev).length:(ev.teams||[]).length;
   return {status,rotating,champions,podium,primary,champTeam,runnerTeam,champion:champTeam?.name||null,runner:runnerTeam?.name||null,division:primary?.br.name||null,score:primary?.res?.disp||null,championSeed:primary?.state.seedNum[primary.champId]||null,allRow,poolRow,journey,leaderName,allComplete,entryCount,matchCount,setCount:allEventGames.length,date:formatEventDate(eventLocalDate(ev))||'',format:rotating?rotatingFormatDescription(rotationSettings(ev).entrySize,rotationSettings(ev).teamSize):'Fixed teams',venue:ev.venue||ev.location||null};
 }
+/* The results treatment belongs to both mobile views it summarises: the
+   overview and the participants card that carries the standings table. */
+function eventResultsViewIds(ev){ return `overview ${eventFormat(ev)==='rotatingGroups'?'entries':'teams'}`; }
 /* Compact in-play treatment. The trophy/finale card below is reserved for a
    saved champion or a completed event so an unfinished event never looks
    decided. */
 function eventProgressCardHtml(ev,d,state){
   const hasBracket=!!(ev.brackets||[]).length;
-  return `<section class="card event-progress" data-event-finale data-event-progress data-event-lifecycle="${esc(state)}">
+  return `<section class="card event-progress" data-event-view="${eventResultsViewIds(ev)}" data-event-finale data-event-progress data-event-lifecycle="${esc(state)}">
     <div class="row spread" style="gap:10px"><div class="finale-status">Results so far</div><div class="tiny faint">${d.matchCount} match${d.matchCount===1?'':'es'} played</div></div>
     <div class="progress-leader"><span class="tiny faint">${d.leaderName?'Current leader':'Leader'}</span><b>${esc(d.leaderName||'No completed matches yet')}</b></div>
     <div class="tiny faint">${hasBracket?'Championship pending · the trophy appears once a bracket final is saved.':'Standings update as results are saved. No champion is declared until a bracket final is saved.'}</div>
@@ -6706,7 +6718,7 @@ function championsStripHtml(ev,state=eventLifecycleState(ev)){
 function eventFinaleHtml(ev,d=getEventResultSummary(ev)){
   const focus=d.champTeam||null,focusName=d.champion||d.leaderName||'Championship pending',focusLabel=d.champion?'Champion':d.leaderName?'Current leader':'Event status',memberLine=focus?teamMemberNames(focus).join(', '):'',stats=[];
   if(d.championSeed)stats.push([`#${d.championSeed}`,'Playoff seed']);if(!d.rotating&&d.allRow?.matchesPlayed)stats.push([`${d.allRow.mw}-${d.allRow.ml}`,'Tournament']);if(d.poolRow?.matchesPlayed)stats.push([`${d.poolRow.mw}-${d.poolRow.ml}`,'Pool play']);if(d.journey.length)stats.push([`${d.journey.filter(r=>r.result==='Won').length}-0`,'Playoffs']);if(d.allRow?.gp)stats.push([`${d.allRow.sw}-${d.allRow.sl}`,'Sets']);if(d.allRow?.diff)stats.push([`${d.allRow.diff>0?'+':''}${d.allRow.diff}`,'Point diff']);stats.push([String(d.entryCount),d.rotating?'Entries':'Teams'],[String(d.matchCount),'Matches']);
-  return `<section class="card event-finale" data-event-finale><div class="row spread" style="position:relative;gap:12px"><div class="finale-status">${esc(d.status)}</div><div class="tiny faint" style="text-align:right">${esc(ev.name||'Event')} · ${esc(d.date)}</div></div><div class="finale-grid">
+  return `<section class="card event-finale" data-event-view="${eventResultsViewIds(ev)}" data-event-finale><div class="row spread" style="position:relative;gap:12px"><div class="finale-status">${esc(d.status)}</div><div class="tiny faint" style="text-align:right">${esc(ev.name||'Event')} · ${esc(d.date)}</div></div><div class="finale-grid">
     <div class="finale-champion"><div class="finale-trophy">${icons.trophy}</div><div class="tiny faint" style="margin-top:10px">${esc(d.division||focusLabel)}</div><h3>${esc(focusName)}</h3>${memberLine?`<div class="finale-members">${esc(memberLine)}</div>`:''}${!d.champion&&d.leaderName?`<div class="tiny" style="color:var(--gold);margin-top:7px">Current leader · championship pending</div>`:''}</div>
     <div class="finale-stats">${stats.slice(0,8).map(([value,label])=>`<div class="finale-stat"><b class="num">${esc(value)}</b><span>${esc(label)}</span></div>`).join('')}</div>
     <div class="finale-match"><span class="tiny faint">${d.champion?'Championship final':'Event progress'}</span>${d.runner?`<strong>${esc(d.runner)}</strong><div class="finale-score num">${esc(d.score||'Final')}</div><div class="tiny faint">Runner-up${d.primary?.state.seedNum[d.primary.runnerId]?` · Seed ${d.primary.state.seedNum[d.primary.runnerId]}`:''}</div>`:`<strong>${d.allComplete?'Final complete':'Championship pending'}</strong><div class="small soft" style="margin-top:7px">${d.matchCount} completed match${d.matchCount===1?'':'es'} · ${esc(d.date)}</div>`}</div>
@@ -6962,9 +6974,10 @@ function renderRotatingEventDetail(ev){
   const sideHtml=ids=>`<div class="rotation-side">${ids.map(id=>{const e=entryById(ev,id);return `<button class="rotation-entry pressable" onclick="openEntrySchedule('${ev.id}','${id}')"><b>${esc(e?.name||'Missing entry')}</b><span>${(e?.players||[]).map(pid=>pById(pid)?.name||'Historical player').map(esc).join(' · ')}</span></button>`;}).join('')}</div>`;
   const state=eventLifecycleState(ev),meta=eventLifecycleMeta(state),complete=state==='complete',showRegistration=eventRegistrationSectionVisible(ev,complete);
   const nextMatch=complete?null:schedule.find(m=>!linkedRotationGame(ev,m));
-  const nextAction=nextMatch?`<button class="btn primary block" data-event-next-action onclick="openRotationScore('${ev.id}','${nextMatch.id}')">Log next match</button>`
-    :(!complete&&!schedule.length)?`<button class="btn ghost block" data-event-next-action onclick="openRotationSettings('${ev.id}')">Set up schedule</button>`:'';
-  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(`Rotating Groups · ${meta.label}`,esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}${eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}))}
+  const nextActionHtml=marker=>nextMatch?`<button class="btn primary block" ${marker} onclick="openRotationScore('${ev.id}','${nextMatch.id}')">Log next match</button>`
+    :(!complete&&!schedule.length)?`<button class="btn ghost block" ${marker} onclick="openRotationSettings('${ev.id}')">Set up schedule</button>`:'';
+  const nextAction=nextActionHtml('data-event-next-action');
+  let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(`Rotating Groups · ${meta.label}`,esc(ev.name),`${eventTimingSummary(ev)} · ${rotatingFormatDescription(s.entrySize,s.teamSize)}`)}${eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}))}${eventStatusStripHtml(meta,nextActionHtml('data-event-status-action'))}
     <section id="event-overview" class="card" data-event-lifecycle="${state}"><div class="row spread"><div><div class="stat-title" style="margin:0">${meta.title}</div><div class="small soft" style="margin-top:5px">${meta.blurb}</div></div><span class="pill ${meta.tone}">${meta.label}</span></div><p class="small soft">${esc(rotatingFormatDescription(s.entrySize,s.teamSize))} Each side contains ${validation.valid?validation.entriesPerSide:'—'} ${typePlural.toLowerCase()}.</p><div class="event-overview"><div class="event-metric"><b class="num">${entries.length}</b><span>${typePlural.toLowerCase()}</span></div><div class="event-metric"><b class="num">${s.teamSize}s</b><span>players per side</span></div><div class="event-metric"><b class="num">${validation.valid?validation.entriesPerSide:'—'}</b><span>entries per side</span></div><div class="event-metric"><b class="num">${completed}</b><span>completed</span></div><div class="event-metric"><b class="num">${Math.max(0,schedule.length-completed)}</b><span>remaining</span></div><div class="event-metric"><b>${leader?esc(leader.entry.name):'—'}</b><span>leader</span></div></div><div class="tiny faint">${s.rounds} rounds · ${s.courts} courts · Win ${s.winPoints} · tie ${s.tiePoints} · loss ${s.lossPoints}. ${esc(entryRulesLabel(ev))}</div>${tl?`<div class="tiny" style="margin-top:7px;color:var(--gold)">Planned pool play ends ${fmtScheduleTime(ev,tl.poolsEnd)}${tl.playoff?` · playoffs ${fmtScheduleTime(ev,tl.playoff[0].est)} · awards ${fmtScheduleTime(ev,tl.awards)}`:''}</div>`:''}${quality?`<div class="unkline" style="margin-top:9px">Games per ${typeSingular.toLowerCase()}: ${quality.gamesMin}–${quality.gamesMax} · byes ${quality.byesMin}–${quality.byesMax} · repeated teammate combinations ${quality.repeatedTeammates??quality.repeatedPartnerships??0} · repeated opponent combinations ${quality.repeatedOpponents||0} · back-to-back assignments ${quality.backToBack||0} · incomplete rounds ${quality.invalidRounds||0}${settings.hideRatings?'':` · average seed spread ${(quality.seedSpread||0).toFixed(1)}`}</div>`:''}${placementNote?`<div class="tiny faint" style="margin-top:6px">${esc(placementNote)}</div>`:''}${nextAction}</section>
     ${championsStripHtml(ev,state)}${rulesEntryActionHtml(ev)}${showRegistration?registrationSummaryHtml(ev,complete):''}`;
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
@@ -6983,7 +6996,7 @@ function renderRotatingEventDetail(ev){
   html+=`</section><section id="event-entries" class="card" style="margin-top:12px"><div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">${typePlural} &amp; standings</div>${ev.done?'':`<button class="btn sm ghost" onclick="openEntryEditor('${ev.id}')">${icons.plus} Add entry</button>`}</div><div class="tiny faint" style="margin-bottom:8px">${esc(entryRulesLabel(ev))} Tap for schedule; edit lives inside.</div>${quality?.gameDifference>0?`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`:''}<div id="event-standings">`;
   if(!standings.length)html+=`<div class="stat-empty">No ${typePlural.toLowerCase()} yet. Each ${typeSingular.toLowerCase()} must contain exactly ${s.entrySize} player${s.entrySize===1?'':'s'}.</div>`;
   else{const seedMeta=entrySeedMetadata(ev);html+=`<div class="entry-table"><div class="stand-row stand-head"><span>#</span><span>Entry</span><span>P · Win%</span><span>W-L-T</span><span>Pts</span><span>+/-</span><span>PF-PA</span></div>${standings.map((r,i)=>{const valid=(r.entry.players||[]).length===s.entrySize,seed=seedMeta.seeds[r.entry.id]??'—',rating=seedMeta.strengths[r.entry.id],substitutes=(r.entry.substitutePlayerIds||[]).map(id=>pById(id)?.name||'Historical player').map(esc).join(', ');return `<button class="stand-row pressable" data-scroll-key="entry-${r.entry.id}" onclick="openEntrySchedule('${ev.id}','${r.entry.id}')"><span>${i+1}</span><span><b>${esc(r.entry.name)}${r.entry.registrationSource?'<span class="imported-marker">Imported from registration</span>':''}</b><span class="tiny ${valid?'faint':'bad'}" style="display:block">${valid?`${r.entry.players.map(id=>pById(id)?.name||'Historical player').map(esc).join(' + ')} · ${seedMeta.kind} seed ${seed}${seedMeta.kind==='projected'&&!settings.hideRatings?` · rating ${Math.round(rating)}`:''}`:'incomplete entry'}</span>${substitutes?`<span class="tiny faint" style="display:block">Substitutes: ${substitutes}</span>`:''}</span><span>${r.played} · ${Math.round(r.winPct*100)}%</span><span>${r.wins}-${r.losses}-${r.ties}</span><span>${r.standingsPoints}</span><span>${r.diff>0?'+':''}${r.diff}</span><span>${r.pf}-${r.pa}</span></button>`;}).join('')}</div>`;}
-  html+=`</div></section><button class="btn ghost block" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;mountEventNav();
+  html+=`</div></section><button class="btn ghost block" data-event-view="overview" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button><button class="btn ghost block" data-event-view="overview" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button><button class="btn ghost block" data-event-view="overview" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button><button class="btn danger block" data-event-view="overview" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;main.innerHTML=html;mountEventNav();
 }
 window.openEntryEditor=(evId,entryId)=>{const ev=evById(evId),entry=ev&&entryById(ev,entryId);if(!ev)return;window._entryQuery='';window._entryDraft={evId,entryId:entry?.id||null,name:entry?.name||'',players:new Set(entry?.players||[]),manualSeed:entry?.manualSeed||rotatingEntries(ev).length+1};renderEntryEditor();};
 function entryDraftCapture(){const d=window._entryDraft,n=$('#entryName'),seed=$('#entryManualSeed');if(n)d.name=n.value;if(seed)d.manualSeed=positiveInt(seed.value,d.manualSeed);return d;}
@@ -7234,7 +7247,7 @@ function fixedPendingRoundScheduleHtml(ev,sc){
 function fixedEventSetupActionsHtml(ev,demoted){
   if(ev.done)return '';
   const many=(ev.teams||[]).length>=2;
-  return `<section class="event-setup${demoted?' demoted':''}" data-event-setup-actions data-demoted="${demoted?'true':'false'}">
+  return `<section class="event-setup${demoted?' demoted':''}" data-event-view="overview" data-event-setup-actions data-demoted="${demoted?'true':'false'}">
     ${demoted?`<div class="stat-title" style="margin:0 0 8px">Event setup</div>`:''}
     <div class="row" style="gap:8px">
       <button class="btn ghost" style="flex:1" onclick="openEventTeam('${ev.id}')">${icons.plus} Add team</button>
@@ -7258,7 +7271,9 @@ function renderEventDetail(ev){
   const setupHtml=fixedEventSetupActionsHtml(ev,started);
   let html = `<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>`;
   html += screenHead(`Event · ${meta.label}`, esc(ev.name),eventTimingSummary(ev));
+  const nextActionHtml=marker=>!complete&&canLog?`<button class="btn primary block" ${marker} onclick="openEventGame('${ev.id}')">Log next result</button>`:'';
   html += eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}));
+  html += eventStatusStripHtml(meta,nextActionHtml('data-event-status-action'));
   html += `<section id="event-overview" class="card" data-event-lifecycle="${state}" style="border-color:${complete?'#ffffff20':'#5fe3ae42'}">
     <div class="row spread"><div><div class="stat-title" style="margin:0">${meta.title}</div><div class="small soft" style="margin-top:5px">${canLog||complete?meta.blurb:'Add at least two teams before logging a result.'}</div></div><span class="pill ${meta.tone}">${meta.label}</span></div>
     <div class="event-overview">
@@ -7268,7 +7283,7 @@ function renderEventDetail(ev){
       <div class="event-metric"><b class="num">${sc?sc.effectiveCourts:'—'}</b><span>courts in use</span></div>
       <div class="event-metric"><b class="num">${pools.length||'—'}</b><span>pools</span></div>
     </div>
-    ${!complete&&canLog?`<button class="btn primary block" data-event-next-action onclick="openEventGame('${ev.id}')">Log next result</button>`:''}
+    ${nextActionHtml('data-event-next-action')}
   </section>`;
   if(!started) html += setupHtml;
   html += championsStripHtml(ev,state);
@@ -7342,10 +7357,10 @@ function renderEventDetail(ev){
         </button>`;
       }).join('') + `</div>`;
   }
-  html += `<button class="btn ghost block" style="margin-top:12px" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button>
-    <button class="btn ghost block" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button>
-    <button class="btn ghost block" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button>
-    <button class="btn danger block" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;
+  html += `<button class="btn ghost block" data-event-view="overview" style="margin-top:12px" onclick="toggleEventDone('${ev.id}')">${ev.done?'Reopen event':'Mark event complete'}</button>
+    <button class="btn ghost block" data-event-view="overview" style="margin-top:8px" onclick="renameEvent('${ev.id}')">Event details</button>
+    <button class="btn ghost block" data-event-view="overview" style="margin-top:8px" onclick="duplicateEvent('${ev.id}')">Duplicate event</button>
+    <button class="btn danger block" data-event-view="overview" style="margin-top:8px" onclick="deleteEvent('${ev.id}')">Delete event</button>`;
   main.innerHTML=html;
   mountEventNav();
 }
@@ -7355,17 +7370,28 @@ function renderEventDetail(ev){
    section the page does not render or order them differently. */
 const EVENT_SECTION_LABELS={overview:'Overview',registration:'Registration',schedule:'Schedule',playoffs:'Playoffs',teams:'Teams',entries:'Entries',standings:'Standings'};
 function eventSectionModel(ev,{state,showRegistration}={}){
-  const ids=['overview',...(showRegistration?['registration']:[]),'schedule','playoffs',
-    eventFormat(ev)==='rotatingGroups'?'entries':'teams','standings'];
+  const participants=eventFormat(ev)==='rotatingGroups'?'entries':'teams';
+  const ids=['overview',...(showRegistration?['registration']:[]),'schedule','playoffs',participants,'standings'];
   const lifecycle=state||eventLifecycleState(ev);
   const working=lifecycle==='live'||lifecycle==='poolsComplete'||lifecycle==='playoffs';
-  return {ids,sections:ids.map(id=>({id,label:EVENT_SECTION_LABELS[id]})),
+  /* Standings live inside the participants card, so on mobile both destinations
+     reveal the same view; the standings table is the scroll target within it. */
+  return {ids,sections:ids.map(id=>({id,label:EVENT_SECTION_LABELS[id],viewId:id==='standings'?participants:id})),
     defaultId:lifecycle==='complete'?'standings':working?'schedule':'overview'};
 }
 function eventSubnavHtml(model){
   return `<nav class="event-subnav" aria-label="Event sections" data-event-default="${model.defaultId}">`
-    + model.sections.map(s=>`<button data-event-tab="${s.id}" onclick="eventSection('${s.id}')">${s.label}</button>`).join('')
+    + model.sections.map(s=>`<button data-event-tab="${s.id}"${s.viewId&&s.viewId!==s.id?` data-event-view="${s.viewId}"`:''} onclick="eventSection('${s.id}')">${s.label}</button>`).join('')
     + `</nav>`;
+}
+/* The compact status summary shown above the section views: it keeps the
+   lifecycle state and the primary action reachable from every mobile view and
+   stays hidden on Overview, where the full card already carries both. */
+function eventStatusStripHtml(meta,actionHtml){
+  return `<div class="card event-status-strip" data-event-status hidden>
+    <div class="row spread" style="gap:10px"><div class="stat-title" style="margin:0">${meta.title}</div><span class="pill ${meta.tone}">${meta.label}</span></div>
+    ${actionHtml||''}
+  </div>`;
 }
 function eventStickyOffset(){
   return parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--event-sticky-offset'))||126;
@@ -7384,16 +7410,62 @@ function eventSectionAtScroll(){
   }
   return active||ids[0];
 }
+/* ---------- mobile event section views ----------
+   Below the mobile breakpoint the page renders one destination at a time. The
+   mode is read from CSS so a single declaration controls layout and script. */
+function eventViewMode(){
+  return getComputedStyle(document.documentElement).getPropertyValue('--event-view-mode').trim()==='page'?'page':'sections';
+}
+function eventSectionViewId(id){
+  return eventSubnavEl()?.querySelector(`[data-event-tab="${CSS.escape(id)}"]`)?.dataset.eventView||id;
+}
+/* Every top-level block belongs to the destination it follows unless it names
+   its own view; the header, navigation, and status strip above the first
+   destination are chrome and stay visible in every view. */
+function eventViewGroups(){
+  const ids=new Set(eventSectionIds());
+  let group=null;
+  return [...main.children].map(el=>{
+    const id=el.id.startsWith('event-')?el.id.slice(6):'';
+    if(ids.has(id)) group=id;
+    const named=el.dataset.eventView;
+    return {el,views:named?named.split(/\s+/):group?[group]:null};
+  });
+}
+/* `view` is the active view id, or null for the desktop long page. */
+function applyEventSectionViews(view){
+  for(const {el,views} of eventViewGroups()){
+    const hide=!!view&&!!views&&!views.includes(view);
+    el.classList.toggle('event-view-hidden',hide);
+    el.hidden=hide;
+  }
+  const strip=main.querySelector('[data-event-status]');
+  if(strip){ const off=!view||view==='overview'; strip.classList.toggle('event-view-hidden',off); strip.hidden=off; }
+  main.dataset.eventViewMode=view?'sections':'page';
+  if(view) main.dataset.eventView=view; else delete main.dataset.eventView;
+}
 /* A tapped destination stays highlighted at the position it landed on — even
    when the page cannot scroll far enough — and releases the moment the reader
-   scrolls somewhere else. */
+   scrolls somewhere else. In section views the selection is explicit instead,
+   so it survives rerenders and returns after a sheet closes. */
 function syncEventNav(){
   const nav=eventSubnavEl(); if(!nav) return;
-  const pin=window._eventSectionPin;
-  const pinned=pin&&Math.abs(window.scrollY-pin.y)<=3&&document.getElementById('event-'+pin.id);
-  if(!pinned) window._eventSectionPin=null;
-  const active=pinned?pin.id:eventSectionAtScroll();
-  window._eventSection=active;
+  const sections=eventViewMode()==='sections';
+  let active;
+  if(sections){
+    const ids=eventSectionIds();
+    active=ids.includes(window._eventSection)?window._eventSection:(nav.dataset.eventDefault||ids[0]);
+    window._eventSectionPin=null;
+    window._eventSection=active;
+    applyEventSectionViews(eventSectionViewId(active));
+  }else{
+    const pin=window._eventSectionPin;
+    const pinned=pin&&Math.abs(window.scrollY-pin.y)<=3&&document.getElementById('event-'+pin.id);
+    if(!pinned) window._eventSectionPin=null;
+    active=pinned?pin.id:eventSectionAtScroll();
+    window._eventSection=active;
+    applyEventSectionViews(null);
+  }
   nav.querySelectorAll('[data-event-tab]').forEach(button=>{
     const on=button.dataset.eventTab===active;
     button.classList.toggle('on',on);
@@ -7417,7 +7489,11 @@ function mountEventNav(){
 window.addEventListener('scroll',()=>{ if(eventSubnavEl()) scheduleEventNavSync(); },{passive:true});
 window.addEventListener('resize',()=>{ if(eventSubnavEl()) scheduleEventNavSync(); });
 function scrollToEventSection(id){
-  const target=document.getElementById('event-'+id); if(!target) return;
+  const section=document.getElementById('event-'+id); if(!section) return;
+  /* In section views the status strip sits directly above the only visible
+     section, so it anchors the scroll and stays on screen with it. */
+  const strip=eventViewMode()==='sections'?main.querySelector('[data-event-status]:not(.event-view-hidden)'):null;
+  const target=strip||section;
   const offset=eventStickyOffset();
   window.scrollTo({top:Math.max(0,target.getBoundingClientRect().top+window.scrollY-offset),behavior:'auto'});
   const nav=eventSubnavEl(), button=nav?.querySelector(`[data-event-tab="${CSS.escape(id)}"]`);
@@ -7430,6 +7506,8 @@ window.eventSection=(id)=>{
      away has to bring it back. A destination that no longer exists falls back
      to the shared default section. */
   const target=document.getElementById('event-'+id)?id:(eventSubnavEl()?.dataset.eventDefault||id);
+  /* Reveal the destination before scrolling to it. */
+  if(eventViewMode()==='sections'){ window._eventSection=target; syncEventNav(); }
   scrollToEventSection(target);
 };
 window.openEvent=(id)=>{ window._evOpen=id; window._eventSection=null; window._eventSectionPin=null; tab='events'; render({scroll:'top'}); };
@@ -10898,7 +10976,11 @@ const EventRegistration=(()=>{
   }
   function patchSummaryCard(eventId){
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);
-    if(ev&&node&&node.dataset.registrationFingerprint!==String(registrationSummaryFingerprint(ev)))node.outerHTML=registrationSummaryHtml(ev);
+    if(ev&&node&&node.dataset.registrationFingerprint!==String(registrationSummaryFingerprint(ev))){
+      node.outerHTML=registrationSummaryHtml(ev);
+      /* The replacement node is fresh, so re-apply the active mobile section view. */
+      syncEventNav();
+    }
   }
   return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();

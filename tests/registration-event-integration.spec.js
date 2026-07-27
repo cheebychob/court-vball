@@ -120,6 +120,8 @@ async function mockWorker(page, state) {
 async function openEvent(page) {
   await page.locator('[data-tab="events"]:visible').first().click();
   await page.getByRole('button', { name: /Import Cup/ }).click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  await page.evaluate(() => eventSection('registration'));
 }
 
 test('compatibility and preview validation are format-aware, identity-based, and non-mutating', async ({ page }) => {

@@ -51,10 +51,12 @@ async function seed(page, { events, games = [], playerCount = 32 }) {
   }, { events, games, roster: players(playerCount) });
 }
 
-async function openEvent(page) {
+async function openEvent(page, section) {
   await page.goto('/');
   await page.locator('[data-tab="events"]:visible').click();
   await page.locator('.ev-row').first().click();
+  /* Mobile event pages show one section at a time (EUX-04). */
+  if (section) await page.evaluate(id => eventSection(id), section);
 }
 
 test('completed fixed event finale and full recap derive champion, runner-up, score, journey, standings, and supported highlights', async ({ page }) => {
@@ -101,7 +103,7 @@ test('completed fixed event finale and full recap derive champion, runner-up, sc
 test('an unfinished final never declares a champion and older optional fields remain safe', async ({ page }) => {
   const { event, games } = completeFourTeamEvent({ includeFinal: false });
   delete event.eventDate; delete event.done;
-  await seed(page, { events: [event], games }); await openEvent(page);
+  await seed(page, { events: [event], games }); await openEvent(page, 'overview');
   const result = await page.evaluate(() => {
     const summary = getEventResultSummary(evts[0]), html = championsStripHtml(evts[0]);
     return { status: summary.status, champion: summary.champion, runner: summary.runner, html, data: eventResultsData(evts[0]) };
@@ -115,7 +117,7 @@ test('an unfinished final never declares a champion and older optional fields re
 
 test('ready and completed matchup cards stay interactive, expose details, set scores, close, and keyboard focus return', async ({ page }) => {
   const { event, games } = completeFourTeamEvent({ includeFinal: false });
-  await seed(page, { events: [event], games }); await openEvent(page);
+  await seed(page, { events: [event], games }); await openEvent(page, 'playoffs');
   const completed = page.getByRole('button', { name: /Open completed semifinal: Alpha defeated Delta/i });
   await completed.focus(); await page.keyboard.press('Enter');
   const sheet = page.locator('.sheet');
@@ -137,7 +139,7 @@ test('a 1-1 playoff save is in progress, reopens prefilled, and a fresh save rep
   const event = { id: 'progress', name: 'Progress Final', eventDate: '2026-07-18', created: 1, done: false, teams: roster,
     brackets: [{ id: 'champ', name: 'Championship', created: 100, seeds: roster.map(t => t.id) }] };
   const partial = matchSets({ evId: 'progress', brId: 'champ', a: 't1', b: 't2', scores: [[25, 27], [25, 14]], start: 200, prefix: 'partial' });
-  await seed(page, { events: [event], games: partial }); await openEvent(page);
+  await seed(page, { events: [event], games: partial }); await openEvent(page, 'playoffs');
 
   const status = await page.evaluate(() => { const ev=evts[0],br=ev.brackets[0],state=bracketState(ev,br);return getPlayoffMatchState(ev,br,state,0,0); });
   expect(status).toMatchObject({ key: 'inProgress', label: 'In progress · 1-1' });
@@ -174,7 +176,7 @@ test('editing an upstream winner reuses saved game IDs and tombstones impossible
   const { event, games } = completeFourTeamEvent();
   const originalSemiIds = games.filter(g => g.id.startsWith('semi-a')).map(g => g.id);
   const finalIds = games.filter(g => g.id.startsWith('final')).map(g => g.id);
-  await seed(page, { events: [event], games }); await openEvent(page);
+  await seed(page, { events: [event], games }); await openEvent(page, 'playoffs');
   await page.getByRole('button', { name: /Open completed semifinal: Alpha defeated Delta/i }).click();
   await page.locator('.sheet').getByRole('button', { name: 'Edit result' }).click();
   await page.locator('#evs1A').fill('14'); await page.locator('#evs1B').fill('25');
@@ -263,7 +265,7 @@ test('a 16-team bracket contains horizontal overflow without clipping the page o
   const roster = teams(Array.from({ length: 16 }, (_, i) => `Seed ${i + 1}`));
   const event = { id: 'wide', name: 'Wide Bracket', eventDate: '2026-07-16', created: 1, done: false, teams: roster,
     brackets: [{ id: 'wide-bracket', name: 'Championship', created: 100, seeds: roster.map(t => t.id) }] };
-  await seed(page, { events: [event] }); await openEvent(page);
+  await seed(page, { events: [event] }); await openEvent(page, 'playoffs');
   const mobile = await page.evaluate(() => {
     const scroll = document.querySelector('.bracket-scroll'), card = document.querySelector('.br-match');
     return { inner: innerWidth, pageWidth: document.documentElement.scrollWidth, scrollClient: scroll.clientWidth, scrollWidth: scroll.scrollWidth, cardWidth: card.getBoundingClientRect().width, cardHeight: card.getBoundingClientRect().height };

@@ -41,9 +41,12 @@ async function seed(page, { events = [fixedEvent()], games = [], hideRatings = f
   }, { events, games, hideRatings, players });
 }
 
+/* Mobile event pages show one section at a time (EUX-04); pool seeding lives
+   with the other setup actions in the overview destination. */
 async function openFixedEvent(page, id = 'fixed-seeds') {
   await page.goto('/');
   await page.evaluate(eventId => openEvent(eventId), id);
+  await page.evaluate(() => eventSection('overview'));
 }
 
 async function previewAssignments(page) {

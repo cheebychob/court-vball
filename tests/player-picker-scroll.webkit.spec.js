@@ -26,6 +26,9 @@ async function seed(page) {
 async function openEvent(page, name) {
   await page.locator('[data-tab="events"]:visible').first().tap();
   await page.locator('.ev-row').filter({ hasText: name }).tap();
+  /* Mobile event pages show one section at a time (EUX-04); rosters live in the
+     participants destination. */
+  await page.evaluate(() => eventSection(eventFormat(evById(window._evOpen)) === 'rotatingGroups' ? 'entries' : 'teams'));
 }
 
 async function positionPicker(page, playerName, instance) {
