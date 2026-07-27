@@ -63,8 +63,9 @@ EUX-01 is implemented on `feat/event-lifecycle-ui` and is awaiting merge of
 https://github.com/cheebychob/court-vball/pull/40. Its merge-commit field stays
 `Pending` until that value exists.
 
-EUX-02 is implemented on `fix/event-navigation-and-touch`. Its pull-request and
-merge-commit fields stay `Pending` until those values exist.
+EUX-02 is implemented on `fix/event-navigation-and-touch` and is awaiting merge
+of https://github.com/cheebychob/court-vball/pull/41. Its merge-commit field
+stays `Pending` until that value exists.
 
 The agent performing work must update this section when the implementation PR
 is completed. Only one item should normally be In Progress.
@@ -247,7 +248,7 @@ screens without yet changing the page into mobile section views.
 ## Completion record
 
 * **Completed date:** 2026-07-25
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/41
 * **Merge commit:** Pending
 * **Version/build:** 0.27.0 / 20260725.8 (from 0.26.0 / 20260725.7)
 * **Tests run:** `npm test` (285 passed, chromium + mobile-webkit, including the
@@ -755,7 +756,7 @@ Add one entry after each completed roadmap item.
 ### 2026-07-25 — EUX-02 completed
 
 * **Branch:** `fix/event-navigation-and-touch`
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/41
 * **Version/build:** 0.27.0 / 20260725.8
 * **Summary:** Added `eventSectionModel`/`eventSubnavHtml` as the one shared
   event section definition (order, labels, visibility, default destination) used
