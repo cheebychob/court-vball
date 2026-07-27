@@ -62,8 +62,9 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 EUX-01 and EUX-02 are merged into `master`; their merge-commit fields are now
 recorded in their completion records.
 
-EUX-03 is implemented on `fix/event-sheet-share-layout`. Its pull-request and
-merge-commit fields stay `Pending` until those values exist.
+EUX-03 is implemented on `fix/event-sheet-share-layout` and is awaiting merge
+of https://github.com/cheebychob/court-vball/pull/42. Its merge-commit field
+stays `Pending` until that value exists.
 
 EUX-06 depends only on EUX-03 and is now unblocked, but EUX-04 is the next item
 in sequence; EUX-06 stays `Planned` until EUX-04 and EUX-05 are complete.
@@ -342,7 +343,7 @@ actions immediately reachable.
 ## Completion record
 
 * **Completed date:** 2026-07-27
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/42
 * **Merge commit:** Pending
 * **Version/build:** 0.28.0 / 20260727.1 (from 0.27.0 / 20260725.8)
 * **Tests run:** `npm test` (289 passed, chromium + mobile-webkit, including the
@@ -838,7 +839,7 @@ Add one entry after each completed roadmap item.
 ### 2026-07-27 — EUX-03 completed
 
 * **Branch:** `fix/event-sheet-share-layout`
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/42
 * **Version/build:** 0.28.0 / 20260727.1
 * **Summary:** Added reusable, opt-in sheet chrome — `sheetHeadHtml` (a
   non-floating header that hosts openSheet's own close button),
