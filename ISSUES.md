@@ -112,8 +112,36 @@ Implemented in `index.html`:
 - Preserve rating logic, saved data shape, game replay behavior, and mobile usability during visual work.
 - Add smoke or visual checks before large UI changes.
 
+## Court-side score reporting
+
+Players can submit scores from the published schedule into an organizer review
+queue. See `docs/SCORE_REPORTING.md`.
+
+Implemented in `cloudflare/court-sync-worker.js` and `index.html`:
+- Three per-event modes — `off` (the default for every existing and new event),
+  `open` (trust), and `code` (per-court five-character codes).
+- No submission ever writes a game record. Every accepted score passes through
+  organizer review, and the organizer device remains the only writer of
+  `vb:games`.
+- Reports live in a dedicated `SCORE_REPORTS` KV namespace until accepted. They
+  never enter the synced payload or a backup.
+- The report key is deterministic per `(event, match, device)`, so a re-submit
+  updates rather than duplicating.
+- Identical scores from distinct devices mark a match `corroborated`; differing
+  scores mark it `conflicted` and keep both. Corroboration never auto-commits.
+- Accepting builds the record through the same shared builder the manual sheets
+  use, so a reviewed result and a manually typed result are identical.
+
+Requires a new Cloudflare KV binding named `SCORE_REPORTS` before it works in
+production. Without it the feature reports unavailable and nothing else changes.
+
 ## Do not regress
 
+- Score reports must never become games without explicit organizer acceptance.
+- A missing score-reporting config must always mean `off`, and an event with no
+  config must publish byte-identical output.
+- The manual score sheets and the review queue must keep producing identical
+  game records; they share one builder per event format for that reason.
 - Historical rating replay must remain deterministic.
 - Archived players must not disappear from historical games or replay.
 - Inactive and archived players must not be selected in active generation pools or tracking setup.

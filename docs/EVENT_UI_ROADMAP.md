@@ -55,15 +55,20 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-10
-**Expected branch:** `feat/events-list-lifecycle-groups`
+**Current item:** EUX-11
+**Expected branch:** `feat/court-side-score-reporting`
 **Next item after completion:** Core event UI roadmap complete
 
 EUX-10 is implemented and verified on `feat/events-list-lifecycle-groups`.
 Its focused and full applicable test suites pass, and fixed-team, rotating,
 mobile, and desktop layouts were checked. It remains `In Progress` until a pull
-request is created and merged; those fields stay `Pending`. There is no later
-core event UI item to advance.
+request is created and merged; those fields stay `Pending`.
+
+EUX-11 is implemented and verified on `feat/court-side-score-reporting`. It
+closes the last manual hole in the event pipeline by letting players submit
+scores from the published schedule into an organizer review queue. It requires a
+new Cloudflare KV binding (`SCORE_REPORTS`) before it works in production, and
+remains `In Progress` until that binding exists and a pull request is merged.
 
 ## Roadmap summary
 
@@ -79,6 +84,7 @@ core event UI item to advance.
 | [x]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Done    |
 | [x]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Done    |
 | [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | In Progress |
+| [ ]  | EUX-11 | Court-side score reporting                          | `feat/court-side-score-reporting`          | EUX-08, EUX-09 | In Progress |
 
 ---
 
@@ -1044,6 +1050,110 @@ Make the event list easier to scan as the number of historical events grows.
   * Only after the merge gate is satisfied, mark EUX-10 `Done`, change its
     summary checkbox to `[x]`, add the dated Progress-log entry, and update
     Current work to show the core event UI roadmap complete.
+
+---
+
+# EUX-11 — Court-side score reporting
+
+**Branch:** `feat/court-side-score-reporting`
+**Risk:** High
+**Status:** In Progress
+**Depends on:** EUX-08, EUX-09
+
+## Objective
+
+Let players submit scores from the public schedule into an organizer review
+queue, so results stop being the only manual step in the event pipeline, without
+weakening rating integrity or the organizer's authority over what counts.
+
+## In scope
+
+* Three per-event modes: `off` (default), `open` (trust), `code` (court codes).
+* A dedicated `SCORE_REPORTS` KV namespace with per-record keys and TTLs.
+* Worker routes for organizer session management and anonymous public reporting.
+* A Worker-hosted report page plus a served snapshot script that patches live
+  per-match badges into a published schedule.
+* Five-character per-court codes with a printable QR card per court.
+* Deterministic per-(event, match, device) dedup, corroboration, and conflict.
+* An organizer review queue with accept and reject.
+* One shared game-record builder per event format, used by the manual sheets and
+  the review queue.
+
+## Out of scope
+
+* Auto-committing a corroborated score.
+* Auto-republishing a schedule snapshot on every accept.
+* Any client-side offline submission queue for players.
+* Scoring heuristics that try to detect a shaded score.
+* Changes to registration, rules, player photos, or check-in behavior.
+
+## Required tests
+
+* `off` is the default and an existing event's published output is unchanged.
+* All three modes end to end, including mode changes mid-event.
+* Deterministic dedup: a re-submit updates rather than duplicates.
+* Corroboration and conflict both demonstrated.
+* Accepting produces a record identical to the manual sheet for both formats,
+  single set, best of 3, ties, guest teams, and playoff matches.
+* Court codes scope to their court and survive rotation.
+* Rate limits, body caps, TTLs, origin rejection, and no `list()` on polled
+  routes.
+* Mobile (320 px, 375 px) and desktop (1280 px) review queue and court codes.
+* Backup, restore, and the sync payload are unaffected by pending reports.
+
+## Acceptance criteria
+
+* No submission ever writes a game record directly.
+* The nine frozen rating/schedule/bracket functions remain byte-identical.
+* An event with no score-reporting config behaves exactly as before.
+* Standings, bracket advancement, and schedule state stay derived at render.
+
+## Completion record
+
+* **Completed date:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/51
+* **Merge commit:** Pending
+* **Version/build:** 0.37.0 / 20260727.10 (from 0.36.0 / 20260727.9)
+* **Tests run:**
+  * `npx playwright test tests/score-reporting.spec.js --project=chromium`
+    (10 passed).
+  * `npm test` (335 passed, chromium + mobile WebKit),
+    `npm run test:worker` (82 passed, 17 new),
+    `npm run test:version-check` (10 passed), `npm run check:version`.
+  * In-app `runSelfTest()` — 303 passed, including 20 new score-reporting
+    checks.
+* **Layout checks:** Review queue and court codes were checked at 320 px,
+  375 px, and 1280 px for both event formats. Conflicting reports group first,
+  long team names wrap, touch targets are at least 44 px, and neither the
+  document nor the sheet scrolls horizontally.
+* **Important implementation notes:**
+  * See `docs/SCORE_REPORTING.md` for the full architecture.
+  * `scoreReportingMode(ev)` returns `off` for any missing or unrecognized
+    config, so no stored event or backup needs migration.
+  * `buildRotationGameRecords` and `buildFixedEventGameRecords` are the single
+    definition of each format's record shape. `saveRotationScore` and
+    `saveEventGame` now call them; their output was verified case by case
+    against the previous implementation across single set, best of 3, sweeps,
+    ties, even sets, guest teams, unlabeled games, and playoff edits.
+  * `TIE_CONFIRM` is one frozen definition of the four tie prompts, shared by
+    the manual sheets and the review queue.
+  * A fixed-team pool match has no stored id, so its reporting key is
+    `fixed:{teamA}:{teamB}` and the accepted record still carries `evA`/`evB`
+    with no `evMatchId`, exactly like the manual sheet.
+  * `PUBLIC_HEADERS` gained `connect-src 'self'`; without it `default-src
+    'none'` blocked every fetch from a published page. The snapshot loads
+    `/assets/public-report.js` rather than an inline script, because a stored
+    snapshot can never carry a per-response nonce, and because
+    `PUBLIC_EVENT_SCRIPT` is deliberately storage-free.
+  * Turning reporting on requires one manual republish so the buttons appear.
+    Mode changes, code rotations, and accepts afterwards need none.
+* **Remaining before Done:**
+  * Deploy the Worker. The `SCORE_REPORTS` KV namespace was created and bound
+    in `cloudflare/wrangler.jsonc` on 2026-07-27.
+  * Physical iPhone Safari and Android/Chrome checks of the player report form
+    and the printed court cards.
+  * Create and merge the pull request, then fill the completed-date,
+    pull-request, and merge-commit fields.
 
 ---
 

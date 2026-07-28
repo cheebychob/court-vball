@@ -1032,3 +1032,553 @@ test('check-in routes enforce exact methods, origins, content types, body limits
   assert.equal(codeRedirect.status, 302);
   assert.equal(new URL(codeRedirect.headers.get('location')).pathname, `/check-in/${token}`);
 });
+
+/* ============================================================
+   COURT-SIDE SCORE REPORTING
+   ============================================================ */
+
+const SCORE_ROOM = { 'X-Court-Room': 'test-room', Origin: ORIGIN };
+const scoreDevice = letter => letter.repeat(43);
+
+function scoreEnv(options = {}) {
+  const bindings = env(options);
+  if (options.scoreBinding !== false) bindings.SCORE_REPORTS = new MemoryKV();
+  return bindings;
+}
+
+function scoreMatches(count = 3) {
+  return Array.from({ length: count }, (_, index) => ({
+    matchId: `m-${index + 1}`,
+    courtIndex: index % 2,
+    courtLabel: `Court ${(index % 2) + 1}`,
+    roundLabel: `Round ${index + 1}`,
+    sideAName: `Team A${index + 1}`,
+    sideBName: `Team B${index + 1}`,
+    phase: 'pool',
+  }));
+}
+
+async function createScoreSession(bindings, body = {}) {
+  const response = await worker.fetch(request('/api/score-reports/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...SCORE_ROOM },
+    body: JSON.stringify({
+      eventId: 'ev-1',
+      label: 'Thursday night',
+      mode: 'open',
+      courts: [{ index: 0, label: 'Court 1' }, { index: 1, label: 'Court 2' }],
+      matches: scoreMatches(),
+      ...body,
+    }),
+  }), bindings);
+  return { response, body: await response.json() };
+}
+
+function submitInit(device, body) {
+  return {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Score-Device-Token': device },
+    body: JSON.stringify(body),
+  };
+}
+
+async function submitScore(bindings, token, device, body) {
+  const response = await worker.fetch(request(`/api/score-reports/public/${token}/reports`, submitInit(device, body)), bindings);
+  return { response, body: await response.json() };
+}
+
+async function reviewScore(bindings, sessionId) {
+  const response = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/review`, { headers: SCORE_ROOM }), bindings);
+  return { response, body: await response.json() };
+}
+
+test('score reporting reports capability and stays inert without its binding', async () => {
+  const ready = await worker.fetch(request('/api/score-reports/status', { headers: { Origin: ORIGIN } }), scoreEnv());
+  assert.equal(ready.status, 200);
+  assert.deepEqual(await ready.json(), { available: true });
+
+  const missing = await worker.fetch(request('/api/score-reports/status', { headers: { Origin: ORIGIN } }), scoreEnv({ scoreBinding: false }));
+  assert.equal(missing.status, 503);
+  assert.equal((await missing.json()).available, false);
+
+  const create = await createScoreSession(scoreEnv({ scoreBinding: false }));
+  assert.equal(create.response.status, 503);
+  assert.equal(create.body.code, 'SCORE_REPORTS_UNAVAILABLE');
+});
+
+test('organizer session creation is room scoped, resumes per event, and issues one code per court', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  assert.equal(created.response.status, 201);
+  assert.equal(created.body.resumed, false);
+  assert.equal(created.body.session.eventId, 'ev-1');
+  assert.equal(created.body.session.mode, 'open');
+  assert.equal(created.body.session.matchCount, 3);
+  assert.match(created.body.session.reportUrl, /\/report\/[A-Za-z0-9_-]{43}$/);
+
+  const codes = created.body.session.courts.map(court => court.code);
+  assert.equal(codes.length, 2);
+  assert.equal(new Set(codes).size, 2);
+  codes.forEach(code => assert.match(code, /^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/));
+  // Generated codes must survive the public page's own [^A-Z2-9] input filter.
+  codes.forEach(code => assert.equal(code.replace(/[^A-Z2-9]/g, ''), code));
+
+  const again = await createScoreSession(bindings);
+  assert.equal(again.response.status, 200);
+  assert.equal(again.body.resumed, true);
+  assert.equal(again.body.session.sessionId, created.body.session.sessionId);
+
+  const otherEvent = await createScoreSession(bindings, { eventId: 'ev-2' });
+  assert.equal(otherEvent.response.status, 201);
+  assert.notEqual(otherEvent.body.session.sessionId, created.body.session.sessionId);
+
+  const noRoom = await worker.fetch(request('/api/score-reports/sessions', {
+    method: 'POST', headers: { 'Content-Type': 'application/json', Origin: ORIGIN }, body: JSON.stringify({ eventId: 'ev-3', courts: [], matches: [] }),
+  }), bindings);
+  assert.equal(noRoom.status, 401);
+
+  // Every stored key carries a TTL so reports self-clean after the event.
+  bindings.SCORE_REPORTS.putOptions.forEach(([key, options]) => {
+    assert.ok(Number.isFinite(options.expirationTtl), `${key} is missing expirationTtl`);
+    assert.ok(options.expirationTtl > 0);
+  });
+});
+
+test('off mode refuses submissions and open mode accepts one report per device per match', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, { mode: 'off' });
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+
+  const refused = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  assert.equal(refused.response.status, 403);
+  assert.equal(refused.body.code, 'REPORTING_OFF');
+
+  const publicView = await worker.fetch(request(`/api/score-reports/public/${token}`), bindings);
+  assert.deepEqual((await publicView.json()).matches, [], 'off mode must not list matches');
+
+  const on = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/config`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({ mode: 'open' }),
+  }), bindings);
+  assert.equal(on.status, 200);
+  assert.equal((await on.json()).session.mode, 'open');
+
+  const first = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  assert.equal(first.response.status, 201);
+  assert.equal(first.body.state, 'pending');
+
+  // Same device, same match: an update, never a duplicate.
+  const second = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 23]] });
+  assert.equal(second.response.status, 200);
+  assert.equal(second.body.updated, true);
+  assert.equal(second.body.reportId, first.body.reportId);
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.length, 1);
+  assert.deepEqual(review.body.reports[0].sets, [[25, 23]]);
+  assert.equal(review.body.pendingCount, 1);
+});
+
+test('identical scores corroborate and differing scores conflict without losing either report', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  const agree = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  assert.equal(agree.body.state, 'corroborated');
+
+  const disagree = await submitScore(bindings, token, scoreDevice('C'), { matchId: 'm-1', mode: 'set', sets: [[25, 22]] });
+  assert.equal(disagree.body.state, 'conflicted');
+
+  const review = await reviewScore(bindings, sessionId);
+  const rows = review.body.reports.filter(row => row.matchId === 'm-1');
+  assert.equal(rows.length, 3, 'every conflicting report is kept side by side');
+  assert.equal(new Set(rows.map(row => row.reportId)).size, 3);
+  rows.forEach(row => assert.equal(row.matchState, 'conflicted'));
+  assert.equal(review.body.matchStates['m-1'], 'conflicted');
+
+  const state = await worker.fetch(request(`/api/score-reports/public/${token}/state`), bindings);
+  assert.equal((await state.json()).matches['m-1'], 'conflicted');
+});
+
+test('best-of-3, ties, and score bounds validate on the way in', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+
+  const bo3 = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'bo3', sets: [[25, 22], [19, 25], [15, 11]] });
+  assert.equal(bo3.response.status, 201);
+
+  // A submitted tie is accepted and flagged; the submitter cannot answer the
+  // organizer's confirm dialog, so the queue carries the flag instead.
+  const tie = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-2', mode: 'set', sets: [[21, 21]] });
+  assert.equal(tie.response.status, 201);
+  const evenSets = await submitScore(bindings, token, scoreDevice('C'), { matchId: 'm-3', mode: 'bo3', sets: [[25, 20], [18, 25]] });
+  assert.equal(evenSets.response.status, 201);
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.find(row => row.matchId === 'm-1').tie, false);
+  assert.equal(review.body.reports.find(row => row.matchId === 'm-2').tie, true);
+  assert.equal(review.body.reports.find(row => row.matchId === 'm-3').tie, true);
+  assert.deepEqual(review.body.reports.find(row => row.matchId === 'm-1').sets, [[25, 22], [19, 25], [15, 11]]);
+
+  for (const invalid of [
+    { matchId: 'm-1', mode: 'set', sets: [[25, 20], [3, 4]] },
+    { matchId: 'm-1', mode: 'bo3', sets: [[1, 2], [3, 4], [5, 6], [7, 8]] },
+    { matchId: 'm-1', mode: 'set', sets: [[25, 200]] },
+    { matchId: 'm-1', mode: 'set', sets: [[-1, 5]] },
+    { matchId: 'm-1', mode: 'set', sets: [[25.5, 5]] },
+    { matchId: 'm-1', mode: 'set', sets: [] },
+  ]) {
+    const bad = await submitScore(bindings, token, scoreDevice('D'), invalid);
+    assert.equal(bad.response.status, 400, JSON.stringify(invalid));
+  }
+  const unknownMatch = await submitScore(bindings, token, scoreDevice('D'), { matchId: 'nope', mode: 'set', sets: [[25, 20]] });
+  assert.equal(unknownMatch.response.status, 404);
+});
+
+test('code mode scopes a submitter to one court and rotation keeps existing reports', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, { mode: 'code' });
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  const courtOne = created.body.session.courts.find(court => court.index === 0);
+  const courtTwo = created.body.session.courts.find(court => court.index === 1);
+
+  const hidden = await worker.fetch(request(`/api/score-reports/public/${token}`), bindings);
+  assert.deepEqual((await hidden.json()).matches, [], 'code mode reveals nothing before a code is presented');
+
+  const wrong = await worker.fetch(request(`/api/score-reports/public/${token}/code`, submitInit(scoreDevice('A'), { code: 'ZZZZZ' })), bindings);
+  assert.equal(wrong.status, 403);
+  assert.equal((await wrong.json()).code, 'CODE_NOT_RECOGNIZED');
+
+  const scoped = await worker.fetch(request(`/api/score-reports/public/${token}/code`, submitInit(scoreDevice('A'), { code: courtOne.code })), bindings);
+  const scopedBody = await scoped.json();
+  assert.equal(scoped.status, 200);
+  assert.equal(scopedBody.court.index, 0);
+  assert.ok(scopedBody.matches.length);
+  scopedBody.matches.forEach(match => assert.equal(match.courtIndex, 0));
+
+  const noCode = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  assert.equal(noCode.response.status, 403);
+  assert.equal(noCode.body.code, 'CODE_REQUIRED');
+
+  const crossCourt = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-2', mode: 'set', sets: [[25, 20]], code: courtOne.code });
+  assert.equal(crossCourt.response.status, 403);
+  assert.equal(crossCourt.body.code, 'CODE_SCOPE_MISMATCH');
+
+  const good = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]], code: courtOne.code });
+  assert.equal(good.response.status, 201);
+
+  const rotated = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/config`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({ rotateCodes: true }),
+  }), bindings);
+  const rotatedBody = await rotated.json();
+  const newCourtOne = rotatedBody.session.courts.find(court => court.index === 0);
+  assert.notEqual(newCourtOne.code, courtOne.code);
+
+  const stale = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]], code: courtOne.code });
+  assert.equal(stale.response.status, 403, 'the old code stops working');
+
+  const fresh = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]], code: newCourtOne.code });
+  assert.equal(fresh.response.status, 201);
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.filter(row => row.matchId === 'm-1').length, 2, 'rotation preserved the earlier report');
+  assert.notEqual(courtTwo.code, newCourtOne.code);
+});
+
+test('organizer accept and reject are recorded, reversible, and never destructive', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  const submitted = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  const rejected = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-2', mode: 'set', sets: [[25, 18]] });
+
+  const dispose = async (reportId, body) => {
+    const response = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/reports/${reportId}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify(body),
+    }), bindings);
+    return { response, body: await response.json() };
+  };
+
+  const accepted = await dispose(submitted.body.reportId, { disposition: 'accept', gameIds: ['g-1'] });
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.body.matchState, 'accepted');
+
+  const turnedDown = await dispose(rejected.body.reportId, { disposition: 'reject' });
+  assert.equal(turnedDown.body.matchState, 'rejected');
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.length, 2, 'a rejected row stays visible until TTL');
+  assert.equal(review.body.reports.find(row => row.matchId === 'm-2').disposition, 'rejected');
+  assert.equal(review.body.pendingCount, 0);
+
+  // Deleting the accepted game in Court is a local action; reopening the row
+  // must be possible without resurrecting anything on its own.
+  const reopened = await dispose(submitted.body.reportId, { disposition: 'reopen' });
+  assert.equal(reopened.body.matchState, 'pending');
+
+  const badAction = await dispose(submitted.body.reportId, { disposition: 'destroy' });
+  assert.equal(badAction.response.status, 400);
+  const badId = await dispose('not-a-report-id', { disposition: 'accept' });
+  assert.equal(badId.response.status, 400);
+});
+
+test('a submission after acceptance is kept as a flagged correction', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  const first = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/reports/${first.body.reportId}`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({ disposition: 'accept', gameIds: ['g-1'] }),
+  }), bindings);
+
+  const correction = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 23]] });
+  assert.equal(correction.response.status, 201);
+  assert.equal(correction.body.alreadyAccepted, true);
+
+  const review = await reviewScore(bindings, sessionId);
+  const row = review.body.reports.find(entry => entry.reportId === correction.body.reportId);
+  assert.equal(row.afterAccept, true);
+  assert.equal(row.acceptedAt !== null, true);
+});
+
+test('a regenerated schedule leaves earlier reports readable instead of unreadable', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+
+  const replaced = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/matches`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...SCORE_ROOM },
+    body: JSON.stringify({ matches: [{ matchId: 'r2-m-1', courtIndex: 0, courtLabel: 'Court 1', roundLabel: 'Round 1', sideAName: 'Team A1', sideBName: 'Team B1', phase: 'pool' }] }),
+  }), bindings);
+  assert.equal(replaced.status, 200);
+
+  const review = await reviewScore(bindings, sessionId);
+  const row = review.body.reports.find(entry => entry.matchId === 'm-1');
+  assert.equal(row.stale, true, 'an orphaned report is flagged, not dropped');
+  assert.equal(row.courtLabel, 'Court 1', 'the submitted snapshot keeps the row readable');
+  assert.equal(row.sideAName, 'Team A1');
+
+  const gone = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+  assert.equal(gone.response.status, 404);
+});
+
+test('playoff match ids round-trip and every event format is reportable', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, {
+    matches: [
+      { matchId: 'playoff:br1:r1:m2', courtIndex: 0, courtLabel: 'Court 1', roundLabel: 'Semifinal', sideAName: 'Ospreys', sideBName: 'Anchors', phase: 'playoff' },
+      { matchId: 'rot-9', courtIndex: 1, courtLabel: 'Court 2', roundLabel: 'Round 4', sideAName: 'Lily + Sam', sideBName: 'Jo + Kim', phase: 'makeup' },
+    ],
+  });
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+
+  const playoff = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'playoff:br1:r1:m2', mode: 'bo3', sets: [[25, 20], [25, 18]] });
+  assert.equal(playoff.response.status, 201);
+  const rotating = await submitScore(bindings, token, scoreDevice('A'), { matchId: 'rot-9', mode: 'set', sets: [[21, 19]] });
+  assert.equal(rotating.response.status, 201);
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.length, 2);
+  assert.equal(review.body.reports.find(row => row.matchId === 'playoff:br1:r1:m2').phase, 'playoff');
+  const state = await worker.fetch(request(`/api/score-reports/public/${token}/state`), bindings);
+  assert.equal((await state.json()).matches['playoff:br1:r1:m2'], 'pending');
+});
+
+test('the live-state document is one read, carries no names or scores, and reflects mode changes', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+
+  bindings.SCORE_REPORTS.gets.length = 0;
+  const response = await worker.fetch(request(`/api/score-reports/public/${token}/state`), bindings);
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get('cache-control'), 'no-store');
+  assert.equal(bindings.SCORE_REPORTS.gets.length, 2, 'token pointer plus the state document, nothing more');
+  assert.equal(bindings.SCORE_REPORTS.lists.length, 0, 'a polled route must never enumerate the namespace');
+  assert.deepEqual(Object.keys(body).sort(), ['matches', 'mode', 'ok', 'status', 'updatedAt']);
+  assert.equal(body.matches['m-1'], 'pending');
+  const serialized = JSON.stringify(body);
+  assert.doesNotMatch(serialized, /Team A1|Team B1|25|20|Court 1/);
+
+  await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/config`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({ mode: 'off' }),
+  }), bindings);
+  const afterOff = await (await worker.fetch(request(`/api/score-reports/public/${token}/state`), bindings)).json();
+  assert.equal(afterOff.mode, 'off');
+  assert.equal(afterOff.matches['m-1'], 'pending', 'turning reporting off never invalidates a submitted report');
+});
+
+test('review and reindex resolve deterministic keys and never enumerate the namespace', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings);
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+
+  bindings.SCORE_REPORTS.lists.length = 0;
+  await reviewScore(bindings, sessionId);
+  assert.equal(bindings.SCORE_REPORTS.lists.length, 0);
+
+  // The state document is a rebuildable cache; prove the repair path restores it.
+  await bindings.SCORE_REPORTS.delete(`score:state:${sessionId}`);
+  const blind = await reviewScore(bindings, sessionId);
+  assert.equal(blind.body.reports.length, 0, 'a lost cache entry hides the row until repair');
+
+  const repaired = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/reindex`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({}),
+  }), bindings);
+  assert.equal(repaired.status, 200);
+  assert.equal((await repaired.json()).matchStates['m-1'], 'pending');
+  const after = await reviewScore(bindings, sessionId);
+  assert.equal(after.body.reports.length, 1, 'the authoritative report was never lost');
+  assert.equal(bindings.SCORE_REPORTS.lists.length, 0);
+});
+
+test('score-report routes enforce rate limits, body size, origin, and method', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, { mode: 'code' });
+  const token = created.body.session.publicToken;
+
+  let blocked = 0;
+  for (let attempt = 0; attempt < 14; attempt += 1) {
+    const response = await worker.fetch(request(`/api/score-reports/public/${token}/code`, submitInit(scoreDevice('A'), { code: 'ZZZZZ' })), bindings);
+    if (response.status === 429) blocked += 1;
+  }
+  assert.ok(blocked > 0, 'court-code guessing is rate limited');
+
+  const oversized = await worker.fetch(request(`/api/score-reports/public/${token}/reports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'X-Score-Device-Token': scoreDevice('A') },
+    body: JSON.stringify({ matchId: 'm-1', mode: 'set', sets: [[25, 20]], code: 'A'.repeat(4000) }),
+  }), bindings);
+  assert.equal(oversized.status, 413);
+
+  const foreign = await worker.fetch(request(`/api/score-reports/public/${token}`, { headers: { Origin: 'https://evil.example' } }), bindings);
+  assert.equal(foreign.status, 403);
+
+  const preflight = await worker.fetch(request(`/api/score-reports/public/${token}`, { method: 'OPTIONS', headers: { Origin: 'https://evil.example' } }), bindings);
+  assert.equal(preflight.status, 405);
+
+  const wrongMethod = await worker.fetch(request(`/api/score-reports/public/${token}/state`, { method: 'POST' }), bindings);
+  assert.equal(wrongMethod.status, 405);
+
+  const noDevice = await worker.fetch(request(`/api/score-reports/public/${token}/reports`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ matchId: 'm-1', mode: 'set', sets: [[25, 20]] }),
+  }), bindings);
+  assert.equal(noDevice.status, 400);
+  assert.equal((await noDevice.json()).code, 'DEVICE_TOKEN_REQUIRED');
+});
+
+test('a foreign room cannot read or dispose another organizer session', async () => {
+  const bindings = scoreEnv({ rooms: { 'room:test-room': '{}', 'room:other-room': '{}' } });
+  const created = await createScoreSession(bindings);
+  const sessionId = created.body.session.sessionId;
+  const token = created.body.session.publicToken;
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]] });
+
+  const foreignReview = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/review`, {
+    headers: { 'X-Court-Room': 'other-room', Origin: ORIGIN },
+  }), bindings);
+  assert.equal(foreignReview.status, 404);
+
+  const foreignLookup = await worker.fetch(request('/api/score-reports/sessions?eventId=ev-1', {
+    headers: { 'X-Court-Room': 'other-room', Origin: ORIGIN },
+  }), bindings);
+  assert.equal((await foreignLookup.json()).session, null);
+
+  // The public token must never substitute for organizer authorization.
+  const tokenAsRoom = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/review`, {
+    headers: { 'X-Court-Room': token, Origin: ORIGIN },
+  }), bindings);
+  assert.equal(tokenAsRoom.status, 403);
+});
+
+test('closing a session ends public reporting and clears its lookup keys', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, { mode: 'code' });
+  const token = created.body.session.publicToken;
+  const sessionId = created.body.session.sessionId;
+  const code = created.body.session.courts[0].code;
+  await submitScore(bindings, token, scoreDevice('A'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]], code });
+
+  const closed = await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/close`, {
+    method: 'POST', headers: { 'Content-Type': 'application/json', ...SCORE_ROOM }, body: JSON.stringify({ confirm: true }),
+  }), bindings);
+  assert.equal(closed.status, 200);
+  assert.equal((await closed.json()).session.status, 'closed');
+
+  assert.equal(bindings.SCORE_REPORTS.values.get(`score:public:${token}`), undefined);
+  assert.equal(bindings.SCORE_REPORTS.values.get(`score:code:${sessionId}:${code}`), undefined);
+
+  const afterClose = await submitScore(bindings, token, scoreDevice('B'), { matchId: 'm-1', mode: 'set', sets: [[25, 20]], code });
+  assert.equal(afterClose.response.status, 404);
+
+  const review = await reviewScore(bindings, sessionId);
+  assert.equal(review.body.reports.length, 1, 'closing keeps the queue readable for review');
+});
+
+test('the public report page and snapshot script are same-origin, storage-scoped, and leak nothing private', async () => {
+  const bindings = scoreEnv();
+  const created = await createScoreSession(bindings, { mode: 'code' });
+  const token = created.body.session.publicToken;
+  const code = created.body.session.courts[0].code;
+
+  const page = await worker.fetch(request(`/report/${token}`), bindings);
+  const html = await page.text();
+  assert.equal(page.status, 200);
+  assert.equal(page.headers.get('cache-control'), 'no-store');
+  assert.match(page.headers.get('content-security-policy'), /script-src 'nonce-/);
+  assert.match(page.headers.get('content-security-policy'), /connect-src 'self'/);
+  assert.match(html, /data-score-root/);
+  assert.match(html, /court-score-report:/);
+  assert.doesNotMatch(html, /X-Court-Room|SCORE_REPORTS|PUBLIC_SCHEDULES|managementToken|seedRating|roomHash/);
+
+  const deepLink = await worker.fetch(request(`/report/${token}/c/${code}`), bindings);
+  const deepHtml = await deepLink.text();
+  assert.equal(deepLink.status, 200);
+  assert.match(deepHtml, new RegExp(`data-code="${code}"`), 'a printed QR pre-applies its court code');
+
+  const badToken = await worker.fetch(request('/report/nope'), bindings);
+  assert.equal(badToken.status, 404);
+
+  bindings.COURT.gets.length = 0;
+  const script = await worker.fetch(request('/assets/public-report.js'), bindings);
+  const source = await script.text();
+  assert.equal(script.status, 200);
+  assert.match(script.headers.get('content-type'), /application\/javascript/);
+  assert.equal(script.headers.get('x-content-type-options'), 'nosniff');
+  assert.match(source, /data-score-report-root/);
+  assert.match(source, /data-report-match/);
+  // The snapshot patcher is read-only: no storage, no writes, no room code.
+  assert.doesNotMatch(source, /localStorage|X-Court-Room|SCORE_REPORTS|method:'POST'/);
+  assert.equal(bindings.COURT.gets.length, 0);
+});
+
+test('published snapshots gain same-origin connect-src without loosening anything else', async () => {
+  const bindings = scoreEnv();
+  const created = await createPublication(bindings);
+  const page = await worker.fetch(request(`/s/${created.body.token}`), bindings);
+  const csp = page.headers.get('content-security-policy');
+  assert.equal(page.status, 200);
+  assert.match(csp, /connect-src 'self'/);
+  assert.match(csp, /default-src 'none'/);
+  assert.match(csp, /frame-ancestors 'none'/);
+  assert.match(csp, /form-action 'none'/);
+  assert.doesNotMatch(csp, /connect-src [^;]*\*/);
+  assert.doesNotMatch(csp, /unsafe-eval/);
+});

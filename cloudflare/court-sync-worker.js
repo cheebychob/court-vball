@@ -54,6 +54,34 @@ const CHECK_IN_UNKNOWN_DEVICE_RATE_LIMIT = 5;
 const CHECK_IN_UNKNOWN_IP_RATE_LIMIT = 10;
 const CHECK_IN_UNKNOWN_SESSION_RATE_LIMIT = 30;
 const CHECK_IN_SHORT_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const MAX_SCORE_BODY_BYTES = 128 * 1024;
+const MAX_PUBLIC_SCORE_BODY_BYTES = 2 * 1024;
+const MAX_SCORE_MATCHES = 400;
+const MAX_SCORE_REPORTS_PER_MATCH = 12;
+const MAX_SCORE_COURTS = 32;
+const MAX_SCORE_SETS = 3;
+const MAX_SCORE_VALUE = 199;
+const SCORE_LABEL_MAX = 80;
+const SCORE_NAME_MAX = 120;
+const SCORE_DEFAULT_TTL_MS = 12 * 60 * 60 * 1000;
+const SCORE_MIN_TTL_MS = 60 * 60 * 1000;
+const SCORE_MAX_TTL_MS = 24 * 60 * 60 * 1000;
+const SCORE_RETENTION_MS = 24 * 60 * 60 * 1000;
+const SCORE_RATE_WINDOW_MS = 5 * 60 * 1000;
+const SCORE_CODE_RATE_WINDOW_MS = 10 * 60 * 1000;
+const SCORE_SUBMIT_DEVICE_LIMIT = 20;
+const SCORE_SUBMIT_IP_LIMIT = 60;
+const SCORE_SUBMIT_SESSION_LIMIT = 400;
+const SCORE_CODE_DEVICE_LIMIT = 10;
+const SCORE_CODE_IP_LIMIT = 30;
+const SCORE_CODE_SESSION_LIMIT = 200;
+const SCORE_STATE_DEVICE_LIMIT = 120;
+const SCORE_STATE_IP_LIMIT = 300;
+const SCORE_STATE_SESSION_LIMIT = 2000;
+const SCORE_MODES = new Set(["off", "open", "code"]);
+const SCORE_PHASES = new Set(["pool", "makeup", "playoff"]);
+const SCORE_MATCH_ID_PATTERN = /^[A-Za-z0-9._:~-]{1,120}$/;
+const SCORE_REPORT_ID_PATTERN = /^[a-f0-9]{64}\.[a-f0-9]{64}$/;
 const REGISTRATION_SYSTEM_STATUSES = new Set(["draft", "scheduled", "open", "closed", "cancelled"]);
 const REGISTRATION_ENTRY_STATUSES = new Set(["draft", "submitted", "needs_review", "accepted", "waitlisted", "declined", "withdrawn"]);
 const REGISTRATION_MODES = new Set(["disabled", "team", "individual"]);
@@ -79,7 +107,10 @@ const PUBLIC_HEADERS = {
   "Content-Type": "text/html; charset=utf-8",
   "X-Content-Type-Options": "nosniff",
   "Cache-Control": "public, max-age=60",
-  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'sha256-OpcZ4KbrqkJKrXU/Beo0W0Ek6k2nJIFkHe8jIfoXhwg='; img-src 'self' data:; font-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+  // connect-src is required so a published snapshot can read the live
+  // score-report state document. It is same-origin only; without it
+  // default-src 'none' blocks every fetch from a published page.
+  "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; script-src 'self' 'sha256-OpcZ4KbrqkJKrXU/Beo0W0Ek6k2nJIFkHe8jIfoXhwg='; img-src 'self' data:; font-src data:; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "Referrer-Policy": "no-referrer",
   "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
 };
@@ -156,6 +187,11 @@ function hasPhotoStorage(env) {
 function hasCheckInStorage(env) {
   const storage = env?.CHECK_IN_SESSIONS;
   return !!(storage && ["get", "put", "delete", "list"].every(method => typeof storage[method] === "function"));
+}
+
+function hasScoreReportStorage(env) {
+  const storage = env?.SCORE_REPORTS;
+  return !!(storage && ["get", "put", "delete"].every(method => typeof storage[method] === "function"));
 }
 
 function hasRegistrationStorage(env) {
@@ -1154,6 +1190,819 @@ async function cancelPublicCheckIn(request, env, url, publicToken) {
   await env.CHECK_IN_SESSIONS.delete(mappingKey);
   await touchCheckInSession(env.CHECK_IN_SESSIONS, session);
   return checkInJson({ ok: true, canceled: true });
+}
+
+/* ============================================================
+   COURT-SIDE SCORE REPORTING
+
+   Players submit scores from the public schedule; organizers review and
+   accept. Nothing here ever writes a game record — the organizer device
+   remains the only writer of Court's games. Storage follows
+   docs/PLAYER_CHECK_IN.md: one KV key per record, never a shared mutable
+   list, deterministic keys for idempotency, and a TTL on every key.
+   ============================================================ */
+
+function scoreHeaders(extra = {}) {
+  return {
+    "Cache-Control": "no-store",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    ...extra,
+  };
+}
+
+function scoreJson(body, status = 200, extra = {}) {
+  return json(body, status, scoreHeaders(extra));
+}
+
+function scoreError(status, code, message, extra = {}) {
+  return scoreJson({ ok: false, code, message }, status, extra);
+}
+
+async function readScoreJson(request, maximum = MAX_SCORE_BODY_BYTES, headers = {}) {
+  if (!isJsonRequest(request)) return { response: scoreError(415, "CONTENT_TYPE_REQUIRED", "Content-Type must be application/json.", headers) };
+  const result = await readBoundedBody(request, maximum);
+  if (result.error === "too-large") return { response: scoreError(413, "REQUEST_TOO_LARGE", "The request is too large.", headers) };
+  if (result.error) return { response: scoreError(400, "INVALID_BODY", "The request body could not be read.", headers) };
+  try {
+    return { value: JSON.parse(new TextDecoder().decode(result.bytes)) };
+  } catch {
+    return { response: scoreError(400, "INVALID_JSON", "The request body must be valid JSON.", headers) };
+  }
+}
+
+function scoreSessionKey(sessionId) { return `score:session:${sessionId}`; }
+function scorePublicKey(publicToken) { return `score:public:${publicToken}`; }
+function scoreEventKey(scopeHash) { return `score:event:${scopeHash}`; }
+function scoreMatchKey(sessionId, matchHash) { return `score:match:${sessionId}:${matchHash}`; }
+function scoreReportKey(sessionId, matchHash, deviceHash) { return `score:report:${sessionId}:${matchHash}:${deviceHash}`; }
+function scoreStateKey(sessionId) { return `score:state:${sessionId}`; }
+function scoreCodeKey(sessionId, code) { return `score:code:${sessionId}:${code}`; }
+function scoreDeviceKey(sessionId, deviceHash) { return `score:device:${sessionId}:${deviceHash}`; }
+
+function scoreStorageTtl(expiresAt) {
+  return Math.max(60, Math.ceil((Number(expiresAt) + SCORE_RETENTION_MS - Date.now()) / 1000));
+}
+
+async function readScoreRecord(storage, key) {
+  const raw = await storage.get(key);
+  if (!raw) return null;
+  try {
+    const value = JSON.parse(raw);
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+async function putScoreRecord(storage, key, value, expiresAt) {
+  await storage.put(key, JSON.stringify(value), { expirationTtl: scoreStorageTtl(expiresAt) });
+}
+
+function scoreReportId(matchHash, deviceHash) { return `${matchHash}.${deviceHash}`; }
+
+function parseScoreReportId(reportId) {
+  if (!SCORE_REPORT_ID_PATTERN.test(reportId || "")) return null;
+  const [matchHash, deviceHash] = reportId.split(".");
+  return { matchHash, deviceHash };
+}
+
+function scoreSessionStatus(session, now = Date.now()) {
+  if (!session) return "missing";
+  if (session.status === "closed") return "closed";
+  if (Number(session.expiresAt) <= now) return "expired";
+  return session.status === "open" ? "open" : "closed";
+}
+
+function scoreMode(session) {
+  return SCORE_MODES.has(session?.mode) ? session.mode : "off";
+}
+
+async function authorizeScoreOrganizer(request, env) {
+  if (!originAllowed(request)) return { response: scoreError(403, "ORIGIN_NOT_ALLOWED", "This origin is not allowed.", privateCors(request)) };
+  if (!hasScoreReportStorage(env)) return { response: scoreError(503, "SCORE_REPORTS_UNAVAILABLE", "Score reporting storage is unavailable.", privateCors(request)) };
+  if (!env?.COURT || typeof env.COURT.get !== "function") return { response: scoreError(503, "SYNC_UNAVAILABLE", "Private sync storage is unavailable.", privateCors(request)) };
+  const room = request.headers.get("X-Court-Room") || "";
+  if (!room || room.length > 256) return { response: scoreError(401, "ORGANIZER_AUTH_REQUIRED", "Organizer authorization is required.", privateCors(request)) };
+  let exists;
+  try { exists = await env.COURT.get(`room:${room}`); }
+  catch { return { response: scoreError(503, "SYNC_UNAVAILABLE", "Private sync storage is unavailable.", privateCors(request)) }; }
+  if (!exists) return { response: scoreError(403, "ORGANIZER_AUTH_FAILED", "Organizer authorization failed.", privateCors(request)) };
+  return { roomHash: await sha256(room), room };
+}
+
+function cleanScoreText(value, maximum) {
+  if (typeof value !== "string") return "";
+  return value.replace(/[\u0000-\u001f\u007f<>]/g, "").trim().replace(/\s+/g, " ").slice(0, maximum);
+}
+
+/* A submitted set list normalizes to one deterministic signature so two
+   devices reporting the same result corroborate instead of conflicting. */
+function normalizeScoreSets(mode, value) {
+  if (!Array.isArray(value) || !value.length) return null;
+  if (mode === "set" && value.length !== 1) return null;
+  if (value.length > MAX_SCORE_SETS) return null;
+  const sets = [];
+  for (const pair of value) {
+    if (!Array.isArray(pair) || pair.length !== 2) return null;
+    const a = Number(pair[0]);
+    const b = Number(pair[1]);
+    if (!Number.isInteger(a) || !Number.isInteger(b) || a < 0 || b < 0 || a > MAX_SCORE_VALUE || b > MAX_SCORE_VALUE) return null;
+    sets.push([a, b]);
+  }
+  return sets;
+}
+
+function scoreSignature(mode, sets) {
+  return `${mode}:${sets.map(([a, b]) => `${a}-${b}`).join(",")}`;
+}
+
+function scoreSetsAreTied(mode, sets) {
+  if (mode === "set") return sets[0][0] === sets[0][1];
+  let wa = 0;
+  let wb = 0;
+  sets.forEach(([a, b]) => { if (a > b) wa += 1; else if (b > a) wb += 1; });
+  return wa === wb;
+}
+
+async function normalizeScoreCourts(value) {
+  if (!Array.isArray(value) || !value.length || value.length > MAX_SCORE_COURTS) return null;
+  const seen = new Set();
+  const courts = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)
+        || unexpectedFields(item, ["index", "label"]).length
+        || !Number.isInteger(item.index) || item.index < 0 || item.index >= MAX_SCORE_COURTS) return null;
+    const label = cleanScoreText(item.label, SCORE_LABEL_MAX);
+    if (!label || seen.has(item.index)) return null;
+    seen.add(item.index);
+    courts.push({ index: item.index, label });
+  }
+  return courts;
+}
+
+function issueScoreCourtCodes(courts, now) {
+  const used = new Set();
+  return courts.map(court => {
+    let code = "";
+    /* Codes only need to be unique inside one event: they are entered against
+       an already event-scoped token, so a global index would add a key family
+       and a collision-retry loop for no security benefit. */
+    for (let attempt = 0; attempt < 12 && !code; attempt += 1) {
+      const candidate = randomShortCode();
+      if (!used.has(candidate)) code = candidate;
+    }
+    if (!code) return null;
+    used.add(code);
+    return { ...court, code, rotatedAt: now };
+  });
+}
+
+async function normalizeScoreMatches(value) {
+  if (!Array.isArray(value) || value.length > MAX_SCORE_MATCHES) return null;
+  const seen = new Set();
+  const matches = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)
+        || unexpectedFields(item, ["matchId", "courtIndex", "courtLabel", "roundLabel", "sideAName", "sideBName", "phase"]).length
+        || !SCORE_MATCH_ID_PATTERN.test(item.matchId || "")
+        || seen.has(item.matchId)) return null;
+    const courtIndex = item.courtIndex == null ? null : Number(item.courtIndex);
+    if (courtIndex !== null && (!Number.isInteger(courtIndex) || courtIndex < 0 || courtIndex >= MAX_SCORE_COURTS)) return null;
+    const phase = SCORE_PHASES.has(item.phase) ? item.phase : "pool";
+    const sideAName = cleanScoreText(item.sideAName, SCORE_NAME_MAX);
+    const sideBName = cleanScoreText(item.sideBName, SCORE_NAME_MAX);
+    if (!sideAName || !sideBName) return null;
+    seen.add(item.matchId);
+    matches.push({
+      matchId: item.matchId,
+      matchHash: await sha256(item.matchId),
+      courtIndex,
+      courtLabel: cleanScoreText(item.courtLabel, SCORE_LABEL_MAX),
+      roundLabel: cleanScoreText(item.roundLabel, SCORE_LABEL_MAX),
+      sideAName,
+      sideBName,
+      phase,
+      order: matches.length,
+    });
+  }
+  return matches;
+}
+
+function scoreAggregateState(aggregate) {
+  if (!aggregate) return "none";
+  if (aggregate.acceptedAt) return "accepted";
+  const submissions = Array.isArray(aggregate.submissions) ? aggregate.submissions : [];
+  if (!submissions.length) return "none";
+  const active = submissions.filter(row => row.disposition !== "rejected");
+  if (!active.length) return "rejected";
+  if (new Set(active.map(row => row.sig)).size > 1) return "conflicted";
+  return active.length > 1 ? "corroborated" : "pending";
+}
+
+function emptyScoreAggregate(match) {
+  return {
+    matchId: match.matchId,
+    matchHash: match.matchHash,
+    submissions: [],
+    acceptedAt: null,
+    acceptedSig: null,
+    rejectedAt: null,
+    updatedAt: Date.now(),
+  };
+}
+
+/* Read-modify-write on ONE match key, retried the same way
+   addCheckInRecordToDirectory retries the check-in directory. The
+   authoritative score:report:* records are independent and are never lost;
+   this aggregate and the state document are rebuildable caches. */
+async function updateScoreAggregate(storage, session, match, mutate) {
+  let current = null;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    current = await readScoreRecord(storage, scoreMatchKey(session.sessionId, match.matchHash)) || emptyScoreAggregate(match);
+    const next = mutate({ ...current, submissions: [...(current.submissions || [])] });
+    if (!next) return current;
+    next.updatedAt = Date.now();
+    await putScoreRecord(storage, scoreMatchKey(session.sessionId, match.matchHash), next, session.expiresAt);
+    const verify = await readScoreRecord(storage, scoreMatchKey(session.sessionId, match.matchHash));
+    if (verify && verify.updatedAt === next.updatedAt) return next;
+    current = next;
+  }
+  return current;
+}
+
+async function patchScoreState(storage, session, matchId, state) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const current = await readScoreRecord(storage, scoreStateKey(session.sessionId)) || {};
+    const matches = current.matches && typeof current.matches === "object" && !Array.isArray(current.matches) ? { ...current.matches } : {};
+    if (matchId) {
+      if (state && state !== "none") matches[matchId] = state;
+      else delete matches[matchId];
+    }
+    if (Object.keys(matches).length > MAX_SCORE_MATCHES) return current;
+    const next = {
+      mode: scoreMode(session),
+      status: scoreSessionStatus(session),
+      expiresAt: session.expiresAt,
+      updatedAt: Date.now(),
+      matches,
+    };
+    await putScoreRecord(storage, scoreStateKey(session.sessionId), next, session.expiresAt);
+    const verify = await readScoreRecord(storage, scoreStateKey(session.sessionId));
+    if (verify && verify.updatedAt === next.updatedAt) return next;
+  }
+  return null;
+}
+
+async function rateLimitScore(env, session, deviceHash, request, kind) {
+  const windowMs = kind === "code" ? SCORE_CODE_RATE_WINDOW_MS : SCORE_RATE_WINDOW_MS;
+  const windowId = Math.floor(Date.now() / windowMs);
+  const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+  const ipHash = await sha256(`${session.sessionId}:${ip}`);
+  const limits = kind === "code"
+    ? [SCORE_CODE_DEVICE_LIMIT, SCORE_CODE_IP_LIMIT, SCORE_CODE_SESSION_LIMIT]
+    : kind === "state"
+      ? [SCORE_STATE_DEVICE_LIMIT, SCORE_STATE_IP_LIMIT, SCORE_STATE_SESSION_LIMIT]
+      : [SCORE_SUBMIT_DEVICE_LIMIT, SCORE_SUBMIT_IP_LIMIT, SCORE_SUBMIT_SESSION_LIMIT];
+  const checks = [[`device:${deviceHash || "anonymous"}`, limits[0]], [`ip:${ipHash}`, limits[1]], ["session", limits[2]]];
+  for (const [scope, limit] of checks) {
+    const key = `score:rate:${session.sessionId}:${kind}:${windowId}:${scope}`;
+    const current = Number(await env.SCORE_REPORTS.get(key)) || 0;
+    if (current >= limit) return false;
+    await env.SCORE_REPORTS.put(key, String(current + 1), { expirationTtl: Math.ceil(windowMs / 1000) + 60 });
+  }
+  return true;
+}
+
+function organizerScoreSessionView(session, url, extra = {}) {
+  return {
+    ok: true,
+    session: {
+      sessionId: session.sessionId,
+      eventId: session.eventId,
+      mode: scoreMode(session),
+      status: scoreSessionStatus(session),
+      createdAt: session.createdAt,
+      updatedAt: session.updatedAt,
+      expiresAt: session.expiresAt,
+      label: session.label,
+      reportUrl: `${url.origin}/report/${session.publicToken}`,
+      publicToken: session.publicToken,
+      courts: (session.courts || []).map(court => ({ index: court.index, label: court.label, code: court.code, rotatedAt: court.rotatedAt || null })),
+      matchCount: (session.matches || []).length,
+      matchesUpdatedAt: session.matchesUpdatedAt || null,
+    },
+    ...extra,
+  };
+}
+
+async function findScoreSessionForEvent(env, roomHash, eventId) {
+  const scopeHash = await sha256(`${roomHash}:${eventId}`);
+  const pointer = await readScoreRecord(env.SCORE_REPORTS, scoreEventKey(scopeHash));
+  if (!pointer?.sessionId) return { scopeHash, session: null };
+  const session = await readScoreRecord(env.SCORE_REPORTS, scoreSessionKey(pointer.sessionId));
+  if (!session || !sameHash(session.roomHash || "", roomHash) || session.eventId !== eventId || scoreSessionStatus(session) !== "open") {
+    return { scopeHash, session: null };
+  }
+  return { scopeHash, session };
+}
+
+async function scoreReportStatusRoute(request, env) {
+  if (!originAllowed(request)) return scoreError(403, "ORIGIN_NOT_ALLOWED", "This origin is not allowed.", privateCors(request));
+  return hasScoreReportStorage(env)
+    ? scoreJson({ available: true }, 200, privateCors(request))
+    : scoreJson({ available: false, error: "score reporting storage unavailable" }, 503, privateCors(request));
+}
+
+async function findOrganizerScoreSession(request, env, url) {
+  const auth = await authorizeScoreOrganizer(request, env);
+  if (auth.response) return auth.response;
+  const eventId = url.searchParams.get("eventId") || "";
+  if (!PLAYER_ID_PATTERN.test(eventId)) return scoreError(400, "INVALID_EVENT_ID", "The event ID is invalid.", privateCors(request));
+  const found = await findScoreSessionForEvent(env, auth.roomHash, eventId);
+  if (!found.session) return scoreJson({ ok: true, session: null }, 200, privateCors(request));
+  return scoreJson(organizerScoreSessionView(found.session, url), 200, privateCors(request));
+}
+
+async function createScoreSession(request, env, url) {
+  const auth = await authorizeScoreOrganizer(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readScoreJson(request, MAX_SCORE_BODY_BYTES, privateCors(request));
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)
+      || unexpectedFields(body, ["eventId", "label", "mode", "expiresInMs", "courts", "matches"]).length
+      || !PLAYER_ID_PATTERN.test(body.eventId || "")) {
+    return scoreError(400, "INVALID_REQUEST", "The session request is invalid.", privateCors(request));
+  }
+  const mode = SCORE_MODES.has(body.mode) ? body.mode : "off";
+  const courts = await normalizeScoreCourts(body.courts);
+  if (!courts) return scoreError(400, "INVALID_COURTS", "The court list is invalid or too large.", privateCors(request));
+  const matches = await normalizeScoreMatches(body.matches || []);
+  if (!matches) return scoreError(400, "INVALID_MATCHES", "The match list is invalid or too large.", privateCors(request));
+  const requestedTtl = body.expiresInMs == null ? SCORE_DEFAULT_TTL_MS : Number(body.expiresInMs);
+  if (!Number.isInteger(requestedTtl) || requestedTtl < SCORE_MIN_TTL_MS || requestedTtl > SCORE_MAX_TTL_MS) {
+    return scoreError(400, "INVALID_EXPIRY", "Session expiry must be between 1 and 24 hours.", privateCors(request));
+  }
+
+  const existing = await findScoreSessionForEvent(env, auth.roomHash, body.eventId);
+  if (existing.session) return scoreJson(organizerScoreSessionView(existing.session, url, { resumed: true }), 200, privateCors(request));
+
+  let publicToken = "";
+  for (let attempt = 0; attempt < 5 && !publicToken; attempt += 1) {
+    const candidate = randomTokenBytes(32);
+    if (!(await env.SCORE_REPORTS.get(scorePublicKey(candidate)))) publicToken = candidate;
+  }
+  const issued = issueScoreCourtCodes(courts, Date.now());
+  if (!publicToken || issued.some(court => !court)) return scoreError(503, "SESSION_ALLOCATION_FAILED", "A score-reporting session could not be allocated.", privateCors(request));
+
+  const now = Date.now();
+  const sessionId = randomTokenBytes(32);
+  const expiresAt = now + requestedTtl;
+  const session = {
+    sessionId,
+    publicToken,
+    eventId: body.eventId,
+    roomHash: auth.roomHash,
+    label: cleanScoreText(body.label, SCORE_LABEL_MAX) || "Court event",
+    mode,
+    createdAt: now,
+    updatedAt: now,
+    expiresAt,
+    status: "open",
+    courts: issued,
+    matches,
+    matchesUpdatedAt: now,
+  };
+  const ttl = { expirationTtl: scoreStorageTtl(expiresAt) };
+  await env.SCORE_REPORTS.put(scoreSessionKey(sessionId), JSON.stringify(session), ttl);
+  await env.SCORE_REPORTS.put(scorePublicKey(publicToken), JSON.stringify({ sessionId }), ttl);
+  await env.SCORE_REPORTS.put(scoreEventKey(existing.scopeHash), JSON.stringify({ sessionId }), ttl);
+  for (const court of issued) {
+    await env.SCORE_REPORTS.put(scoreCodeKey(sessionId, court.code), JSON.stringify({ courtIndex: court.index, rotatedAt: court.rotatedAt }), ttl);
+  }
+  await patchScoreState(env.SCORE_REPORTS, session, null, null);
+  return scoreJson(organizerScoreSessionView(session, url, { resumed: false }), 201, privateCors(request));
+}
+
+async function organizerScoreSession(request, env, sessionId) {
+  const auth = await authorizeScoreOrganizer(request, env);
+  if (auth.response) return auth;
+  if (!TOKEN_PATTERN.test(sessionId)) return { response: scoreError(400, "INVALID_SESSION_ID", "The session ID is invalid.", privateCors(request)) };
+  const session = await readScoreRecord(env.SCORE_REPORTS, scoreSessionKey(sessionId));
+  if (!session || !sameHash(session.roomHash || "", auth.roomHash)) {
+    return { response: scoreError(404, "SESSION_NOT_FOUND", "The score-reporting session was not found.", privateCors(request)) };
+  }
+  return { auth, session };
+}
+
+async function configureScoreSession(request, env, url, sessionId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const parsed = await readScoreJson(request, 8 * 1024, privateCors(request));
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)
+      || unexpectedFields(body, ["mode", "rotateCodes", "courts", "expiresInMs"]).length
+      || (body.mode != null && !SCORE_MODES.has(body.mode))
+      || (body.rotateCodes != null && typeof body.rotateCodes !== "boolean")) {
+    return scoreError(400, "INVALID_CONFIG", "The configuration request is invalid.", privateCors(request));
+  }
+  const now = Date.now();
+  let session = { ...resolved.session, updatedAt: now };
+  if (body.mode != null) session.mode = body.mode;
+  if (body.expiresInMs != null) {
+    const requestedTtl = Number(body.expiresInMs);
+    if (!Number.isInteger(requestedTtl) || requestedTtl < SCORE_MIN_TTL_MS || requestedTtl > SCORE_MAX_TTL_MS) {
+      return scoreError(400, "INVALID_EXPIRY", "Session expiry must be between 1 and 24 hours.", privateCors(request));
+    }
+    session.expiresAt = now + requestedTtl;
+  }
+  if (body.courts != null || body.rotateCodes) {
+    const courts = body.courts != null
+      ? await normalizeScoreCourts(body.courts)
+      : (session.courts || []).map(court => ({ index: court.index, label: court.label }));
+    if (!courts) return scoreError(400, "INVALID_COURTS", "The court list is invalid or too large.", privateCors(request));
+    const previous = session.courts || [];
+    /* Rotation replaces the code but never touches a submitted report: the
+       report keys are derived from the match and the device, not the code. */
+    const issued = body.rotateCodes
+      ? issueScoreCourtCodes(courts, now)
+      : courts.map(court => {
+        const old = previous.find(row => row.index === court.index);
+        return old?.code ? { ...court, code: old.code, rotatedAt: old.rotatedAt || now } : issueScoreCourtCodes([court], now)[0];
+      });
+    if (issued.some(court => !court)) return scoreError(503, "CODE_ALLOCATION_FAILED", "Court codes could not be allocated.", privateCors(request));
+    const keep = new Set(issued.map(court => court.code));
+    for (const old of previous) {
+      if (old.code && !keep.has(old.code)) await env.SCORE_REPORTS.delete(scoreCodeKey(session.sessionId, old.code));
+    }
+    for (const court of issued) {
+      await putScoreRecord(env.SCORE_REPORTS, scoreCodeKey(session.sessionId, court.code), { courtIndex: court.index, rotatedAt: court.rotatedAt }, session.expiresAt);
+    }
+    session.courts = issued;
+  }
+  await putScoreRecord(env.SCORE_REPORTS, scoreSessionKey(session.sessionId), session, session.expiresAt);
+  await patchScoreState(env.SCORE_REPORTS, session, null, null);
+  return scoreJson(organizerScoreSessionView(session, url), 200, privateCors(request));
+}
+
+async function syncScoreSessionMatches(request, env, url, sessionId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const parsed = await readScoreJson(request, MAX_SCORE_BODY_BYTES, privateCors(request));
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body) || unexpectedFields(body, ["matches"]).length) {
+    return scoreError(400, "INVALID_REQUEST", "The match sync request is invalid.", privateCors(request));
+  }
+  const matches = await normalizeScoreMatches(body.matches);
+  if (!matches) return scoreError(400, "INVALID_MATCHES", "The match list is invalid or too large.", privateCors(request));
+  const now = Date.now();
+  const session = { ...resolved.session, matches, matchesUpdatedAt: now, updatedAt: now };
+  await putScoreRecord(env.SCORE_REPORTS, scoreSessionKey(session.sessionId), session, session.expiresAt);
+  return scoreJson(organizerScoreSessionView(session, url), 200, privateCors(request));
+}
+
+function organizerScoreReportView(report, aggregate, match) {
+  return {
+    reportId: report.reportId,
+    matchId: report.matchId,
+    mode: report.mode,
+    sets: report.sets,
+    tie: !!report.tie,
+    afterAccept: !!report.afterAccept,
+    submittedAt: report.createdAt,
+    updatedAt: report.updatedAt,
+    disposition: report.disposition || null,
+    deviceLabel: `device-${String(report.deviceHash || "").slice(0, 6)}`,
+    courtLabel: report.courtLabel || match?.courtLabel || "",
+    roundLabel: report.roundLabel || match?.roundLabel || "",
+    sideAName: report.sideAName || match?.sideAName || "",
+    sideBName: report.sideBName || match?.sideBName || "",
+    phase: report.phase || match?.phase || "pool",
+    stale: !match,
+    matchState: scoreAggregateState(aggregate),
+    acceptedAt: aggregate?.acceptedAt || null,
+  };
+}
+
+/* The live-state document doubles as the index of matches with activity, so a
+   normal review poll reads it plus only the matches it names — never list(). */
+async function reviewScoreSession(request, env, url, sessionId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const session = resolved.session;
+  const byId = new Map((session.matches || []).map(match => [match.matchId, match]));
+  const state = await readScoreRecord(env.SCORE_REPORTS, scoreStateKey(sessionId));
+  const activeIds = Object.keys(state?.matches || {}).slice(0, MAX_SCORE_MATCHES);
+  const rows = [];
+  const matchStates = {};
+  for (const matchId of activeIds) {
+    const match = byId.get(matchId) || null;
+    const matchHash = match?.matchHash || await sha256(matchId);
+    const aggregate = await readScoreRecord(env.SCORE_REPORTS, scoreMatchKey(sessionId, matchHash));
+    if (!aggregate) continue;
+    matchStates[matchId] = scoreAggregateState(aggregate);
+    for (const submission of aggregate.submissions || []) {
+      const report = await readScoreRecord(env.SCORE_REPORTS, scoreReportKey(sessionId, matchHash, submission.deviceHash));
+      if (report) rows.push(organizerScoreReportView(report, aggregate, match));
+    }
+  }
+  rows.sort((a, b) => Number(b.submittedAt) - Number(a.submittedAt) || String(a.reportId).localeCompare(String(b.reportId)));
+  const pending = rows.filter(row => !row.disposition && row.matchState !== "accepted").length;
+  return scoreJson({
+    ...organizerScoreSessionView(session, url),
+    reports: rows,
+    matchStates,
+    pendingCount: pending,
+  }, 200, privateCors(request));
+}
+
+/* Bounded organizer-initiated repair. The state document is a cache; if a
+   concurrent write ever dropped an entry this rebuilds it from the
+   authoritative per-match aggregates. Never called by a poll. */
+async function reindexScoreSession(request, env, url, sessionId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const session = resolved.session;
+  const matches = {};
+  for (const match of (session.matches || []).slice(0, MAX_SCORE_MATCHES)) {
+    const aggregate = await readScoreRecord(env.SCORE_REPORTS, scoreMatchKey(sessionId, match.matchHash));
+    const state = scoreAggregateState(aggregate);
+    if (state !== "none") matches[match.matchId] = state;
+  }
+  const next = {
+    mode: scoreMode(session),
+    status: scoreSessionStatus(session),
+    expiresAt: session.expiresAt,
+    updatedAt: Date.now(),
+    matches,
+  };
+  await putScoreRecord(env.SCORE_REPORTS, scoreStateKey(sessionId), next, session.expiresAt);
+  return scoreJson({ ...organizerScoreSessionView(session, url), matchStates: matches, rescanned: (session.matches || []).length }, 200, privateCors(request));
+}
+
+async function disposeScoreReport(request, env, sessionId, reportId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const parts = parseScoreReportId(reportId);
+  if (!parts) return scoreError(400, "INVALID_REPORT_ID", "The report ID is invalid.", privateCors(request));
+  const parsed = await readScoreJson(request, 2048, privateCors(request));
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)
+      || unexpectedFields(body, ["disposition", "gameIds"]).length
+      || !["accept", "reject", "reopen"].includes(body.disposition)
+      || (body.gameIds != null && (!Array.isArray(body.gameIds) || body.gameIds.length > 8 || body.gameIds.some(id => !PLAYER_ID_PATTERN.test(id || ""))))) {
+    return scoreError(400, "INVALID_DISPOSITION", "The organizer action is invalid.", privateCors(request));
+  }
+  const session = resolved.session;
+  const key = scoreReportKey(sessionId, parts.matchHash, parts.deviceHash);
+  const report = await readScoreRecord(env.SCORE_REPORTS, key);
+  if (!report) return scoreError(404, "REPORT_NOT_FOUND", "The report was not found.", privateCors(request));
+  const match = (session.matches || []).find(row => row.matchHash === parts.matchHash) || { matchId: report.matchId, matchHash: parts.matchHash };
+  const now = Date.now();
+  const disposition = body.disposition === "reopen" ? null : body.disposition === "accept" ? "accepted" : "rejected";
+  const next = { ...report, disposition, updatedAt: now, ...(body.disposition === "accept" ? { acceptedGameIds: body.gameIds || [] } : {}) };
+  await putScoreRecord(env.SCORE_REPORTS, key, next, session.expiresAt);
+  const aggregate = await updateScoreAggregate(env.SCORE_REPORTS, session, match, current => {
+    const submissions = current.submissions.map(row => (row.deviceHash === parts.deviceHash ? { ...row, disposition } : row));
+    return {
+      ...current,
+      submissions,
+      acceptedAt: body.disposition === "accept" ? now : body.disposition === "reopen" ? null : current.acceptedAt,
+      acceptedSig: body.disposition === "accept" ? report.sig : body.disposition === "reopen" ? null : current.acceptedSig,
+      rejectedAt: body.disposition === "reject" ? now : current.rejectedAt,
+    };
+  });
+  const state = scoreAggregateState(aggregate);
+  await patchScoreState(env.SCORE_REPORTS, session, match.matchId, state);
+  return scoreJson({ ok: true, report: organizerScoreReportView(next, aggregate, match), matchState: state }, 200, privateCors(request));
+}
+
+async function closeScoreSession(request, env, url, sessionId) {
+  const resolved = await organizerScoreSession(request, env, sessionId);
+  if (resolved.response) return resolved.response;
+  const parsed = await readScoreJson(request, 1024, privateCors(request));
+  if (parsed.response) return parsed.response;
+  if (!parsed.value || typeof parsed.value !== "object" || Array.isArray(parsed.value)
+      || unexpectedFields(parsed.value, ["confirm"]).length || parsed.value.confirm !== true) {
+    return scoreError(400, "CONFIRMATION_REQUIRED", "Closing the session requires confirmation.", privateCors(request));
+  }
+  const now = Date.now();
+  const session = { ...resolved.session, status: "closed", mode: "off", updatedAt: now, closedAt: now };
+  await putScoreRecord(env.SCORE_REPORTS, scoreSessionKey(sessionId), session, session.expiresAt);
+  await env.SCORE_REPORTS.delete(scorePublicKey(session.publicToken));
+  await env.SCORE_REPORTS.delete(scoreEventKey(await sha256(`${resolved.auth.roomHash}:${session.eventId}`)));
+  for (const court of session.courts || []) {
+    if (court.code) await env.SCORE_REPORTS.delete(scoreCodeKey(sessionId, court.code));
+  }
+  await patchScoreState(env.SCORE_REPORTS, session, null, null);
+  return scoreJson(organizerScoreSessionView(session, url), 200, privateCors(request));
+}
+
+async function publicScoreSession(env, publicToken) {
+  if (!hasScoreReportStorage(env) || !TOKEN_PATTERN.test(publicToken)) return null;
+  const pointer = await readScoreRecord(env.SCORE_REPORTS, scorePublicKey(publicToken));
+  if (!pointer?.sessionId) return null;
+  const session = await readScoreRecord(env.SCORE_REPORTS, scoreSessionKey(pointer.sessionId));
+  return session?.publicToken === publicToken ? session : null;
+}
+
+async function scoreDeviceHashFor(session, request) {
+  const token = request.headers.get("X-Score-Device-Token") || "";
+  if (!TOKEN_PATTERN.test(token)) return null;
+  return sha256(`${session.sessionId}:${token}`);
+}
+
+function publicScoreMatchView(match) {
+  return {
+    matchId: match.matchId,
+    courtIndex: match.courtIndex,
+    courtLabel: match.courtLabel,
+    roundLabel: match.roundLabel,
+    sideAName: match.sideAName,
+    sideBName: match.sideBName,
+    phase: match.phase,
+  };
+}
+
+async function ownScoreReports(env, session, deviceHash) {
+  if (!deviceHash) return [];
+  const index = await readScoreRecord(env.SCORE_REPORTS, scoreDeviceKey(session.sessionId, deviceHash));
+  const hashes = Array.isArray(index?.matchHashes) ? index.matchHashes.slice(0, MAX_SCORE_REPORTS_PER_MATCH * 4) : [];
+  const rows = [];
+  for (const matchHash of hashes) {
+    const report = await readScoreRecord(env.SCORE_REPORTS, scoreReportKey(session.sessionId, matchHash, deviceHash));
+    if (report) rows.push({ matchId: report.matchId, mode: report.mode, sets: report.sets, submittedAt: report.createdAt, disposition: report.disposition || null });
+  }
+  return rows;
+}
+
+async function getPublicScoreSession(request, env, url, publicToken) {
+  if (!publicCheckInOriginAllowed(request, url)) return scoreError(403, "ORIGIN_NOT_ALLOWED", "This request origin is not allowed.");
+  const session = await publicScoreSession(env, publicToken);
+  if (!session) return scoreError(404, "SESSION_NOT_FOUND", "Score reporting is unavailable for this link.");
+  const status = scoreSessionStatus(session);
+  const mode = scoreMode(session);
+  const deviceHash = await scoreDeviceHashFor(session, request);
+  const state = await readScoreRecord(env.SCORE_REPORTS, scoreStateKey(session.sessionId));
+  const open = status === "open" && mode !== "off";
+  return scoreJson({
+    ok: true,
+    status,
+    mode,
+    label: session.label,
+    expiresAt: session.expiresAt,
+    /* Trust mode lists the matches; code mode reveals nothing until a court
+       code is presented. */
+    matches: open && mode === "open" ? (session.matches || []).map(publicScoreMatchView) : [],
+    matchStates: state?.matches || {},
+    ownReports: await ownScoreReports(env, session, deviceHash),
+  });
+}
+
+async function resolvePublicScoreCode(request, env, url, publicToken) {
+  if (!publicCheckInOriginAllowed(request, url)) return scoreError(403, "ORIGIN_NOT_ALLOWED", "This request origin is not allowed.");
+  const session = await publicScoreSession(env, publicToken);
+  if (!session) return scoreError(404, "SESSION_NOT_FOUND", "Score reporting is unavailable for this link.");
+  const status = scoreSessionStatus(session);
+  if (status !== "open") return scoreError(410, status === "expired" ? "SESSION_EXPIRED" : "SESSION_CLOSED", "Score reporting has ended for this event.");
+  if (scoreMode(session) !== "code") return scoreError(403, "CODE_NOT_REQUIRED", "This event does not use court codes.");
+  const deviceHash = await scoreDeviceHashFor(session, request);
+  const parsed = await readScoreJson(request, MAX_PUBLIC_SCORE_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body) || unexpectedFields(body, ["code"]).length) {
+    return scoreError(400, "INVALID_REQUEST", "The court code request is invalid.");
+  }
+  if (!(await rateLimitScore(env, session, deviceHash, request, "code"))) {
+    return scoreError(429, "RATE_LIMITED", "Too many code attempts. Wait a few minutes and try again.");
+  }
+  const code = String(body.code || "").toUpperCase().replace(/[^A-Z2-9]/g, "");
+  if (!SHORT_CODE_PATTERN.test(code)) return scoreError(400, "INVALID_CODE", "Enter the five-character code posted at your court.");
+  const pointer = await readScoreRecord(env.SCORE_REPORTS, scoreCodeKey(session.sessionId, code));
+  if (!pointer || !Number.isInteger(pointer.courtIndex)) return scoreError(403, "CODE_NOT_RECOGNIZED", "That code is not valid for this event. Check the card at your court.");
+  const court = (session.courts || []).find(row => row.index === pointer.courtIndex) || null;
+  const state = await readScoreRecord(env.SCORE_REPORTS, scoreStateKey(session.sessionId));
+  return scoreJson({
+    ok: true,
+    court: court ? { index: court.index, label: court.label } : { index: pointer.courtIndex, label: `Court ${pointer.courtIndex + 1}` },
+    matches: (session.matches || []).filter(match => match.courtIndex === pointer.courtIndex).map(publicScoreMatchView),
+    matchStates: state?.matches || {},
+    ownReports: await ownScoreReports(env, session, deviceHash),
+  });
+}
+
+async function submitPublicScoreReport(request, env, url, publicToken) {
+  if (!publicCheckInOriginAllowed(request, url)) return scoreError(403, "ORIGIN_NOT_ALLOWED", "This request origin is not allowed.");
+  const session = await publicScoreSession(env, publicToken);
+  if (!session) return scoreError(404, "SESSION_NOT_FOUND", "Score reporting is unavailable for this link.");
+  const status = scoreSessionStatus(session);
+  if (status !== "open") return scoreError(410, status === "expired" ? "SESSION_EXPIRED" : "SESSION_CLOSED", "Score reporting has ended for this event.");
+  const mode = scoreMode(session);
+  if (mode === "off") return scoreError(403, "REPORTING_OFF", "The organizer is not accepting score reports right now.");
+  const deviceHash = await scoreDeviceHashFor(session, request);
+  if (!deviceHash) return scoreError(400, "DEVICE_TOKEN_REQUIRED", "A valid device token is required.");
+  const parsed = await readScoreJson(request, MAX_PUBLIC_SCORE_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const body = parsed.value;
+  if (!body || typeof body !== "object" || Array.isArray(body)
+      || unexpectedFields(body, ["matchId", "mode", "sets", "code"]).length
+      || !SCORE_MATCH_ID_PATTERN.test(body.matchId || "")
+      || !["set", "bo3"].includes(body.mode)) {
+    return scoreError(400, "INVALID_REPORT", "The score report is invalid.");
+  }
+  const sets = normalizeScoreSets(body.mode, body.sets);
+  if (!sets) return scoreError(400, "INVALID_SCORE", "Enter a score between 0 and 199 for each side.");
+  const match = (session.matches || []).find(row => row.matchId === body.matchId);
+  if (!match) return scoreError(404, "MATCH_NOT_FOUND", "That match is no longer on the published schedule.");
+  if (mode === "code") {
+    const code = String(body.code || "").toUpperCase().replace(/[^A-Z2-9]/g, "");
+    if (!SHORT_CODE_PATTERN.test(code)) return scoreError(403, "CODE_REQUIRED", "Enter the code posted at your court first.");
+    const pointer = await readScoreRecord(env.SCORE_REPORTS, scoreCodeKey(session.sessionId, code));
+    if (!pointer || pointer.courtIndex !== match.courtIndex) {
+      return scoreError(403, "CODE_SCOPE_MISMATCH", "That code does not cover this court. Use the card at the court you played on.");
+    }
+  }
+  if (!(await rateLimitScore(env, session, deviceHash, request, "submit"))) {
+    return scoreError(429, "RATE_LIMITED", "Too many score reports from this device. Wait a few minutes and try again.");
+  }
+
+  const key = scoreReportKey(session.sessionId, match.matchHash, deviceHash);
+  const existing = await readScoreRecord(env.SCORE_REPORTS, key);
+  const aggregateBefore = await readScoreRecord(env.SCORE_REPORTS, scoreMatchKey(session.sessionId, match.matchHash));
+  if (!existing && (aggregateBefore?.submissions || []).length >= MAX_SCORE_REPORTS_PER_MATCH) {
+    return scoreError(429, "MATCH_REPORT_LIMIT", "This match already has the maximum number of reports.");
+  }
+  const now = Date.now();
+  const sig = scoreSignature(body.mode, sets);
+  const report = {
+    reportId: scoreReportId(match.matchHash, deviceHash),
+    matchId: match.matchId,
+    matchHash: match.matchHash,
+    deviceHash,
+    mode: body.mode,
+    sets,
+    sig,
+    tie: scoreSetsAreTied(body.mode, sets),
+    /* A correction sent after the organizer already accepted a different
+       score is kept and flagged rather than silently dropped. */
+    afterAccept: !!aggregateBefore?.acceptedAt,
+    courtLabel: match.courtLabel,
+    roundLabel: match.roundLabel,
+    sideAName: match.sideAName,
+    sideBName: match.sideBName,
+    phase: match.phase,
+    createdAt: existing?.createdAt || now,
+    updatedAt: now,
+    disposition: null,
+  };
+  await putScoreRecord(env.SCORE_REPORTS, key, report, session.expiresAt);
+
+  const index = await readScoreRecord(env.SCORE_REPORTS, scoreDeviceKey(session.sessionId, deviceHash));
+  const hashes = Array.isArray(index?.matchHashes) ? index.matchHashes : [];
+  if (!hashes.includes(match.matchHash)) {
+    await putScoreRecord(env.SCORE_REPORTS, scoreDeviceKey(session.sessionId, deviceHash), { matchHashes: [...hashes, match.matchHash].slice(-MAX_SCORE_MATCHES) }, session.expiresAt);
+  }
+
+  const aggregate = await updateScoreAggregate(env.SCORE_REPORTS, session, match, current => {
+    const submissions = current.submissions.filter(row => row.deviceHash !== deviceHash);
+    submissions.push({ deviceHash, reportId: report.reportId, sig, submittedAt: now, tie: report.tie, disposition: null });
+    /* The pre-check above reads a possibly stale aggregate, so bound the list
+       here too: concurrent submissions can never grow it without limit. */
+    return { ...current, submissions: submissions.slice(-MAX_SCORE_REPORTS_PER_MATCH) };
+  });
+  const state = scoreAggregateState(aggregate);
+  await patchScoreState(env.SCORE_REPORTS, session, match.matchId, state);
+  return scoreJson({
+    ok: true,
+    reportId: report.reportId,
+    matchId: match.matchId,
+    state,
+    updated: !!existing,
+    alreadyAccepted: report.afterAccept,
+  }, existing ? 200 : 201);
+}
+
+/* One KV read after the token lookup. No names and no scores: badges only. */
+async function publicScoreState(request, env, url, publicToken) {
+  if (!publicCheckInOriginAllowed(request, url)) return scoreError(403, "ORIGIN_NOT_ALLOWED", "This request origin is not allowed.");
+  if (!hasScoreReportStorage(env) || !TOKEN_PATTERN.test(publicToken)) {
+    return scoreError(404, "SESSION_NOT_FOUND", "Score reporting is unavailable for this link.");
+  }
+  const pointer = await readScoreRecord(env.SCORE_REPORTS, scorePublicKey(publicToken));
+  if (!pointer?.sessionId) return scoreError(404, "SESSION_NOT_FOUND", "Score reporting is unavailable for this link.");
+  const state = await readScoreRecord(env.SCORE_REPORTS, scoreStateKey(pointer.sessionId));
+  if (!state) return scoreJson({ ok: true, mode: "off", status: "missing", updatedAt: 0, matches: {} });
+  return scoreJson({
+    ok: true,
+    mode: SCORE_MODES.has(state.mode) ? state.mode : "off",
+    status: state.status === "open" && Number(state.expiresAt) > Date.now() ? "open" : state.status === "open" ? "expired" : String(state.status || "closed"),
+    updatedAt: Number(state.updatedAt) || 0,
+    matches: state.matches && typeof state.matches === "object" && !Array.isArray(state.matches) ? state.matches : {},
+  });
 }
 
 function registrationHeaders(request, extra = {}) {
@@ -3425,6 +4274,325 @@ function registrationManagementPage(managementToken) {
   });
 }
 
+/* Loaded by a published schedule snapshot via script-src 'self'. A snapshot is
+   stored HTML, so it can never carry a per-response nonce; keeping this in a
+   served asset also keeps PUBLIC_EVENT_SCRIPT storage-free. Read-only: it
+   patches badges and never writes. */
+const PUBLIC_REPORT_SCRIPT = `(()=>{
+  const LABELS={pending:'Score reported · under review',corroborated:'Two reports agree · under review',conflicted:'Reports disagree · organizer notified',accepted:'Result confirmed',rejected:'Report rejected'};
+  const init=()=>{
+    const root=document.querySelector('[data-score-report-root]');
+    if(!root)return;
+    const token=root.dataset.reportToken||'';
+    if(!/^[A-Za-z0-9_-]{22,128}$/.test(token))return;
+    const api='/api/score-reports/public/'+encodeURIComponent(token)+'/state';
+    const badgeFor=node=>{
+      let badge=node.querySelector('[data-report-badge]');
+      if(!badge){badge=document.createElement('span');badge.setAttribute('data-report-badge','');badge.className='report-badge';node.appendChild(badge);}
+      return badge;
+    };
+    const apply=data=>{
+      const states=data&&data.matches&&typeof data.matches==='object'?data.matches:{};
+      const open=data&&data.status==='open'&&data.mode!=='off';
+      root.dataset.reportOpen=open?'yes':'no';
+      document.querySelectorAll('[data-report-match]').forEach(node=>{
+        const state=states[node.getAttribute('data-report-match')]||'none';
+        node.dataset.reportState=state;
+        const badge=badgeFor(node);
+        badge.textContent=LABELS[state]||'';
+        badge.hidden=!LABELS[state];
+        const link=node.querySelector('[data-report-link]');
+        if(link){
+          const done=state==='accepted';
+          link.textContent=done?'View result status':state==='none'?'Report score':'Update your report';
+          link.hidden=!open;
+        }
+      });
+    };
+    const load=async()=>{
+      try{
+        const response=await fetch(api,{cache:'no-store'});
+        if(!response.ok)return;
+        apply(await response.json());
+      }catch(error){/* offline or blocked: the static schedule stays correct */}
+    };
+    load();
+    window.addEventListener('pageshow',event=>{if(event.persisted)load();});
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)load();});
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
+})();`;
+
+const SCORE_REPORT_PAGE_SCRIPT = `(()=>{
+  const root=document.querySelector('[data-score-root]');
+  if(!root)return;
+  const token=root.dataset.token||'',presetCode=(root.dataset.code||'').toUpperCase();
+  /* A "Report score" button baked into a published schedule deep-links to the
+     match it sits on, so the player never hunts through the list. */
+  let presetMatch='';
+  try{presetMatch=new URLSearchParams(location.search).get('m')||'';}catch{}
+  const deviceKey='court-score-report:'+token,codesKey='court-score-codes:'+token,draftKey='court-score-draft:'+token;
+  const api='/api/score-reports/public/'+encodeURIComponent(token);
+  let state=null,court=null,matches=[],choice=null,mode='set',sets=[['',''],['',''],['','']],code='',busy=false,view='loading',notice='';
+  const el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([k,v])=>k==='class'?node.className=v:node.setAttribute(k,v));if(text)node.textContent=text;return node};
+  const read=key=>{try{return localStorage.getItem(key)||'';}catch{return '';}};
+  const write=(key,value)=>{try{localStorage.setItem(key,value);}catch{}};
+  const device=()=>{
+    let value=read(deviceKey);
+    if(!/^[A-Za-z0-9_-]{43}$/.test(value)){
+      const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);
+      let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));
+      value=btoa(raw).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'');
+      write(deviceKey,value);
+    }
+    return value;
+  };
+  const knownCodes=()=>{try{const parsed=JSON.parse(read(codesKey)||'[]');return Array.isArray(parsed)?parsed.slice(0,8):[];}catch{return [];}};
+  const rememberCode=(value,label)=>{const rows=knownCodes().filter(row=>row&&row.code!==value);rows.unshift({code:value,label});write(codesKey,JSON.stringify(rows.slice(0,8)));};
+  /* A gym with one bar of LTE stalls rather than failing, so every request is
+     bounded. Without this the player watches "Sending…" forever. */
+  const request=async(path='',method='GET',body)=>{
+    const controller=typeof AbortController==='function'?new AbortController():null;
+    const timer=controller?setTimeout(()=>controller.abort(),15000):0;
+    let response;
+    try{
+      response=await fetch(api+path,{method,cache:'no-store',signal:controller?controller.signal:undefined,headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),'X-Score-Device-Token':device()},body:body===undefined?undefined:JSON.stringify(body)});
+    }catch(error){
+      throw new Error(error&&error.name==='AbortError'?'The connection timed out.':'Could not reach the organizer service.');
+    }finally{if(timer)clearTimeout(timer);}
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok){const error=new Error(data.message||'Score reporting is unavailable.');error.code=data.code;throw error;}
+    return data;
+  };
+  const stateOf=matchId=>(state&&state.matchStates?state.matchStates[matchId]:'')||'none';
+  const ownFor=matchId=>((state&&state.ownReports)||[]).find(row=>row.matchId===matchId)||null;
+  const scoreLine=(reportMode,rows)=>reportMode==='bo3'?rows.map(pair=>pair[0]+'–'+pair[1]).join(', '):rows[0][0]+'–'+rows[0][1];
+  const say=value=>{notice=value;const node=root.querySelector('[data-message]');if(node)node.textContent=value||'';};
+  const head=()=>el('div',{class:'brand'},'COURT · REPORT A SCORE');
+
+  function matchRow(match){
+    const button=el('button',{type:'button',class:'match'});
+    const line=el('span',{class:'match-teams'},match.sideAName+'  vs  '+match.sideBName);
+    const meta=el('span',{class:'match-meta'},[match.roundLabel,match.courtLabel].filter(Boolean).join(' · ')||'Match');
+    button.append(line,meta);
+    const current=stateOf(match.matchId);
+    if(current!=='none')button.append(el('span',{class:'match-state '+current},current==='accepted'?'Already recorded':current==='conflicted'?'Reports disagree':current==='corroborated'?'Two reports in':'Reported'));
+    button.addEventListener('click',()=>{choice=match;mode='set';sets=[['',''],['',''],['','']];const own=ownFor(match.matchId);if(own){mode=own.mode;own.sets.forEach((pair,index)=>{sets[index]=[String(pair[0]),String(pair[1])];});}view='score';say('');render();});
+    return button;
+  }
+
+  function renderCode(card){
+    card.append(el('h1',{},'Enter your court code'),el('p',{class:'muted'},'The five-character code is on the card at your court. It tells Court which matches you can report.'));
+    const remembered=knownCodes();
+    if(remembered.length){
+      const wrap=el('div',{class:'chips'});
+      remembered.forEach(row=>{const chip=el('button',{type:'button',class:'chip'},row.label+' · '+row.code);chip.addEventListener('click',()=>applyCode(row.code));wrap.append(chip);});
+      card.append(el('p',{class:'muted small'},'Codes you used before:'),wrap);
+    }
+    const form=el('form',{class:'code-form'}),input=el('input',{maxlength:'5',autocomplete:'off',autocapitalize:'characters',inputmode:'text','aria-label':'Court code',placeholder:'ABCDE'}),go=el('button',{type:'submit',class:'primary'},'Continue');
+    form.append(input,go);
+    form.addEventListener('submit',event=>{event.preventDefault();const value=input.value.toUpperCase().replace(/[^A-Z2-9]/g,'');if(value.length===5)applyCode(value);else say('Enter all five characters.');});
+    card.append(form,el('p',{'data-message':'',class:'message'},notice));
+    root.append(card);input.focus();
+  }
+
+  function renderList(card){
+    card.append(el('h1',{},court?court.label:(state.label||'Report a score')));
+    card.append(el('p',{class:'muted'},court?'Pick the match you just played on this court.':'Pick the match you just played. Check the team names carefully before you send.'));
+    if(court){const change=el('button',{type:'button',class:'link'},'Use a different court code');change.addEventListener('click',()=>{court=null;matches=[];code='';view='code';say('');render();});card.append(change);}
+    const list=el('div',{class:'match-list'});
+    const live=matches.filter(match=>stateOf(match.matchId)!=='accepted');
+    const done=matches.filter(match=>stateOf(match.matchId)==='accepted');
+    if(!matches.length)list.append(el('p',{class:'muted'},'No matches are listed for this link yet. Ask the organizer to refresh the schedule.'));
+    live.forEach(match=>list.append(matchRow(match)));
+    card.append(list);
+    if(done.length){
+      const details=el('details',{class:'done-list'}),summary=el('summary',{},'Already recorded · '+done.length);
+      details.append(summary);done.forEach(match=>details.append(matchRow(match)));
+      card.append(details);
+    }
+    card.append(el('p',{'data-message':'',class:'message'},notice));
+    root.append(card);
+  }
+
+  function renderScore(card){
+    card.append(el('h1',{},'Enter the score'));
+    card.append(el('p',{class:'confirm-line'},choice.sideAName+'  vs  '+choice.sideBName));
+    card.append(el('p',{class:'muted'},[choice.roundLabel,choice.courtLabel].filter(Boolean).join(' · ')||'Match'));
+    if(stateOf(choice.matchId)==='accepted')card.append(el('p',{class:'locked'},'The organizer already recorded a result for this match. You can still send a correction; it will be flagged for review.'));
+    const seg=el('div',{class:'seg'}),single=el('button',{type:'button'},'Single set'),bo3=el('button',{type:'button'},'Best of 3');
+    if(mode==='set')single.className='on';else bo3.className='on';
+    single.addEventListener('click',()=>{mode='set';capture();render();});
+    bo3.addEventListener('click',()=>{mode='bo3';capture();render();});
+    seg.append(single,bo3);card.append(seg);
+    const count=mode==='bo3'?3:1;
+    for(let index=0;index<count;index+=1){
+      const row=el('div',{class:'score-row'});
+      if(mode==='bo3')row.append(el('span',{class:'set-label'},'Set '+(index+1)));
+      const a=el('input',{type:'number',min:'0',max:'199',inputmode:'numeric','data-score':'a'+index,'aria-label':(mode==='bo3'?'Set '+(index+1)+' ':'')+choice.sideAName+' score',placeholder:index===2?'—':'0'});
+      const b=el('input',{type:'number',min:'0',max:'199',inputmode:'numeric','data-score':'b'+index,'aria-label':(mode==='bo3'?'Set '+(index+1)+' ':'')+choice.sideBName+' score',placeholder:index===2?'—':'0'});
+      a.value=sets[index][0];b.value=sets[index][1];
+      row.append(a,b);card.append(row);
+    }
+    card.append(el('p',{class:'muted small'},mode==='bo3'?'Leave set 3 empty for a 2-0 sweep. Left column is '+choice.sideAName+'.':'Left column is '+choice.sideAName+', right is '+choice.sideBName+'.'));
+    const next=el('button',{type:'button',class:'primary'},'Review and send'),back=el('button',{type:'button',class:'link'},'Pick a different match');
+    next.addEventListener('click',()=>{capture();const rows=collected();if(!rows.length){say('Enter a score for at least one set.');return;}view='confirm';say('');render();});
+    back.addEventListener('click',()=>{capture();choice=null;view='list';say('');render();});
+    card.append(next,back,el('p',{'data-message':'',class:'message'},notice));
+    root.append(card);
+  }
+
+  function renderConfirm(card){
+    const rows=collected();
+    card.append(el('h1',{},'Send this score?'));
+    const box=el('div',{class:'confirm'});
+    box.append(el('div',{class:'confirm-line'},choice.sideAName+'  vs  '+choice.sideBName));
+    box.append(el('div',{class:'confirm-score'},scoreLine(mode,rows)));
+    box.append(el('div',{class:'muted'},[choice.roundLabel,choice.courtLabel].filter(Boolean).join(' · ')||'Match'));
+    card.append(box);
+    card.append(el('p',{class:'muted'},'The organizer reviews every score before it counts. Nothing is recorded until they accept it.'));
+    const send=el('button',{type:'button',class:'primary'},busy?'Sending…':'Send to organizer'),back=el('button',{type:'button',class:'link'},'Change the score');
+    send.disabled=busy;
+    send.addEventListener('click',submit);
+    back.addEventListener('click',()=>{view='score';say('');render();});
+    card.append(send,back,el('p',{'data-message':'',class:'message'},notice));
+    root.append(card);
+  }
+
+  function renderSent(card){
+    card.append(el('h1',{},'Thanks — sent'));
+    card.append(el('div',{class:'success'},notice||'The organizer will review it.'));
+    const again=el('button',{type:'button',class:'primary'},'Report another match');
+    again.addEventListener('click',()=>{choice=null;view='list';say('');load();});
+    card.append(again,el('p',{'data-message':'',class:'message'}));
+    root.append(card);
+  }
+
+  function capture(){
+    root.querySelectorAll('[data-score]').forEach(node=>{
+      const key=node.getAttribute('data-score'),index=Number(key.slice(1));
+      if(!Number.isInteger(index)||index<0||index>2)return;
+      sets[index][key[0]==='a'?0:1]=node.value;
+    });
+  }
+  function collected(){
+    const count=mode==='bo3'?3:1,rows=[];
+    for(let index=0;index<count;index+=1){
+      const a=String(sets[index][0]).trim(),b=String(sets[index][1]).trim();
+      if(a===''&&b==='')continue;
+      const na=Math.max(0,Math.min(199,Math.round(Number(a)||0))),nb=Math.max(0,Math.min(199,Math.round(Number(b)||0)));
+      rows.push([na,nb]);
+    }
+    return rows;
+  }
+
+  /* A submission that failed on bad signal is kept locally and brought back on
+     the confirm screen, so a typed score is never silently lost. */
+  function restoreDraft(){
+    let draft=null;
+    try{draft=JSON.parse(read(draftKey)||'null');}catch{}
+    if(!draft||!draft.matchId||!Array.isArray(draft.sets)||!draft.sets.length)return false;
+    const match=matches.find(row=>row.matchId===draft.matchId);
+    if(!match){try{localStorage.removeItem(draftKey);}catch{}return false;}
+    choice=match;
+    mode=draft.mode==='bo3'?'bo3':'set';
+    sets=[['',''],['',''],['','']];
+    draft.sets.forEach((pair,index)=>{if(index<3)sets[index]=[String(pair[0]),String(pair[1])];});
+    if(draft.code)code=draft.code;
+    view='confirm';
+    say('This score did not send last time. Tap Send to try again.');
+    render();
+    return true;
+  }
+
+  async function applyCode(value){
+    if(busy)return;busy=true;say('Checking code…');
+    try{
+      const data=await request('/code','POST',{code:value});
+      code=value;court=data.court;matches=data.matches||[];
+      if(state){state.matchStates=data.matchStates||{};state.ownReports=data.ownReports||[];}
+      rememberCode(value,data.court&&data.court.label?data.court.label:'Court');
+      view='list';say('');
+      const target=presetMatch?matches.find(row=>row.matchId===presetMatch):null;
+      if(target){presetMatch='';choice=target;mode='set';sets=[['',''],['',''],['','']];view='score';}
+      else if(matches.length===1&&!choice){choice=matches[0];mode='set';sets=[['',''],['',''],['','']];view='score';}
+    }catch(error){say(error.message);}
+    finally{busy=false;render();}
+  }
+
+  async function submit(){
+    if(busy)return;
+    const rows=collected();
+    if(!rows.length){say('Enter a score for at least one set.');return;}
+    busy=true;say('Sending…');render();
+    const payload={matchId:choice.matchId,mode,sets:rows,...(code?{code}:{})};
+    write(draftKey,JSON.stringify(payload));
+    try{
+      const data=await request('/reports','POST',payload);
+      try{localStorage.removeItem(draftKey);}catch{}
+      busy=false;
+      view='sent';
+      say(data.alreadyAccepted
+        ? 'The organizer had already recorded a result, so this was sent as a correction.'
+        : data.state==='conflicted'
+          ? 'Another device reported a different score. The organizer will check this court.'
+          : data.state==='corroborated'
+            ? 'Another device reported the same score. That helps the organizer confirm it.'
+            : data.updated?'Your earlier report was updated.':'The organizer will review it.');
+      render();
+    }catch(error){
+      busy=false;
+      say(error.message+' Your score is saved on this device — tap Send again when you have signal.');
+      view='confirm';
+      render();
+    }
+  }
+
+  function render(){
+    root.replaceChildren();
+    const card=el('main',{class:'score-card'});
+    card.append(head());
+    if(view==='loading'){card.append(el('h1',{},'Loading…'),el('p',{class:'muted'},'Reading the published schedule.'));root.append(card);return;}
+    if(view==='closed'){card.append(el('h1',{},'Score reporting is closed'),el('p',{class:'muted'},notice||'The organizer is not accepting score reports for this event.'));root.append(card);return;}
+    if(view==='code')return renderCode(card);
+    if(view==='score'&&choice)return renderScore(card);
+    if(view==='confirm'&&choice)return renderConfirm(card);
+    if(view==='sent')return renderSent(card);
+    return renderList(card);
+  }
+
+  async function load(){
+    try{
+      state=await request();
+      if(state.status!=='open'||state.mode==='off'){
+        view='closed';
+        say(state.status==='expired'?'This reporting link expired.':state.mode==='off'?'The organizer turned score reporting off.':'The organizer closed score reporting.');
+        render();return;
+      }
+      if(state.mode==='code'){
+        if(!court){
+          const remembered=knownCodes();
+          const auto=presetCode&&presetCode.length===5?presetCode:(remembered[0]&&remembered[0].code)||'';
+          view='code';render();
+          if(auto)applyCode(auto);
+          return;
+        }
+      }else{
+        matches=state.matches||[];court=null;code='';
+      }
+      view=choice?view:'list';
+      if(!choice&&restoreDraft())return;
+      if(!choice&&presetMatch){
+        const target=matches.find(row=>row.matchId===presetMatch);
+        if(target){presetMatch='';choice=target;mode='set';sets=[['',''],['',''],['','']];const own=ownFor(target.matchId);if(own){mode=own.mode;own.sets.forEach((pair,index)=>{if(index<3)sets[index]=[String(pair[0]),String(pair[1])];});}view='score';}
+      }
+      render();
+    }catch(error){view='closed';say(error.message);render();}
+  }
+
+  render();load();
+})();`;
+
 const CHECK_IN_PAGE_SCRIPT = `(()=>{const root=document.querySelector('[data-check-in-root]'),token=root?.dataset.token||'',storageKey=token?'court-check-in:'+token:'',api=token?'/api/check-in/public/'+encodeURIComponent(token):'';let state=null,choice=null,busy=false;const q=s=>root.querySelector(s),el=(tag,attrs={},text='')=>{const node=document.createElement(tag);Object.entries(attrs).forEach(([k,v])=>k==='class'?node.className=v:node.setAttribute(k,v));node.textContent=text;return node},device=()=>{let value='';try{value=localStorage.getItem(storageKey)||'';}catch{}if(!/^[A-Za-z0-9_-]{43}$/.test(value)){const bytes=new Uint8Array(32);crypto.getRandomValues(bytes);let raw='';bytes.forEach(byte=>raw+=String.fromCharCode(byte));value=btoa(raw).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/g,'');try{localStorage.setItem(storageKey,value);}catch{}}return value},headers=()=>({'Content-Type':'application/json','X-Check-In-Device-Token':device()}),message=value=>{const node=q('[data-message]');if(node)node.textContent=value||''},request=async(method='GET',body)=>{const response=await fetch(api,{method,headers:headers(),cache:'no-store',body:body===undefined?undefined:JSON.stringify(body)}),data=await response.json().catch(()=>({}));if(!response.ok)throw new Error(data.message||'Check-in is unavailable.');return data};function render(){root.replaceChildren();const card=el('main',{class:'check-in-card'}),brand=el('div',{class:'brand'},'COURT · PLAYER CHECK-IN');card.append(brand);if(!token){card.append(el('h1',{},'Enter the check-in code'),el('p',{class:'muted'},'Ask the organizer for the five-character code.'));const form=el('form',{class:'code-form'}),input=el('input',{maxlength:'5',autocomplete:'off',autocapitalize:'characters','aria-label':'Check-in code',placeholder:'ABCDE'}),button=el('button',{type:'submit',class:'primary'},'Continue');form.append(input,button);form.addEventListener('submit',event=>{event.preventDefault();const code=input.value.toUpperCase().replace(/[^A-Z2-9]/g,'');if(code.length===5)location.href='/check-in/code/'+code;else message('Enter all five characters.');});card.append(form,el('p',{'data-message':'',class:'message'}));root.append(card);input.focus();return}if(!state){card.append(el('h1',{},'Loading check-in…'),el('p',{class:'muted'},'Only public names are loaded. Ratings and stats stay private.'));root.append(card);return}if(state.status!=='open'){card.append(el('h1',{},'Check-in has ended'),el('p',{class:'muted'},state.status==='expired'?'This session expired. Ask the organizer if a new session is open.':'The organizer closed this session.'));root.append(card);return}card.append(el('h1',{},state.label||'Pickup volleyball'),el('p',{class:'muted'},'Choose only your own name. Court never shows ratings, stats, notes, or attendance history here.'));if(state.ownCheckIn&&['checked-in','pending'].includes(state.ownCheckIn.status)){card.append(el('div',{class:'success'},state.ownCheckIn.pending?'Your name is pending organizer review.':'You’re checked in as '+state.ownCheckIn.displayName));const cancel=el('button',{class:'danger',type:'button'},'Cancel check-in'),wrong=el('button',{class:'link',type:'button'},'Not you?');cancel.addEventListener('click',cancelOwn);wrong.addEventListener('click',cancelOwn);card.append(cancel,wrong,el('p',{'data-message':'',class:'message'}));root.append(card);return}if(choice){card.append(el('div',{class:'confirm'},'Checking in as '+choice.displayName+'?'));const yes=el('button',{class:'primary',type:'button'},'Confirm'),no=el('button',{class:'link',type:'button'},'Not you?');yes.addEventListener('click',()=>submit({publicPlayerId:choice.publicPlayerId}));no.addEventListener('click',()=>{choice=null;render()});card.append(yes,no,el('p',{'data-message':'',class:'message'}));root.append(card);return}const search=el('input',{type:'search',autocomplete:'off','aria-label':'Search public player names',placeholder:'Search your name…'}),list=el('div',{class:'name-list'}),unknown=el('button',{class:'link unknown',type:'button'},'I’m not on the list');const fill=()=>{list.replaceChildren();const term=search.value.trim().toLocaleLowerCase();state.roster.filter(row=>!term||row.displayName.toLocaleLowerCase().includes(term)).slice(0,60).forEach(row=>{const button=el('button',{class:'name',type:'button'}),copy=el('span',{},row.displayName);if(row.photoUrl){const photo=el('img',{src:row.photoUrl,alt:'',loading:'lazy'});photo.addEventListener('error',()=>photo.remove(),{once:true});button.append(photo)}button.append(copy);button.addEventListener('click',()=>{choice=row;render()});list.append(button)});if(!list.children.length)list.append(el('p',{class:'muted'},'No public names match.'))};search.addEventListener('input',fill);unknown.addEventListener('click',()=>{const wrap=el('div',{class:'unknown-form'}),input=el('input',{maxlength:'60',autocomplete:'name','aria-label':'Name for organizer review',placeholder:'Your name'}),send=el('button',{class:'primary',type:'button'},'Send for review'),back=el('button',{class:'link',type:'button'},'Back');send.addEventListener('click',()=>submit({freeTextName:input.value}));back.addEventListener('click',render);wrap.append(el('p',{class:'muted'},'This creates a pending entry only. The organizer must review it.'),input,send,back,el('p',{'data-message':'',class:'message'}));card.replaceChildren(brand,el('h1',{},state.label||'Pickup volleyball'),wrap);input.focus()});card.append(search,list,unknown,el('p',{'data-message':'',class:'message'}));root.append(card);fill();search.focus()}async function load(){try{state=await request();render()}catch(error){state={status:'missing'};render();message(error.message)}}async function submit(body){if(busy)return;busy=true;message('Sending…');try{await request('POST',body);choice=null;await load()}catch(error){message(error.message)}finally{busy=false}}async function cancelOwn(){if(busy)return;busy=true;message('Canceling…');try{await request('DELETE');choice=null;await load()}catch(error){message(error.message)}finally{busy=false}}render();if(token)load()})();`;
 
 function checkInPage(publicToken = "") {
@@ -3435,6 +4603,20 @@ function checkInPage(publicToken = "") {
     headers: checkInHeaders({
       "Content-Type": "text/html; charset=utf-8",
       "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; form-action 'self'; frame-ancestors 'none'`,
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+    }),
+  });
+}
+
+function scoreReportPage(publicToken = "", courtCode = "") {
+  const nonce = randomTokenBytes(16);
+  const styles = `:root{color-scheme:dark;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}*{box-sizing:border-box}body{margin:0;min-height:100vh;padding:calc(18px + env(safe-area-inset-top)) 14px calc(24px + env(safe-area-inset-bottom));background:radial-gradient(circle at top,#172c48,#09111f 48%,#060b13);color:#f5f7fb}.score-card{width:min(100%,520px);margin:3vh auto;padding:22px;border:1px solid #ffffff1f;border-radius:24px;background:#0d1727f2;box-shadow:0 24px 70px #0008}.brand{color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.14em}h1{margin:9px 0 8px;font-size:27px;line-height:1.15;overflow-wrap:anywhere}.muted{color:#aab7ca;line-height:1.5}.small{font-size:13px}input,button{width:100%;min-height:50px;margin-top:9px;padding:12px 14px;border:1px solid #ffffff20;border-radius:14px;background:#111f32;color:inherit;font:inherit}button{font-weight:800;cursor:pointer}.primary{border-color:#f2c66d66;background:#f2c66d;color:#111927}.link{min-height:44px;border:0;background:transparent;color:#f2c66d}.locked{margin-top:14px;padding:12px;border:1px solid #f2c66d44;border-radius:13px;color:#f2d48f;line-height:1.5}.match-list,.done-list{display:grid;gap:8px;margin-top:12px}.match{display:grid;gap:4px;margin:0;text-align:left;line-height:1.35}.match-teams{font-weight:800;overflow-wrap:anywhere}.match-meta{color:#aab7ca;font-size:12px}.match-state{margin-top:3px;color:#f2c66d;font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.match-state.accepted{color:#6ce0ad}.match-state.conflicted{color:#ffb1b4}.chips{display:flex;flex-wrap:wrap;gap:7px;margin-top:9px}.chip{width:auto;min-height:44px;margin:0;padding:10px 14px;border-radius:999px;font-size:13px}.seg{display:flex;gap:6px;margin-top:14px;padding:4px;border:1px solid #ffffff18;border-radius:14px}.seg button{margin:0;min-height:44px;border:0;background:transparent}.seg .on{background:#f2c66d;color:#111927}.score-row{display:flex;align-items:center;gap:9px}.score-row input{flex:1;font-size:20px;font-weight:800;text-align:center}.set-label{flex:0 0 46px;color:#aab7ca;font-size:12px;font-weight:800}.confirm,.success{margin:16px 0 10px;padding:18px;border:1px solid #f2c66d55;border-radius:16px;background:#f2c66d10}.success{border-color:#5fe3ae55;background:#5fe3ae12;font-size:16px;font-weight:800}.confirm-line{font-size:18px;font-weight:850;line-height:1.3;overflow-wrap:anywhere}.confirm-score{margin:8px 0 6px;color:#f2c66d;font-size:30px;font-weight:850;font-variant-numeric:tabular-nums}.message{min-height:20px;margin:10px 0 0;color:#ffcc92;font-size:13px;line-height:1.5}.code-form{display:grid;grid-template-columns:1fr auto;gap:8px}.code-form button{width:auto}.code-form input{text-transform:uppercase;letter-spacing:.2em;font-weight:850}details summary{min-height:44px;padding:11px 0;color:#f2c66d;font-weight:800;cursor:pointer}@media(max-width:420px){.score-card{padding:18px;border-radius:20px}.code-form{grid-template-columns:1fr}}`;
+  const html = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#09111f"><meta name="robots" content="noindex"><title>Court · report a score</title><style>${styles}</style></head><body><div data-score-root data-token="${publicToken}" data-code="${courtCode}"></div><script nonce="${nonce}">${SCORE_REPORT_PAGE_SCRIPT}</script></body></html>`;
+  return new Response(html, {
+    status: 200,
+    headers: scoreHeaders({
+      "Content-Type": "text/html; charset=utf-8",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'unsafe-inline'; connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'`,
       "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
     }),
   });
@@ -3462,6 +4644,18 @@ export default {
     const checkInPublicApiMatch = path.match(/^\/api\/check-in\/public\/([^/]+)$/);
     const checkInPageMatch = path.match(/^\/check-in\/([^/]+)$/);
     const checkInCodeMatch = path.match(/^\/check-in\/code\/([^/]+)$/);
+    const scoreConfigMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/config$/);
+    const scoreMatchesMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/matches$/);
+    const scoreReviewMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/review$/);
+    const scoreReindexMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/reindex$/);
+    const scoreCloseMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/close$/);
+    const scoreDispositionMatch = path.match(/^\/api\/score-reports\/sessions\/([^/]+)\/reports\/([^/]+)$/);
+    const scorePublicStateMatch = path.match(/^\/api\/score-reports\/public\/([^/]+)\/state$/);
+    const scorePublicCodeMatch = path.match(/^\/api\/score-reports\/public\/([^/]+)\/code$/);
+    const scorePublicReportsMatch = path.match(/^\/api\/score-reports\/public\/([^/]+)\/reports$/);
+    const scorePublicApiMatch = path.match(/^\/api\/score-reports\/public\/([^/]+)$/);
+    const scoreReportCodePageMatch = path.match(/^\/report\/([^/]+)\/c\/([^/]+)$/);
+    const scoreReportPageMatch = path.match(/^\/report\/([^/]+)$/);
     const registrationOrganizerMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)$/);
     const registrationSummaryMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/summary$/);
     const registrationImportPreviewMatch = path.match(/^\/api\/event-registration\/organizer\/([^/]+)\/import-preview$/);
@@ -3487,6 +4681,11 @@ export default {
     const checkInPrivatePath = path === "/api/check-in/status" || path === "/api/check-in/sessions"
       || !!checkInReviewMatch || !!checkInCloseMatch || !!checkInDispositionMatch;
     const checkInPublicPath = !!checkInPublicApiMatch || path === "/check-in" || !!checkInPageMatch || !!checkInCodeMatch;
+    const scorePrivatePath = path === "/api/score-reports/status" || path === "/api/score-reports/sessions"
+      || !!scoreConfigMatch || !!scoreMatchesMatch || !!scoreReviewMatch || !!scoreReindexMatch
+      || !!scoreCloseMatch || !!scoreDispositionMatch;
+    const scorePublicPath = !!scorePublicStateMatch || !!scorePublicCodeMatch || !!scorePublicReportsMatch
+      || !!scorePublicApiMatch || !!scoreReportPageMatch || !!scoreReportCodePageMatch;
     const registrationPrivatePath = !!registrationOrganizerMatch || !!registrationSummaryMatch || !!registrationImportPreviewMatch || !!registrationImportMarkMatch || !!registrationImportResetMatch
       || !!registrationConfigMatch || !!registrationOrganizerPlayersMatch || !!registrationStatusMatch
       || !!registrationTokenMatch || !!registrationEntryStatusMatch || !!registrationEntryContactMatch || !!registrationEntryManagementMatch || !!registrationMemberMatch;
@@ -3494,7 +4693,7 @@ export default {
       || !!registrationPageMatch || !!registrationManagementApiMatch || !!registrationManagementPlayerMatch
       || !!registrationManagementWithdrawMatch || !!registrationManagementPageMatch;
     const privateApiPath = path === "/api/public-schedules/status" || path === "/api/public-schedules" || !!publicationMatch
-      || photoApiPath || checkInPrivatePath || registrationPrivatePath;
+      || photoApiPath || checkInPrivatePath || registrationPrivatePath || scorePrivatePath;
 
     try {
       if (request.method === "OPTIONS" && privateApiPath) {
@@ -3504,6 +4703,9 @@ export default {
       if (request.method === "OPTIONS" && checkInPublicPath) {
         return checkInError(405, "METHOD_NOT_ALLOWED", "Cross-origin check-in requests are not allowed.");
       }
+      if (request.method === "OPTIONS" && scorePublicPath) {
+        return scoreError(405, "METHOD_NOT_ALLOWED", "Cross-origin score-report requests are not allowed.");
+      }
       if (request.method === "OPTIONS" && registrationPublicPath) {
         return registrationError(405, "METHOD_NOT_ALLOWED", "Cross-origin registration requests are not allowed.");
       }
@@ -3512,6 +4714,72 @@ export default {
       if (path === "/assets/public-event.js") {
         if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
         return new Response(PUBLIC_EVENT_SCRIPT, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+      }
+
+      if (path === "/assets/public-report.js") {
+        if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
+        return new Response(PUBLIC_REPORT_SCRIPT, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+      }
+
+      if (path === "/api/score-reports/status") {
+        if (request.method !== "GET") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await scoreReportStatusRoute(request, env);
+      }
+      if (path === "/api/score-reports/sessions") {
+        if (request.method === "GET") return await findOrganizerScoreSession(request, env, url);
+        if (request.method === "POST") return await createScoreSession(request, env, url);
+        return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+      }
+      if (scoreConfigMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await configureScoreSession(request, env, url, scoreConfigMatch[1]);
+      }
+      if (scoreMatchesMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await syncScoreSessionMatches(request, env, url, scoreMatchesMatch[1]);
+      }
+      if (scoreReviewMatch) {
+        if (request.method !== "GET") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await reviewScoreSession(request, env, url, scoreReviewMatch[1]);
+      }
+      if (scoreReindexMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await reindexScoreSession(request, env, url, scoreReindexMatch[1]);
+      }
+      if (scoreCloseMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await closeScoreSession(request, env, url, scoreCloseMatch[1]);
+      }
+      if (scoreDispositionMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.", privateCors(request));
+        return await disposeScoreReport(request, env, scoreDispositionMatch[1], scoreDispositionMatch[2]);
+      }
+      if (scorePublicStateMatch) {
+        if (request.method !== "GET") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await publicScoreState(request, env, url, scorePublicStateMatch[1]);
+      }
+      if (scorePublicCodeMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await resolvePublicScoreCode(request, env, url, scorePublicCodeMatch[1]);
+      }
+      if (scorePublicReportsMatch) {
+        if (request.method !== "POST") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await submitPublicScoreReport(request, env, url, scorePublicReportsMatch[1]);
+      }
+      if (scorePublicApiMatch) {
+        if (request.method !== "GET") return scoreError(405, "METHOD_NOT_ALLOWED", "Method not allowed.");
+        return await getPublicScoreSession(request, env, url, scorePublicApiMatch[1]);
+      }
+      if (scoreReportCodePageMatch) {
+        if (request.method !== "GET") return publicMessage(405, "Method not allowed", "Open this score-report link in a browser.");
+        if (!TOKEN_PATTERN.test(scoreReportCodePageMatch[1])) return publicMessage(404, "Report link not found", "Ask the organizer for an updated link.");
+        const presetCode = scoreReportCodePageMatch[2].toUpperCase();
+        return scoreReportPage(scoreReportCodePageMatch[1], SHORT_CODE_PATTERN.test(presetCode) ? presetCode : "");
+      }
+      if (scoreReportPageMatch) {
+        if (request.method !== "GET") return publicMessage(405, "Method not allowed", "Open this score-report link in a browser.");
+        if (!TOKEN_PATTERN.test(scoreReportPageMatch[1])) return publicMessage(404, "Report link not found", "Ask the organizer for an updated link.");
+        return scoreReportPage(scoreReportPageMatch[1], "");
       }
 
       if (path === "/api/player-photos/status") {
@@ -3697,6 +4965,7 @@ export default {
       if (privateApiPath) return apiError(request, 500, "unexpected storage error");
       if (registrationPublicPath) return registrationError(500, "UNEXPECTED_ERROR", "Registration is temporarily unavailable.");
       if (checkInPublicPath) return checkInError(500, "UNEXPECTED_ERROR", "Check-in is temporarily unavailable.");
+      if (scorePublicPath) return scoreError(500, "UNEXPECTED_ERROR", "Score reporting is temporarily unavailable.");
       return new Response("Internal server error", { status: 500, headers: path === "/" ? LEGACY_CORS : {} });
     }
   },
