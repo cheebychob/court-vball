@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.10">
+<meta name="court-build" content="20260728.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -624,6 +624,16 @@
   .registration-member-row:last-child{border-bottom:0}
   .registration-member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
   .registration-member-actions .btn{min-height:34px;padding:5px 8px}
+  .registration-contact-lines{min-width:0;line-height:1.5;overflow-wrap:anywhere}
+  .registration-contact-link{color:#9de5ff;text-decoration-line:underline;text-decoration-thickness:1.5px;text-underline-offset:3px;overflow-wrap:anywhere;word-break:break-word}
+  .registration-contact-link:hover{color:#d9f6ff;text-decoration-thickness:2px}
+  .registration-contact-link:focus-visible{color:#fff;background:#74d7ff1c;outline:3px solid var(--cyan);outline-offset:3px}
+  .registration-contact-link:active{color:var(--gold)}
+  .registration-organizer-controls{display:grid;gap:12px;min-width:0;margin-top:13px}
+  .registration-organizer-controls label{min-width:0;overflow-wrap:anywhere}
+  .registration-organizer-controls select{min-width:0;min-height:44px;margin:0}
+  .registration-organizer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
+  .registration-organizer-actions .btn{min-width:0;min-height:44px;padding:8px;white-space:normal;overflow-wrap:anywhere}
   @media(max-width:520px){.registration-member-row{align-items:flex-start;flex-direction:column}.registration-member-actions{justify-content:flex-start}}
   .registration-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gold);font-size:11px}
   .registration-link-card{min-width:0;margin-top:10px;padding:10px 11px;border:1px solid var(--line);border-radius:12px;background:#0002}
@@ -635,7 +645,7 @@
   /* Shared native, focusable checkbox pattern used by every app-owned checkbox. */
   .court-checkbox-row{position:relative;display:flex!important;align-items:flex-start;gap:10px;min-height:44px;margin:0!important;padding:7px 6px;border:1px solid transparent;border-radius:12px;color:var(--text)!important;cursor:pointer}
   .court-checkbox-row:hover{background:#ffffff06}
-  .court-checkbox-input{position:absolute!important;z-index:2;inset:0;width:100%!important;height:100%!important;min-height:44px!important;margin:0!important;padding:0!important;border:0!important;opacity:0;cursor:pointer}
+  .court-checkbox-input{position:absolute!important;z-index:2;left:6px!important;top:8px!important;width:22px!important;height:22px!important;min-height:0!important;margin:0!important;padding:0!important;border:0!important;opacity:0;cursor:pointer}
   .court-checkbox-control{position:relative;width:22px;height:22px;flex:0 0 22px;margin-top:1px;border:1px solid #ffffff48;border-radius:6px;background:#081222;box-shadow:inset 0 1px 0 #ffffff12;transition:background .14s ease,border-color .14s ease,box-shadow .14s ease}
   .court-checkbox-control::after{content:"";position:absolute;left:6px;top:3px;width:6px;height:11px;border:solid #101724;border-width:0 3px 3px 0;opacity:0;transform:rotate(45deg) scale(.75);transition:opacity .12s ease,transform .12s ease}
   .court-checkbox-input:checked+.court-checkbox-control{border-color:var(--gold);background:var(--gold);box-shadow:0 0 0 1px #f2c66d22}
@@ -645,11 +655,14 @@
   .court-checkbox-copy{display:block;min-width:0;flex:1}
   .court-checkbox-label{display:block;color:var(--text);font-size:13px;font-weight:800;line-height:1.35}
   .court-checkbox-help{display:block;margin-top:3px;color:var(--muted);font-size:11px;font-weight:500;line-height:1.45;overflow-wrap:anywhere}
-  .court-checkbox-row:has(.court-checkbox-input:disabled){cursor:not-allowed;opacity:.56}
+  .court-checkbox-row:has(.court-checkbox-input:disabled){cursor:not-allowed}
   .court-checkbox-input:disabled{cursor:not-allowed}
+  .court-checkbox-input:disabled+.court-checkbox-control{border-color:#ffffff30;background:#121a29;box-shadow:none;opacity:.58}
+  .court-checkbox-input:disabled:checked+.court-checkbox-control{border-color:#d8b66188;background:#b38c42}
+  .court-checkbox-row:has(.court-checkbox-input:disabled) .court-checkbox-copy{opacity:.56}
   .court-checkbox-row:has(.court-checkbox-input:disabled):hover{background:transparent}
   .registration-settings-section .court-checkbox-row+.field{margin-top:12px}
-  .registration-settings-section :is(input,select,textarea):disabled{cursor:not-allowed;opacity:.58}
+  .registration-settings-section :is(input:not(.court-checkbox-input),select,textarea):disabled{cursor:not-allowed;opacity:.58}
   .registration-sharing{display:grid;gap:9px}
   .registration-sharing-status{min-width:0;padding:10px;border:1px solid var(--line);border-radius:12px;background:#0002}
   .registration-sharing-status b,.registration-sharing-status span{display:block;overflow-wrap:anywhere}
@@ -657,6 +670,8 @@
   .registration-settings-counts{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px}
   .registration-settings-counts>div{padding:8px;border:1px solid var(--line);border-radius:11px;background:#0001}
   .registration-settings-counts b,.registration-settings-counts span{display:block}.registration-settings-counts span{margin-top:2px;color:var(--muted);font-size:10px}
+  .registration-settings-feedback{display:grid;align-content:end;min-height:38px;margin:8px 0;color:var(--coral);font-size:11px;line-height:1.4}
+  .registration-settings-feedback [data-registration-settings-success]{color:var(--mint)}
   .registration-modal-footer{position:sticky;z-index:2;bottom:calc(-20px - env(safe-area-inset-bottom));margin:14px -16px calc(-20px - env(safe-area-inset-bottom));padding:11px 16px calc(20px + env(safe-area-inset-bottom));border-top:1px solid var(--line-strong);background:#111a2cf2;backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px)}
   .registration-integration-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;margin-top:11px}
   .registration-integration-summary>div{padding:8px;border:1px solid var(--line);border-radius:11px;background:#0001}
@@ -686,6 +701,7 @@
   .event-check-in-player select{min-height:40px}
   .imported-marker{display:inline-block;margin-left:5px;color:var(--gold);font-size:9px;font-weight:700}
   @media(max-width:620px){.registration-import-callout{grid-template-columns:1fr 1fr}.registration-import-callout>div{grid-column:1/-1}.event-check-in-player{grid-template-columns:1fr}.registration-actions{grid-template-columns:1fr 1fr}.registration-settings-grid{grid-template-columns:1fr}.registration-import-action{align-items:flex-start;flex-direction:column}.registration-settings-counts{grid-template-columns:repeat(3,minmax(0,1fr))}}
+  @media(max-width:390px){.registration-organizer-actions{grid-template-columns:1fr}}
   @media(max-width:360px){.registration-settings-counts{grid-template-columns:1fr}.registration-import-toolbar .btn{flex:1}.registration-import-footer,.registration-modal-footer{margin-left:-16px;margin-right:-16px}}
 
   .settings-section{scroll-margin-top:90px}
@@ -1273,9 +1289,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.37.0',
-  build: '20260727.10',
-  releaseNotes: 'Players can report scores from the public schedule into an organizer review queue, with optional per-court codes.'
+  version: '0.37.1',
+  build: '20260728.1',
+  releaseNotes: 'Registration management dialogs now stay stable during refreshes, keep settings open after saves, and improve accessible controls.'
 });
 
 function appVersionLabel(){
@@ -2848,6 +2864,7 @@ const icons = {
   teams:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M5 7h4M5 12h4M5 17h4M15 7h4M15 12h4M15 17h4"/></svg>',
   games:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 5h14M5 12h14M5 19h9"/><path d="m18 17 2 2-2 2"/></svg>',
   more:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="12" r="1.7"/><circle cx="12" cy="12" r="1.7"/><circle cx="18" cy="12" r="1.7"/></svg>',
+  search:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/></svg>',
   plus:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>',
   scout:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20s7-4.4 7-10a7 7 0 1 0-14 0c0 5.6 7 10 7 10Z"/><circle cx="12" cy="10" r="2.2"/></svg>',
   trophy:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0V4Z"/><path d="M7 6H4v1a3 3 0 0 0 3 3M17 6h3v1a3 3 0 0 1-3 3"/></svg>',
@@ -11958,10 +11975,10 @@ const EventRegistration=(()=>{
     const contact=normalizeRegistrationContact(entry.contact),editing=window._registrationContactEdit?.entryId===entry.id,edit=editing?window._registrationContactEdit:null;
     const contactHtml=contact?`<div class="registration-contact-lines">
       ${contact.name?`<b>${esc(contact.name)}</b>`:''}
-      ${contact.email?`<a href="mailto:${esc(encodeURIComponent(contact.email))}">${esc(contact.email)}</a>`:''}
-      ${contact.phone?`<a href="tel:${esc(contact.phone.replace(/[^+0-9,;*#]/g,''))}">${esc(contact.phone)}</a>`:''}
+      ${contact.email?`<a class="registration-contact-link" href="mailto:${esc(encodeURIComponent(contact.email))}">${esc(contact.email)}</a>`:''}
+      ${contact.phone?`<a class="registration-contact-link" href="tel:${esc(contact.phone.replace(/[^+0-9,;*#]/g,''))}">${esc(contact.phone)}</a>`:''}
       <span class="tiny faint">Preferred: ${esc(registrationContactMethodLabel(contact.preferredMethod))}</span>
-      ${contact.notes?`<details><summary class="tiny">Notes to organizer</summary><div class="tiny" style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:5px">${esc(contact.notes)}</div></details>`:''}
+      ${contact.notes?`<details data-registration-disclosure="contact-notes"><summary class="tiny">Notes to organizer</summary><div class="tiny" style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:5px">${esc(contact.notes)}</div></details>`:''}
     </div>`:'<div class="tiny faint">Not provided</div>';
     const contactEditHtml=editing?`<div class="registration-contact-edit" data-registration-contact-edit>
       <label class="tiny" for="organizer-contact-name-${esc(entry.id)}">Contact name</label><input id="organizer-contact-name-${esc(entry.id)}" maxlength="100" autocomplete="name" value="${esc(edit.name)}" oninput="setOrganizerRegistrationContactField('name',this.value)">
@@ -11987,9 +12004,11 @@ const EventRegistration=(()=>{
       ${(entry.duplicateWarnings||[]).map(warning=>`<div class="tiny" style="margin-top:6px;color:var(--sand)">⚠ ${esc(warning)}</div>`).join('')}
       <div class="registration-roster-group"><div class="row spread" style="gap:8px"><b class="tiny">Registrant / contact</b><button class="btn sm ghost" onclick="editOrganizerRegistrationContact('${esc(entry.id)}')">${contact?'Edit contact':'Add contact'}</button></div>${contactHtml}${contactEditHtml}</div>
       ${memberSection('active','Active roster')}${memberSection('substitute','Substitutes')}
-      <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status</label>
-      <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
-      <div class="registration-actions"><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','${entry.editingLocked?'unlock':'lock'}')">${entry.editingLocked?'Unlock editing':'Lock editing'}</button><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','rotate')">Rotate management link</button><button class="btn sm danger" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','revoke')">Revoke access</button></div>
+      <div class="registration-organizer-controls">
+        <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status</label>
+        <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
+        <div class="registration-organizer-actions"><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','${entry.editingLocked?'unlock':'lock'}')">${entry.editingLocked?'Unlock editing':'Lock editing'}</button><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','rotate')">Rotate management link</button><button class="btn sm danger" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','revoke')">Revoke access</button></div>
+      </div>
     </div>`;
   }
   function filteredEntries(state){
@@ -12005,16 +12024,20 @@ const EventRegistration=(()=>{
       filter,
       focusKey:active?.dataset?.focusKey||'',
       focusedEntry:row?.dataset.registrationEntry||'',
-      entryFocusIndex:active?focusable.indexOf(active):-1
+      entryFocusIndex:active?focusable.indexOf(active):-1,
+      openDisclosures:[...root.querySelectorAll('[data-registration-disclosure][open]')].map(node=>`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`)
     };
   }
   function restoreDashboardInteraction(root,interaction){
     if(!root||!interaction)return;
+    if(['all','pending','accepted','waitlisted','declined','withdrawn'].includes(interaction.filter))filter=interaction.filter;
     const select=root.querySelector('#registrationFilter');if(select)select.value=filter;
     let target=interaction.focusKey&&root.querySelector(`[data-focus-key="${CSS.escape(interaction.focusKey)}"]`);
     const row=interaction.focusedEntry&&root.querySelector(`[data-registration-entry="${CSS.escape(interaction.focusedEntry)}"]`);
     if(!target&&row&&interaction.entryFocusIndex>=0)target=[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')][interaction.entryFocusIndex];
     if(!target&&row)target=row;
+    const openDisclosures=new Set(interaction.openDisclosures||[]);
+    root.querySelectorAll('[data-registration-disclosure]').forEach(node=>{node.open=openDisclosures.has(`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`);});
     if(target&&document.activeElement!==target)target.focus({preventScroll:true});
     const sheet=root.closest('.sheet');if(sheet)sheet.scrollTop=interaction.sheetScroll;
   }
@@ -12046,17 +12069,19 @@ const EventRegistration=(()=>{
   }
   function patchModalSurface(){
     if(document.querySelector('[data-registration-dashboard]'))patchDashboard();
-    else if(document.querySelector('[data-registration-member-review]')&&window._registrationMemberReview)renderRegistrationMemberReview();
+    else if(document.querySelector('[data-registration-member-review]')&&window._registrationMemberReview)patchRegistrationMemberReview();
   }
   function patchSummaryCard(eventId){
     const ev=evById(eventId),node=document.querySelector(`[data-registration-summary="${CSS.escape(eventId)}"]`);
     if(ev&&node&&node.dataset.registrationFingerprint!==String(registrationSummaryFingerprint(ev))){
+      const scrollX=window.scrollX,scrollY=window.scrollY;
       node.outerHTML=registrationSummaryHtml(ev);
       /* The replacement node is fresh, so re-apply the active mobile section view. */
       syncEventNav();
+      window.scrollTo(scrollX,scrollY);
     }
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,dashboardInteraction,restoreDashboardInteraction,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,patchSummaryCard,dashboardInteraction,restoreDashboardInteraction,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -12094,7 +12119,7 @@ function registrationDashboardHtml(ev){
   const state=EventRegistration.get(ev.id),local=eventRegistration(ev),config=state?.config||local,summary=state?.summary,url=registrationPublicUrl(ev),unloaded='—';
   const pending=summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded,filter=EventRegistration.filter;
   const filterOption=(value,label)=>`<option value="${value}" ${filter===value?'selected':''}>${label}</option>`;
-  const footerActions=`<div class="registration-dashboard-footer-actions" data-registration-dashboard-actions><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button><details class="registration-dashboard-more-actions"><summary>More actions</summary><div class="registration-dashboard-more-menu"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button></div></details></div>`;
+  const footerActions=`<div class="registration-dashboard-footer-actions" data-registration-dashboard-actions><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button><details class="registration-dashboard-more-actions" data-registration-disclosure="more-actions"><summary>More actions</summary><div class="registration-dashboard-more-menu"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button></div></details></div>`;
   return `<div data-registration-dashboard data-registration-modal data-event-id="${esc(ev.id)}">
     ${sheetHeadHtml(`Registration · ${esc(ev.name)}`,{subtitle:'Persistent registrations stay separate from event-day check-in. Ratings and private roster data never appear here.'})}
     <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" data-focus-key="registration-refresh" onclick="refreshRegistrationDashboard()">Refresh</button></div>
@@ -12102,7 +12127,7 @@ function registrationDashboardHtml(ev){
     <div class="field registration-dashboard-filter"><label for="registrationFilter">Entries</label><select id="registrationFilter" data-focus-key="registration-filter" onchange="setRegistrationFilter(this.value)">${filterOption('all','All statuses')}${filterOption('pending','Pending review')}${['accepted','waitlisted','declined','withdrawn'].map(status=>filterOption(status,esc(registrationStatusLabel(status)))).join('')}</select></div>
     <div class="registration-entry-list" data-registration-entry-list>${(state?.entries||[]).map(entry=>filter==='all'?entry:null).filter(Boolean).map(entry=>`<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="" tabindex="-1"><b>${esc(entry.displayName||'Unnamed entry')}</b></div>`).join('')||'<div data-registration-empty class="stat-empty">No registration entries yet.</div>'}</div>
     <div class="tiny" data-reg-error role="alert" aria-live="assertive" style="min-height:18px;margin-top:8px;color:var(--coral)">${esc(state?.error||'')}</div>
-    <details class="registration-dashboard-summary" data-registration-secondary-summary><summary>More registration details</summary><div class="registration-dashboard-summary-body">
+    <details class="registration-dashboard-summary" data-registration-secondary-summary data-registration-disclosure="secondary-summary"><summary>More registration details</summary><div class="registration-dashboard-summary-body">
       <div class="registration-capacity-grid"><div><b class="num" data-reg-active>${summary?.playerCounts.acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num" data-reg-waitlisted>${summary?.entryCounts.waitlisted??unloaded}</b><span>waitlisted</span></div><div><b class="num" data-reg-declined>${summary?.entryCounts.declined??unloaded}</b><span>declined</span></div><div><b class="num" data-reg-withdrawn>${summary?.entryCounts.withdrawn??unloaded}</b><span>withdrawn</span></div><div><b class="num" data-reg-subs>${summary?.playerCounts.acceptedSubstitutes??unloaded}</b><span>accepted substitutes</span></div><div><b class="num" data-reg-remaining>${summary?(summary.capacity.isUnlimited?'Unlimited':summary.capacity.remainingActiveSpots):unloaded}</b><span>active spots remaining</span></div></div>
       <div class="tiny faint" data-reg-window>${esc(`${registrationFormatTime(config.opensAt)} → ${registrationFormatTime(config.closesAt)}`)}</div>
       <div class="registration-link-card" aria-label="Public registration link"><span class="registration-link" data-reg-link title="${esc(url)}">${esc(url||'Public link unavailable on this device')}</span></div>
@@ -12384,13 +12409,35 @@ function registrationMemberState(entryId,memberId){
   const evId=EventRegistration.modalEventId||window._registrationMemberReview?.eventId,state=evId&&EventRegistration.get(evId),entry=state?.entries?.find(row=>row.id===entryId),member=entry?.members?.find(row=>row.id===memberId);
   return evId&&entry&&member?{evId,entry,member}:null;
 }
-function renderRegistrationMemberReview(){
-  const review=window._registrationMemberReview;if(!review)return;const current=registrationMemberState(review.entryId,review.memberId);if(!current)return;
+function registrationMemberReviewModel(){
+  const review=window._registrationMemberReview;if(!review)return null;const current=registrationMemberState(review.entryId,review.memberId);if(!current)return null;
   const roster=players.filter(eventRegistrationPlayerEligible),labels=buildUniquePlayerDisplayLabels(roster),rows=normalizeSearchText(review.query)?rankAttendanceSearch(review.query,roster,{participationIndex:buildPlayerParticipationIndex(roster,games,evts),displayLabels:labels}):roster.slice().sort((a,b)=>String(labels.get(a.id)).localeCompare(String(labels.get(b.id))));
-  openSheet(`<div data-registration-member-review data-registration-modal><h3>Review ${esc(current.member.displayName)}</h3><p class="small muted">Search private names and aliases. The captain sees only the selected player’s public display label.</p><div class="search-wrap">${icons.search}<input type="search" data-focus-key="registration-member-search" aria-label="Search private roster" value="${esc(review.query)}" placeholder="Search names or aliases…" oninput="registrationMemberSearch(this.value)"></div><div class="check-in-match-list">${rows.slice(0,60).map(row=>{const player=row.player||row;return `<button type="button" onclick="confirmRegistrationMemberMatch('${esc(player.id)}')">${esc(labels.get(player.id)||player.name)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>'}</div><div class="registration-actions"><button class="btn ghost" onclick="createPlayerFromRegistrationMember(false)">Create normal player</button><button class="btn ghost" onclick="createPlayerFromRegistrationMember(true)">Create event-only participant</button><button class="btn danger" onclick="rejectRegistrationMember()">Reject member</button></div>${sheetCloseBtn('Cancel')}</div>`,{focus:'[data-focus-key="registration-member-search"]'});
+  return {review,current,rows:rows.slice(0,60),labels,memberName:String(current.member.displayName||'Roster member').trim()||'Roster member'};
+}
+function registrationMemberReviewResultsHtml(model){
+  return model.rows.map(row=>{const player=row.player||row,label=model.labels.get(player.id)||player.name||'Player';return `<button type="button" data-registration-review-player="${esc(player.id)}" onclick="confirmRegistrationMemberMatch('${esc(player.id)}')">${esc(label)}${row.aliasMatch?` · alias ${esc(row.aliasMatch)}`:''}</button>`;}).join('')||'<div class="tiny faint">No matching players.</div>';
+}
+function registrationMemberReviewFingerprint(model){
+  return JSON.stringify([model.memberName,model.rows.map(row=>{const player=row.player||row;return [player.id,model.labels.get(player.id)||player.name||'Player',row.aliasMatch||''];})]);
+}
+function patchRegistrationMemberReview(){
+  const root=document.querySelector('[data-registration-member-review]'),model=registrationMemberReviewModel();if(!root||!model)return;
+  const sheet=root.closest('.sheet'),scrollTop=sheet?.scrollTop||0,active=document.activeElement,activePlayer=active?.dataset?.registrationReviewPlayer||'',search=root.querySelector('[data-focus-key="registration-member-search"]'),title=root.querySelector('[data-registration-member-title]'),list=root.querySelector('[data-registration-member-results]'),fingerprint=registrationMemberReviewFingerprint(model);
+  if(title&&title.textContent!==`Review ${model.memberName}`)title.textContent=`Review ${model.memberName}`;
+  if(search&&active!==search&&search.value!==model.review.query)search.value=model.review.query;
+  if(list&&root.dataset.registrationReviewFingerprint!==fingerprint){list.innerHTML=registrationMemberReviewResultsHtml(model);root.dataset.registrationReviewFingerprint=fingerprint;}
+  const focusTarget=activePlayer&&root.querySelector(`[data-registration-review-player="${CSS.escape(activePlayer)}"]`);
+  if(focusTarget&&document.activeElement!==focusTarget)focusTarget.focus({preventScroll:true});
+  if(sheet)sheet.scrollTop=scrollTop;
+}
+function renderRegistrationMemberReview(){
+  const model=registrationMemberReviewModel();if(!model)return;
+  if(document.querySelector('[data-registration-member-review]')){patchRegistrationMemberReview();return;}
+  const fingerprint=registrationMemberReviewFingerprint(model);
+  openSheet(`<div data-registration-member-review data-registration-modal data-registration-review-fingerprint="${esc(fingerprint)}"><h3 data-registration-member-title>Review ${esc(model.memberName)}</h3><p class="small muted">Search private names and aliases. The captain sees only the selected player’s public display label.</p><div class="search-wrap">${icons.search||''}<input type="search" data-focus-key="registration-member-search" aria-label="Search private roster" value="${esc(model.review.query)}" placeholder="Search names or aliases…" oninput="registrationMemberSearch(this.value)"></div><div class="check-in-match-list" data-registration-member-results>${registrationMemberReviewResultsHtml(model)}</div><div class="registration-actions"><button class="btn ghost" onclick="createPlayerFromRegistrationMember(false)">Create normal player</button><button class="btn ghost" onclick="createPlayerFromRegistrationMember(true)">Create event-only participant</button><button class="btn danger" onclick="rejectRegistrationMember()">Reject member</button></div>${sheetCloseBtn('Cancel')}</div>`,{focus:'[data-focus-key="registration-member-search"]'});
 }
 window.reviewRegistrationMember=(entryId,memberId)=>{const current=registrationMemberState(entryId,memberId);if(!current)return;window._registrationDashboardInteraction=EventRegistration.dashboardInteraction();window._registrationMemberReview={eventId:current.evId,entryId,memberId,query:current.member.displayName};renderRegistrationMemberReview();};
-window.registrationMemberSearch=value=>{if(!window._registrationMemberReview)return;window._registrationMemberReview.query=value;renderRegistrationMemberReview();};
+window.registrationMemberSearch=value=>{if(!window._registrationMemberReview)return;window._registrationMemberReview.query=value;patchRegistrationMemberReview();};
 window.confirmRegistrationMemberMatch=async(playerId,duplicateOverride=false)=>{
   const review=window._registrationMemberReview,current=review&&registrationMemberState(review.entryId,review.memberId),player=pById(playerId);if(!current||!player)return;
   if(!(await askConfirm(`Match “${current.member.displayName}” to ${player.name}?`,'Match player')))return;
@@ -12451,8 +12498,8 @@ window.openRegistrationSettings=evId=>{
       <div class="field"><label for="registrationMaxSubstitutes">Maximum substitutes per team</label><input id="registrationMaxSubstitutes" type="number" inputmode="numeric" min="0" value="${r.maxSubstitutesPerTeam??''}" placeholder="No limit"></div>
     </section>
     <section class="registration-settings-section" aria-labelledby="registration-sharing-heading"><h4 id="registration-sharing-heading">Registration link</h4>
-      <div class="registration-sharing"><div class="registration-sharing-status"><b>${r.enabled?esc(registrationStatusLabel(getEffectiveEventRegistrationStatus(r))):'Registration disabled'}</b><span data-registration-settings-link title="${esc(url)}">${url?esc(url):'The public link becomes available after registration is saved.'}</span></div>
-      <div class="registration-actions"><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="openRegistrationLink('${esc(ev.id)}')">Open public page</button><button type="button" class="btn ghost" ${url?'':'disabled'} onclick="rotateRegistrationLink('${esc(ev.id)}')">Rotate link</button></div>
+      <div class="registration-sharing"><div class="registration-sharing-status"><b data-registration-settings-status>${r.enabled?esc(registrationStatusLabel(getEffectiveEventRegistrationStatus(r))):'Registration disabled'}</b><span data-registration-settings-link title="${esc(url)}">${url?esc(url):'The public link becomes available after registration is saved.'}</span></div>
+      <div class="registration-actions"><button type="button" class="btn ghost" data-registration-link-action ${url?'':'disabled'} onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button type="button" class="btn ghost" data-registration-link-action ${url?'':'disabled'} onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button><button type="button" class="btn ghost" data-registration-link-action ${url?'':'disabled'} onclick="openRegistrationLink('${esc(ev.id)}')">Open public page</button><button type="button" class="btn ghost" data-registration-link-action ${url?'':'disabled'} onclick="rotateRegistrationLink('${esc(ev.id)}')">Rotate link</button></div>
       <div class="tiny muted">Rotating invalidates the previous public link immediately. Existing registration entries are preserved.</div>
       <div class="registration-settings-counts"><div><b>${summary?.entryCounts.accepted??'—'}</b><span>accepted</span></div><div><b>${summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:'—'}</b><span>pending</span></div><div><b>${summary?.entryCounts.waitlisted??'—'}</b><span>waitlisted</span></div></div></div>
       <div class="field" style="margin-top:12px"><label for="registrationPublicTitle">Public title · optional</label><input id="registrationPublicTitle" maxlength="120" value="${esc(r.publicTitle)}" placeholder="${esc(ev.name)}"></div>
@@ -12460,8 +12507,10 @@ window.openRegistrationSettings=evId=>{
     </section>
     <section class="registration-settings-section danger-zone" aria-labelledby="registration-danger-heading"><h4 id="registration-danger-heading">Danger zone</h4><p class="small muted">Cancelling stops new submissions and marks the public page cancelled. Existing registration records remain available to the organizer.</p><button type="button" class="btn danger block" ${url&&r.status!=='cancelled'&&!completed?'':'disabled'} onclick="changeRegistrationLifecycle('${esc(ev.id)}','cancelled')">Cancel registration</button></section>
     ${completed?'<div class="unkline">Reopen the event before changing registration. Reopening does not automatically reopen its public registration.</div>':!modes.length?`<div class="unkline">${esc(unsupported[0]||'Registration is not yet supported for this rotating group format.')}</div>`:''}
-    <div data-registration-settings-error role="alert" aria-live="assertive" class="tiny" style="min-height:18px;color:var(--coral);margin-bottom:8px"></div>
+    <div class="registration-settings-feedback"><div data-registration-settings-success role="status" aria-live="polite"></div><div data-registration-settings-error role="alert" aria-live="assertive"></div></div>
     <div class="registration-modal-footer"><button data-save-registration class="btn primary block" ${modes.length&&!completed?'':'disabled'} onclick="saveRegistrationSettings('${esc(ev.id)}')">Save registration</button>${sheetCloseBtn()}</div></div>`,{focus:'#registrationEnabled'});registrationSettingsChanged();
+  const root=document.querySelector('[data-registration-settings]'),clearFeedback=()=>{const success=root?.querySelector('[data-registration-settings-success]');if(success)success.textContent='';};
+  root?.addEventListener('input',clearFeedback);root?.addEventListener('change',clearFeedback);
 };
 window.registrationSettingsChanged=()=>{
   const root=document.querySelector('[data-registration-settings]');if(!root)return;const enabled=$('#registrationEnabled')?.checked===true&&root.dataset.registrationCompleted!=='true',mode=$('#registrationMode')?.value,individual=mode==='individual';
@@ -12471,8 +12520,15 @@ window.registrationSettingsChanged=()=>{
   if(individual){if(subs){subs.checked=false;subs.disabled=true;}if(max){max.value='0';max.disabled=true;}}
   else if(enabled&&max)max.disabled=subs?.checked!==true;
 };
+const registrationSettingsSaves=new Set();
+function patchSavedRegistrationSettings(root,ev,saved){
+  if(!root?.isConnected)return;const url=registrationPublicUrl(ev),link=root.querySelector('[data-registration-settings-link]'),status=root.querySelector('[data-registration-settings-status]');
+  if(link){link.textContent=url||'The public link becomes available after registration is saved.';link.title=url||'';}
+  if(status)status.textContent=saved.enabled?registrationStatusLabel(getEffectiveEventRegistrationStatus(saved)):'Registration disabled';
+  root.querySelectorAll('[data-registration-link-action]').forEach(control=>{control.disabled=!url;});
+}
 window.saveRegistrationSettings=async evId=>{
-  const ev=evById(evId),errorBox=document.querySelector('[data-registration-settings-error]'),button=document.querySelector('[data-save-registration]');if(!ev)return;
+  const ev=evById(evId),root=document.querySelector('[data-registration-settings]'),errorBox=root?.querySelector('[data-registration-settings-error]'),successBox=root?.querySelector('[data-registration-settings-success]'),button=root?.querySelector('[data-save-registration]');if(!ev||!root||!button||button.disabled||registrationSettingsSaves.has(evId))return;
   const optionalNumber=id=>{const value=$(id)?.value.trim()||'';return value===''?null:Number(value);},enabled=$('#registrationEnabled')?.checked===true;
   const raw={enabled,status:enabled?$('#registrationStatus').value:'closed',mode:enabled?$('#registrationMode').value:(window._registrationDraft?.mode||deriveRegistrationDefaultsFromEvent(ev).mode),
     opensAt:registrationTimestampFromInput($('#registrationOpens')?.value),closesAt:registrationTimestampFromInput($('#registrationCloses')?.value),
@@ -12481,10 +12537,22 @@ window.saveRegistrationSettings=async evId=>{
     maxActivePlayersPerTeam:optionalNumber('#registrationMaxActive'),requireOrganizerApproval:$('#registrationApproval')?.checked===true,
     allowWaitlist:$('#registrationWaitlist')?.checked===true,publicTitle:$('#registrationPublicTitle')?.value.trim()||'',
     publicDescription:$('#registrationPublicDescription')?.value.trim()||'',publicToken:eventRegistration(ev).publicToken,publicUrl:eventRegistration(ev).publicUrl,updatedAt:eventRegistration(ev).updatedAt};
-  const validated=validateEventRegistration(raw,ev);if(!validated.valid){if(errorBox)errorBox.textContent=validated.error;return;}
-  if(errorBox)errorBox.textContent='';if(button)button.disabled=true;
-  try{const saved=await EventRegistration.saveConfiguration(ev,validated.value);ev.registration=saved;await saveEvents();window._registrationDraft=null;closeSheet(true);toast(enabled?'Registration settings saved':'Registration disabled · entries preserved');render();if(enabled)void EventRegistration.refresh(evId,{patch:false});}
-  catch(error){if(errorBox)errorBox.textContent=error.message;if(button)button.disabled=false;}
+  const validated=validateEventRegistration(raw,ev);if(!validated.valid){if(successBox)successBox.textContent='';if(errorBox)errorBox.textContent=validated.error;return;}
+  const sheet=root.closest('.sheet'),scrollTop=sheet?.scrollTop||0,focused=root.contains(document.activeElement)?document.activeElement:null;
+  registrationSettingsSaves.add(evId);if(errorBox)errorBox.textContent='';if(successBox)successBox.textContent='';if(button){button.disabled=true;button.textContent='Saving…';button.setAttribute('aria-busy','true');}
+  try{
+    const saved=await EventRegistration.saveConfiguration(ev,validated.value);ev.registration=saved;await saveEvents();window._registrationDraft=saved;
+    patchSavedRegistrationSettings(root,ev,saved);EventRegistration.patchSummaryCard(ev.id);
+    if(successBox)successBox.textContent='Registration settings saved.';
+    toast(enabled?'Registration settings saved':'Registration disabled · entries preserved');
+    void EventRegistration.refresh(evId,{patch:false});
+  }catch(error){if(errorBox)errorBox.textContent=error.message;}
+  finally{
+    registrationSettingsSaves.delete(evId);
+    if(button?.isConnected){button.disabled=false;button.textContent='Save registration';button.removeAttribute('aria-busy');}
+    if(focused?.isConnected&&document.activeElement!==focused)focused.focus({preventScroll:true});
+    if(sheet?.isConnected)sheet.scrollTop=scrollTop;
+  }
 };
 
 const AppUpdates=(()=>{
