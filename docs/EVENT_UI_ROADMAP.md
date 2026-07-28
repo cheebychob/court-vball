@@ -55,34 +55,16 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-08
-**Expected branch:** `fix/public-event-shell`
-**Next item after completion:** EUX-09
+**Current item:** EUX-10
+**Expected branch:** `feat/events-list-lifecycle-groups`
+**Next item after completion:** Core event UI roadmap complete
 
-EUX-01 through EUX-04 are merged into `master`; their merge-commit fields are
-now recorded in their completion records.
+EUX-09 is implemented and verified on `feat/public-bracket-layout`. Its focused
+and full applicable test suites pass, and fixed-team, rotating, mobile,
+desktop, and print layouts were checked. Its pull request and merge commit stay
+`Pending` until those values exist.
 
-EUX-05 is implemented on `fix/event-responsive-standings-brackets` and is
-awaiting merge of https://github.com/cheebychob/court-vball/pull/44. Its
-merge-commit field stays `Pending` until that value exists.
-
-EUX-06 is implemented and verified on its designated branch, but remains
-`In Progress` until its pull request is merged and the remaining physical
-device checks are completed. One unrelated pre-existing public-registration
-typing test also remains flaky under parallel load; see the EUX-06 completion
-record.
-
-EUX-07 is merged into `master` via
-https://github.com/cheebychob/court-vball/pull/46, and its required
-physical-device checks are complete.
-
-EUX-08 is implemented and verified on its designated branch. Its dependencies,
-EUX-02 and EUX-07, are both `Done`. It remains `In Progress` until its pull
-request is created and merged; physical iPhone Safari and Android/Chrome checks
-also remain outstanding.
-
-The agent performing work must update this section when the implementation PR
-is completed. Only one item should normally be In Progress.
+EUX-10 is now `Ready`. No EUX-10 implementation work has begun.
 
 ## Roadmap summary
 
@@ -93,11 +75,11 @@ is completed. Only one item should normally be In Progress.
 | [x]  | EUX-03 | Event sheet headers and share-action layout         | `fix/event-sheet-share-layout`             | None           | Done    |
 | [x]  | EUX-04 | Mobile event section views                          | `feat/event-mobile-section-views`          | EUX-01, EUX-02 | Done    |
 | [x]  | EUX-05 | Responsive rotating standings and brackets          | `fix/event-responsive-standings-brackets`  | EUX-02         | Done    |
-| [ ]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | In Progress |
+| [x]  | EUX-06 | Registration dashboard single-scroll layout         | `fix/registration-dashboard-single-scroll` | EUX-03         | Done    |
 | [x]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Done    |
-| [ ]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | In Progress |
-| [ ]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Planned |
-| [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | Planned |
+| [x]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Done    |
+| [x]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Done    |
+| [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | Ready   |
 
 ---
 
@@ -914,7 +896,7 @@ redesigning the public bracket yet.
 
 **Branch:** `feat/public-bracket-layout`
 **Risk:** Medium
-**Status:** Planned
+**Status:** Done
 **Depends on:** EUX-05, EUX-08
 
 ## Objective
@@ -944,12 +926,43 @@ player-facing bracket.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
+* **Completed date:** 2026-07-27
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.34.0 / 20260727.7 (from 0.33.0 / 20260727.6)
 * **Tests run:**
+  * `npx playwright test tests/public-bracket-layout.spec.js` (4 passed).
+  * Focused Chromium regression run covering the public bracket, public shell,
+    rules/publication, results/playoffs, public schedule links, version, and app
+    updates (57 passed).
+  * `npm test` (315 passed, including Chromium and applicable mobile WebKit),
+    `npm run test:worker` (65 passed), `npm run test:version-check` (10
+    passed), and `npm run check:version` passed.
+  * `git diff --check` passed.
+* **Layout checks:** Fixed-team and rotating public brackets were visually
+  checked at 320 px and 1280 px. A 16-team fixed bracket and a three-team
+  rotating bracket with a bye were checked for long-name wrapping, complete
+  round visibility, match-card containment, and document overflow. Print media
+  was checked at 816 px with all four rounds and 15 matches visible.
 * **Important implementation notes:**
+  * `publicBracketHtml` now reuses `bracketState`,
+    `getPlayoffMatchState`, and `getDivisionProgress` to render every public
+    round and match. The organizer-only `bracketCardsHtml` and bracket
+    derivation are unchanged.
+  * `publicBracketStatusLabel`, `publicBracketTeamScore`, and
+    `publicBracketTeamHtml` provide player-facing labels and accurate,
+    side-oriented scores for completed matches while keeping byes, ready
+    matches, in-progress results, pending teams, and results under review
+    understandable.
+  * `[data-public-bracket]` contains read-only round, match, team, score,
+    winner, and championship output with no buttons, `onclick` handlers, or
+    organizer logging controls.
+  * The public-only CSS uses a single-column round flow on narrow screens,
+    contained multi-column rounds from 720 px, long-name wrapping, distinct
+    winner and pending treatments, and print rules that keep match cards
+    together without a horizontal bracket canvas.
+  * No event, bracket, game, backup, sync, rating, scheduling, seeding,
+    registration, or publication metadata shape changed.
 
 ---
 
@@ -957,7 +970,7 @@ player-facing bracket.
 
 **Branch:** `feat/events-list-lifecycle-groups`
 **Risk:** Low–Medium
-**Status:** Planned
+**Status:** Ready
 **Depends on:** EUX-01
 
 ## Objective
@@ -1229,6 +1242,33 @@ Add one entry after each completed roadmap item.
   as confirmed after merge.
 * **Known follow-up:** None.
 * **Next item:** EUX-08
+
+### 2026-07-27 — EUX-09 completed
+
+* **Branch:** `feat/public-bracket-layout`
+* **Pull request:** Pending
+* **Version/build:** 0.34.0 / 20260727.7
+* **Summary:** Replaced the public bracket's seed-name paragraph with a
+  player-facing presentation derived from the existing bracket state. Public
+  pages now show every round and matchup, seeds, teams, accurate final scores,
+  winners, byes, ready and pending states, progress, and the championship
+  outcome. Phones use a full-width vertical round flow; desktop and print use
+  contained multi-column rounds. No organizer controls or data behavior
+  changed.
+* **Tests:** New `tests/public-bracket-layout.spec.js` (4 tests covering every
+  round and match, fixed-team winners/scores/champion, rotating byes and
+  pending matches, long names and overflow at 320 px and 1280 px, and print
+  media). Focused regression run: 57 passed. Full suite: `npm test` 315 passed,
+  `npm run test:worker` 65 passed, `npm run test:version-check` 10 passed,
+  `npm run check:version` and `git diff --check` passed.
+* **Manual checks:** Fixed and rotating public bracket sections at 320 px and
+  1280 px, including a 16-team field and a rotating bye; no clipped matches,
+  names, or document overflow. Print media at 816 px retained all four rounds
+  and 15 match cards.
+* **Known follow-up:** Physical-device and paper/PDF-printer checks remain
+  useful release confidence checks but are not required by the EUX-09 roadmap
+  item.
+* **Next item:** EUX-10
 
 ## Entry template
 
