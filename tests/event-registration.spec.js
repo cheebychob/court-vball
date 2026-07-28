@@ -74,6 +74,7 @@ function organizerState() {
     failOrganizer: false,
     summary: null,
     configPosts: 0,
+    configDelayMs: 0,
     contactPosts: [],
     lastConfigInput: null,
     failConfig: false,
@@ -106,6 +107,7 @@ async function mockWorker(page, state) {
     }
     if (path.endsWith('/config') && request.method() === 'POST') {
       state.configPosts++;
+      if (state.configDelayMs) await new Promise(resolve => setTimeout(resolve, state.configDelayMs));
       if (state.failConfig) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Registration storage is offline.' }) });
       const input = request.postDataJSON();
       state.lastConfigInput = input;
@@ -354,6 +356,8 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   await page.locator('#registrationPublicDescription').fill('Four-player teams under the lights.');
   await page.getByRole('button', { name: 'Save registration' }).click();
 
+  await expect(page.locator('[data-registration-settings]')).toBeVisible();
+  await expect(page.locator('[data-registration-settings-success]')).toHaveText('Registration settings saved.');
   await expect(page.locator('#event-registration')).toContainText('Open');
   expect(state.configPosts).toBe(1);
   const stored = await page.evaluate(() => JSON.parse(localStorage.getItem('vb:events'))[0].registration);
@@ -363,6 +367,7 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
     publicToken: TOKEN, publicUrl: `${WORKER}/register/${TOKEN}`,
   });
 
+  await page.locator('[data-registration-settings]').getByRole('button', { name: 'Cancel', exact: true }).click();
   await page.getByRole('button', { name: 'Manage registrations' }).click();
   await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
   await expect(page.locator('[data-reg-accepted]')).toHaveText('1');
@@ -530,6 +535,7 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
   await page.locator('#registrationFilter').selectOption('pending');
   await expect(page.locator('[data-registration-entry]')).toHaveCount(1);
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toBeVisible();
+  await page.locator('[data-registration-entry="entry-alpha"] details[data-registration-disclosure="contact-notes"] > summary').click();
   const interaction = await page.evaluate(() => {
     const sheet = document.querySelector('[data-registration-dashboard]').closest('.sheet');
     const select = document.querySelector('[data-registration-entry="entry-alpha"] select');
@@ -540,16 +546,30 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
   await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
   await expect(page.locator('#registrationFilter')).toHaveValue('pending');
   await expect(page.locator('[data-registration-entry="entry-alpha"] select')).toBeFocused();
+  await expect(page.locator('[data-registration-entry="entry-alpha"] details[data-registration-disclosure="contact-notes"]')).toHaveAttribute('open', '');
+  await expect(page.locator('[data-registration-secondary-summary]')).toHaveAttribute('open', '');
   await expect.poll(() => page.evaluate(() => document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop)).toBe(interaction.scrollTop);
 
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   const reviewSearch = page.getByRole('searchbox', { name: 'Search private roster' });
   await reviewSearch.fill('Alex');
   await expect(reviewSearch).toBeFocused();
+  const reviewIdentity = await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-member-review]');
+    const results = root.querySelector('[data-registration-member-results]');
+    root.__identity = 'same-review';
+    results.__identity = 'same-results';
+    return { root: root.__identity, results: results.__identity };
+  });
   await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
   await expect(page.locator('[data-registration-member-review]')).toBeVisible();
   await expect(reviewSearch).toHaveValue('Alex');
   await expect(reviewSearch).toBeFocused();
+  await expect(page.locator('[data-registration-member-review]')).not.toContainText(/\bundefined\b/);
+  expect(await page.evaluate(() => ({
+    root: document.querySelector('[data-registration-member-review]').__identity,
+    results: document.querySelector('[data-registration-member-results]').__identity,
+  }))).toEqual(reviewIdentity);
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
   await page.keyboard.press('Escape');
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBeNull();
@@ -574,6 +594,8 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
 
 test('organizer registration details show, link, and edit private contact without changing roster or status', async ({ page }) => {
   const state = organizerState();
+  const longEmail = 'alex.captain.with.a.very.long.registration.address@example-volleyball-club.com';
+  state.entries[0].contact.email = longEmail;
   state.config = {
     eventId: 'registration-event',
     eventName: 'Summer Sand',
@@ -602,6 +624,7 @@ test('organizer registration details show, link, and edit private contact withou
     publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: 10,
   } })]);
   await mockWorker(page, state);
+  await page.setViewportSize({ width: 390, height: 700 });
   await page.goto('/');
   await openEvent(page);
   await page.getByRole('button', { name: 'Manage registrations' }).click();
@@ -609,8 +632,27 @@ test('organizer registration details show, link, and edit private contact withou
   const alpha = page.locator('[data-registration-entry="entry-alpha"]');
   await expect(alpha).toContainText('Registrant / contact');
   await expect(alpha).toContainText('Alex Captain');
-  await expect(alpha.getByRole('link', { name: 'alex@example.com' })).toHaveAttribute('href', 'mailto:alex%40example.com');
+  await expect(alpha.getByRole('link', { name: longEmail })).toHaveAttribute('href', `mailto:${encodeURIComponent(longEmail)}`);
   await expect(alpha.getByRole('link', { name: '(555) 555-0100' })).toHaveAttribute('href', 'tel:5555550100');
+  await expect(alpha.getByRole('link', { name: longEmail })).toHaveClass(/registration-contact-link/);
+  await expect(alpha.getByRole('link', { name: '(555) 555-0100' })).toHaveClass(/registration-contact-link/);
+  const contactLinkStyles = await alpha.getByRole('link', { name: longEmail }).evaluate(link => {
+    const style = getComputedStyle(link), card = link.closest('[data-registration-entry]');
+    return {
+      color: style.color,
+      decoration: style.textDecorationLine,
+      overflowWrap: style.overflowWrap,
+      cardOverflow: card.scrollWidth - card.clientWidth,
+    };
+  });
+  expect(contactLinkStyles.color).not.toBe('rgb(0, 0, 238)');
+  expect(contactLinkStyles.decoration).toContain('underline');
+  expect(contactLinkStyles.overflowWrap).toBe('anywhere');
+  expect(contactLinkStyles.cardOverflow).toBeLessThanOrEqual(0);
+  await alpha.getByRole('link', { name: longEmail }).focus();
+  await page.keyboard.press('Tab');
+  await page.keyboard.press('Shift+Tab');
+  await expect(alpha.getByRole('link', { name: longEmail })).toHaveCSS('outline-style', 'solid');
   await expect(alpha).toContainText('Preferred: Text');
   await expect(page.locator('[data-registration-entry="entry-bravo"]')).toContainText('Not provided');
 
@@ -647,9 +689,93 @@ test('failed registration persistence leaves the event unchanged and shows a ret
   await page.locator('#registrationCapacity').fill('16');
   await page.getByRole('button', { name: 'Save registration' }).click();
   await expect(page.locator('[data-registration-settings-error]')).toHaveText('Registration storage is offline.');
+  await expect(page.locator('[data-registration-settings]')).toBeVisible();
+  await expect(page.locator('#registrationCapacity')).toHaveValue('16');
   expect(await page.evaluate(() => eventRegistration(evts[0]))).toMatchObject({ enabled: false, status: 'closed', publicToken: null });
   expect(JSON.parse(await page.evaluate(() => localStorage.getItem('vb:events')))[0].registration).toBeUndefined();
   await expect(page.getByRole('button', { name: 'Save registration' })).toBeEnabled();
+});
+
+test('registration settings save stays open, preserves interaction, prevents duplicates, and leaves X and Cancel as close controls', async ({ page }) => {
+  const state = organizerState();
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: null, closesAt: null,
+    activePlayerCapacity: 12, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: 10,
+  };
+  state.configDelayMs = 150;
+  state.summary = canonicalSummary();
+  await seed(page, [fixedEvent({ registration })]);
+  await mockWorker(page, state);
+  await page.setViewportSize({ width: 390, height: 640 });
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Registration settings' }).click();
+  await page.locator('#registrationPublicDescription').fill('Keep these edited values after saving.');
+  const before = await page.evaluate(() => {
+    const root = document.querySelector('[data-registration-settings]'), sheet = root.closest('.sheet'), field = document.querySelector('#registrationPublicDescription');
+    root.__identity = 'same-settings';
+    sheet.style.maxHeight = '360px';
+    sheet.scrollTop = Math.max(0, sheet.scrollHeight - sheet.clientHeight - 80);
+    field.focus({ preventScroll: true });
+    return { scrollTop: sheet.scrollTop, windowScroll: window.scrollY };
+  });
+  await page.evaluate(() => {
+    void saveRegistrationSettings('registration-event');
+    void saveRegistrationSettings('registration-event');
+  });
+  const save = page.getByRole('button', { name: 'Saving…' });
+  await expect(save).toBeDisabled();
+  await expect(page.locator('[data-registration-settings-success]')).toHaveText('Registration settings saved.');
+  await expect(page.locator('[data-registration-settings]')).toBeVisible();
+  await expect(page.locator('#registrationPublicDescription')).toHaveValue('Keep these edited values after saving.');
+  await expect(page.locator('#registrationPublicDescription')).toBeFocused();
+  expect(state.configPosts).toBe(1);
+  expect(await page.evaluate(() => ({
+    identity: document.querySelector('[data-registration-settings]').__identity,
+    scrollTop: document.querySelector('[data-registration-settings]').closest('.sheet').scrollTop,
+    windowScroll: window.scrollY,
+    poll: EventRegistration.pollState,
+  }))).toMatchObject({ identity: 'same-settings', scrollTop: before.scrollTop, windowScroll: before.windowScroll, poll: { scheduled: true } });
+
+  const settings = page.locator('[data-registration-settings]');
+  await settings.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(settings).toHaveCount(0);
+  await page.getByRole('button', { name: 'Registration settings' }).click();
+  await page.getByRole('button', { name: 'Close dialog' }).click();
+  await expect(page.locator('[data-registration-settings]')).toHaveCount(0);
+});
+
+test('player match review uses deliberate fallbacks and never renders missing data as undefined', async ({ page }) => {
+  const state = organizerState();
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: null, closesAt: null,
+    activePlayerCapacity: 12, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: 10,
+  };
+  state.config = { ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventFormat: 'fixedTeams', effectiveStatus: 'open' };
+  state.summary = canonicalSummary();
+  await seed(page, [fixedEvent({ registration })]);
+  await mockWorker(page, state);
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toBeVisible();
+  await page.evaluate(() => {
+    delete icons.search;
+    const member = EventRegistration.get('registration-event').entries.find(entry => entry.id === 'entry-alpha').members.find(row => row.id === 'member-b');
+    member.displayName = undefined;
+    reviewRegistrationMember('entry-alpha', 'member-b');
+  });
+  const review = page.locator('[data-registration-member-review]');
+  await expect(review).toBeVisible();
+  await expect(review.getByRole('heading')).toHaveText('Review Roster member');
+  await expect(review).not.toContainText(/\b(?:undefined|null|\[object Object\])\b/);
+  await expect(review.getByRole('searchbox', { name: 'Search private roster' })).toBeVisible();
 });
 
 test('event card and management modal share live canonical counts without zero-loading, overlap, stale clearing, or a reload', async ({ page }) => {
@@ -832,6 +958,31 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   for (const retained of ['Review import', 'Event-day check-in']) {
     await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
   }
+  const organizerLayouts = [];
+  for (const width of [1440, 1024, 768, 430, 390]) {
+    await page.setViewportSize({ width, height: 700 });
+    organizerLayouts.push(await page.evaluate(() => {
+      const card = document.querySelector('[data-registration-entry="entry-alpha"]');
+      const controls = card.querySelector('.registration-organizer-controls');
+      const select = controls.querySelector('select'), actions = controls.querySelector('.registration-organizer-actions');
+      const selectBox = select.getBoundingClientRect(), actionsBox = actions.getBoundingClientRect(), cardBox = card.getBoundingClientRect();
+      return {
+        width: innerWidth,
+        controlsClass: controls.className,
+        actionsClass: actions.className,
+        gap: actionsBox.top - selectBox.bottom,
+        selectInside: selectBox.left >= cardBox.left && selectBox.right <= cardBox.right + 1,
+        actionsInside: actionsBox.left >= cardBox.left && actionsBox.right <= cardBox.right + 1 && actionsBox.bottom <= cardBox.bottom + 1,
+        buttonHeights: [...actions.querySelectorAll('button')].map(button => button.getBoundingClientRect().height),
+      };
+    }));
+  }
+  expect(organizerLayouts.map(layout => layout.width)).toEqual([1440, 1024, 768, 430, 390]);
+  expect(organizerLayouts.every(layout => layout.controlsClass.includes('registration-organizer-controls'))).toBe(true);
+  expect(organizerLayouts.every(layout => layout.actionsClass.includes('registration-organizer-actions'))).toBe(true);
+  expect(organizerLayouts.every(layout => layout.gap >= 10 && layout.selectInside && layout.actionsInside)).toBe(true);
+  expect(organizerLayouts.every(layout => layout.buttonHeights.every(height => height >= 44))).toBe(true);
+  await page.setViewportSize({ width: 375, height: 667 });
   await dashboard.locator('.registration-dashboard-more-actions > summary').click();
   for (const retained of ['Share link', 'Copy link', 'Settings']) {
     await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
@@ -874,6 +1025,30 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   await page.keyboard.press('Shift+Tab');
   await expect(page.locator('#registrationEnabled')).toBeFocused();
   await expect(page.locator('label[for="registrationEnabled"] .court-checkbox-control')).toHaveCSS('outline-style', 'solid');
+  await page.locator('#registrationWaitlist').uncheck();
+  await page.locator('#registrationEnabled').uncheck();
+  await expect(page.locator('#registrationApproval')).toBeDisabled();
+  await expect(page.locator('#registrationApproval')).toBeChecked();
+  await expect(page.locator('#registrationWaitlist')).toBeDisabled();
+  await expect(page.locator('#registrationWaitlist')).not.toBeChecked();
+  const disabledCheckboxes = await page.evaluate(() => ['registrationApproval', 'registrationWaitlist'].map(id => {
+    const input = document.getElementById(id), control = input.nextElementSibling, row = input.closest('.court-checkbox-row');
+    const inputBox = input.getBoundingClientRect(), controlBox = control.getBoundingClientRect(), style = getComputedStyle(input);
+    return {
+      checked: input.checked,
+      inputWidth: inputBox.width,
+      inputHeight: inputBox.height,
+      inputOpacity: style.opacity,
+      controlWidth: controlBox.width,
+      controlHeight: controlBox.height,
+      cursor: getComputedStyle(row).cursor,
+    };
+  }));
+  expect(disabledCheckboxes).toEqual([
+    { checked: true, inputWidth: 22, inputHeight: 22, inputOpacity: '0', controlWidth: 22, controlHeight: 22, cursor: 'not-allowed' },
+    { checked: false, inputWidth: 22, inputHeight: 22, inputOpacity: '0', controlWidth: 22, controlHeight: 22, cursor: 'not-allowed' },
+  ]);
+  await page.locator('#registrationEnabled').check();
   await expect(page.getByRole('button', { name: 'Rotate link', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Rotate link', exact: true }).click();
   await expect(page.getByRole('alertdialog')).toContainText('old link will stop working immediately');
