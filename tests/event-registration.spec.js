@@ -76,6 +76,7 @@ function organizerState() {
     configPosts: 0,
     configDelayMs: 0,
     contactPosts: [],
+    managementPosts: [],
     lastConfigInput: null,
     failConfig: false,
   };
@@ -172,6 +173,15 @@ async function mockWorker(page, state) {
       const entryId = path.split('/').at(-2), input = request.postDataJSON(), entry = state.entries.find(row => row.id === entryId);
       state.contactPosts.push(input);
       entry.contact = input.contact;entry.revision++;entry.updatedAt++;entry.lastEditedAt=Date.now();
+      return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, entry }) });
+    }
+    if (path.endsWith('/management') && path.includes('/entries/')) {
+      const entryId = path.split('/').at(-2), input = request.postDataJSON(), entry = state.entries.find(row => row.id === entryId);
+      state.managementPosts.push({ entryId, ...input });
+      if (input.action === 'revoke') entry.managementAccessRevoked = true;
+      if (input.action === 'lock') entry.editingLocked = true;
+      if (input.action === 'unlock') entry.editingLocked = false;
+      entry.revision++;entry.updatedAt++;
       return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, entry }) });
     }
     if (path.includes('/api/event-registration/') && path.endsWith('/status')) {
@@ -373,11 +383,16 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   await expect(page.locator('[data-reg-accepted]')).toHaveText('1');
   await expect(page.locator('[data-reg-active]')).toHaveText('4');
   await expect(page.locator('[data-reg-subs]')).toHaveText('2');
-  await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Alpha Squad');
+  const alphaEntry = page.locator('[data-registration-entry="entry-alpha"]');
+  await expect(alphaEntry.locator('[data-registration-primary-label]')).toHaveText('Alpha Squad');
+  await expect(alphaEntry).toContainText('Captain / contact');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Active roster · 1');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('Substitutes · 1');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toContainText('New Player');
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).not.toContainText(/rating|seed|stats/i);
+  const alphaManagement = alphaEntry.locator('.registration-management-toggle');
+  await expect(alphaManagement).toHaveAttribute('aria-expanded', 'false');
+  await alphaManagement.click();
   await expect(page.getByRole('button', { name: 'Move New Player to active players' })).toBeVisible();
   await page.getByRole('button', { name: 'Review', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Review New Player' })).toBeVisible();
@@ -392,6 +407,7 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   await page.getByRole('button', { name: 'Cancel', exact: true }).click();
   await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
   await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  if (await alphaManagement.getAttribute('aria-expanded') === 'false') await alphaManagement.click();
   const passiveState = await page.evaluate(() => {
     const root = document.querySelector('[data-registration-dashboard]');
     root.__identity = 'dashboard';
@@ -418,6 +434,157 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await page.evaluate(() => ({ modal: EventRegistration.modalEventId, timer: EventRegistration._pollTimer }))).toMatchObject({ modal: null });
+});
+
+test('individual entry cards lead with public participant identity and preserve compact management state', async ({ page }) => {
+  const submittedAt = Date.UTC(2026, 6, 28, 14, 9);
+  const registration = {
+    enabled: true, status: 'open', mode: 'individual', opensAt: null, closesAt: null,
+    activePlayerCapacity: 24, allowSubstitutes: false, maxSubstitutesPerTeam: 0,
+    minActivePlayersPerTeam: 1, maxActivePlayersPerTeam: 1, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: submittedAt,
+  };
+  const individual = (id, displayName, member, overrides = {}) => ({
+    id, registrationType: 'individual', displayName, status: 'submitted',
+    activePlayerCount: 1, substituteCount: 0, createdAt: submittedAt, updatedAt: submittedAt,
+    submittedAt, withdrawnAt: null, organizerNote: '', capacityOverride: false, editingLocked: false,
+    managementAccessRevoked: false, lastEditedAt: submittedAt, revision: 1, duplicateWarnings: [],
+    contact: { name: member.displayName, email: `${id}@example.com`, phone: '612-338-5747', preferredMethod: 'phone', notes: '' },
+    members: [member], ...overrides,
+  });
+  const state = organizerState();
+  state.entries = [
+    individual('individual-same', 'Logan Public', { id: 'member-logan', rosterRole: 'active', displayName: 'Logan Public', matchStatus: 'matched', internalPlayerId: 'p1' }),
+    individual('individual-custom', 'Monday Night Entry', { id: 'member-morgan', rosterRole: 'active', displayName: 'Morgan Public', matchStatus: 'matched', internalPlayerId: 'p2' }, {
+      status: 'accepted', lastEditedAt: submittedAt + 5 * 60 * 1000,
+      contact: { name: 'Jamie Contact', email: 'jamie@example.com', phone: '', preferredMethod: 'email', notes: '' },
+    }),
+    individual('individual-unmatched', '', { id: 'member-sam', rosterRole: 'active', displayName: 'Submitted Sam', matchStatus: 'pending', internalPlayerId: null }),
+    individual('individual-created', 'Casey Public', { id: 'member-casey', rosterRole: 'active', displayName: 'Casey Public', matchStatus: 'organizer_created', internalPlayerId: 'p3' }),
+    individual('individual-event-only', 'Guest Public', { id: 'member-guest', rosterRole: 'active', displayName: 'Guest Public', matchStatus: 'organizer_created', internalPlayerId: 'p4' }),
+  ];
+  state.config = {
+    ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventDate: '2026-08-15',
+    eventFormat: 'rotatingGroups', eventAvailable: true, effectiveStatus: 'open',
+  };
+  state.summary = canonicalSummary({
+    entryCounts: { draft: 0, submitted: 4, needsReview: 0, accepted: 1, waitlisted: 0, declined: 0, withdrawn: 0 },
+    playerCounts: {
+      acceptedActive: 1, acceptedSubstitutes: 0, pendingActive: 4, pendingSubstitutes: 0,
+      waitlistedActive: 0, waitlistedSubstitutes: 0, totalSubstitutes: 0,
+    },
+    capacity: { activePlayerCapacity: 24, acceptedActivePlayers: 1, remainingActiveSpots: 23, isUnlimited: false },
+  });
+  await seed(page, [fixedEvent({ format: 'rotatingGroups', teams: [], entries: [], rotation: { entrySize: 1, teamSize: 4 }, registration })], [
+    { id: 'p1', name: 'Private Logan Legal Name', active: true, archived: false, pickupEligible: true, aliases: [] },
+    { id: 'p2', name: 'Private Morgan Legal Name', active: true, archived: false, pickupEligible: true, aliases: [] },
+    { id: 'p3', name: 'Private Casey Legal Name', active: true, archived: false, pickupEligible: true, aliases: [] },
+    { id: 'p4', name: 'Private Guest Legal Name', active: true, archived: false, pickupEligible: false, aliases: [] },
+  ]);
+  await mockWorker(page, state);
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+
+  const same = page.locator('[data-registration-entry="individual-same"]');
+  await expect(same.locator('[data-registration-primary-label]')).toHaveText('Logan Public');
+  await expect(same.locator('.registration-entry-secondary')).toHaveCount(0);
+  await expect(same.locator('.registration-roster-group').filter({ hasText: 'Active roster' })).toHaveCount(0);
+  await expect(same.locator('.registration-roster-group').filter({ hasText: 'Substitutes' })).toHaveCount(0);
+  await expect(same).not.toContainText('Private Logan Legal Name');
+  expect((await same.innerText()).match(/Logan Public/g)).toHaveLength(1);
+  await expect(same.locator('.registration-entry-metadata')).toContainText('Individual registration');
+  await expect(same.locator('.registration-entry-metadata')).toContainText('Submitted');
+  await expect(same.locator('.registration-entry-metadata')).not.toContainText('Edited');
+  await expect(same.getByRole('link', { name: '612-338-5747' })).toHaveAttribute('href', 'tel:6123385747');
+  await expect(same.getByRole('link', { name: 'individual-same@example.com' })).toHaveAttribute('href', 'mailto:individual-same%40example.com');
+  await expect(same).toContainText('Phone preferred');
+  await expect(same.getByRole('button', { name: 'Edit contact' })).toBeVisible();
+  await expect(same.getByRole('button', { name: 'Player profile' })).toBeVisible();
+
+  const custom = page.locator('[data-registration-entry="individual-custom"]');
+  await expect(custom.locator('[data-registration-primary-label]')).toHaveText('Morgan Public');
+  await expect(custom.locator('.registration-entry-secondary')).toHaveText('Entry: Monday Night Entry');
+  await expect(custom).toContainText('Jamie Contact');
+  await expect(custom.locator('.registration-entry-metadata')).toContainText('Edited');
+  await expect(custom.getByRole('heading')).toHaveCount(1);
+
+  const unmatched = page.locator('[data-registration-entry="individual-unmatched"]');
+  await expect(unmatched.locator('[data-registration-primary-label]')).toHaveText('Submitted Sam');
+  await expect(unmatched).not.toContainText(/\b(?:undefined|null)\b/);
+  await expect(unmatched.getByRole('button', { name: 'Review', exact: true })).toBeVisible();
+  await expect(unmatched.getByRole('button', { name: 'Player profile' })).toHaveCount(0);
+  await expect(page.locator('[data-registration-entry="individual-same"] [data-registration-source-state="matched"]')).toHaveText('Matched');
+  await expect(page.locator('[data-registration-entry="individual-created"] [data-registration-source-state="organizer-created"]')).toHaveText('Organizer created');
+  await expect(page.locator('[data-registration-entry="individual-event-only"] [data-registration-source-state="event-only"]')).toHaveText('Event-only participant');
+  await expect(unmatched.locator('[data-registration-source-state="unmatched"]')).toHaveText('Unmatched');
+
+  const disclosure = same.locator('.registration-management-toggle'), panelId = await disclosure.getAttribute('aria-controls');
+  expect(panelId).toBeTruthy();
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'false');
+  await expect(page.locator(`#${panelId}`)).toBeHidden();
+  const beforeOpen = await disclosure.evaluate(button => {
+    button.scrollIntoView({ block: 'center' });
+    const sheet = button.closest('.sheet');
+    return { sheetScroll: sheet.scrollTop, windowScroll: window.scrollY, bodyOverflow: getComputedStyle(document.body).overflow };
+  });
+  await disclosure.evaluate(button => button.click());
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+  await expect(same.locator('#registration-status-individual-same')).toBeVisible();
+  for (const action of ['Move Logan Public to substitutes', 'Unmatch Logan Public', 'Lock editing', 'Rotate management link', 'Revoke access']) {
+    await expect(same.getByRole('button', { name: action, exact: true })).toBeVisible();
+  }
+  await expect.poll(() => page.evaluate(() => ({
+    sheetScroll: document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop,
+    windowScroll: window.scrollY,
+    bodyOverflow: getComputedStyle(document.body).overflow,
+  }))).toEqual(beforeOpen);
+
+  state.entries[0].revision++;
+  await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.locator(`#${panelId}`)).toBeVisible();
+  await expect.poll(() => page.evaluate(() => document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop)).toBe(beforeOpen.sheetScroll);
+
+  await same.getByRole('button', { name: 'Revoke access', exact: true }).click();
+  const confirmation = page.getByRole('alertdialog');
+  await expect(confirmation).toBeVisible();
+  expect(state.managementPosts).toHaveLength(0);
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click();
+  expect(state.managementPosts).toHaveLength(0);
+  await same.getByRole('button', { name: 'Revoke access', exact: true }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Revoke access', exact: true }).click();
+  await expect.poll(() => state.managementPosts).toEqual([{ entryId: 'individual-same', action: 'revoke' }]);
+  await expect(disclosure).toHaveAttribute('aria-expanded', 'true');
+  await expect(disclosure.locator('small')).toContainText('Access revoked');
+
+  const layouts = [];
+  for (const width of [1440, 1024, 768, 430, 390]) {
+    await page.setViewportSize({ width, height: 700 });
+    layouts.push(await page.evaluate(() => {
+      const root = document.querySelector('[data-registration-dashboard]'), sheet = root.closest('.sheet');
+      const card = root.querySelector('[data-registration-entry="individual-same"]'), finalCard = root.querySelector('[data-registration-entry="individual-event-only"]');
+      const contact = card.querySelector('.registration-contact-details'), toggle = card.querySelector('.registration-management-toggle');
+      const actions = card.querySelector('.registration-organizer-actions'), footer = root.querySelector('[data-sheet-foot]');
+      sheet.scrollTop = sheet.scrollHeight;
+      return {
+        width: innerWidth,
+        sheetOverflow: sheet.scrollWidth - sheet.clientWidth,
+        cardOverflow: card.scrollWidth - card.clientWidth,
+        contactOverflow: contact.scrollWidth - contact.clientWidth,
+        toggleHeight: toggle.getBoundingClientRect().height,
+        managementColumns: getComputedStyle(actions).gridTemplateColumns.split(' ').length,
+        finalCardClear: finalCard.getBoundingClientRect().bottom <= footer.getBoundingClientRect().top + 1,
+      };
+    }));
+  }
+  expect(layouts.map(layout => layout.width)).toEqual([1440, 1024, 768, 430, 390]);
+  expect(layouts.every(layout => layout.sheetOverflow <= 0 && layout.cardOverflow <= 0 && layout.contactOverflow <= 0)).toBe(true);
+  expect(layouts.every(layout => layout.toggleHeight >= 44 && layout.finalCardClear)).toBe(true);
+  expect(layouts.map(layout => layout.managementColumns)).toEqual([2, 2, 2, 1, 1]);
 });
 
 test('registration dashboard uses one scroller, leads with entries, and preserves filter, sheet position, focus, and member review', async ({ page }) => {
@@ -523,11 +690,9 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
   await expect(page.locator('[data-reg-active]')).toBeHidden();
   await page.locator('[data-registration-secondary-summary] summary').click();
   await expect(page.locator('[data-reg-active]')).toBeVisible();
-  for (const action of ['Review import', 'Event-day check-in']) {
-    await expect(page.locator('[data-registration-dashboard-actions]').getByRole('button', { name: action, exact: true })).toBeVisible();
-  }
+  await expect(page.locator('[data-registration-dashboard-actions]').getByRole('button', { name: 'Review import', exact: true })).toBeVisible();
   await page.locator('.registration-dashboard-more-actions > summary').click();
-  for (const action of ['Settings', 'Share link', 'Copy link']) {
+  for (const action of ['Event-day check-in', 'Settings', 'Share link', 'Copy link']) {
     await expect(page.locator('[data-registration-dashboard-actions]').getByRole('button', { name: action, exact: true })).toBeVisible();
   }
   await page.locator('.registration-dashboard-more-actions > summary').click();
@@ -535,6 +700,7 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
   await page.locator('#registrationFilter').selectOption('pending');
   await expect(page.locator('[data-registration-entry]')).toHaveCount(1);
   await expect(page.locator('[data-registration-entry="entry-alpha"]')).toBeVisible();
+  await page.locator('[data-registration-entry="entry-alpha"] .registration-management-toggle').click();
   await page.locator('[data-registration-entry="entry-alpha"] details[data-registration-disclosure="contact-notes"] > summary').click();
   const interaction = await page.evaluate(() => {
     const sheet = document.querySelector('[data-registration-dashboard]').closest('.sheet');
@@ -546,6 +712,7 @@ test('registration dashboard uses one scroller, leads with entries, and preserve
   await page.evaluate(() => EventRegistration.refresh('registration-event', { poll: true }));
   await expect(page.locator('#registrationFilter')).toHaveValue('pending');
   await expect(page.locator('[data-registration-entry="entry-alpha"] select')).toBeFocused();
+  await expect(page.locator('[data-registration-entry="entry-alpha"] .registration-management-toggle')).toHaveAttribute('aria-expanded', 'true');
   await expect(page.locator('[data-registration-entry="entry-alpha"] details[data-registration-disclosure="contact-notes"]')).toHaveAttribute('open', '');
   await expect(page.locator('[data-registration-secondary-summary]')).toHaveAttribute('open', '');
   await expect.poll(() => page.evaluate(() => document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop)).toBe(interaction.scrollTop);
@@ -596,6 +763,7 @@ test('organizer registration details show, link, and edit private contact withou
   const state = organizerState();
   const longEmail = 'alex.captain.with.a.very.long.registration.address@example-volleyball-club.com';
   state.entries[0].contact.email = longEmail;
+  state.entries[1].substituteCount = 0;
   state.config = {
     eventId: 'registration-event',
     eventName: 'Summer Sand',
@@ -630,7 +798,12 @@ test('organizer registration details show, link, and edit private contact withou
   await page.getByRole('button', { name: 'Manage registrations' }).click();
 
   const alpha = page.locator('[data-registration-entry="entry-alpha"]');
-  await expect(alpha).toContainText('Registrant / contact');
+  await expect(alpha.locator('[data-registration-primary-label]')).toHaveText('Alpha Squad');
+  await expect(alpha).toContainText('Captain / contact');
+  await expect(alpha).toContainText('Active roster · 1');
+  await expect(alpha).toContainText('New Player');
+  await expect(alpha.locator('.registration-roster-group').filter({ hasText: 'Substitutes' })).toHaveCount(1);
+  await expect(page.locator('[data-registration-entry="entry-bravo"] .registration-roster-group').filter({ hasText: 'Substitutes' })).toHaveCount(0);
   await expect(alpha).toContainText('Alex Captain');
   await expect(alpha.getByRole('link', { name: longEmail })).toHaveAttribute('href', `mailto:${encodeURIComponent(longEmail)}`);
   await expect(alpha.getByRole('link', { name: '(555) 555-0100' })).toHaveAttribute('href', 'tel:5555550100');
@@ -653,7 +826,7 @@ test('organizer registration details show, link, and edit private contact withou
   await page.keyboard.press('Tab');
   await page.keyboard.press('Shift+Tab');
   await expect(alpha.getByRole('link', { name: longEmail })).toHaveCSS('outline-style', 'solid');
-  await expect(alpha).toContainText('Preferred: Text');
+  await expect(alpha).toContainText('Text preferred');
   await expect(page.locator('[data-registration-entry="entry-bravo"]')).toContainText('Not provided');
 
   const originalMembers = structuredClone(state.entries[0].members), originalStatus = state.entries[0].status;
@@ -955,9 +1128,11 @@ test('registration settings and dashboard fit a narrow mobile viewport without o
   for (const removed of ['Rotate link', 'Open', 'Close', 'Cancel registration']) {
     await expect(dashboard.getByRole('button', { name: removed, exact: true })).toHaveCount(0);
   }
-  for (const retained of ['Review import', 'Event-day check-in']) {
-    await expect(dashboard.getByRole('button', { name: retained, exact: true })).toBeVisible();
-  }
+  await expect(dashboard.getByRole('button', { name: 'Review import', exact: true })).toBeVisible();
+  await dashboard.locator('.registration-dashboard-more-actions > summary').click();
+  await expect(dashboard.getByRole('button', { name: 'Event-day check-in', exact: true })).toBeVisible();
+  await dashboard.locator('.registration-dashboard-more-actions > summary').click();
+  await dashboard.locator('[data-registration-entry="entry-alpha"] .registration-management-toggle').click();
   const organizerLayouts = [];
   for (const width of [1440, 1024, 768, 430, 390]) {
     await page.setViewportSize({ width, height: 700 });

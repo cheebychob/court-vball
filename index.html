@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260728.1">
+<meta name="court-build" content="20260728.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -601,9 +601,22 @@
   /* EUX-06: the dashboard sheet owns vertical scrolling. The entry list stays
      in ordinary document flow so touch and wheel input never enter a nested
      vertical scroller. */
-  .registration-entry-list{display:grid;gap:8px}
-  .registration-entry-row{padding:11px;border:1px solid var(--line);border-radius:14px;background:#ffffff07}
-  .registration-entry-row select{min-height:42px;margin-top:8px}
+  .registration-entry-list{display:grid;gap:10px}
+  .registration-entry-row{min-width:0;padding:14px;border:1px solid var(--line);border-radius:16px;background:#ffffff07;overflow:hidden}
+  .registration-entry-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;min-width:0}
+  .registration-entry-title{min-width:0}
+  .registration-entry-title h4{margin:0;color:var(--text);font-size:17px;line-height:1.25;overflow-wrap:anywhere}
+  .registration-entry-secondary{display:block;margin-top:3px;color:var(--soft);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+  .registration-entry-metadata{margin-top:6px;color:var(--muted);font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+  .registration-participant-summary{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:9px}
+  .registration-source-state{color:var(--muted);font-size:11px;font-weight:750;line-height:1.35;overflow-wrap:anywhere}
+  .registration-source-state::before{content:"";display:inline-block;width:6px;height:6px;margin:0 6px 1px 0;border-radius:50%;background:var(--soft)}
+  .registration-source-state[data-registration-source-state="matched"]::before,.registration-source-state[data-registration-source-state="organizer-created"]::before{background:var(--mint)}
+  .registration-source-state[data-registration-source-state="event-only"]::before{background:var(--cyan)}
+  .registration-source-state[data-registration-source-state="unmatched"]::before{background:var(--warn)}
+  .registration-entry-primary-actions{display:flex;flex:none;flex-wrap:wrap;justify-content:flex-end;gap:6px}
+  .registration-entry-primary-actions .btn{min-height:40px}
+  .registration-entry-warning{margin-top:7px;color:var(--sand);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
   .registration-dashboard-headlines{margin:10px 0}
   .registration-dashboard-filter{margin:10px 0}
   .registration-dashboard-summary{margin-top:12px;border:1px solid var(--line);border-radius:14px;background:#0002;overflow:hidden}
@@ -613,28 +626,66 @@
   .registration-dashboard-summary[open]>summary::after{content:"Hide"}
   .registration-dashboard-summary-body{padding:0 11px 11px}
   .registration-dashboard-summary .registration-capacity-grid{grid-template-columns:repeat(2,minmax(0,1fr));margin:0 0 10px}
-  .registration-dashboard-footer-actions{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+  .registration-dashboard-footer-actions{display:grid;grid-template-columns:minmax(0,1fr) minmax(132px,.55fr);gap:8px}
   .registration-dashboard-footer-actions .btn,.registration-dashboard-more-actions>summary{min-width:0;min-height:44px;padding:8px 6px;white-space:normal}
   .registration-dashboard-more-actions{position:relative;min-width:0}
   .registration-dashboard-more-actions>summary{display:grid;place-items:center;border:1px solid #ffffff20;border-radius:14px;background:#ffffff0a;color:var(--muted);cursor:pointer;list-style:none;font-size:12px;font-weight:800;text-align:center}
   .registration-dashboard-more-actions>summary::-webkit-details-marker{display:none}
   .registration-dashboard-more-menu{position:absolute;z-index:4;right:0;bottom:calc(100% + 8px);display:grid;gap:8px;width:min(260px,calc(100vw - 44px));padding:9px;border:1px solid var(--line-strong);border-radius:15px;background:#111a2c;box-shadow:0 14px 36px #000a}
-  .registration-roster-group{margin-top:9px;padding:9px;border:1px solid var(--line);border-radius:11px;background:#0001}
-  .registration-member-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--line)}
+  .registration-contact-section,.registration-roster-group{min-width:0;margin-top:11px;padding-top:11px;border-top:1px solid var(--line)}
+  .registration-contact-head,.registration-roster-heading{display:flex;align-items:center;justify-content:space-between;gap:8px}
+  .registration-contact-head>span,.registration-roster-heading{color:var(--muted);font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase}
+  .registration-contact-head .btn{min-height:40px}
+  .registration-contact-details{display:flex;flex-wrap:wrap;align-items:baseline;gap:3px 12px;min-width:0;margin-top:5px;line-height:1.5;overflow-wrap:anywhere}
+  .registration-contact-details>*{min-width:0}
+  .registration-contact-name{color:var(--text);font-weight:750}
+  .registration-contact-preference{color:var(--soft);font-size:11px}
+  .registration-contact-notes{margin-top:6px;color:var(--muted)}
+  .registration-contact-notes>summary{min-height:32px;display:flex;align-items:center;cursor:pointer}
+  .registration-contact-edit{display:grid;gap:5px;margin-top:10px;padding:10px;border-radius:12px;background:#0002}
+  .registration-contact-edit :is(input,select,textarea){min-width:0;margin:0 0 4px}
+  .registration-roster-heading{margin-bottom:2px}
+  .registration-member-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--line)}
   .registration-member-row:last-child{border-bottom:0}
+  .registration-member-copy{min-width:0}
+  .registration-member-copy>b{display:block;font-size:12.5px;line-height:1.35;overflow-wrap:anywhere}
+  .registration-member-copy .registration-source-state{display:block;margin-top:3px;font-size:10.5px;font-weight:650}
   .registration-member-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:5px}
-  .registration-member-actions .btn{min-height:34px;padding:5px 8px}
-  .registration-contact-lines{min-width:0;line-height:1.5;overflow-wrap:anywhere}
+  .registration-member-actions .btn{min-height:40px;padding:6px 9px}
   .registration-contact-link{color:#9de5ff;text-decoration-line:underline;text-decoration-thickness:1.5px;text-underline-offset:3px;overflow-wrap:anywhere;word-break:break-word}
   .registration-contact-link:hover{color:#d9f6ff;text-decoration-thickness:2px}
   .registration-contact-link:focus-visible{color:#fff;background:#74d7ff1c;outline:3px solid var(--cyan);outline-offset:3px}
   .registration-contact-link:active{color:var(--gold)}
-  .registration-organizer-controls{display:grid;gap:12px;min-width:0;margin-top:13px}
+  .registration-management{min-width:0;margin-top:12px;border:1px solid var(--line);border-radius:13px;background:#0001;overflow:hidden}
+  .registration-management-toggle{width:100%;min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 11px;color:var(--text);text-align:left}
+  .registration-management-toggle>span:first-child{min-width:0}
+  .registration-management-toggle b,.registration-management-toggle small{display:block;overflow-wrap:anywhere}
+  .registration-management-toggle b{font-size:12px}
+  .registration-management-toggle small{margin-top:3px;color:var(--soft);font-size:10.5px}
+  .registration-management-toggle [data-registration-management-action]{flex:none;color:var(--gold);font-size:11px;font-weight:800}
+  .registration-management-toggle:focus-visible{outline:3px solid var(--cyan);outline-offset:-3px}
+  .registration-management-panel{padding:0 11px 11px;border-top:1px solid var(--line)}
+  .registration-management-members{display:grid;gap:8px;margin-top:11px}
+  .registration-management-member{display:flex;align-items:center;justify-content:space-between;gap:10px;min-width:0;padding-bottom:8px;border-bottom:1px solid var(--line)}
+  .registration-management-member:last-child{padding-bottom:0;border-bottom:0}
+  .registration-management-member>span{min-width:0;color:var(--muted);font-size:11px;line-height:1.4;overflow-wrap:anywhere}
+  .registration-organizer-controls{display:grid;gap:12px;min-width:0;margin-top:11px}
   .registration-organizer-controls label{min-width:0;overflow-wrap:anywhere}
-  .registration-organizer-controls select{min-width:0;min-height:44px;margin:0}
+  .registration-organizer-controls select{min-width:0;min-height:44px;margin:4px 0 0}
   .registration-organizer-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;min-width:0}
   .registration-organizer-actions .btn{min-width:0;min-height:44px;padding:8px;white-space:normal;overflow-wrap:anywhere}
-  @media(max-width:520px){.registration-member-row{align-items:flex-start;flex-direction:column}.registration-member-actions{justify-content:flex-start}}
+  @media(max-width:520px){
+    .registration-entry-head,.registration-member-row,.registration-management-member{align-items:flex-start;flex-direction:column}
+    .registration-entry-head>.pill{align-self:flex-start}
+    .registration-member-actions,.registration-management-member .registration-member-actions{width:100%;justify-content:flex-start}
+  }
+  @media(max-width:430px){
+    .registration-participant-summary{align-items:flex-start;flex-direction:column}
+    .registration-entry-primary-actions{width:100%;justify-content:stretch}
+    .registration-entry-primary-actions .btn{width:100%}
+    .registration-organizer-actions{grid-template-columns:1fr}
+    .registration-management-member .btn{flex:1}
+  }
   .registration-link{display:block;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--gold);font-size:11px}
   .registration-link-card{min-width:0;margin-top:10px;padding:10px 11px;border:1px solid var(--line);border-radius:12px;background:#0002}
   .registration-settings-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
@@ -701,7 +752,6 @@
   .event-check-in-player select{min-height:40px}
   .imported-marker{display:inline-block;margin-left:5px;color:var(--gold);font-size:9px;font-weight:700}
   @media(max-width:620px){.registration-import-callout{grid-template-columns:1fr 1fr}.registration-import-callout>div{grid-column:1/-1}.event-check-in-player{grid-template-columns:1fr}.registration-actions{grid-template-columns:1fr 1fr}.registration-settings-grid{grid-template-columns:1fr}.registration-import-action{align-items:flex-start;flex-direction:column}.registration-settings-counts{grid-template-columns:repeat(3,minmax(0,1fr))}}
-  @media(max-width:390px){.registration-organizer-actions{grid-template-columns:1fr}}
   @media(max-width:360px){.registration-settings-counts{grid-template-columns:1fr}.registration-import-toolbar .btn{flex:1}.registration-import-footer,.registration-modal-footer{margin-left:-16px;margin-right:-16px}}
 
   .settings-section{scroll-margin-top:90px}
@@ -1289,9 +1339,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.37.1',
-  build: '20260728.1',
-  releaseNotes: 'Registration management dialogs now stay stable during refreshes, keep settings open after saves, and improve accessible controls.'
+  version: '0.38.0',
+  build: '20260728.2',
+  releaseNotes: 'Registration cards now lead with participants, trim repeated details, and tuck advanced controls into accessible management sections.'
 });
 
 function appVersionLabel(){
@@ -11804,6 +11854,20 @@ function normalizeRegistrationImportSummary(raw){
     revision:registrationSummaryNumber(source.revision)
   };
 }
+function setRegistrationDisclosureState(node,open){
+  if(!node)return;
+  if(node.matches('details')){node.open=!!open;return;}
+  const expanded=!!open,panelId=node.getAttribute('aria-controls'),panel=panelId?document.getElementById(panelId):null,label=node.querySelector('[data-registration-management-action]');
+  node.setAttribute('aria-expanded',String(expanded));
+  if(panel)panel.hidden=!expanded;
+  if(label)label.textContent=expanded?'Hide controls ↑':'Show controls ›';
+}
+window.toggleRegistrationManagement=button=>{
+  if(!(button instanceof HTMLElement)||!button.matches('.registration-management-toggle'))return;
+  const sheet=button.closest('.sheet'),sheetScroll=sheet?.scrollTop||0,scrollX=window.scrollX,scrollY=window.scrollY,expanded=button.getAttribute('aria-expanded')==='true';
+  setRegistrationDisclosureState(button,!expanded);
+  requestAnimationFrame(()=>{if(sheet?.isConnected)sheet.scrollTop=sheetScroll;window.scrollTo(scrollX,scrollY);});
+};
 const EventRegistration=(()=>{
   const states=new Map();
   const refreshes=new Map();
@@ -11961,26 +12025,57 @@ const EventRegistration=(()=>{
     visibleEventId=eventId||null;bindVisibility();stopPoll();schedulePoll();
     if(visibleEventId)void ensureFresh(visibleEventId,{maximumAge:0});
   }
-  function entryFingerprint(entry){const edit=window._registrationContactEdit?.entryId===entry.id?window._registrationContactEdit:null;return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.contact,entry.members,entry.duplicateWarnings,edit?edit.renderVersion:0]);}
-  function entryRowHtml(entry){
-    const options=[entry.status,...(REGISTRATION_ENTRY_TRANSITIONS[entry.status]||[])].filter((value,index,array)=>array.indexOf(value)===index);
-    const memberSection=(role,title)=>{
-      const rows=(entry.members||[]).filter(member=>member.rosterRole===role);
-      return `<div class="registration-roster-group"><b class="tiny">${esc(title)} · ${rows.length}</b>${rows.length?rows.map(member=>{
-        const review=member.matchStatus==='pending'||member.matchStatus==='rejected'?`<button class="btn sm ghost" onclick="reviewRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Review</button>`:member.internalPlayerId?`<button class="btn sm ghost" onclick="openPlayer('${esc(member.internalPlayerId)}')">Player profile</button><button class="btn sm ghost" onclick="unmatchRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Unmatch</button>`:'';
-        const move=member.matchStatus==='rejected'?'':`<button class="btn sm ghost" aria-label="Move ${esc(member.displayName)} to ${role==='active'?'substitutes':'active players'}" onclick="moveOrganizerRegistrationMember('${esc(entry.id)}','${esc(member.id)}','${role==='active'?'substitute':'active'}')">${role==='active'?'Move to substitutes':'Move to active'}</button>`;
-        return `<div class="registration-member-row"><span>${esc(member.displayName)} <span class="pill ${member.matchStatus==='pending'?'warn':member.matchStatus==='rejected'?'bad':'good'}">${esc(member.matchStatus.replace(/_/g,' '))}</span>${member.duplicateOverride?' <span class="tiny faint">· duplicate override</span>':''}</span><span class="registration-member-actions">${move}${review}</span></div>`;
-      }).join(''):'<div class="tiny faint">None</div>'}</div>`;
+  function registrationLabelsMatch(left,right){
+    const clean=value=>String(value||'').trim().toLocaleLowerCase().replace(/\s+/g,' ');
+    return !!clean(left)&&clean(left)===clean(right);
+  }
+  function registrationEntryPrimaryMember(entry){
+    const members=Array.isArray(entry?.members)?entry.members:[],available=members.filter(member=>member?.matchStatus!=='rejected');
+    return available.find(member=>member.rosterRole==='active')||available[0]||members.find(member=>member.rosterRole==='active')||members[0]||null;
+  }
+  function registrationMemberSourceState(member){
+    if(!member||!member.internalPlayerId||!['matched','organizer_created'].includes(member.matchStatus))return {key:'unmatched',label:'Unmatched'};
+    const player=pById(member.internalPlayerId);
+    if(player?.pickupEligible===false)return {key:'event-only',label:'Event-only participant'};
+    if(member.matchStatus==='organizer_created'){
+      return {key:'organizer-created',label:'Organizer created'};
+    }
+    return {key:'matched',label:'Matched'};
+  }
+  function registrationEntryMetadata(entry,config){
+    const individual=entry.registrationType==='individual',parts=[individual?'Individual registration':'Team registration'];
+    if(!individual)parts.push(`${entry.activePlayerCount} active player${entry.activePlayerCount===1?'':'s'}`);
+    if(entry.substituteCount>0||(!individual&&config?.allowSubstitutes))parts.push(`${entry.substituteCount} substitute${entry.substituteCount===1?'':'s'}`);
+    parts.push(entry.submittedAt?`Submitted ${registrationFormatTime(entry.submittedAt)}`:'Not submitted');
+    if(entry.lastEditedAt&&registrationFormatTime(entry.lastEditedAt)!==registrationFormatTime(entry.submittedAt))parts.push(`Edited ${registrationFormatTime(entry.lastEditedAt)}`);
+    return parts.join(' · ');
+  }
+  function shouldShowRegistrationSubstitutes(entry,rows){
+    return rows.length>0||Number(entry?.substituteCount)>0;
+  }
+  function registrationEntryDisplayModel(entry,config){
+    const individual=entry.registrationType==='individual',primaryMember=individual?registrationEntryPrimaryMember(entry):null;
+    const submittedLabel=String(entry.displayName||'').trim(),participantLabel=String(primaryMember?.displayName||'').trim();
+    const primaryLabel=individual?(participantLabel||submittedLabel||'Unnamed participant'):(submittedLabel||'Unnamed team');
+    const contact=normalizeRegistrationContact(entry.contact),activeMembers=(entry.members||[]).filter(member=>member.rosterRole==='active'),substituteMembers=(entry.members||[]).filter(member=>member.rosterRole==='substitute');
+    const managementSummary=[registrationStatusLabel(entry.status),entry.editingLocked?'Editing locked':'',entry.managementAccessRevoked?'Access revoked':'',entry.capacityOverride?'Capacity override':''].filter(Boolean).join(' · ');
+    return {
+      individual,primaryMember,primaryLabel,
+      secondaryLabel:individual&&submittedLabel&&!registrationLabelsMatch(submittedLabel,primaryLabel)?submittedLabel:'',
+      metadata:registrationEntryMetadata(entry,config),contact,
+      showContactName:!!contact?.name&&(!individual||!registrationLabelsMatch(contact.name,primaryLabel)),
+      activeMembers,substituteMembers,
+      showSubstitutes:shouldShowRegistrationSubstitutes(entry,substituteMembers),
+      participantSource:registrationMemberSourceState(primaryMember),managementSummary
     };
-    const contact=normalizeRegistrationContact(entry.contact),editing=window._registrationContactEdit?.entryId===entry.id,edit=editing?window._registrationContactEdit:null;
-    const contactHtml=contact?`<div class="registration-contact-lines">
-      ${contact.name?`<b>${esc(contact.name)}</b>`:''}
-      ${contact.email?`<a class="registration-contact-link" href="mailto:${esc(encodeURIComponent(contact.email))}">${esc(contact.email)}</a>`:''}
-      ${contact.phone?`<a class="registration-contact-link" href="tel:${esc(contact.phone.replace(/[^+0-9,;*#]/g,''))}">${esc(contact.phone)}</a>`:''}
-      <span class="tiny faint">Preferred: ${esc(registrationContactMethodLabel(contact.preferredMethod))}</span>
-      ${contact.notes?`<details data-registration-disclosure="contact-notes"><summary class="tiny">Notes to organizer</summary><div class="tiny" style="white-space:pre-wrap;overflow-wrap:anywhere;margin-top:5px">${esc(contact.notes)}</div></details>`:''}
-    </div>`:'<div class="tiny faint">Not provided</div>';
-    const contactEditHtml=editing?`<div class="registration-contact-edit" data-registration-contact-edit>
+  }
+  function registrationMemberPrimaryActionHtml(entry,member){
+    if(member?.matchStatus==='pending'||member?.matchStatus==='rejected')return `<button class="btn sm ghost" onclick="reviewRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Review</button>`;
+    return member?.internalPlayerId&&pById(member.internalPlayerId)?`<button class="btn sm ghost" onclick="openPlayer('${esc(member.internalPlayerId)}')">Player profile</button>`:'';
+  }
+  function registrationContactEditHtml(entry){
+    const edit=window._registrationContactEdit?.entryId===entry.id?window._registrationContactEdit:null;if(!edit)return '';
+    return `<div class="registration-contact-edit" data-registration-contact-edit>
       <label class="tiny" for="organizer-contact-name-${esc(entry.id)}">Contact name</label><input id="organizer-contact-name-${esc(entry.id)}" maxlength="100" autocomplete="name" value="${esc(edit.name)}" oninput="setOrganizerRegistrationContactField('name',this.value)">
       <div class="tiny" role="alert" data-contact-error="contact.name">${esc(edit.fieldErrors?.['contact.name']||'')}</div>
       <label class="tiny" for="organizer-contact-email-${esc(entry.id)}">Email address</label><input id="organizer-contact-email-${esc(entry.id)}" type="email" maxlength="254" autocomplete="email" value="${esc(edit.email)}" oninput="setOrganizerRegistrationContactField('email',this.value)">
@@ -11997,27 +12092,90 @@ const EventRegistration=(()=>{
       <div class="tiny" role="alert" data-contact-error="contact.notes">${esc(edit.fieldErrors?.['contact.notes']||'')}</div>
       <div class="registration-actions"><button class="btn sm primary" ${edit.saving?'disabled':''} onclick="saveOrganizerRegistrationContact()">${edit.saving?'Saving…':'Save contact'}</button><button class="btn sm ghost" ${edit.saving?'disabled':''} onclick="cancelOrganizerRegistrationContact()">Cancel</button></div>
       <div class="tiny" role="alert" aria-live="assertive">${esc(edit.error||'')}</div>
-    </div>`:'';
-    return `<div class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry))}" tabindex="-1">
-      <div class="row spread" style="gap:9px"><span style="min-width:0"><b>${esc(entry.displayName||'Unnamed entry')}</b><span class="tiny faint" style="display:block">${esc(entry.registrationType)} · ${entry.activePlayerCount} active · ${entry.substituteCount} substitute${entry.substituteCount===1?'':'s'}</span></span><span class="pill ${entry.status==='accepted'?'good':entry.status==='waitlisted'||entry.status==='needs_review'?'warn':entry.status==='declined'||entry.status==='withdrawn'?'bad':''}">${esc(registrationStatusLabel(entry.status))}</span></div>
-      <div class="tiny faint" style="margin-top:6px">${entry.submittedAt?`Submitted ${esc(registrationFormatTime(entry.submittedAt))}`:'Not submitted'}${entry.lastEditedAt?` · edited ${esc(registrationFormatTime(entry.lastEditedAt))}`:''}${entry.capacityOverride?' · capacity override':''}${entry.editingLocked?' · editing locked':''}${entry.managementAccessRevoked?' · management revoked':''}</div>
-      ${(entry.duplicateWarnings||[]).map(warning=>`<div class="tiny" style="margin-top:6px;color:var(--sand)">⚠ ${esc(warning)}</div>`).join('')}
-      <div class="registration-roster-group"><div class="row spread" style="gap:8px"><b class="tiny">Registrant / contact</b><button class="btn sm ghost" onclick="editOrganizerRegistrationContact('${esc(entry.id)}')">${contact?'Edit contact':'Add contact'}</button></div>${contactHtml}${contactEditHtml}</div>
-      ${memberSection('active','Active roster')}${memberSection('substitute','Substitutes')}
-      <div class="registration-organizer-controls">
-        <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status</label>
-        <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
-        <div class="registration-organizer-actions"><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','${entry.editingLocked?'unlock':'lock'}')">${entry.editingLocked?'Unlock editing':'Lock editing'}</button><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','rotate')">Rotate management link</button><button class="btn sm danger" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','revoke')">Revoke access</button></div>
-      </div>
     </div>`;
+  }
+  function registrationContactSectionHtml(entry,model){
+    const contact=model.contact,items=contact?[
+      model.showContactName?`<span class="registration-contact-name">${esc(contact.name)}</span>`:'',
+      contact.phone?`<a class="registration-contact-link" href="tel:${esc(contact.phone.replace(/[^+0-9,;*#]/g,''))}">${esc(contact.phone)}</a>`:'',
+      contact.email?`<a class="registration-contact-link" href="mailto:${esc(encodeURIComponent(contact.email))}">${esc(contact.email)}</a>`:'',
+      `<span class="registration-contact-preference">${esc(contact.preferredMethod==='none'?'No contact preference':`${registrationContactMethodLabel(contact.preferredMethod)} preferred`)}</span>`
+    ].filter(Boolean).join(''):'<span class="tiny faint">Not provided</span>';
+    return `<section class="registration-contact-section" aria-label="Contact">
+      <div class="registration-contact-head"><span>${model.individual?'Contact':'Captain / contact'}</span><button class="btn sm ghost" onclick="editOrganizerRegistrationContact('${esc(entry.id)}')">${contact?'Edit contact':'Add contact'}</button></div>
+      <div class="registration-contact-details">${items}</div>
+      ${contact?.notes?`<details class="registration-contact-notes" data-registration-disclosure="contact-notes"><summary class="tiny">Notes to organizer</summary><div class="tiny" style="white-space:pre-wrap;overflow-wrap:anywhere">${esc(contact.notes)}</div></details>`:''}
+      ${registrationContactEditHtml(entry)}
+    </section>`;
+  }
+  function registrationRosterSectionHtml(entry,members,title,expectedCount=members.length){
+    const rows=members.map(member=>{
+      const source=registrationMemberSourceState(member),label=String(member.displayName||'Roster member').trim()||'Roster member',action=registrationMemberPrimaryActionHtml(entry,member);
+      return `<div class="registration-member-row"><span class="registration-member-copy"><b>${esc(label)}</b><span class="registration-source-state" data-registration-source-state="${source.key}">${esc(source.label)}${member.duplicateOverride?' · duplicate override':''}</span></span>${action?`<span class="registration-member-actions">${action}</span>`:''}</div>`;
+    }).join('');
+    return `<section class="registration-roster-group"><div class="registration-roster-heading">${esc(title)} · ${members.length||expectedCount}</div>${rows||'<div class="tiny faint" style="margin-top:7px">Roster details unavailable.</div>'}</section>`;
+  }
+  function registrationManagementMembersHtml(entry){
+    const rows=(entry.members||[]).map(member=>{
+      const resolved=member.internalPlayerId&&['matched','organizer_created'].includes(member.matchStatus),label=String(member.displayName||'Roster member').trim()||'Roster member';
+      const move=member.matchStatus==='rejected'?'':`<button class="btn sm ghost" aria-label="Move ${esc(label)} to ${member.rosterRole==='active'?'substitutes':'active players'}" onclick="moveOrganizerRegistrationMember('${esc(entry.id)}','${esc(member.id)}','${member.rosterRole==='active'?'substitute':'active'}')">${member.rosterRole==='active'?'Move to substitutes':'Move to active'}</button>`;
+      const unmatch=resolved?`<button class="btn sm ghost" aria-label="Unmatch ${esc(label)}" onclick="unmatchRegistrationMember('${esc(entry.id)}','${esc(member.id)}')">Unmatch</button>`:'';
+      return move||unmatch?`<div class="registration-management-member"><span>${esc(label)}</span><span class="registration-member-actions">${move}${unmatch}</span></div>`:'';
+    }).join('');
+    return rows?`<div class="registration-management-members" aria-label="Roster management">${rows}</div>`:'';
+  }
+  function registrationManagementHtml(entry,model){
+    const options=[entry.status,...(REGISTRATION_ENTRY_TRANSITIONS[entry.status]||[])].filter((value,index,array)=>array.indexOf(value)===index),panelId=`registration-management-${entry.id}`;
+    return `<section class="registration-management">
+      <button type="button" class="registration-management-toggle" data-registration-disclosure="management" aria-expanded="false" aria-controls="${esc(panelId)}" onclick="toggleRegistrationManagement(this)">
+        <span><b>Registration management</b><small>${esc(model.managementSummary)}</small></span><span data-registration-management-action>Show controls ›</span>
+      </button>
+      <div class="registration-management-panel" id="${esc(panelId)}" hidden>
+        <div class="registration-organizer-controls">
+          <label class="tiny faint" for="registration-status-${esc(entry.id)}">Organizer status
+            <select id="registration-status-${esc(entry.id)}" data-focus-key="registration-${esc(entry.id)}" onchange="changeRegistrationEntryStatus('${esc(entry.id)}',this.value)">${options.map(status=>`<option value="${status}" ${status===entry.status?'selected':''}>${esc(registrationStatusLabel(status))}</option>`).join('')}</select>
+          </label>
+          ${registrationManagementMembersHtml(entry)}
+          <div class="registration-organizer-actions"><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','${entry.editingLocked?'unlock':'lock'}')">${entry.editingLocked?'Unlock editing':'Lock editing'}</button><button class="btn sm ghost" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','rotate')">Rotate management link</button><button class="btn sm danger" onclick="changeRegistrationManagementAccess('${esc(entry.id)}','revoke')">Revoke access</button></div>
+        </div>
+      </div>
+    </section>`;
+  }
+  function entryFingerprint(entry,config){
+    const edit=window._registrationContactEdit?.entryId===entry.id?window._registrationContactEdit:null,playerSources=(entry.members||[]).map(member=>[member.internalPlayerId,pById(member.internalPlayerId)?.pickupEligible]);
+    return JSON.stringify([entry.id,entry.displayName,entry.registrationType,entry.status,entry.activePlayerCount,entry.substituteCount,entry.submittedAt,entry.updatedAt,entry.lastEditedAt,entry.capacityOverride,entry.editingLocked,entry.managementAccessRevoked,entry.revision,entry.contact,entry.members,entry.duplicateWarnings,config?.allowSubstitutes,playerSources,edit?edit.renderVersion:0]);
+  }
+  function entryRowHtml(entry,config){
+    const model=registrationEntryDisplayModel(entry,config),statusClass=entry.status==='accepted'?'good':entry.status==='waitlisted'||entry.status==='needs_review'?'warn':entry.status==='declined'||entry.status==='withdrawn'?'bad':'';
+    const participantAction=model.individual&&model.primaryMember?registrationMemberPrimaryActionHtml(entry,model.primaryMember):'';
+    return `<article class="registration-entry-row" data-registration-entry="${esc(entry.id)}" data-registration-fingerprint="${esc(entryFingerprint(entry,config))}" tabindex="-1">
+      <div class="registration-entry-head"><div class="registration-entry-title"><h4 data-registration-primary-label>${esc(model.primaryLabel)}</h4>${model.secondaryLabel?`<span class="registration-entry-secondary">Entry: ${esc(model.secondaryLabel)}</span>`:''}<div class="registration-entry-metadata">${esc(model.metadata)}</div></div><span class="pill ${statusClass}">${esc(registrationStatusLabel(entry.status))}</span></div>
+      ${model.individual?`<div class="registration-participant-summary"><span class="registration-source-state" data-registration-source-state="${model.participantSource.key}">${esc(model.participantSource.label)}</span>${participantAction?`<span class="registration-entry-primary-actions">${participantAction}</span>`:''}</div>`:''}
+      ${(entry.duplicateWarnings||[]).map(warning=>`<div class="registration-entry-warning">⚠ ${esc(warning)}</div>`).join('')}
+      ${registrationContactSectionHtml(entry,model)}
+      ${model.individual?'':registrationRosterSectionHtml(entry,model.activeMembers,'Active roster',entry.activePlayerCount)}
+      ${model.showSubstitutes?registrationRosterSectionHtml(entry,model.substituteMembers,'Substitutes',entry.substituteCount):''}
+      ${registrationManagementHtml(entry,model)}
+    </article>`;
   }
   function filteredEntries(state){
     const entries=state?.entries||[];return filter==='all'?entries:filter==='pending'?entries.filter(row=>['submitted','needs_review'].includes(row.status)):entries.filter(row=>row.status===filter);
   }
+  function applyEntry(eventId,entry){
+    if(!entry?.id)return get(eventId);
+    const current=baseState(eventId),entries=current.entries.slice(),index=entries.findIndex(row=>String(row.id)===String(entry.id));
+    if(index<0)return current;
+    const previous=entries[index];if(Number(previous.revision)>Number(entry.revision))return current;
+    entries[index]={...previous,...entry};const next={...current,entries};states.set(eventId,next);
+    if(modalEventId===eventId)patchDashboard();return next;
+  }
   function setText(root,selector,value){const node=root.querySelector(selector);if(node&&node.textContent!==String(value))node.textContent=String(value);}
+  function dashboardEntryFocusables(row){
+    return row?[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')].filter(control=>!control.closest('[hidden]')):[];
+  }
   function dashboardInteraction(root=document.querySelector('[data-registration-dashboard]')){
     if(!root)return null;
-    const active=root.contains(document.activeElement)?document.activeElement:null,row=active?.closest?.('[data-registration-entry]'),focusable=row?[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')]:[];
+    const active=root.contains(document.activeElement)?document.activeElement:null,row=active?.closest?.('[data-registration-entry]'),focusable=dashboardEntryFocusables(row);
     return {
       eventId:root.dataset.eventId||modalEventId,
       sheetScroll:root.closest('.sheet')?.scrollTop||0,
@@ -12025,7 +12183,7 @@ const EventRegistration=(()=>{
       focusKey:active?.dataset?.focusKey||'',
       focusedEntry:row?.dataset.registrationEntry||'',
       entryFocusIndex:active?focusable.indexOf(active):-1,
-      openDisclosures:[...root.querySelectorAll('[data-registration-disclosure][open]')].map(node=>`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`)
+      openDisclosures:[...root.querySelectorAll('[data-registration-disclosure]')].filter(node=>node.matches('details')?node.open:node.getAttribute('aria-expanded')==='true').map(node=>`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`)
     };
   }
   function restoreDashboardInteraction(root,interaction){
@@ -12034,10 +12192,10 @@ const EventRegistration=(()=>{
     const select=root.querySelector('#registrationFilter');if(select)select.value=filter;
     let target=interaction.focusKey&&root.querySelector(`[data-focus-key="${CSS.escape(interaction.focusKey)}"]`);
     const row=interaction.focusedEntry&&root.querySelector(`[data-registration-entry="${CSS.escape(interaction.focusedEntry)}"]`);
-    if(!target&&row&&interaction.entryFocusIndex>=0)target=[...row.querySelectorAll('button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),a[href]')][interaction.entryFocusIndex];
+    if(!target&&row&&interaction.entryFocusIndex>=0)target=dashboardEntryFocusables(row)[interaction.entryFocusIndex];
     if(!target&&row)target=row;
     const openDisclosures=new Set(interaction.openDisclosures||[]);
-    root.querySelectorAll('[data-registration-disclosure]').forEach(node=>{node.open=openDisclosures.has(`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`);});
+    root.querySelectorAll('[data-registration-disclosure]').forEach(node=>setRegistrationDisclosureState(node,openDisclosures.has(`${node.closest('[data-registration-entry]')?.dataset.registrationEntry||''}:${node.dataset.registrationDisclosure}`)));
     if(target&&document.activeElement!==target)target.focus({preventScroll:true});
     const sheet=root.closest('.sheet');if(sheet)sheet.scrollTop=interaction.sheetScroll;
   }
@@ -12058,9 +12216,12 @@ const EventRegistration=(()=>{
     const wanted=new Set(entries.map(row=>String(row.id)));
     list.querySelectorAll('[data-registration-entry]').forEach(row=>{if(!wanted.has(row.dataset.registrationEntry))row.remove();});
     entries.forEach((entry,index)=>{
-      let row=list.querySelector(`[data-registration-entry="${CSS.escape(String(entry.id))}"]`),fingerprint=entryFingerprint(entry);
-      if(!row){const host=document.createElement('div');host.innerHTML=entryRowHtml(entry);row=host.firstElementChild;}
-      else if(row.dataset.registrationFingerprint!==fingerprint&&!row.contains(document.activeElement)){const host=document.createElement('div');host.innerHTML=entryRowHtml(entry);const replacement=host.firstElementChild;row.replaceWith(replacement);row=replacement;}
+      let row=list.querySelector(`[data-registration-entry="${CSS.escape(String(entry.id))}"]`),fingerprint=entryFingerprint(entry,config);
+      if(!row){const host=document.createElement('div');host.innerHTML=entryRowHtml(entry,config);row=host.firstElementChild;}
+      else if(row.dataset.registrationFingerprint!==fingerprint){
+        const activeInside=row.contains(document.activeElement),safeFocusedControl=document.activeElement?.matches?.('button,[data-focus-key^="registration-"],[data-registration-entry]');
+        if(!activeInside||safeFocusedControl){const host=document.createElement('div');host.innerHTML=entryRowHtml(entry,config);const replacement=host.firstElementChild;row.replaceWith(replacement);row=replacement;}
+      }
       const at=list.children[index];if(at!==row)list.insertBefore(row,at||null);
     });
     if(!entries.length&&!list.querySelector('[data-registration-empty]'))list.innerHTML=`<div data-registration-empty class="stat-empty">No registration entries match this filter.</div>`;
@@ -12081,7 +12242,7 @@ const EventRegistration=(()=>{
       window.scrollTo(scrollX,scrollY);
     }
   }
-  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,patchSummaryCard,dashboardInteraction,restoreDashboardInteraction,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
+  return {configured,get,request,saveConfiguration,syncPlayers,syncPlayerDirectories,importPreview,markImported,resetImport,updateContact,applyEntry,refresh,ensureFresh,updateLifecycle,rotateToken,setModalOpen,setEventVisible,patchDashboard,patchSummaryCard,dashboardInteraction,restoreDashboardInteraction,schedulePoll,stopPoll,get modalEventId(){return modalEventId;},get pollState(){return {visibleEventId,modalEventId,scheduled:!!pollTimer,inFlight:[...refreshes.keys()]};},get filter(){return filter;},set filter(value){filter=value;}};
 })();
 window.EventRegistration=EventRegistration;
 
@@ -12119,7 +12280,7 @@ function registrationDashboardHtml(ev){
   const state=EventRegistration.get(ev.id),local=eventRegistration(ev),config=state?.config||local,summary=state?.summary,url=registrationPublicUrl(ev),unloaded='—';
   const pending=summary?summary.entryCounts.submitted+summary.entryCounts.needsReview:unloaded,filter=EventRegistration.filter;
   const filterOption=(value,label)=>`<option value="${value}" ${filter===value?'selected':''}>${label}</option>`;
-  const footerActions=`<div class="registration-dashboard-footer-actions" data-registration-dashboard-actions><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button><details class="registration-dashboard-more-actions" data-registration-disclosure="more-actions"><summary>More actions</summary><div class="registration-dashboard-more-menu"><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button></div></details></div>`;
+  const footerActions=`<div class="registration-dashboard-footer-actions" data-registration-dashboard-actions><button class="btn primary" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button><details class="registration-dashboard-more-actions" data-registration-disclosure="more-actions"><summary>Actions</summary><div class="registration-dashboard-more-menu"><button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button><button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">Settings</button><button class="btn ghost" onclick="shareRegistrationLink('${esc(ev.id)}')">Share link</button><button class="btn ghost" onclick="copyRegistrationLink('${esc(ev.id)}')">Copy link</button></div></details></div>`;
   return `<div data-registration-dashboard data-registration-modal data-event-id="${esc(ev.id)}">
     ${sheetHeadHtml(`Registration · ${esc(ev.name)}`,{subtitle:'Persistent registrations stay separate from event-day check-in. Ratings and private roster data never appear here.'})}
     <div class="row spread"><span class="pill ${getEffectiveEventRegistrationStatus(local)==='open'?'good':''}" data-reg-status>${esc(registrationStatusLabel(summary?.effectiveStatus||config.effectiveStatus||getEffectiveEventRegistrationStatus(local)))}</span><button class="btn sm ghost" data-focus-key="registration-refresh" onclick="refreshRegistrationDashboard()">Refresh</button></div>
@@ -12402,7 +12563,9 @@ window.changeRegistrationManagementAccess=async(entryId,action)=>{
     const response=await EventRegistration.request(`/api/event-registration/organizer/${encodeURIComponent(evId)}/entries/${encodeURIComponent(entryId)}/management`,{method:'POST',body:{action}});
     if(response.managementUrl){let copied=false;try{await navigator.clipboard.writeText(response.managementUrl);copied=true;}catch(_){copied=copyTextFallback(response.managementUrl);}window._latestRegistrationManagementUrl=response.managementUrl;toast(copied?'New management link copied':'New management link issued');}
     else toast(action==='lock'?'Public editing locked':action==='unlock'?'Public editing unlocked':'Management access revoked');
+    if(response.entry)EventRegistration.applyEntry(evId,response.entry);
     await EventRegistration.refresh(evId);
+    if(response.entry)EventRegistration.applyEntry(evId,response.entry);
   }catch(error){toast(error.message);EventRegistration.patchDashboard();}
 };
 function registrationMemberState(entryId,memberId){
