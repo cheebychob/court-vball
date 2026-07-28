@@ -55,8 +55,8 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-11
-**Expected branch:** `feat/court-side-score-reporting`
+**Current item:** EUX-12
+**Expected branch:** `feat/registration-entry-card-cleanup`
 **Next item after completion:** Core event UI roadmap complete
 
 EUX-10 is implemented and verified on `feat/events-list-lifecycle-groups`.
@@ -69,6 +69,12 @@ closes the last manual hole in the event pipeline by letting players submit
 scores from the published schedule into an organizer review queue. It requires a
 new Cloudflare KV binding (`SCORE_REPORTS`) before it works in production, and
 remains `In Progress` until that binding exists and a pull request is merged.
+
+EUX-12 is implemented and verified on
+`feat/registration-entry-card-cleanup`. It is a focused follow-up to EUX-06:
+organizer registration cards now lead with participant identity, keep team
+hierarchy intact, and progressively disclose advanced management controls
+without changing registration data or public registration.
 
 ## Roadmap summary
 
@@ -85,6 +91,7 @@ remains `In Progress` until that binding exists and a pull request is merged.
 | [x]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Done    |
 | [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | In Progress |
 | [ ]  | EUX-11 | Court-side score reporting                          | `feat/court-side-score-reporting`          | EUX-08, EUX-09 | In Progress |
+| [ ]  | EUX-12 | Registration entry card cleanup                     | `feat/registration-entry-card-cleanup`     | EUX-06         | In Progress |
 
 ---
 
@@ -1154,6 +1161,93 @@ weakening rating integrity or the organizer's authority over what counts.
     and the printed court cards.
   * Create and merge the pull request, then fill the completed-date,
     pull-request, and merge-commit fields.
+
+---
+
+# EUX-12 — Registration entry card cleanup
+
+**Branch:** `feat/registration-entry-card-cleanup`
+**Risk:** Medium
+**Status:** In Progress
+**Depends on:** EUX-06
+
+## Objective
+
+Make organizer-facing registration entries easy to scan by leading individual
+cards with the public participant identity, preserving team hierarchy, and
+progressively disclosing advanced management controls.
+
+## In scope
+
+* Use the submitted public participant label as the individual card heading and
+  show a genuinely different custom entry name only as secondary context.
+* Keep the team name, captain/contact, and roster structure for team entries.
+* Replace stacked metadata and boxed contact content with compact, wrapping
+  summaries.
+* Omit redundant individual active-roster and empty substitute sections.
+* Keep profile and match-review actions visible while moving status, roster
+  movement, unmatch, editing-lock, management-link, and revoke controls into an
+  accessible per-entry disclosure.
+* Preserve open disclosures, filter, focus, order, and sheet scroll position
+  across polling refreshes by stable registration ID.
+* Consolidate event-day check-in and secondary dashboard commands under the
+  sticky footer's Actions disclosure.
+* Preserve all registration, import, check-in, matching, contact, access,
+  synchronization, and stored-data behavior.
+
+## Required tests
+
+* Individual matching, custom-name, unmatched, organizer-created, and event-only
+  identity states use public labels and deliberate fallbacks.
+* Team name, captain/contact, active roster, and substitutes remain visible.
+* Empty substitutes are omitted and non-empty substitutes remain complete.
+* Contact links, preference, and editing remain functional.
+* Management starts collapsed, exposes every existing control, has correct
+  disclosure semantics, and survives a refresh without scroll or focus loss.
+* Destructive actions retain confirmation.
+* Footer actions remain reachable.
+* Entry cards have no horizontal overflow and management controls stack at
+  narrow widths.
+* Existing registration, polling, import, and event-day check-in tests pass.
+
+## Completion record
+
+* **Completed date:** Pending
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.38.0 / 20260728.2 (from 0.37.1 / 20260728.1)
+* **Tests run:**
+  * `npx playwright test tests/event-registration.spec.js` — 13 passed.
+  * The new organizer-card scenario in a temporary iPhone WebKit project —
+    1 passed.
+  * `npm run test:version-check` — 10 passed.
+  * `npm run check:version` — passed.
+  * `npm test` — 346 passed, including registration polling, import,
+    event-day check-in, public registration, and mobile-WebKit coverage.
+  * `npm run test:worker` — 81 passed and 1 pre-existing assertion failed in
+    `tests/court-sync-worker.test.mjs:1399`; its forbidden score-value regex
+    also matches the current fixed timestamp digits in `updatedAt`. EUX-12
+    does not change Worker code or that test.
+  * `git diff --check` — passed.
+* **Important implementation notes:**
+  * `registrationEntryDisplayModel`, `registrationEntryMetadata`,
+    `registrationMemberSourceState`, and the focused contact, roster, and
+    management render helpers keep the card template presentation-only.
+  * Individual headings and source states use registration-member public display
+    labels; linked private player names are never rendered into the card.
+  * `dashboardInteraction` restores both native details and button-driven
+    management disclosures using the stable entry ID plus disclosure key.
+  * No public form, registration schema, Worker route, rating, scheduling,
+    result, backup, or synchronization behavior changed.
+* **Manual checks:** Captured organizer-card layouts were reviewed at 1440,
+  1024, 768, 430, and 390 px for individual and team hierarchy, collapsed and
+  expanded management, wrapping, footer clearance, and scroll stability. The
+  cards and contact rows stayed within the sheet, narrow management actions
+  stacked, and the final card remained clear of the sticky footer.
+* **Remaining follow-up:** Physical iPhone Safari verification remains useful
+  release confidence work after automated iPhone-WebKit coverage. The
+  timestamp-sensitive Worker assertion above should be made field-aware in a
+  separate score-reporting change.
 
 ---
 
