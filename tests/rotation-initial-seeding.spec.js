@@ -57,7 +57,7 @@ async function openEvent(page, id = 'rotation-seeds') {
 }
 
 function entryRow(page, name) {
-  return page.locator('.stand-row').filter({ hasText: name }).first();
+  return page.locator('[data-event-entry-management]').filter({ hasText: name }).first();
 }
 
 test('rating projections use strength instead of entry order and explain the editor value', async ({ page }) => {
@@ -66,8 +66,8 @@ test('rating projections use strength instead of entry order and explain the edi
 
   await expect(entryRow(page, 'Entry A')).toContainText('projected seed 2 · rating 74');
   await expect(entryRow(page, 'Entry B')).toContainText('projected seed 1 · rating 82');
-  expect(await page.locator('.stand-row:not(.stand-head) b').allTextContents()).toEqual([
-    'Entry A', 'Entry B', 'Entry C', 'Entry D', 'Entry E', 'Entry F', 'Entry G', 'Entry H'
+  expect(await page.locator('[data-event-entry-management] .event-entry-main > b').allTextContents()).toEqual([
+    'Player A', 'Player B', 'Player C', 'Player D', 'Player E', 'Player F', 'Player G', 'Player H'
   ]);
 
   await page.evaluate(() => openEntryEditor('rotation-seeds', 'rotation-seeds-e0'));
