@@ -14,7 +14,7 @@ const players = Array.from({ length: 60 }, (_, index) => ({
   history: [{ i: 0, r: 40 + (index % 30) }]
 }));
 
-test('iPhone WebKit keeps attendance scroll and search focus through rapid selection', async ({ page }) => {
+test('iPhone WebKit keeps one page scroller and search focus through rapid selection', async ({ page }) => {
   await page.addInitScript(roster => {
     localStorage.setItem('vb:players', JSON.stringify(roster));
     localStorage.setItem('vb:games', '[]');
@@ -24,12 +24,8 @@ test('iPhone WebKit keeps attendance scroll and search focus through rapid selec
   await page.goto('/');
   await page.locator('[data-tab="teams"]:visible').first().tap();
   await page.evaluate(() => {
-    window._pool = new Set();
-    renderTeams();
-    const list = document.querySelector('[data-attendance-results]');
     const choice = document.querySelector('[data-player-choice="p30"]');
-    list.scrollTop += choice.getBoundingClientRect().top - list.getBoundingClientRect().top - list.clientHeight / 2;
-    window.scrollTo(0, 400);
+    window.scrollTo(0, choice.getBoundingClientRect().top + window.scrollY - innerHeight / 2);
   });
 
   const list = page.locator('[data-attendance-results]');
@@ -53,7 +49,7 @@ test('iPhone WebKit keeps attendance scroll and search focus through rapid selec
   await search.fill('Forty Five');
   await search.press('Enter');
   await expect(search).toBeFocused();
-  await expect(search).toHaveValue('');
+  await expect(search).toHaveValue('Forty Five');
   expect(await page.evaluate(() => window._pool.has('p44'))).toBe(true);
 
   const footer = await page.locator('[data-attendance-actions]').evaluate(element => {
@@ -62,5 +58,8 @@ test('iPhone WebKit keeps attendance scroll and search focus through rapid selec
   });
   expect(footer.top).toBeGreaterThanOrEqual(0);
   expect(footer.bottom).toBeLessThanOrEqual(footer.viewport);
-  expect(await list.evaluate(element => element.scrollHeight > element.clientHeight)).toBe(true);
+  expect(await list.evaluate(element => ({
+    overflowY: getComputedStyle(element).overflowY,
+    clipped: element.scrollHeight > element.clientHeight
+  }))).toEqual({ overflowY: 'visible', clipped: false });
 });
