@@ -1111,7 +1111,7 @@ weakening rating integrity or the organizer's authority over what counts.
 ## Completion record
 
 * **Completed date:** Pending
-* **Pull request:** Pending
+* **Pull request:** https://github.com/cheebychob/court-vball/pull/51
 * **Merge commit:** Pending
 * **Version/build:** 0.37.0 / 20260727.10 (from 0.36.0 / 20260727.9)
 * **Tests run:**
@@ -1148,8 +1148,8 @@ weakening rating integrity or the organizer's authority over what counts.
   * Turning reporting on requires one manual republish so the buttons appear.
     Mode changes, code rotations, and accepts afterwards need none.
 * **Remaining before Done:**
-  * Create the `SCORE_REPORTS` KV namespace, add the binding to
-    `cloudflare/wrangler.jsonc`, and deploy the Worker.
+  * Deploy the Worker. The `SCORE_REPORTS` KV namespace was created and bound
+    in `cloudflare/wrangler.jsonc` on 2026-07-27.
   * Physical iPhone Safari and Android/Chrome checks of the player report form
     and the printed court cards.
   * Create and merge the pull request, then fill the completed-date,
