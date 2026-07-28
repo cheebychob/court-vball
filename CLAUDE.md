@@ -101,3 +101,11 @@ editing.
 Follow only the roadmap item assigned in the current prompt. Do not begin later
 items. Update that item's status, tests, completion notes, and PR information
 as part of the implementation branch.
+
+## Event UI Roadmap Status
+
+EUX-01 through EUX-10 are complete.
+
+`docs/EVENT_UI_ROADMAP.md` is now a historical reference and completion record. Do not use it as an active task queue, do not automatically select work from it, and do not modify it unless explicitly asked.
+
+For new work, follow the current user request and inspect the existing implementation before making changes.

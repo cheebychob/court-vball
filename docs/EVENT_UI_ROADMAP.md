@@ -1,3 +1,7 @@
+> **Status: Complete**
+>
+> EUX-01 through EUX-10 are complete. This document is retained for historical reference only and is no longer an active implementation plan.
+
 # Court Event UI Roadmap
 
 **Project:** Court — Volleyball Rating Tracker
@@ -78,7 +82,7 @@ core event UI item to advance.
 | [x]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Done    |
 | [x]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Done    |
 | [x]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Done    |
-| [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | In Progress |
+| [x]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | Done    |
 
 ---
 

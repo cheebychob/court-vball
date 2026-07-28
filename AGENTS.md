@@ -33,3 +33,11 @@ For event UI work, also read `docs/EVENT_UI_ROADMAP.md`.
 Implement only the roadmap item assigned in the current prompt. Do not combine
 later roadmap items or perform unrelated cleanup. Update the roadmap entry in
 the same branch as the implementation.
+
+## Event UI Roadmap Status
+
+EUX-01 through EUX-10 are complete.
+
+`docs/EVENT_UI_ROADMAP.md` is now a historical reference and completion record. Do not use it as an active task queue, do not automatically select work from it, and do not modify it unless explicitly asked.
+
+For new work, follow the current user request and inspect the existing implementation before making changes.
