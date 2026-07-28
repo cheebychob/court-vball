@@ -83,7 +83,7 @@ test('rotating standings stack without a horizontal scroller at 320px and 375px'
 
   for (const width of [320, 375]) {
     await page.setViewportSize({ width, height: 780 });
-    await openEvent(page, 'rot', 'entries');
+    await openEvent(page, 'rot', 'standings');
 
     const table = page.locator('.entry-table');
     await expect(table).toBeVisible();
@@ -92,26 +92,19 @@ test('rotating standings stack without a horizontal scroller at 320px and 375px'
     expect(await overflow(page), `${width}px document overflow`).toBeLessThanOrEqual(0);
 
     /* The wide-table header stands down; each value carries its own label. */
-    await expect(page.locator('.entry-table .stand-head')).toBeHidden();
+    await expect(page.locator('.event-standing-head')).toBeHidden();
 
     /* Bravo swept its second match, so Alpha sits second on win percentage. */
-    const row = page.locator('.stand-row').filter({ hasText: 'Alpha Pair' }).first();
-    await expect(row.locator('.entry-rank')).toHaveText('2');
-    await expect(row.locator('.entry-name b')).toHaveText('Alpha Pair');
-    const stats = await row.evaluate(el => Object.fromEntries([...el.querySelectorAll('.entry-stat')]
-      .map(stat => [stat.dataset.stat, { label: stat.querySelector('.entry-stat-label')?.textContent, value: stat.querySelector('.entry-stat-value')?.textContent }])));
-    expect(stats).toEqual({
-      played: { label: 'P · Win%', value: '2 · 50%' },
-      record: { label: 'W-L-T', value: '1-1-0' },
-      points: { label: 'Pts', value: '1' },
-      diff: { label: '+/-', value: '+3' },
-      pfpa: { label: 'PF-PA', value: '46-43' }
-    });
+    const row = page.locator('.event-standing-row').filter({ hasText: 'Alpha Pair' }).first();
+    await expect(row.locator('.event-standing-rank')).toHaveText('2');
+    await expect(row.locator('.event-standing-name')).toHaveText('Alpha Pair');
+    await expect(row.locator('.event-standing-mobile-stats')).toContainText('1-1-0 · 50% · Pts 1 · Diff +3');
+    await expect(row.locator('.event-standing-mobile-detail')).toHaveText('PF-PA 46-43');
 
     /* Nothing is clipped off the right edge of the card. */
     const clipped = await row.evaluate(el => {
       const limit = el.getBoundingClientRect().right + 1;
-      return [...el.querySelectorAll('.entry-stat')].filter(stat => stat.getBoundingClientRect().right > limit).length;
+      return [...el.querySelectorAll('.event-standing-mobile-stats,.event-standing-stat')].filter(stat => stat.getBoundingClientRect().right > limit).length;
     });
     expect(clipped, `${width}px clipped standings values`).toBe(0);
   }
@@ -120,9 +113,9 @@ test('rotating standings stack without a horizontal scroller at 320px and 375px'
 test('standings row activation still opens the participant schedule', async ({ page }) => {
   await seed(page, { events: [rotatingEvent()], games: rotatingGames() });
   await page.setViewportSize({ width: 375, height: 780 });
-  await openEvent(page, 'rot', 'entries');
+  await openEvent(page, 'rot', 'standings');
 
-  await page.locator('.stand-row').filter({ hasText: 'Bravo Pair' }).first().click();
+  await page.locator('.event-standing-row').filter({ hasText: 'Bravo Pair' }).first().click();
   const sheet = page.locator('.sheet');
   await expect(sheet).toBeVisible();
   await expect(sheet).toContainText('Bravo Pair');
@@ -191,11 +184,11 @@ test('desktop keeps the standings table and the multi-column bracket', async ({ 
   await page.setViewportSize({ width: 1280, height: 900 });
 
   await openEvent(page, 'rot');
-  await expect(page.locator('.entry-table .stand-head')).toBeVisible();
-  const layout = await page.locator('.entry-table .stand-row').first().evaluate(el => getComputedStyle(el).display);
+  await expect(page.locator('.event-standing-head').first()).toBeVisible();
+  const layout = await page.locator('.event-standing-row').first().evaluate(el => getComputedStyle(el).display);
   expect(layout).toBe('grid');
-  await expect(page.locator('.entry-stat-label').first()).toBeHidden();
-  await expect(page.locator('.stand-row').filter({ hasText: 'Alpha Pair' }).first()).toContainText('1-1-0');
+  await expect(page.locator('.event-standing-mobile-stats').first()).toBeHidden();
+  await expect(page.locator('.event-standing-row').filter({ hasText: 'Alpha Pair' }).first()).toContainText('1-1-0');
 
   await openEvent(page, 'cup');
   await expect(page.locator('.bracket-rounds')).toBeHidden();

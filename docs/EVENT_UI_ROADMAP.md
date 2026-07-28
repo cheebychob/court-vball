@@ -55,8 +55,8 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 
 ## Current work
 
-**Current item:** EUX-12
-**Expected branch:** `feat/registration-entry-card-cleanup`
+**Current item:** EUX-13
+**Expected branch:** `feat/event-entries-standings-ux`
 **Next item after completion:** Core event UI roadmap complete
 
 EUX-10 is implemented and verified on `feat/events-list-lifecycle-groups`.
@@ -76,6 +76,11 @@ organizer registration cards now lead with participant identity, keep team
 hierarchy intact, and progressively disclose advanced management controls
 without changing registration data or public registration.
 
+EUX-13 is in progress on `feat/event-entries-standings-ux`. It separates
+participant management from rankings, replaces the mobile standings statistic
+grid with compact ranked rows, stabilizes selection and refresh interactions,
+and adds status-aware organizer review actions.
+
 ## Roadmap summary
 
 | Done | ID     | Work item                                           | Branch                                     | Depends on     | Status  |
@@ -92,6 +97,7 @@ without changing registration data or public registration.
 | [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | In Progress |
 | [ ]  | EUX-11 | Court-side score reporting                          | `feat/court-side-score-reporting`          | EUX-08, EUX-09 | In Progress |
 | [ ]  | EUX-12 | Registration entry card cleanup                     | `feat/registration-entry-card-cleanup`     | EUX-06         | In Progress |
+| [ ]  | EUX-13 | Entries/standings separation and interaction stability | `feat/event-entries-standings-ux`        | EUX-05, EUX-06, EUX-12 | In Progress |
 
 ---
 
@@ -1246,6 +1252,112 @@ progressively disclosing advanced management controls.
   stacked, and the final card remained clear of the sticky footer.
 * **Remaining follow-up:** Physical iPhone Safari verification remains useful
   release confidence work after automated iPhone-WebKit coverage. The
+  timestamp-sensitive Worker assertion above should be made field-aware in a
+  separate score-reporting change.
+
+---
+
+# EUX-13 — Entries/standings separation and interaction stability
+
+**Branch:** `feat/event-entries-standings-ux`
+**Risk:** Medium
+**Status:** In Progress
+**Depends on:** EUX-05, EUX-06, EUX-12
+
+## Objective
+
+Give event participant management and competition rankings distinct views,
+make standings compact and scan-friendly across viewport sizes, eliminate
+ordinary selection/refresh scroll jumps, and surface the most common organizer
+registration decisions directly on review cards.
+
+## In scope
+
+* Keep Entries/Teams as management views with rosters, registration linkage,
+  seeding context, and add/edit actions.
+* Render Standings as an independent ranked view with public participant/team
+  identity, current ranking statistics, compact imported source, and a useful
+  pre-play state.
+* Preserve the existing `entryStandings` and `eventStandings` calculation
+  paths, stored event data, schedules, games, ratings, and row-to-schedule
+  behavior.
+* Preserve the selected mobile event destination through ordinary renders.
+* Use targeted registration-import selection updates and shared interaction
+  capture/restore helpers for page position, sheet position, stable focus, and
+  disclosures when replacement is necessary.
+* Add status-aware Accept/Decline/More options controls using the existing
+  organizer status endpoint, capacity override flow, status transitions, and
+  registration records.
+
+## Required tests
+
+* Entries/Teams and Standings have distinct mobile views and management actions
+  never leak into standings.
+* Individual public labels, redundant/custom entry labels, imported source,
+  no-game state, ties, fixed pairs, fixed teams, canonical ordering/statistics,
+  and schedule-row activation are covered.
+* Compact mobile and aligned desktop structures remain free of horizontal
+  overflow at 1440, 1024, 768, 430, and 390 px.
+* Registration-import selections preserve stable-ID state, sheet/page
+  positions, focus, and button semantics through targeted changes and refresh.
+* Quick registration actions cover submitted, needs-review, waitlisted,
+  accepted, declined, duplicate-request, capacity-override, success, failure,
+  retained record, modal-open, scroll, disclosure, and responsive states.
+* Existing registration Worker, synchronization, version, event navigation,
+  standings, and full application suites continue to pass.
+
+## Completion record
+
+* **Completed date:** Pending
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.39.0 / 20260728.3 (from 0.38.0 / 20260728.2)
+* **Tests run:**
+  * `npx playwright test tests/event-entries-standings-ux.spec.js` — 4
+    passed.
+  * Focused mobile-section, responsive standings, registration dashboard,
+    registration import, rotation seeding, and mobile-WebKit suites — passed.
+  * Contact-editor polling and Track scroll-stability regressions repeated five
+    times each after the final race fix — 10 passed.
+  * `npm run test:version-check` — 10 passed.
+  * `npm run check:version` — passed.
+  * `npm test` — 351 passed, including registration polling, import,
+    synchronization, public registration, event formats, standings, and
+    mobile-WebKit coverage.
+  * `npm run test:worker` — 81 passed and 1 pre-existing assertion failed in
+    `tests/court-sync-worker.test.mjs:1399`; its forbidden score-value regex
+    also matches the current fixed timestamp digits in `updatedAt`. EUX-13
+    does not change Worker code or that test.
+  * `git diff --check` — passed.
+* **Important implementation notes:**
+  * `renderRotatingEventDetail` and `renderEventDetail` now assign independent
+    management and ranking sections while preserving `entryStandings`,
+    `eventStandings`, stored entries, games, schedules, ratings, and row
+    activation.
+  * `captureInteractionViewportState`,
+    `restoreInteractionViewportState`, and `updateWithoutScrollJump` preserve
+    page/sheet positions and stable focus without overriding a later deliberate
+    user scroll.
+  * Registration import selection updates only keyed checkbox/count/action
+    nodes. Organizer quick actions reuse the existing status endpoint,
+    capacity-override confirmation, cached entry application, and refresh
+    sequence.
+  * Polling leaves an open contact draft in place, and status actions preserve
+    stable-ID disclosures, filter, focus, sheet position, registration records,
+    roster membership, substitutes, and linkage.
+* **Manual checks:** The in-app browser was reviewed at 1440, 1024, 768, 430,
+  and 390 px. Rotating-entry and fixed-team management/standings views were
+  checked with not-started and played rows, long team names, row-to-schedule
+  activation, mobile one-section navigation, desktop aligned columns, compact
+  mobile statistics, management-only Add entry, and document overflow. No
+  horizontal page overflow or clipped standing names appeared. Individual,
+  fixed-pair, tie, imported-source, quick-action, import-selection, polling,
+  player-picker, and Track stability states are additionally covered by the
+  automated browser suites.
+* **Remaining follow-up:** Physical iPhone Safari verification remains useful
+  release confidence work after automated iPhone-WebKit coverage. A future
+  manual fixture can make the individual/fixed-pair/tie/import combinations
+  easier to exercise without replacing local organizer data. The
   timestamp-sensitive Worker assertion above should be made field-aware in a
   separate score-reporting change.
 

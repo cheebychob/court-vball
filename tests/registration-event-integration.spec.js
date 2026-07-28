@@ -227,7 +227,7 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
   state.preview.entries[0].displayName = 'Net Results Updated';
   state.preview.entries[0].revision = 2;
   state.preview.entries[0].updatedAt = 20;
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.evaluate(() => refreshRegistrationImportReview());
   await expect(page.locator('[data-import-registration]')).toContainText('Update imported event entry');
   await expect(page.locator('[data-import-registration]')).toContainText('Team name');
   await page.locator('[data-import-registration] input[type="checkbox"]').check();
@@ -287,10 +287,40 @@ test('import cards render legacy-safe details, block incomplete records, preserv
 
   const firstCheckbox = page.locator(`[data-import-registration="${'A'.repeat(22)}"] input[type="checkbox"]`);
   const secondCheckbox = page.locator(`[data-import-registration="${'B'.repeat(22)}"] input[type="checkbox"]`);
-  await firstCheckbox.check();
-  await page.getByRole('button', { name: 'Refresh' }).click();
+  await page.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+  const selectionPosition = await page.evaluate(secondId => {
+    const root = document.querySelector('[data-registration-import-review]'), sheet = root.closest('.sheet');
+    root.__identity = 'same-import-review';
+    sheet.style.maxHeight = '400px';
+    sheet.scrollTop = Math.min(220, sheet.scrollHeight - sheet.clientHeight);
+    const checkbox = document.querySelector(`[data-import-registration="${secondId}"] input[type="checkbox"]`);
+    checkbox.focus({ preventScroll: true });
+    return { sheetScroll: sheet.scrollTop, windowScroll: window.scrollY };
+  }, 'B'.repeat(22));
+  await firstCheckbox.evaluate(checkbox => checkbox.click());
+  await expect(firstCheckbox).toBeChecked();
+  expect(await page.evaluate(() => ({
+    identity: document.querySelector('[data-registration-import-review]').__identity,
+    sheetScroll: document.querySelector('.sheet').scrollTop,
+    windowScroll: window.scrollY,
+  }))).toEqual({ identity: 'same-import-review', sheetScroll: selectionPosition.sheetScroll, windowScroll: selectionPosition.windowScroll });
+  await secondCheckbox.evaluate(checkbox => checkbox.click());
+  await secondCheckbox.evaluate(checkbox => checkbox.click());
+  await expect(secondCheckbox).not.toBeChecked();
+  expect(await page.evaluate(() => document.querySelector('.sheet').scrollTop)).toBe(selectionPosition.sheetScroll);
+
+  await secondCheckbox.focus();
+  await page.evaluate(() => refreshRegistrationImportReview());
   await expect(firstCheckbox).toBeChecked();
   await expect(secondCheckbox).not.toBeChecked();
+  await expect(secondCheckbox).toBeFocused();
+  expect(await page.evaluate(() => ({
+    sheetScroll: document.querySelector('.sheet').scrollTop,
+    windowScroll: window.scrollY,
+  }))).toEqual(selectionPosition);
+  for (const name of ['Select ready', 'Clear', 'Refresh']) {
+    await expect(page.getByRole('button', { name, exact: true })).toHaveAttribute('type', 'button');
+  }
   await page.getByRole('button', { name: 'Select ready' }).click();
   await expect(firstCheckbox).toBeChecked();
   await expect(secondCheckbox).toBeChecked();

@@ -77,6 +77,10 @@ function organizerState() {
     configDelayMs: 0,
     contactPosts: [],
     managementPosts: [],
+    statusPosts: [],
+    statusDelayMs: 0,
+    failStatus: false,
+    forceCapacityError: false,
     lastConfigInput: null,
     failConfig: false,
   };
@@ -160,6 +164,12 @@ async function mockWorker(page, state) {
     }
     if (path.endsWith('/status') && path.includes('/entries/')) {
       const entryId = path.split('/').at(-2), input = request.postDataJSON(), entry = state.entries.find(row => row.id === entryId);
+      state.statusPosts.push({ entryId, ...input });
+      if (state.statusDelayMs) await new Promise(resolve => setTimeout(resolve, state.statusDelayMs));
+      if (state.failStatus) return route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'REGISTRATION_UNAVAILABLE', message: 'Status service is offline.' }) });
+      if (state.forceCapacityError && input.status === 'accepted' && !input.overrideCapacity) {
+        return route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ ok: false, code: 'CAPACITY_EXCEEDED', message: 'Accepting this entry exceeds active-player capacity.' }) });
+      }
       entry.status = input.status; entry.updatedAt++;
       if (input.status === 'accepted') {
         state.capacity.acceptedEntries++;
@@ -434,6 +444,132 @@ test('organizer settings derive roster defaults, save server-first, persist a pu
   expect(await page.evaluate(() => EventRegistration.modalEventId)).toBe('registration-event');
   await page.getByRole('button', { name: 'Done', exact: true }).click();
   expect(await page.evaluate(() => ({ modal: EventRegistration.modalEventId, timer: EventRegistration._pollTimer }))).toMatchObject({ modal: null });
+});
+
+test('status-aware quick actions reuse organizer persistence without duplicate requests, deletion, or modal jumps', async ({ page }) => {
+  const state = organizerState();
+  const cloneEntry = (id, displayName, status) => ({
+    ...structuredClone(state.entries[0]), id, displayName, status, updatedAt: 10, revision: 1,
+    contact: { name: `${displayName} Captain`, email: `${id}@example.com`, phone: '', preferredMethod: 'email', notes: '' },
+    members: [],
+  });
+  state.entries.push(
+    cloneEntry('entry-review', 'Review Squad', 'needs_review'),
+    cloneEntry('entry-wait', 'Waitlist Squad', 'waitlisted'),
+    cloneEntry('entry-declined', 'Declined Squad', 'declined'),
+    cloneEntry('entry-fail', 'Failure Squad', 'submitted'),
+  );
+  const registration = {
+    enabled: true, status: 'open', mode: 'team', opensAt: null, closesAt: null,
+    activePlayerCapacity: 12, allowSubstitutes: true, maxSubstitutesPerTeam: 2,
+    minActivePlayersPerTeam: 4, maxActivePlayersPerTeam: 4, requireOrganizerApproval: true,
+    allowWaitlist: true, publicTitle: '', publicDescription: '', publicToken: TOKEN,
+    publicUrl: `${WORKER}/register/${TOKEN}`, updatedAt: 10,
+  };
+  state.config = {
+    ...registration, eventId: 'registration-event', eventName: 'Summer Sand', eventDate: '2026-08-15',
+    eventFormat: 'fixedTeams', eventAvailable: true, effectiveStatus: 'open',
+  };
+  state.summary = canonicalSummary({
+    entryCounts: { draft: 0, submitted: 2, needsReview: 1, accepted: 1, waitlisted: 1, declined: 1, withdrawn: 0 },
+  });
+  await seed(page, [fixedEvent({ registration })]);
+  await mockWorker(page, state);
+  await page.setViewportSize({ width: 390, height: 700 });
+  await page.goto('/');
+  await openEvent(page);
+  await page.getByRole('button', { name: 'Manage registrations' }).click();
+
+  const alpha = page.locator('[data-registration-entry="entry-alpha"]');
+  const accepted = page.locator('[data-registration-entry="entry-bravo"]');
+  const review = page.locator('[data-registration-entry="entry-review"]');
+  const waitlisted = page.locator('[data-registration-entry="entry-wait"]');
+  const declined = page.locator('[data-registration-entry="entry-declined"]');
+  const failure = page.locator('[data-registration-entry="entry-fail"]');
+
+  for (const row of [alpha, review]) {
+    await expect(row.getByRole('button', { name: 'Accept', exact: true })).toBeVisible();
+    await expect(row.getByRole('button', { name: 'Decline', exact: true })).toBeVisible();
+    await expect(row.getByRole('button', { name: 'More options', exact: true })).toBeVisible();
+  }
+  await expect(waitlisted.getByRole('button', { name: 'Accept', exact: true })).toBeVisible();
+  await expect(waitlisted.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0);
+  await expect(accepted.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0);
+  await expect(declined.getByRole('button', { name: 'Decline', exact: true })).toHaveCount(0);
+
+  await alpha.getByRole('button', { name: 'More options', exact: true }).click();
+  await expect(alpha.locator('.registration-management-panel')).toBeVisible();
+  expect(await alpha.locator('select option').allTextContents()).toEqual(['Submitted', 'Needs review', 'Accepted', 'Waitlisted', 'Declined', 'Withdrawn']);
+  for (const action of ['Lock editing', 'Rotate management link', 'Revoke access']) {
+    await expect(alpha.getByRole('button', { name: action, exact: true })).toBeVisible();
+  }
+
+  state.statusDelayMs = 150;
+  const beforeAccept = await page.evaluate(() => {
+    const sheet = document.querySelector('[data-registration-dashboard]').closest('.sheet');
+    sheet.style.maxHeight = '360px';
+    sheet.scrollTop = Math.min(180, sheet.scrollHeight - sheet.clientHeight);
+    const button = document.querySelector('[data-registration-entry="entry-alpha"] .registration-quick-accept');
+    button.focus({ preventScroll: true });
+    return { sheetScroll: sheet.scrollTop, windowScroll: window.scrollY };
+  });
+  await page.evaluate(() => {
+    void quickRegistrationEntryStatus('entry-alpha', 'accepted');
+    void quickRegistrationEntryStatus('entry-alpha', 'accepted');
+  });
+  await expect(alpha.getByRole('button', { name: 'Accepting…', exact: true })).toBeDisabled();
+  await expect(alpha.locator('.pill')).toHaveText('Accepted');
+  await expect(alpha.locator('.registration-quick-feedback')).toHaveText('Registration accepted.');
+  expect(state.statusPosts.filter(post => post.entryId === 'entry-alpha')).toEqual([
+    { entryId: 'entry-alpha', status: 'accepted', overrideCapacity: false },
+  ]);
+  expect(await page.evaluate(() => ({
+    modal: EventRegistration.modalEventId,
+    sheetScroll: document.querySelector('[data-registration-dashboard]').closest('.sheet').scrollTop,
+    windowScroll: window.scrollY,
+  }))).toEqual({ modal: 'registration-event', sheetScroll: beforeAccept.sheetScroll, windowScroll: beforeAccept.windowScroll });
+  await expect(alpha.getByRole('button', { name: 'Accept', exact: true })).toHaveCount(0);
+  await expect(alpha.locator('.registration-management-panel')).toBeVisible();
+
+  const countBeforeDecline = state.entries.length;
+  await page.evaluate(() => quickRegistrationEntryStatus('entry-review', 'declined'));
+  await expect(review.locator('.pill')).toHaveText('Declined');
+  await expect(review.locator('.registration-quick-feedback')).toHaveText('Registration declined.');
+  expect(state.entries).toHaveLength(countBeforeDecline);
+  expect(state.entries.find(entry => entry.id === 'entry-review')).toMatchObject({ status: 'declined' });
+
+  state.failStatus = true;
+  const previousFailureStatus = state.entries.find(entry => entry.id === 'entry-fail').status;
+  await page.evaluate(() => quickRegistrationEntryStatus('entry-fail', 'declined'));
+  await expect(failure.locator('.registration-quick-feedback')).toHaveText('Status service is offline.');
+  await expect(failure.locator('.pill')).toHaveText('Submitted');
+  expect(state.entries.find(entry => entry.id === 'entry-fail').status).toBe(previousFailureStatus);
+  state.failStatus = false;
+
+  state.forceCapacityError = true;
+  await page.evaluate(() => { void quickRegistrationEntryStatus('entry-wait', 'accepted'); });
+  const capacityDialog = page.getByRole('alertdialog');
+  await expect(capacityDialog).toContainText('capacity override');
+  await capacityDialog.getByRole('button', { name: 'Accept over capacity', exact: true }).click();
+  await expect(waitlisted.locator('.pill')).toHaveText('Accepted');
+  expect(state.statusPosts.filter(post => post.entryId === 'entry-wait')).toEqual([
+    { entryId: 'entry-wait', status: 'accepted', overrideCapacity: false },
+    { entryId: 'entry-wait', status: 'accepted', overrideCapacity: true },
+  ]);
+  await expect(page.locator('[data-registration-dashboard]')).toBeVisible();
+
+  const quickLayout = await page.evaluate(() => {
+    const card = document.querySelector('[data-registration-entry="entry-fail"]');
+    const actions = card.querySelector('.registration-quick-actions');
+    return {
+      cardOverflow: card.scrollWidth - card.clientWidth,
+      actionOverflow: actions.scrollWidth - actions.clientWidth,
+      columns: getComputedStyle(actions).gridTemplateColumns.split(' ').length,
+      minButtonHeight: Math.min(...[...actions.querySelectorAll('button')].map(button => button.getBoundingClientRect().height)),
+    };
+  });
+  expect(quickLayout).toMatchObject({ cardOverflow: 0, actionOverflow: 0, columns: 2 });
+  expect(quickLayout.minButtonHeight).toBeGreaterThanOrEqual(44);
 });
 
 test('individual entry cards lead with public participant identity and preserve compact management state', async ({ page }) => {

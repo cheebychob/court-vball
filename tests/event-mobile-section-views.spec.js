@@ -91,12 +91,8 @@ test('mobile event pages show one destination at a time and keep every destinati
     for (const id of opening.destinations) {
       await nav.locator(`[data-event-tab="${id}"]`).click();
       const report = await sectionReport(page);
-      /* Standings live inside the participants card, so those two destinations
-         share one view; every other destination stands alone. */
-      const shared = [participants, 'standings'];
-      const expected = shared.includes(id) ? shared : [id];
-      expect(report.visible, `${eventId} · ${id} shows only its own section`).toEqual(expected);
-      expect(report.view).toBe(shared.includes(id) ? participants : id);
+      expect(report.visible, `${eventId} · ${id} shows only its own section`).toEqual([id]);
+      expect(report.view).toBe(id);
       expect(report.active, `${eventId} · ${id} is the active destination`).toEqual([id]);
       expect(report.current).toEqual([id]);
       expect(report.overflow, `${eventId} · ${id} document overflow`).toBeLessThanOrEqual(0);
@@ -120,7 +116,7 @@ test('mobile section views open on the lifecycle-appropriate destination', async
   for (const [eventId, lifecycle, destination, view] of [
     ['draft', 'draft', 'overview', 'overview'],
     ['fixed', 'live', 'schedule', 'schedule'],
-    ['final', 'complete', 'standings', 'teams']
+    ['final', 'complete', 'standings', 'standings']
   ]) {
     await openEvent(page, eventId);
     await expect(page.locator('#event-overview')).toHaveAttribute('data-event-lifecycle', lifecycle);
@@ -142,12 +138,12 @@ test('the selected mobile section survives a rerender and returns after a sheet 
   const nav = page.getByRole('navigation', { name: 'Event sections' });
 
   await nav.locator('[data-event-tab="teams"]').click();
-  expect((await sectionReport(page)).visible).toEqual(['teams', 'standings']);
+  expect((await sectionReport(page)).visible).toEqual(['teams']);
 
   /* An ordinary application rerender keeps the reader where they were. */
   await page.evaluate(() => render());
   expect((await sectionReport(page)).active).toEqual(['teams']);
-  expect((await sectionReport(page)).visible).toEqual(['teams', 'standings']);
+  expect((await sectionReport(page)).visible).toEqual(['teams']);
 
   /* Opening and closing an event sheet returns to the same section. */
   await nav.locator('[data-event-tab="schedule"]').click();
@@ -226,6 +222,5 @@ test('resizing between mobile and desktop switches between section views and the
   await expect.poll(async () => (await sectionReport(page)).mode).toBe('sections');
   const narrow = await sectionReport(page);
   expect(narrow.active).toHaveLength(1);
-  expect(narrow.visible).toContain(narrow.active[0]);
-  expect(narrow.visible.length).toBeLessThanOrEqual(2);
+  expect(narrow.visible).toEqual(narrow.active);
 });
