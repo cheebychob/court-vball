@@ -330,6 +330,7 @@ test('mobile crews remain compact with many crews and a 40-member group', async 
   await expect(page.locator('.attendance-crew-item')).toHaveCount(6);
   await page.getByRole('button', { name: 'Show all 20' }).click();
   await expect(page.locator('.attendance-crew-item')).toHaveCount(20);
+  await page.getByRole('button', { name: /Add Crew 01, 40 available players/ }).click();
   const geometry = await page.evaluate(() => {
     const strip = document.querySelector('.attendance-crew-strip').getBoundingClientRect();
     const footer = document.querySelector('[data-attendance-actions]').getBoundingClientRect();
@@ -342,5 +343,5 @@ test('mobile crews remain compact with many crews and a 40-member group', async 
   expect(geometry.stripRight).toBeLessThanOrEqual(geometry.viewportWidth);
   expect(geometry.footerBottom).toBeLessThanOrEqual(geometry.viewportHeight);
   expect(geometry.pageOverflow).toBeLessThanOrEqual(0);
-  await expect(page.getByRole('button', { name: /Add Crew 01, 40 available players/ })).toBeVisible();
+  expect(await page.evaluate(() => window._pool.size)).toBe(40);
 });

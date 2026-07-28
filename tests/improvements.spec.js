@@ -56,11 +56,11 @@ test('Scout Solo and Teams share searchable selectors with filtered select-all b
 
   await nav(page, 'Teams');
   const teamSearch = page.getByRole('searchbox', { name: 'Search attendance', exact: true });
-  await page.getByRole('button', { name: 'Clear all', exact: true }).click();
   await teamSearch.fill('Player 01');
-  await expect(page.getByRole('button', { name: 'Select filtered', exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Select filtered', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Select all shown', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Select all shown', exact: true }).click();
   expect(await page.evaluate(() => [...window._pool])).toEqual(['p0']);
+  await expect(teamSearch).toHaveValue('Player 01');
 });
 
 test('event subtabs place section starts below sticky navigation without vertical movement from horizontal reveal', async ({ page }) => {

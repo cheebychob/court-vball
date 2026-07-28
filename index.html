@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.8">
+<meta name="court-build" content="20260727.9">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -415,14 +415,22 @@
   .selection-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
   .selection-head b{font-size:12px;text-transform:uppercase;letter-spacing:.1em}
   .selection-panel.A .selection-head b{color:var(--teamA)}.selection-panel.B .selection-head b{color:var(--teamB)}
-  .selection-list{display:grid;gap:6px;max-height:400px;overflow:auto;overscroll-behavior:contain}
-  .selection-player{width:100%;min-height:42px;display:flex;align-items:center;gap:8px;text-align:left;padding:8px 9px;
+  .selection-list{display:grid;gap:6px}
+  .selection-panel.A .selection-list,.selection-panel.B .selection-list{display:flex;min-height:44px;overflow-x:auto;overflow-y:hidden;overscroll-behavior-x:contain;scrollbar-width:none}
+  .selection-panel.A .selection-list::-webkit-scrollbar,.selection-panel.B .selection-list::-webkit-scrollbar{display:none}
+  .selection-player{width:100%;min-height:44px;display:flex;align-items:center;gap:8px;text-align:left;padding:8px 9px;
     border-radius:12px;background:#ffffff08;border:1px solid #ffffff12;font-size:12.5px;font-weight:700}
+  .selection-panel.A .selection-player,.selection-panel.B .selection-player{width:auto;max-width:min(250px,78vw);flex:none}
+  .selection-panel.A .selection-empty,.selection-panel.B .selection-empty{min-width:100%}
   .selection-player span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .selection-player i{margin-left:auto;color:var(--soft);font-style:normal;font-size:11px}
-  .available-list .chip{width:100%;border-radius:12px;justify-content:flex-start;text-align:left}
+  .available-list .chip{width:100%;min-height:46px;border-radius:12px;justify-content:flex-start;text-align:left}
   .available-list .chip .r{margin-left:auto}
+  .track-pick-row{min-width:0}
+  .track-player-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .team-assignment-badge{width:25px;height:25px;flex:none;display:grid;place-items:center;border-radius:8px;border:1px solid currentColor;font-size:11px;font-weight:900}
   .selection-empty{padding:14px 8px;color:var(--soft);font-size:12px;text-align:center}
+  main.track-setup-screen{padding-bottom:calc(142px + var(--safe-bottom))}
   .setup-actions,.live-finish{position:sticky;z-index:24;bottom:calc(var(--mobile-nav-h) + var(--safe-bottom) + 8px);
     padding:8px;border-radius:19px;background:#090f1ae8;border:1px solid #ffffff20;box-shadow:0 14px 40px #0009;
     backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
@@ -450,7 +458,8 @@
   [id^="event-"]{scroll-margin-top:calc(var(--event-sticky-offset) + env(safe-area-inset-top))}
   .selector-meta{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:7px 2px 0}
   .selector-clear{border:0;background:none;color:var(--gold);font-size:12px;padding:4px 2px}
-  .attendance-screen{padding-bottom:calc(154px + env(safe-area-inset-bottom))}
+  .attendance-screen{padding-bottom:30px}
+  .attendance-screen.attendance-has-selection{padding-bottom:calc(154px + env(safe-area-inset-bottom))}
   .attendance-card{padding:0;overflow:visible}
   .attendance-top{padding:14px 14px 0}
   .attendance-last{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid #f2c66d45;border-radius:14px;background:#f2c66d10;color:var(--text);text-align:left}
@@ -470,16 +479,13 @@
   .attendance-crew-save{flex:none;min-height:43px;padding:7px 11px;border:1px dashed #f2c66d55;border-radius:13px;background:#f2c66d0b;color:var(--gold);font-size:11px;font-weight:750}
   .attendance-crews-empty{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 10px;border:1px dashed #ffffff1c;border-radius:13px;color:var(--soft);font-size:11px}
   .attendance-crews-empty button{min-height:38px}
-  .attendance-selected{margin-top:12px;padding:11px;border:1px solid #ffffff15;border-radius:15px;background:#080d182e}
-  .attendance-selected-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
-  .attendance-selected-head b{font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--muted)}
-  .attendance-selected-head span{font-size:11px;color:var(--soft)}
-  .attendance-selected-chips{display:flex;flex-wrap:wrap;gap:6px;max-height:88px;overflow:hidden}
-  .attendance-selected.expanded .attendance-selected-chips{max-height:210px;overflow:auto;overscroll-behavior:contain}
-  .attendance-selected-chip{min-height:36px;padding:7px 10px;border-radius:999px;border:1px solid #5fe3ae48;background:#5fe3ae12;color:var(--mint);font-size:12px;font-weight:750}
-  .attendance-selected-chip::after{content:" ×";color:var(--muted)}
-  .attendance-selected-chip.check-in::before{content:"✓";margin-right:5px;color:var(--cyan);font-weight:900}
-  .attendance-tray-toggle{border:0;background:none;color:var(--gold);font-size:11px;font-weight:750;padding:5px}
+  .attendance-selection-summary{display:flex;align-items:center;gap:8px;margin-top:12px;padding:10px 11px;border:1px solid #ffffff15;border-radius:15px;background:#080d182e}
+  .attendance-selection-summary b{min-width:0;flex:1;font-size:12.5px}
+  .attendance-selection-summary button{min-height:40px}
+  .attendance-review-list{display:grid;gap:7px;margin:12px 0}
+  .attendance-review-row{display:flex;align-items:center;gap:10px;min-height:48px;padding:8px 9px;border:1px solid #ffffff17;border-radius:13px;background:#ffffff08}
+  .attendance-review-row b{min-width:0;flex:1;overflow-wrap:anywhere;font-size:13px}
+  .attendance-review-row .btn{min-width:88px;min-height:44px}
   .check-in-status{margin-top:12px;padding:10px 11px;border:1px solid #74d7ff30;border-radius:14px;background:#74d7ff09}
   .check-in-status-main{display:flex;align-items:center;gap:9px}.check-in-status-copy{min-width:0;flex:1}
   .check-in-status-copy b,.check-in-status-copy span{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -504,8 +510,8 @@
   .attendance-scopes button{min-height:40px;padding:7px 5px;border-radius:12px;border:1px solid #ffffff17;background:#ffffff08;color:var(--muted);font-size:12px;font-weight:750}
   .attendance-scopes button.on{color:var(--gold);border-color:#f2c66d55;background:#f2c66d14}
   .attendance-options{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
-  .attendance-options .row{gap:6px}
-  .attendance-results{display:grid;gap:7px;max-height:min(48vh,470px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;padding:10px 14px 16px;scrollbar-gutter:stable}
+  .attendance-options .row{min-width:0;gap:6px;flex-wrap:wrap}
+  .attendance-results{display:grid;gap:7px;padding:10px 14px 16px}
   .attendance-player{width:100%;min-height:50px;border-radius:14px;justify-content:flex-start;text-align:left;padding:7px 10px}
   .attendance-player .avatar{width:34px;height:34px;border-radius:11px;font-size:11px}
   .attendance-player-copy{display:block;min-width:0}.attendance-player-copy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -529,19 +535,20 @@
   .attendance-empty{padding:18px 10px;text-align:center;color:var(--soft);font-size:12.5px;line-height:1.45}
   .attendance-notice{margin:10px 14px 0;padding:8px 10px;border-radius:11px;background:#74d7ff0d;border:1px solid #74d7ff2c;color:var(--muted);font-size:11px;line-height:1.4}
   .attendance-actions{position:fixed;z-index:35;left:12px;right:12px;bottom:calc(78px + env(safe-area-inset-bottom));max-width:740px;margin:0 auto;padding:9px;border:1px solid #ffffff24;border-radius:18px;background:#111a2cf2;box-shadow:0 14px 42px #000b;backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
-  .attendance-action-row{display:grid;grid-template-columns:auto minmax(72px,auto) minmax(150px,1fr);gap:7px;align-items:center}
+  .attendance-actions.empty{position:static;max-width:none;margin:0;padding:11px 13px;border-style:dashed;background:#ffffff06;box-shadow:none;backdrop-filter:none;-webkit-backdrop-filter:none}
+  .attendance-action-row{display:grid;grid-template-columns:minmax(72px,auto) minmax(150px,1fr);gap:7px;align-items:center}
   .attendance-count{text-align:center;color:var(--muted);font-size:11px;line-height:1.2}.attendance-count b{display:block;color:var(--text);font-size:14px}
+  .attendance-empty-action{color:var(--soft);font-size:12px;line-height:1.45;text-align:center}
   .attendance-undo{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:7px;padding:7px 9px;border-radius:11px;background:#74d7ff12;border:1px solid #74d7ff38;color:var(--muted);font-size:11px}
   .attendance-undo button{min-height:34px;padding:5px 10px}
   .attendance-validation{margin-top:6px;color:var(--gold);font-size:10.5px;text-align:center}
   @media (min-width:1060px){
     .attendance-actions{left:calc(var(--sidebar-w) + 20px);bottom:18px}
-    .attendance-screen{padding-bottom:130px}
+    .attendance-screen.attendance-has-selection{padding-bottom:130px}
   }
   @media (max-width:420px){
-    .attendance-action-row{grid-template-columns:auto 58px minmax(0,1fr)}
+    .attendance-action-row{grid-template-columns:58px minmax(0,1fr)}
     .attendance-actions .btn{padding-left:10px;padding-right:10px}
-    .attendance-results{max-height:43vh}
     .check-in-share{grid-template-columns:1fr}.check-in-qr{width:min(100%,240px);margin:0 auto}.check-in-review-summary{grid-template-columns:repeat(2,minmax(0,1fr))}.check-in-review-row{align-items:flex-start;flex-direction:column}.check-in-review-row-actions{width:100%;justify-content:flex-start}
   }
   /* Rotating standings (EUX-05): stacked, labeled rows on phones so nothing
@@ -785,6 +792,10 @@
     border:1px solid #74d7ff42;color:var(--cyan);font-weight:850;font-size:14px;
     transition:transform .1s ease;}
   .match-action:active{transform:scale(.97)}
+  .team-result-actions{display:grid;gap:8px;margin-top:11px}
+  .team-result-actions .btn{width:100%}
+  .team-result-note{margin-top:8px;color:var(--soft);font-size:11px;line-height:1.45;text-align:center}
+  .team-result-notice{margin-top:11px;padding:10px 12px;border:1px solid #f2c66d3b;border-radius:13px;background:#f2c66d0b;color:var(--muted);font-size:12px;line-height:1.45}
 
   /* ---------- games history ---------- */
   .history-row{display:flex;gap:11px;align-items:center;width:100%;text-align:left;padding:12px;
@@ -1137,6 +1148,10 @@
     .grab{display:none}
     .track-setup-grid{grid-template-columns:minmax(0,.8fr) minmax(300px,1.35fr) minmax(0,.8fr);align-items:start}
     .selection-panel.A{grid-column:1}.selection-panel.available{grid-column:2;grid-row:1}.selection-panel.B{grid-column:3;grid-row:1}
+    .selection-list,.selection-panel.A .selection-list,.selection-panel.B .selection-list{display:grid;min-height:0;max-height:400px;overflow:auto;overscroll-behavior:contain}
+    .selection-panel.A .selection-player,.selection-panel.B .selection-player{width:100%;max-width:none}
+    .attendance-results{max-height:min(48vh,470px);overflow:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;scrollbar-gutter:stable}
+    .team-result-actions{grid-template-columns:repeat(3,minmax(0,1fr))}
     .live-workspace{grid-template-columns:1fr 1fr;align-items:start}
     .event-overview{grid-template-columns:repeat(5,minmax(0,1fr))}
     .finale-grid{grid-template-columns:minmax(220px,1.15fr) minmax(230px,.9fr) minmax(210px,.9fr);align-items:center}
@@ -1197,6 +1212,13 @@
     .event-overview{grid-template-columns:repeat(2,minmax(0,1fr))}
     .registration-actions,.registration-settings-grid{grid-template-columns:1fr}
     .score-num{font-size:42px}
+    .attendance-selection-summary{flex-wrap:wrap}
+    .attendance-selection-summary b{flex-basis:100%}
+    .attendance-selection-summary .btn{flex:1}
+    .member{flex-wrap:wrap}
+    .member .nm{flex:1 1 150px}
+    .member .mv{min-height:44px;margin-left:auto}
+    .team-result-actions{grid-template-columns:1fr}
   }
 
   @media (prefers-reduced-motion:reduce){
@@ -1240,9 +1262,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.35.0',
-  build: '20260727.8',
-  releaseNotes: 'Events are grouped by date and lifecycle, with compact status and scheduled-match progress.'
+  version: '0.36.0',
+  build: '20260727.9',
+  releaseNotes: 'Teams and Track now use explicit mobile-first player selection, stable assignment taps, and real balanced shuffle alternatives.'
 });
 
 function appVersionLabel(){
@@ -2421,6 +2443,14 @@ function balance(pool, numTeams){
     if(i===numTeams){ i=numTeams-1; d=-1; }
     else if(i<0){ i=0; d=1; }
   });
+  improveTeamRatingBalance(teams);
+  spreadRole(teams,'setter');
+  spreadRole(teams,'passer');
+  spreadRole(teams,'beginner');
+  return teams;
+}
+function improveTeamRatingBalance(teams){
+  const numTeams=teams.length;
   // size-preserving swaps to minimise the gap between team AVERAGES
   const avg = t => t.length ? t.reduce((s,p)=>s+p.rating,0)/t.length : 0;
   for(let pass=0; pass<80; pass++){
@@ -2439,10 +2469,6 @@ function balance(pool, numTeams){
     teams[best.a]=teams[best.a].filter(p=>p!==best.pa).concat(best.pb);
     teams[best.b]=teams[best.b].filter(p=>p!==best.pb).concat(best.pa);
   }
-  spreadRole(teams,'setter');
-  spreadRole(teams,'passer');
-  spreadRole(teams,'beginner');
-  return teams;
 }
 // Even out how many players with a given role land on each team, swapping with
 // the closest-rating player who lacks the role so the rating balance barely moves.
@@ -2459,6 +2485,65 @@ function spreadRole(teams, key){
     teams[hi]=teams[hi].filter(p=>p!==give).concat(take);
     teams[lo]=teams[lo].filter(p=>p!==take).concat(give);
   }
+}
+function canonicalMatchupSignature(teams){
+  return (Array.isArray(teams)?teams:[]).map(team=>(Array.isArray(team)?team:[]).map(player=>String(player?.id??player)).sort().join(',')).sort().join('|');
+}
+function matchupBalanceQuality(teams){
+  const list=Array.isArray(teams)?teams:[],averages=list.map(team=>team.length?team.reduce((sum,player)=>sum+(Number(player.rating)||0),0)/team.length:0);
+  const roleDiffs={};
+  ['setter','passer','beginner'].forEach(role=>{
+    const counts=list.map(team=>team.filter(player=>!!player?.roles?.[role]).length);
+    roleDiffs[role]=counts.length?Math.max(...counts)-Math.min(...counts):0;
+  });
+  const sizes=list.map(team=>team.length);
+  return {
+    ratingGap:averages.length?Math.max(...averages)-Math.min(...averages):0,
+    roleDiffs,
+    rolePenalty:Object.values(roleDiffs).reduce((sum,value)=>sum+value,0),
+    sizeSpread:sizes.length?Math.max(...sizes)-Math.min(...sizes):0
+  };
+}
+function acceptableAlternateMatchup(candidate,baseline){
+  const quality=matchupBalanceQuality(candidate),base=baseline||quality;
+  const ratingLimit=base.ratingGap<=8?Math.min(8,base.ratingGap+2):base.ratingGap;
+  const rolesOk=Object.keys(base.roleDiffs).every(role=>quality.roleDiffs[role]<=Math.max(1,base.roleDiffs[role]));
+  return quality.sizeSpread===base.sizeSpread&&rolesOk&&quality.ratingGap<=ratingLimit+1e-9;
+}
+function randomizedBalancedTeams(pool,sizes,seed){
+  const ordered=seededShuffle(pool,seed),teams=[],copy=sizes.slice();
+  let cursor=0;
+  copy.forEach(size=>{teams.push(ordered.slice(cursor,cursor+size));cursor+=size;});
+  improveTeamRatingBalance(teams);
+  spreadRole(teams,'setter');
+  spreadRole(teams,'passer');
+  spreadRole(teams,'beginner');
+  return teams;
+}
+function alternateBalancedTeams(pool,numTeams,{currentTeams=null,excludedSignatures=[],seed='alternate'}={}){
+  if(!Array.isArray(pool)||pool.length<numTeams||numTeams<2)return null;
+  const baseline=balance(pool,numTeams),baseQuality=matchupBalanceQuality(baseline);
+  const excluded=new Set(excludedSignatures);
+  if(currentTeams)excluded.add(canonicalMatchupSignature(currentTeams));
+  const candidates=[],seen=new Set();
+  const consider=teams=>{
+    const signature=canonicalMatchupSignature(teams);
+    if(!signature||excluded.has(signature)||seen.has(signature)||!acceptableAlternateMatchup(teams,baseQuality))return;
+    seen.add(signature);candidates.push({teams:teams.map(team=>team.slice()),signature,quality:matchupBalanceQuality(teams)});
+  };
+  consider(baseline);
+  const swapSources=[baseline];
+  if(currentTeams&&canonicalMatchupSignature(currentTeams)!==canonicalMatchupSignature(baseline))swapSources.push(currentTeams);
+  swapSources.forEach(source=>{
+    for(let a=0;a<source.length;a++)for(let b=a+1;b<source.length;b++)for(const playerA of source[a])for(const playerB of source[b]){
+      const candidate=source.map(team=>team.slice()),indexA=candidate[a].indexOf(playerA),indexB=candidate[b].indexOf(playerB);
+      candidate[a][indexA]=playerB;candidate[b][indexB]=playerA;consider(candidate);
+    }
+  });
+  const sizes=baseline.map(team=>team.length);
+  for(let attempt=0;attempt<96;attempt++)consider(randomizedBalancedTeams(pool,sizes,`${seed}:${attempt}`));
+  candidates.sort((a,b)=>a.quality.ratingGap-b.quality.ratingGap||a.quality.rolePenalty-b.quality.rolePenalty||a.signature.localeCompare(b.signature));
+  return candidates[0]?.teams||null;
 }
 
 /* ============================================================
@@ -2691,7 +2776,7 @@ window.selectorQuery=(key,value)=>{
   if(root) root.querySelectorAll('[data-search-text]').forEach(row=>row.hidden=!!q&&!normalizeSearchText(row.dataset.searchText).includes(q));
   const count=root?[...root.querySelectorAll('[data-search-text]')].filter(row=>!row.hidden).length:0;
   const meta=root?.querySelector('[data-result-count]'); if(meta) meta.textContent=String(count);
-  if(key==='teams'){ const b=document.querySelector('[data-select-pool]'); if(b) b.textContent=q?'Select filtered':'Select all'; }
+  if(key==='teams'){ const b=document.querySelector('[data-select-pool]'); if(b) b.textContent='Select all shown'; }
 };
 window.clearSelectorQuery=(key)=>{
   const prop=SELECTOR_QUERY_MAP[key]; if(!prop) return; window[prop]='';
@@ -2771,6 +2856,17 @@ const MOBILE_NAV = NAV.slice(0,5);
 window.setTab=(t)=>{
   closeSheet();
   if(t!=='teams'&&tab==='teams')clearAttendanceTransientState();
+  if(t==='teams'){
+    clearAttendanceTransientState();
+    window._pool=new Set();
+    window._teams=null;
+  }
+  if(t==='track'&&tab!=='track'&&!live){
+    window._sel={A:new Set(),B:new Set()};
+    window._fmt=null;
+    window._soloPick=null;
+    window._evtPending=null;
+  }
   tab=t;
   if(t!=='teams') window._teams=null;
   if(t!=='events') window._evOpen=null;
@@ -2956,7 +3052,7 @@ function render(options={}){
   const position=policy==='preserve'?captureRenderPosition(options.focusKey):null;
   renderNav();
   if(tab!=='teams')document.querySelector('body > [data-attendance-actions]')?.remove();
-  main.classList.remove('event-detail','attendance-screen');
+  main.classList.remove('event-detail','attendance-screen','attendance-has-selection','track-setup-screen');
   delete main.dataset.eventViewMode; delete main.dataset.eventView;
   const roster = players.filter(p=>!isArchived(p));
   const act = roster.filter(p=>p.active);
@@ -3276,8 +3372,71 @@ function renderTrack(){
   `;
 }
 function renderTrackLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTrack(); restoreRenderPosition(pos); }
+function trackSetupState(){
+  const sel=window._sel||{A:new Set(),B:new Set()},fmt=positiveInt(window._fmt,null);
+  const unkA=fmt?Math.max(0,fmt-sel.A.size):0,unkB=fmt?Math.max(0,fmt-sel.B.size):0;
+  const partial=unkA+unkB>0,canStart=fmt?(sel.A.size+sel.B.size)>=1:(sel.A.size>0&&sel.B.size>0);
+  return {sel,fmt,unkA,unkB,partial,canStart};
+}
+function trackPlayerChoicePresentation(player,displayLabels,participation,state=trackSetupState()){
+  const inA=state.sel.A.has(player.id),inB=state.sel.B.has(player.id),team=inA?'A':inB?'B':'';
+  const color=inA?'var(--teamA)':inB?'var(--teamB)':'',name=displayLabels.get(player.id)||player.name;
+  return {
+    team,
+    className:`chip ${team?'on':''}`,
+    style:team?`border-color:${color};color:${color};background:${inA?'#6db4ff1c':'#ffb36e1c'}`:'',
+    ariaLabel:`${name}, ${team?`assigned to Team ${team}`:'not assigned'}. Tap to ${team==='A'?'move to Team B':team==='B'?'clear assignment':'assign to Team A'}.`,
+    html:`<span class="track-player-name">${esc(name)}</span><span class="r num">${esc(showPlayerRating(player,participation.get(String(player.id))))}</span>${team?`<span class="team-assignment-badge" aria-hidden="true">${team}</span>`:''}`
+  };
+}
+function trackPlayerChoiceHtml(player,displayLabels,participation,state){
+  const view=trackPlayerChoicePresentation(player,displayLabels,participation,state);
+  return `<button type="button" class="${view.className}" ${view.style?`style="${view.style}"`:''} data-track-player-id="${esc(player.id)}" data-focus-key="track-${esc(player.id)}" data-team="${view.team}" aria-pressed="${!!view.team}" aria-label="${esc(view.ariaLabel)}" onclick="cycleSel('${esc(player.id)}',this)">${view.html}</button>`;
+}
+function trackSelectedRowsHtml(set,side,displayLabels,fmt){
+  const rows=[...set].map(pById).filter(Boolean).map(player=>{
+    const name=displayLabels.get(player.id)||player.name;
+    return `<button type="button" class="selection-player" data-track-remove="${esc(player.id)}" onclick="clearTrackPlayer('${esc(player.id)}',this)" aria-label="Remove ${esc(name)} from Team ${side}"><span>${esc(name)}</span><i>Remove ×</i></button>`;
+  }).join('');
+  const open=fmt?Math.max(0,fmt-set.size):0;
+  return rows||`<div class="selection-empty">No tracked players yet${open?` · ${open} open slot${open===1?'':'s'}`:''}</div>`;
+}
+function trackSetupDynamicHtml(state=trackSetupState()){
+  const side=(label,n,u,set)=>`<span>${label}: <b>${n}</b>${u?` <span class="faint">+${u} untracked</span>`:''}${n?` · avg ${avgSel(set)}`:''}</span>`;
+  return `<div class="row small muted spread" style="padding:0 4px 10px">
+      ${side('A',state.sel.A.size,state.unkA,state.sel.A)}
+      ${side('B',state.sel.B.size,state.unkB,state.sel.B)}
+    </div>
+    ${(state.partial&&state.canStart)?`<div class="unkline" role="status"><b>${state.unkA+state.unkB} untracked slot${state.unkA+state.unkB===1?'':'s'}.</b> Open slots get no stat buttons and never join your roster. With part of the court untracked, the result moves ratings less; logged events do most of the work.</div>`:''}
+    ${(state.sel.A.size&&state.sel.B.size&&!settings.hideRatings)?(()=>{const wp=winProbability([...state.sel.A],[...state.sel.B]);return `<div class="card" style="text-align:center"><span class="small muted">Win chance${state.partial?' <span class="tiny faint">· tracked players only</span>':''}</span><div class="num" style="font-weight:850;margin-top:5px;font-size:18px"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> &nbsp; <span class="faint" style="font-weight:600">vs</span> &nbsp; <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></div></div>`;})():''}`;
+}
+function updateTrackSetupSelection(anchorElement){
+  const root=$('[data-track-setup]');if(!root){renderTrackLocal();return;}
+  const pageX=window.scrollX,pageY=window.scrollY,isRoster=anchorElement?.matches?.('[data-track-player-id]'),anchorTop=isRoster?anchorElement.getBoundingClientRect().top:null;
+  const act=sortPlayers(getSelectablePlayers({context:'gameEntry'})),participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(act),state=trackSetupState();
+  const listA=$('[data-track-selected="A"]'),listB=$('[data-track-selected="B"]');
+  if(listA)listA.innerHTML=trackSelectedRowsHtml(state.sel.A,'A',displayLabels,state.fmt);
+  if(listB)listB.innerHTML=trackSelectedRowsHtml(state.sel.B,'B',displayLabels,state.fmt);
+  const countA=$('[data-track-count="A"]'),countB=$('[data-track-count="B"]');
+  if(countA)countA.textContent=`${state.sel.A.size}${state.unkA?` + ${state.unkA} open`:''}`;
+  if(countB)countB.textContent=`${state.sel.B.size}${state.unkB?` + ${state.unkB} open`:''}`;
+  root.querySelectorAll('[data-track-player-id]').forEach(button=>{
+    const player=pById(button.dataset.trackPlayerId);if(!player)return;
+    const view=trackPlayerChoicePresentation(player,displayLabels,participation,state);
+    button.className=view.className;button.dataset.team=view.team;button.setAttribute('aria-pressed',String(!!view.team));button.setAttribute('aria-label',view.ariaLabel);
+    if(view.style)button.setAttribute('style',view.style);else button.removeAttribute('style');
+    button.innerHTML=view.html;
+  });
+  const dynamic=$('[data-track-dynamic]');if(dynamic)dynamic.innerHTML=trackSetupDynamicHtml(state);
+  const start=$('[data-track-start]'),quick=$('[data-track-quick]');
+  if(start)start.disabled=!state.canStart;if(quick)quick.disabled=!state.canStart;
+  if(isRoster&&anchorElement.isConnected&&Number.isFinite(anchorTop)){
+    const delta=anchorElement.getBoundingClientRect().top-anchorTop;if(Math.abs(delta)>.5)window.scrollBy(0,delta);
+  }else if(Math.abs(window.scrollY-pageY)>.5)window.scrollTo(pageX,pageY);
+}
 
 function renderTrackSetup(){
+  main.classList.remove('track-setup-screen');
   const act = sortPlayers(getSelectablePlayers({context:'gameEntry'}));
   const participation=buildPlayerParticipationIndex(players,games,evts),displayLabels=buildUniquePlayerDisplayLabels(act);
   const activeIds = new Set(act.map(p=>p.id));
@@ -3323,30 +3482,12 @@ function renderTrackSetup(){
     return;
   }
   if(!window._sel) window._sel = {A:new Set(), B:new Set()};
-  const sel = window._sel;
   if(window._fmt===undefined) window._fmt=null;
   if(window._fmt!=null) window._fmt=positiveInt(window._fmt,null);
-  const fmt = window._fmt;
+  const state=trackSetupState(),sel=state.sel,fmt=state.fmt;
   const fmtPresets = [2,3,4,6];
   const customFmt = fmt && !fmtPresets.includes(fmt) ? fmt : '';
-  const unkA = fmt ? Math.max(0, fmt - sel.A.size) : 0;
-  const unkB = fmt ? Math.max(0, fmt - sel.B.size) : 0;
-  const partial = (unkA+unkB)>0;
-  const canStart = fmt ? (sel.A.size+sel.B.size)>=1 : (sel.A.size>0 && sel.B.size>0);
-  function chip(p){
-    const inA=sel.A.has(p.id), inB=sel.B.has(p.id);
-    const state = inA?'A':inB?'B':'';
-    const bg = inA?'var(--teamA)':inB?'var(--teamB)':'';
-    return `<button class="chip ${state?'on':''}" style="${state?`border-color:${bg};color:${bg};background:${inA?'#6db4ff1c':'#ffb36e1c'}`:''}"
-      data-focus-key="track-${p.id}" onclick="cycleSel('${p.id}')">${esc(displayLabels.get(p.id))} <span class="r num">${esc(showPlayerRating(p,participation.get(String(p.id))))}</span>${state?` · ${state}`:''}</button>`;
-  }
-  const sideLine = (label, n, u, set) =>
-    `<span>${label}: <b>${n}</b>${u?` <span class="faint">+${u} untracked</span>`:''}${n?` · avg ${avgSel(set)}`:''}</span>`;
   if(window._trackQuery===undefined) window._trackQuery='';
-  const selectedRows=(set,side)=>{
-    const rows=[...set].map(pById).filter(Boolean).map(p=>`<button class="selection-player" onclick="clearTrackPlayer('${p.id}')" aria-label="Remove ${esc(displayLabels.get(p.id)||p.name)} from Team ${side}"><span>${esc(displayLabels.get(p.id)||p.name)}</span><i>remove ×</i></button>`).join('');
-    return rows || `<div class="selection-empty">No tracked players yet${fmt?` · ${fmt} open slot${fmt===1?'':'s'}`:''}</div>`;
-  };
   let evBanner='';
   if(window._evtPending){
     const pev=evById(window._evtPending.evId);
@@ -3362,49 +3503,47 @@ function renderTrackSetup(){
       </div>`;
     }
   }
+  main.classList.add('track-setup-screen');
   main.innerHTML = `
     ${screenHead('Track','Track a game')}
     ${modeRow}
     ${evBanner}
-    <div class="track-setup-grid">
-      <section class="selection-panel A" aria-label="Team A selections">
-        <div class="selection-head"><b>Team A</b><span class="pill">${sel.A.size}${unkA?` + ${unkA} open`:''}</span></div>
-        <div class="selection-list">${selectedRows(sel.A,'A')}</div>
-      </section>
-      <section class="selection-panel available" aria-label="Available players">
-        <div class="selection-head"><b>Available players</b><span class="tiny faint">tap: A → B → clear</span></div>
-        ${selectorSearch('track','Search available players',window._trackQuery,filterPlayersForQuery(act,window._trackQuery).length,act.length)}
-        <div class="selection-list available-list" data-selector="track" data-preserve-scroll="track-roster" style="margin-top:9px">${act.map(p=>`<div class="track-pick-row" data-scroll-key="player-${p.id}" data-search-text="${esc(playerSearchText(p))}" ${normalizeSearchText(window._trackQuery)&&!filterPlayersForQuery([p],window._trackQuery).length?'hidden':''}>${chip(p)}</div>`).join('')}</div>
-        ${!filterPlayersForQuery(act,window._trackQuery).length?`<div class="stat-empty">No active players match “${esc(window._trackQuery)}”.</div>`:''}
-      </section>
-      <section class="selection-panel B" aria-label="Team B selections">
-        <div class="selection-head"><b>Team B</b><span class="pill">${sel.B.size}${unkB?` + ${unkB} open`:''}</span></div>
-        <div class="selection-list">${selectedRows(sel.B,'B')}</div>
-      </section>
-    </div>
-    <div class="card">
-      <div class="row spread" style="margin-bottom:9px">
-        <span class="small muted" style="font-weight:700">Players per side</span>
-        <span class="tiny faint">${fmt?'open slots fill as untracked':'exactly who you tapped'}</span>
+    <div data-track-setup>
+      <div class="card">
+        <div class="row spread" style="margin-bottom:9px">
+          <span class="small muted" style="font-weight:700">Players per side</span>
+          <span class="tiny faint">${fmt?'open slots fill as untracked':'exactly who you tapped'}</span>
+        </div>
+        <div class="seg">
+          ${fmtPresets.map(n=>`<button class="${fmt===n?'on':''}" onclick="setFmt(${n})">${n}s</button>`).join('')}
+          <button class="${!fmt?'on':''}" onclick="setFmt(null)">Any</button>
+        </div>
+        <div class="custom-num">
+          <div><label for="fmtCustom">Custom</label><input id="fmtCustom" type="number" inputmode="numeric" min="1" placeholder="5" value="${esc(customFmt?String(customFmt):'')}" onkeydown="if(event.key==='Enter')setFmtCustom()"></div>
+          <button class="btn sm ghost" onclick="setFmtCustom()">Use</button>
+        </div>
       </div>
-      <div class="seg">
-        ${fmtPresets.map(n=>`<button class="${fmt===n?'on':''}" onclick="setFmt(${n})">${n}s</button>`).join('')}
-        <button class="${!fmt?'on':''}" onclick="setFmt(null)">Any</button>
+      <div class="track-setup-grid">
+        <section class="selection-panel A" aria-label="Team A selections">
+          <div class="selection-head"><b>Team A</b><span class="pill" data-track-count="A">${sel.A.size}${state.unkA?` + ${state.unkA} open`:''}</span></div>
+          <div class="selection-list" data-track-selected="A">${trackSelectedRowsHtml(sel.A,'A',displayLabels,fmt)}</div>
+        </section>
+        <section class="selection-panel B" aria-label="Team B selections">
+          <div class="selection-head"><b>Team B</b><span class="pill" data-track-count="B">${sel.B.size}${state.unkB?` + ${state.unkB} open`:''}</span></div>
+          <div class="selection-list" data-track-selected="B">${trackSelectedRowsHtml(sel.B,'B',displayLabels,fmt)}</div>
+        </section>
+        <section class="selection-panel available" data-selector="track" aria-label="Available players">
+          <div class="selection-head"><b>Available players</b><span class="tiny faint">Tap: A → B → clear</span></div>
+          ${selectorSearch('track','Search available players',window._trackQuery,filterPlayersForQuery(act,window._trackQuery).length,act.length)}
+          <div class="selection-list available-list" data-preserve-scroll="track-roster" style="margin-top:9px">${act.map(player=>`<div class="track-pick-row" data-scroll-key="player-${esc(player.id)}" data-search-text="${esc(playerSearchText(player))}" ${normalizeSearchText(window._trackQuery)&&!filterPlayersForQuery([player],window._trackQuery).length?'hidden':''}>${trackPlayerChoiceHtml(player,displayLabels,participation,state)}</div>`).join('')}</div>
+          ${!filterPlayersForQuery(act,window._trackQuery).length?`<div class="stat-empty">No active players match “${esc(window._trackQuery)}”.</div>`:''}
+        </section>
       </div>
-      <div class="custom-num">
-        <div><label for="fmtCustom">Custom</label><input id="fmtCustom" type="number" inputmode="numeric" min="1" placeholder="5" value="${esc(customFmt?String(customFmt):'')}" onkeydown="if(event.key==='Enter')setFmtCustom()"></div>
-        <button class="btn sm ghost" onclick="setFmtCustom()">Use</button>
+      <div data-track-dynamic>${trackSetupDynamicHtml(state)}</div>
+      <div class="setup-actions">
+        <button class="btn primary block" data-track-start onclick="startGame()" ${state.canStart?'':'disabled'}>Start tracking</button>
+        <button class="btn block" data-track-quick style="margin-top:8px" onclick="openQuickResult()" ${state.canStart?'':'disabled'}>Log final score only</button>
       </div>
-    </div>
-    <div class="row small muted spread" style="padding:0 4px 10px">
-      ${sideLine('A', sel.A.size, unkA, sel.A)}
-      ${sideLine('B', sel.B.size, unkB, sel.B)}
-    </div>
-    ${(partial&&canStart)?`<div class="unkline"><b>${unkA+unkB} untracked slot${unkA+unkB===1?'':'s'}.</b> Open slots get no stat buttons and never join your roster. With part of the court untracked, the result moves ratings less; logged events do most of the work.</div>`:''}
-    ${(sel.A.size&&sel.B.size&&!settings.hideRatings)?(()=>{const wp=winProbability([...sel.A],[...sel.B]);return `<div class="card" style="text-align:center"><span class="small muted">Win chance${partial?' <span class="tiny faint">· tracked players only</span>':''}</span><div class="num" style="font-weight:850;margin-top:5px;font-size:18px"><span style="color:var(--teamA)">A ${Math.round(wp*100)}%</span> &nbsp; <span class="faint" style="font-weight:600">vs</span> &nbsp; <span style="color:var(--teamB)">B ${Math.round((1-wp)*100)}%</span></div></div>`;})():''}
-    <div class="setup-actions">
-      <button class="btn primary block" onclick="startGame()" ${canStart?'':'disabled'}>Start tracking</button>
-      <button class="btn block" style="margin-top:8px" onclick="openQuickResult()" ${canStart?'':'disabled'}>Log final score only</button>
     </div>
   `;
 }
@@ -3416,7 +3555,7 @@ window.setFmtCustom=()=>{
 };
 window.setTrackMode=(m)=>{ window._trackMode=m; renderTrackLocal(); };
 window.pickSolo=(id)=>{ window._soloPick = (window._soloPick===id)?null:id; renderTrackLocal('solo-'+id); };
-window.clearTrackPlayer=(id)=>{ window._sel.A.delete(id); window._sel.B.delete(id); renderTrackLocal(); };
+window.clearTrackPlayer=(id,source)=>{ window._sel.A.delete(id); window._sel.B.delete(id); updateTrackSetupSelection(source); };
 window.filterTrackPlayers=(value)=>{
   window._trackQuery=value;
   const q=value.trim().toLowerCase();
@@ -3441,12 +3580,12 @@ function avgSel(set){
   let s=0,n=0; set.forEach(id=>{ const p=pById(id); if(p&&p.active&&!isArchived(p)){ s+=p.rating; n++; } });
   return n?showRate(s/n):'–';
 }
-window.cycleSel=(id)=>{
+window.cycleSel=(id,source)=>{
   const s=window._sel;
   if(s.A.has(id)){ s.A.delete(id); s.B.add(id); }
   else if(s.B.has(id)){ s.B.delete(id); }
   else s.A.add(id);
-  renderTrackLocal('track-'+id);
+  updateTrackSetupSelection(source);
 };
 function setupSlots(){
   const s=window._sel, fmt=positiveInt(window._fmt,null);
@@ -3633,7 +3772,7 @@ const PlayerCheckIn=(()=>{
     lastAttendanceSignature=signature;
     ids.forEach(id=>{if(eligible.has(id)&&!window._checkInSuppressed.has(id)&&!window._pool?.has(id)){window._pool.add(id);changed=true;}});
     if(changed){window._teams=null;if(tab==='teams')updateAttendancePickerUI({preserveAnchor:true});}
-    else if(tab==='teams'&&checkInStateChanged){const tray=document.querySelector('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(window._attendanceContext||attendanceContext());replaceStatus();}
+    else if(tab==='teams'&&checkInStateChanged){const summary=document.querySelector('[data-attendance-summary]');if(summary)summary.outerHTML=attendanceSelectionSummaryHtml(window._attendanceContext||attendanceContext());replaceStatus();}
     return changed;
   }
   function checkInSessionEnded(){return !session||session.status==='closed'||session.status==='expired'||Number(session.expiresAt)<=Date.now();}
@@ -3944,15 +4083,33 @@ function attendanceCrewsHtml(){
     </div>
   </section>`;
 }
-function attendanceSelectedTrayHtml(context){
+function attendanceSelectionSummaryHtml(context){
   const selected=context.all.filter(player=>window._pool?.has(player.id)).sort((a,b)=>attendancePlayerComparator(a,b,{...context,sort:'az'}));
-  const expanded=!!window._attendanceTrayExpanded,showToggle=selected.length>6;
-  return `<div class="attendance-selected ${expanded?'expanded':''}" data-attendance-tray>
-    <div class="attendance-selected-head"><b>Selected</b><span data-attendance-live aria-live="polite">${selected.length} player${selected.length===1?'':'s'}</span></div>
-    ${selected.length?`<div class="attendance-selected-chips">${selected.map(player=>`<button type="button" class="attendance-selected-chip ${PlayerCheckIn.isCheckedIn(player.id)?'check-in':''}" aria-label="Remove ${esc(context.displayLabels.get(player.id))} from attendance${PlayerCheckIn.isCheckedIn(player.id)?', public check-in':''}" onclick="removeAttendancePlayer('${esc(player.id)}')">${esc(context.displayLabels.get(player.id))}</button>`).join('')}</div>`:'<div class="tiny faint">No players selected yet.</div>'}
-    ${showToggle?`<button type="button" class="attendance-tray-toggle" aria-expanded="${expanded}" onclick="toggleAttendanceTray()">${expanded?'Collapse':`Show all ${selected.length}`}</button>`:''}
+  return `<div class="attendance-selection-summary" data-attendance-summary>
+    <b data-attendance-live aria-live="polite">${selected.length} player${selected.length===1?'':'s'} selected</b>
+    <button type="button" class="btn sm ghost" onclick="openAttendanceReview()" ${selected.length?'':'disabled'}>Review</button>
+    ${selected.length?'<button type="button" class="btn sm ghost" onclick="clearPool()">Clear</button>':''}
   </div>`;
 }
+function attendanceReviewHtml(){
+  const context=window._attendanceContext||attendanceContext();
+  const selected=context.all.filter(player=>window._pool?.has(player.id)).sort((a,b)=>attendancePlayerComparator(a,b,{...context,sort:'az'}));
+  return `<h3>Review selected players</h3>
+    <p class="small muted" style="margin:-8px 0 12px">${selected.length} player${selected.length===1?'':'s'} selected. Remove anyone who is not playing before building teams.</p>
+    <div class="attendance-review-list" data-attendance-review-list>
+      ${selected.map(player=>`<div class="attendance-review-row" data-review-player="${esc(player.id)}">${playerAvatarHtml(player,{size:'sm'})}<b>${esc(context.displayLabels.get(player.id))}</b><button type="button" class="btn sm ghost" data-focus-key="review-${esc(player.id)}" aria-label="Remove ${esc(context.displayLabels.get(player.id))} from selected players" onclick="reviewAttendanceRemove('${esc(player.id)}')">Remove</button></div>`).join('')||'<div class="empty"><b>No players selected</b>Return to the roster and choose who is playing.</div>'}
+    </div>
+    ${selected.length?'<button type="button" class="btn danger block" onclick="clearPoolFromReview()">Clear selection</button>':''}
+    ${sheetCloseBtn('Back to player list')}`;
+}
+window.openAttendanceReview=()=>openSheet(attendanceReviewHtml(),{className:'attendance-review-sheet',focus:'[data-focus-key^="review-"]'});
+window.reviewAttendanceRemove=id=>{
+  if(!window._pool?.has(id))return;
+  dismissAttendanceUndo();window._pool.delete(id);if(PlayerCheckIn.isCheckedIn(id))PlayerCheckIn.suppress(id);window._teams=null;
+  updateAttendancePickerUI({preserveAnchor:true});
+  openSheet(attendanceReviewHtml(),{className:'attendance-review-sheet'});
+};
+window.clearPoolFromReview=()=>{closeSheet(true);clearPool();};
 function attendanceResultRows(context){
   const query=normalizeSearchText(window._teamQuery);
   if(query)return rankAttendanceSearch(query,context.all,context).map(item=>({...item,search:true}));
@@ -3982,8 +4139,8 @@ function attendanceActionHtml(){
   const count=window._pool?.size||0,canGenerate=count>=settings.numTeams;
   const validation=canGenerate?'':`Pick at least ${settings.numTeams} players to make ${settings.numTeams} non-empty teams.`;
   const undo=window._attendanceUndo&&window._attendanceUndo.expiresAt>Date.now()?`<div class="attendance-undo" role="status"><span>Attendance cleared.</span><button type="button" class="btn sm ghost" onclick="undoClearPool()">Undo</button></div>`:'';
+  if(!count)return `${undo}<div class="attendance-empty-action">Choose at least ${settings.numTeams} players. Build teams appears here once a valid group is selected.</div>`;
   return `${undo}<div class="attendance-action-row">
-    <button type="button" class="btn sm ghost" onclick="clearPool()">Clear all</button>
     <div class="attendance-count"><b>${count}</b>selected</div>
     <button type="button" class="btn primary" onclick="genTeams()" ${canGenerate?'':'disabled'}>${icons.bolt} Build teams · ${count}</button>
   </div>${validation?`<div class="attendance-validation">${esc(validation)}</div>`:''}`;
@@ -3995,23 +4152,32 @@ function updateAttendancePickerUI({preserveResults=true,preserveAnchor=false}={}
   const pageX=window.scrollX,pageY=window.scrollY,context=window._attendanceContext||attendanceContext(),results=$('[data-attendance-results]'),oldTop=results?.scrollTop||0;
   const anchor=$('[data-focus-key="search-teams"]'),anchorTop=preserveAnchor?anchor?.getBoundingClientRect().top:null;
   const crews=$('[data-attendance-crews]');if(crews)crews.outerHTML=attendanceCrewsHtml();
-  const tray=$('[data-attendance-tray]');if(tray)tray.outerHTML=attendanceSelectedTrayHtml(context);
+  const summary=$('[data-attendance-summary]');if(summary)summary.outerHTML=attendanceSelectionSummaryHtml(context);
   if(results){results.innerHTML=attendanceResultsHtml(context);if(preserveResults)results.scrollTop=oldTop;}
   const actions=$('[data-attendance-actions]');if(actions)actions.innerHTML=attendanceActionHtml();
-  const select=$('[data-select-pool]');if(select)select.textContent=normalizeSearchText(window._teamQuery)?'Select filtered':'Select all';
+  const select=$('[data-select-pool]');if(select)select.textContent='Select all shown';
   const meta=$('[data-attendance-result-count]');if(meta)meta.textContent=String(attendanceResultRows(context).length);
   const topCount=$('[data-attendance-top-count]');if(topCount)topCount.textContent=`${window._pool.size} selected`;
   const hide=$('[data-attendance-hide-selected]');if(hide){hide.classList.toggle('on',!!window._attendanceHideSelected);hide.setAttribute('aria-pressed',String(!!window._attendanceHideSelected));}
+  syncAttendanceActionDock();
   window.PlayerPhotos?.hydrate(main);
   if(preserveAnchor&&Number.isFinite(anchorTop))requestAnimationFrame(()=>{const next=$('[data-focus-key="search-teams"]');if(next)window.scrollBy(0,next.getBoundingClientRect().top-anchorTop);});
   else{window.scrollTo(pageX,pageY);requestAnimationFrame(()=>window.scrollTo(pageX,pageY));}
+}
+function syncAttendanceActionDock(){
+  const actions=$('[data-attendance-actions]'),slot=$('[data-attendance-action-slot]'),count=window._pool?.size||0;
+  if(!actions)return;
+  actions.classList.toggle('empty',!count);
+  main.classList.toggle('attendance-has-selection',!!count);
+  if(count&&actions.parentElement!==document.body)document.body.appendChild(actions);
+  else if(!count&&slot&&actions.parentElement!==slot)slot.appendChild(actions);
 }
 function dismissAttendanceUndo(){
   if(window._attendanceUndoTimer)clearTimeout(window._attendanceUndoTimer);
   window._attendanceUndoTimer=null;window._attendanceUndo=null;
 }
 function clearAttendanceTransientState(){
-  dismissAttendanceUndo();window._teamQuery='';window._attendanceTrayExpanded=false;window._attendanceCrewsExpanded=false;window._attendanceHideSelected=false;window._attendanceContext=null;window._attendanceNotice='';
+  dismissAttendanceUndo();window._teamQuery='';window._attendanceCrewsExpanded=false;window._attendanceHideSelected=false;window._attendanceContext=null;window._attendanceNotice='';
 }
 function renderTeams(){
   document.querySelector('body > [data-attendance-actions]')?.remove();
@@ -4020,11 +4186,12 @@ function renderTeams(){
   settings.numTeams = positiveInt(settings.numTeams, DEFAULT_SETTINGS.numTeams);
   if(!['regulars','recent','all'].includes(settings.attendanceScope))settings.attendanceScope='regulars';
   if(!['recent','az'].includes(settings.attendanceSort))settings.attendanceSort='recent';
-  if(!window._pool) window._pool = new Set(activeIds);
+  if(!window._pool) window._pool = new Set();
   else{
     const removed=[...window._pool].filter(id=>!activeIds.has(id));
     window._pool = new Set([...window._pool].filter(id=>activeIds.has(id)));
     window._poolEligibilityNotice=removed.length?`${removed.length} previously selected player${removed.length===1?' was':'s were'} removed because they are inactive or unavailable for pickup attendance.`:'';
+    if(removed.length)window._teams=null;
   }
   const pool = window._pool;
   window._attendanceContext=context;
@@ -4040,14 +4207,16 @@ function renderTeams(){
     main.innerHTML = html; return;
   }
   main.classList.add('attendance-screen');
-  html += `
+  main.classList.toggle('attendance-has-selection',pool.size>0&&!window._teams);
+  if(!window._teams){
+    html += `
     <div class="card attendance-card" data-selector="teams">
       <div class="attendance-top">
         <div class="row spread"><span class="small muted" style="font-weight:800">Who\u2019s here today?</span><span class="tiny faint" data-attendance-top-count>${pool.size} selected</span></div>
         ${previousUseful?`<button type="button" class="attendance-last" style="margin-top:10px" onclick="usePreviousAttendance()"><b>Use last session · ${previous.playerIds.length} player${previous.playerIds.length===1?'':'s'}</b><span>${esc(formatEventDate(previous.date,{month:'short',day:'numeric'})||previous.date)} ›</span></button>`:''}
         ${checkInStatusHtml()}
         ${attendanceCrewsHtml()}
-        ${attendanceSelectedTrayHtml(context)}
+        ${attendanceSelectionSummaryHtml(context)}
       </div>
       ${window._poolEligibilityNotice?`<div class="attendance-notice unkline" role="status">${esc(window._poolEligibilityNotice)}</div>`:''}
       ${window._attendanceNotice?`<div class="attendance-notice" role="status">${esc(window._attendanceNotice)}</div>`:''}
@@ -4056,7 +4225,7 @@ function renderTeams(){
         <div class="attendance-scopes" role="group" aria-label="Attendance player view">
           ${[['regulars','Regulars',context.regulars.length],['recent','Recent',context.recent.length],['all','All',context.all.length]].map(([key,label,count])=>`<button type="button" class="${settings.attendanceScope===key?'on':''}" aria-pressed="${settings.attendanceScope===key}" onclick="setAttendanceScope('${key}')">${label} ${count}</button>`).join('')}
         </div>
-        <div class="attendance-options"><span class="tiny faint"><span data-attendance-result-count>${attendanceResultRows(context).length}</span> shown</span><span class="row"><button type="button" class="btn sm ghost ${window._attendanceHideSelected?'on':''}" data-attendance-hide-selected aria-pressed="${!!window._attendanceHideSelected}" onclick="toggleAttendanceHideSelected()">Hide selected</button><button type="button" class="btn sm ghost" onclick="toggleAttendanceSort()">${settings.attendanceSort==='az'?'A–Z':'Recent first'}</button><button type="button" class="btn sm ghost" data-select-pool onclick="selectPoolAll()">${normalizeSearchText(window._teamQuery)?'Select filtered':'Select all'}</button></span></div>
+        <div class="attendance-options"><span class="tiny faint"><span data-attendance-result-count>${attendanceResultRows(context).length}</span> shown</span><span class="row"><button type="button" class="btn sm ghost ${window._attendanceHideSelected?'on':''}" data-attendance-hide-selected aria-pressed="${!!window._attendanceHideSelected}" onclick="toggleAttendanceHideSelected()">Hide selected</button><button type="button" class="btn sm ghost" onclick="toggleAttendanceSort()">${settings.attendanceSort==='az'?'A–Z':'Recent first'}</button><button type="button" class="btn sm ghost" data-select-pool onclick="selectPoolAll()">Select all shown</button></span></div>
       </div>
       ${context.regularsFallback&&settings.attendanceScope==='regulars'?'<div class="attendance-notice">No one meets the Regulars rule yet, so All eligible players are shown.</div>':''}
       <div class="attendance-results" id="teamPool" data-attendance-results data-preserve-scroll="attendance-roster">${attendanceResultsHtml(context)}</div>
@@ -4070,7 +4239,9 @@ function renderTeams(){
         <div><label for="teamCustom">Custom</label><input id="teamCustom" type="number" inputmode="numeric" min="1" placeholder="7" value="${esc(customTeams?String(customTeams):'')}" onkeydown="if(event.key==='Enter')setTeamsCustom()"></div>
         <button class="btn sm ghost" onclick="setTeamsCustom()">Use</button>
       </div>
-    </div>`;
+    </div>
+    <div data-attendance-action-slot><div class="attendance-actions ${pool.size?'':'empty'}" data-attendance-actions>${attendanceActionHtml()}</div></div>`;
+  }
 
   if(window._teams){
     html += `<div class="section-head"><h3>Balanced teams</h3><span>move any player to a specific team</span></div><div class="team-results">`;
@@ -4108,28 +4279,29 @@ function renderTeams(){
     }
     html += `<div class="card row spread"><span class="small muted">Avg rating gap between teams</span>
       <span class="num" style="font-weight:850;font-size:17px;color:${spread<=4?'var(--mint)':spread<=9?'var(--gold)':'var(--coral)'}">${settings.hideRatings?'••':spread}</span></div>`;
-    if(window._teams.length===2){
-      html += `<button class="match-action" onclick="trackTheseTeams()">Track this matchup ▸</button>`;
-    }
-    html += `<button class="btn ghost block" style="margin-top:9px" onclick="genTeams()">Shuffle again</button>`;
+    if(window._teamShuffleNotice)html += `<div class="team-result-notice" role="status">${esc(window._teamShuffleNotice)}</div>`;
+    html += `<div class="team-result-actions">
+      ${window._teams.length===2?'<button class="btn primary" onclick="trackTheseTeams()">Track matchup</button>':''}
+      <button class="btn ghost" onclick="shuffleTeams()">Shuffle teams</button>
+      <button class="btn ghost" onclick="changeTeamPlayers()">Change players</button>
+    </div>
+    <div class="team-result-note">Shuffle uses the same selected players and resets manual moves while keeping Court\u2019s balance and role checks.</div>`;
   }
-  html += `<div class="attendance-actions" data-attendance-actions>${attendanceActionHtml()}</div>`;
   main.innerHTML = html;
-  const attendanceActions=main.querySelector('[data-attendance-actions]');if(attendanceActions)document.body.appendChild(attendanceActions);
+  syncAttendanceActionDock();
   window.PlayerPhotos?.hydrate(main);
   if(PlayerCheckIn.configured()&&!PlayerCheckIn.session)void PlayerCheckIn.discover({silent:true});
 }
 function renderTeamsLocal(focusKey){ const pos=captureRenderPosition(focusKey); renderTeams(); restoreRenderPosition(pos); }
 window.togglePool=(id)=>{
-  const adding=!window._pool.has(id),fromSearch=!!normalizeSearchText(window._teamQuery);
+  const adding=!window._pool.has(id);
   dismissAttendanceUndo();if(adding){window._pool.add(id);PlayerCheckIn.unsuppress(id);}else{window._pool.delete(id);if(PlayerCheckIn.isCheckedIn(id))PlayerCheckIn.suppress(id);}window._teams=null;
-  if(adding&&fromSearch){window._teamQuery='';const input=$('[data-focus-key="search-teams"]');if(input)input.value='';updateAttendancePickerUI({preserveResults:false});focusWithoutScroll(input);}
-  else updateAttendancePickerUI();
+  updateAttendancePickerUI();
 };
 window.removeAttendancePlayer=id=>{if(!window._pool?.has(id))return;dismissAttendanceUndo();window._pool.delete(id);if(PlayerCheckIn.isCheckedIn(id))PlayerCheckIn.suppress(id);window._teams=null;updateAttendancePickerUI({preserveAnchor:true});};
 window.selectPoolAll=()=>{
-  dismissAttendanceUndo();const context=window._attendanceContext||attendanceContext(),query=normalizeSearchText(window._teamQuery);
-  const shown=query?rankAttendanceSearch(query,context.all,context).map(row=>row.player):context.all;
+  dismissAttendanceUndo();const context=window._attendanceContext||attendanceContext();
+  const shown=attendanceResultRows(context).map(row=>row.player);
   shown.forEach(player=>PlayerCheckIn.unsuppress(player.id));window._pool=new Set([...window._pool,...shown.map(player=>player.id)]);window._teams=null;updateAttendancePickerUI();
 };
 window.clearPool=()=>{
@@ -4348,8 +4520,40 @@ window.genTeams=async()=>{
   if(pool.length<settings.numTeams){ toast('Pick enough players for non-empty teams'); return; }
   window._teams=balance(pool, settings.numTeams);
   if(window._teams.some(t=>!t.length)){ window._teams=null; toast('Every generated team needs a player'); return; }
+  window._teamShuffleRevision=0;
+  window._teamShuffleSeen=new Set([canonicalMatchupSignature(window._teams)]);
+  window._teamShuffleNotice='';
+  window._teamsManuallyAdjusted=false;
   await saveAttendanceSnapshot(pool.map(player=>player.id));
+  render({scroll:'top'});
+};
+window.shuffleTeams=()=>{
+  if(!window._teams)return;
+  const pool=getSelectablePlayers({context:'pickupAttendance'}).filter(player=>window._pool.has(player.id));
+  const currentSignature=canonicalMatchupSignature(window._teams);
+  if(!(window._teamShuffleSeen instanceof Set))window._teamShuffleSeen=new Set();
+  window._teamShuffleSeen.add(currentSignature);
+  window._teamShuffleRevision=(window._teamShuffleRevision||0)+1;
+  const alternate=alternateBalancedTeams(pool,settings.numTeams,{
+    currentTeams:window._teams,
+    excludedSignatures:[...window._teamShuffleSeen],
+    seed:`${pool.map(player=>player.id).sort().join('|')}:${window._teamShuffleRevision}`
+  });
+  if(!alternate){
+    window._teamShuffleNotice='No different balanced lineup was available for this player group.';
+    renderTeamsLocal();
+    return false;
+  }
+  window._teams=alternate;
+  window._teamShuffleSeen.add(canonicalMatchupSignature(alternate));
+  window._teamShuffleNotice='';
+  window._teamsManuallyAdjusted=false;
   renderTeamsLocal();
+  return true;
+};
+window.changeTeamPlayers=()=>{
+  window._teams=null;window._teamShuffleNotice='';window._teamsManuallyAdjusted=false;
+  render({scroll:'top'});
 };
 window.movePlayer=(id, from)=>{
   const n=window._teams.length;
@@ -4357,6 +4561,7 @@ window.movePlayer=(id, from)=>{
   const p=window._teams[from].find(x=>x.id===id);
   window._teams[from]=window._teams[from].filter(x=>x.id!==id);
   window._teams[to].push(p);
+  window._teamsManuallyAdjusted=true;
   renderTeamsLocal();
 };
 window.openMovePlayer=(id,from)=>{
@@ -4366,12 +4571,13 @@ window.openMovePlayer=(id,from)=>{
 };
 window.movePlayerTo=(id,from,to)=>{
   const p=window._teams?.[from]?.find(x=>x.id===id); if(!p||from===to) return;
-  window._teams[from]=window._teams[from].filter(x=>x.id!==id); window._teams[to].push(p); closeSheet(); renderTeamsLocal();
+  window._teams[from]=window._teams[from].filter(x=>x.id!==id); window._teams[to].push(p);window._teamsManuallyAdjusted=true;closeSheet(); renderTeamsLocal();
 };
 window.trackTheseTeams=()=>{
   window._sel={A:new Set(window._teams[0].map(p=>p.id)), B:new Set(window._teams[1].map(p=>p.id))};
   window._fmt=null;   // generated teams are fully tracked — no autofill needed
-  tab='track'; render();
+  window._trackMode='match';window._soloPick=null;window._evtPending=null;
+  tab='track'; render({scroll:'top'});
 };
 
 /* ---------- GAMES ---------- */
@@ -9702,16 +9908,17 @@ async function runSelfTest(){
     document.querySelector('.scrim [data-action="cancel"]').click();
     ck('Confirm Cancel dismisses the dialog', !document.querySelector('.scrim [data-action="cancel"]'));
 
-    /* ---- Teams tab: explicit Select all / Clear all controls ---- */
+    /* ---- Teams tab: explicit Select all shown / Clear controls ---- */
     const snapPool=window._pool, snapGen=window._teams;
     const actIds=players.filter(p=>p.active&&!isArchived(p)).map(p=>p.id);
     window._pool=new Set([actIds[0]]);
     window._attendanceContext=null;renderTeams();
+    const shownAttendanceIds=attendanceResultRows(window._attendanceContext).map(row=>row.player.id);
     selectPoolAll();
-    ck('Select all selects every active player', window._pool.size===actIds.length && actIds.every(id=>window._pool.has(id)));
+    ck('Select all shown selects the visible eligible players', shownAttendanceIds.every(id=>window._pool.has(id)));
+    ck('Attendance controls have explicit labels', $('#main').textContent.includes('Select all shown') && $('#main').textContent.includes('Clear'));
     clearPool();
-    ck('Clear all deselects everyone', window._pool.size===0);
-    ck('Attendance controls have explicit labels', $('#main').textContent.includes('Select all') && document.body.textContent.includes('Clear all'));
+    ck('Clear deselects everyone', window._pool.size===0);
     dismissAttendanceUndo();window._attendanceContext=null;window._pool=snapPool; window._teams=snapGen;
 
     /* ---- team schedule view ---- */

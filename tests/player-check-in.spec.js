@@ -151,10 +151,11 @@ test('known and late check-ins merge additively, manual removal suppresses re-ad
     displayName: 'Alpha', freeTextName: null, status: 'checked-in', disposition: null, createdAt: 1, updatedAt: 1
   }];
   await page.goto('/');
-  await page.evaluate(() => { window._pool = new Set(['c']); });
   await page.locator('[data-tab="teams"]:visible').first().click();
-  await expect.poll(() => page.evaluate(() => [...window._pool].sort())).toEqual(['a', 'c']);
-  await expect(page.locator('.attendance-selected-chip.check-in')).toContainText('Alpha');
+  await expect.poll(() => page.evaluate(() => [...window._pool].sort())).toEqual(['a']);
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByRole('button', { name: 'Remove Alpha from selected players', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Back to player list', exact: true }).click();
   expect(await page.evaluate(() => attendanceSessions)).toEqual([]);
 
   state.checkIns.push({
@@ -162,12 +163,14 @@ test('known and late check-ins merge additively, manual removal suppresses re-ad
     displayName: 'Bravo', freeTextName: null, status: 'checked-in', disposition: null, createdAt: 2, updatedAt: 2
   });
   await page.evaluate(() => PlayerCheckIn.refresh());
-  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['a', 'b', 'c']);
+  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['a', 'b']);
 
-  await page.getByRole('button', { name: /Remove Alpha from attendance, public check-in/ }).click();
-  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b', 'c']);
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove Alpha from selected players', exact: true }).click();
+  await page.getByRole('button', { name: 'Back to player list', exact: true }).click();
+  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b']);
   await page.evaluate(() => PlayerCheckIn.refresh());
-  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b', 'c']);
+  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b']);
 
   state.checkIns.push({
     id: 'U'.repeat(22), kind: 'unknown', publicPlayerId: null, playerId: null,
@@ -176,12 +179,12 @@ test('known and late check-ins merge additively, manual removal suppresses re-ad
   await page.evaluate(() => PlayerCheckIn.refresh());
   await page.getByRole('button', { name: 'View', exact: true }).click();
   await expect(page.getByText('Jon from work')).toBeVisible();
-  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b', 'c']);
+  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b']);
   await page.getByRole('button', { name: 'Match', exact: true }).click();
   await page.getByRole('searchbox', { name: 'Search private roster for pending check-in' }).fill('Bee');
   await page.getByRole('button', { name: /Bravo · alias Bee/ }).click();
   await page.getByRole('button', { name: 'Match player', exact: true }).click();
-  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b', 'c']);
+  expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['b']);
   expect(await page.evaluate(() => attendanceSessions)).toEqual([]);
 });
 

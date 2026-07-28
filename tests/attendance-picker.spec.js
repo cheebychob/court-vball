@@ -258,34 +258,34 @@ test('search ranks primary and alias matches, Enter selects the first unselected
 
   await search.press('Enter');
   await expect(search).toBeFocused();
-  await expect(search).toHaveValue('');
+  await expect(search).toHaveValue('Abdi');
   expect(await page.evaluate(() => [...window._pool])).toEqual(['exact-primary']);
 
-  await search.fill('Abdi');
   await search.press('Enter');
   expect(await page.evaluate(() => [...window._pool].sort())).toEqual(['exact-alias', 'exact-primary']);
-  await search.fill('Abdi');
   await page.locator('[data-player-choice="exact-primary"]').click();
   expect(await page.evaluate(() => [...window._pool])).toEqual(['exact-alias']);
 });
 
-test('selected tray, Hide selected, Clear Undo, ratings omission, and sticky actions share canonical selection', async ({ page }) => {
+test('selection summary, Review, Hide selected, Clear Undo, ratings omission, and sticky actions share canonical selection', async ({ page }) => {
   await seed(page, { players: [player('a', 'Alpha', { rating: 88 }), player('b', 'Bravo', { rating: 22 }), player('c', 'Charlie')] });
   await openTeams(page);
   await page.evaluate(() => { window._pool = new Set(['a', 'b']); renderTeams(); });
 
-  await expect(page.locator('[data-attendance-tray]')).toContainText('2 players');
+  await expect(page.locator('[data-attendance-summary]')).toContainText('2 players selected');
   await expect(page.locator('[data-attendance-actions]')).toContainText('Build teams · 2');
   await expect(page.locator('[data-selector="teams"]')).not.toContainText('88');
   await expect(page.locator('[data-selector="teams"]')).not.toContainText('Unrated');
 
   await page.getByRole('button', { name: 'Hide selected', exact: true }).click();
   await expect(page.locator('[data-attendance-results] [data-player-choice="a"]')).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Remove Alpha from attendance' })).toBeVisible();
-  await page.getByRole('button', { name: 'Remove Alpha from attendance' }).click();
+  await page.getByRole('button', { name: 'Review', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Review selected players', exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Remove Alpha from selected players', exact: true }).click();
   expect(await page.evaluate(() => [...window._pool])).toEqual(['b']);
+  await page.getByRole('button', { name: 'Back to player list', exact: true }).click();
 
-  await page.getByRole('button', { name: 'Clear all', exact: true }).click();
+  await page.getByRole('button', { name: 'Clear', exact: true }).click();
   expect(await page.evaluate(() => [...window._pool])).toEqual([]);
   await expect(page.getByRole('button', { name: 'Undo', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Undo', exact: true }).click();
@@ -328,8 +328,6 @@ test('mobile selection and search preserve the attendance scroller, page positio
     window._pool = new Set();
     settings.attendanceScope = 'all';
     renderTeams();
-    const list = document.querySelector('[data-attendance-results]');
-    list.scrollTop = 500;
     window.scrollTo(0, 120);
   });
   const before = await page.evaluate(() => ({
@@ -348,7 +346,7 @@ test('mobile selection and search preserve the attendance scroller, page positio
   await search.fill('Player 55');
   await search.press('Enter');
   await expect(search).toBeFocused();
-  await expect(search).toHaveValue('');
+  await expect(search).toHaveValue('Player 55');
   const geometry = await page.evaluate(() => {
     const footer = document.querySelector('[data-attendance-actions]').getBoundingClientRect();
     return { footerBottom: footer.bottom, viewport: innerHeight, widthOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth };
