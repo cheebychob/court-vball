@@ -59,12 +59,11 @@ rating, scheduling, synchronization, registration, or persistence behavior.
 **Expected branch:** `feat/events-list-lifecycle-groups`
 **Next item after completion:** Core event UI roadmap complete
 
-EUX-09 is implemented and verified on `feat/public-bracket-layout`. Its focused
-and full applicable test suites pass, and fixed-team, rotating, mobile,
-desktop, and print layouts were checked. Its pull request and merge commit stay
-`Pending` until those values exist.
-
-EUX-10 is now `Ready`. No EUX-10 implementation work has begun.
+EUX-10 is implemented and verified on `feat/events-list-lifecycle-groups`.
+Its focused and full applicable test suites pass, and fixed-team, rotating,
+mobile, and desktop layouts were checked. It remains `In Progress` until a pull
+request is created and merged; those fields stay `Pending`. There is no later
+core event UI item to advance.
 
 ## Roadmap summary
 
@@ -79,7 +78,7 @@ EUX-10 is now `Ready`. No EUX-10 implementation work has begun.
 | [x]  | EUX-07 | Event venue field                                   | `feat/event-venue`                         | None           | Done    |
 | [x]  | EUX-08 | Public event-page shell polish                      | `fix/public-event-shell`                   | EUX-02, EUX-07 | Done    |
 | [x]  | EUX-09 | Public bracket presentation                         | `feat/public-bracket-layout`               | EUX-05, EUX-08 | Done    |
-| [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | Ready   |
+| [ ]  | EUX-10 | Events-list grouping and lifecycle status           | `feat/events-list-lifecycle-groups`        | EUX-01         | In Progress |
 
 ---
 
@@ -970,7 +969,7 @@ player-facing bracket.
 
 **Branch:** `feat/events-list-lifecycle-groups`
 **Risk:** Low–Medium
-**Status:** Ready
+**Status:** In Progress
 **Depends on:** EUX-01
 
 ## Objective
@@ -1005,12 +1004,46 @@ Make the event list easier to scan as the number of historical events grows.
 
 ## Completion record
 
-* **Completed date:**
-* **Pull request:**
-* **Merge commit:**
-* **Version/build:**
+* **Completed date:** Pending
+* **Pull request:** Pending
+* **Merge commit:** Pending
+* **Version/build:** 0.35.0 / 20260727.8 (from 0.34.0 / 20260727.7)
 * **Tests run:**
+  * `npx playwright test tests/events-list-lifecycle-groups.spec.js
+    --project=chromium` (3 passed).
+  * Focused Chromium regression run covering event-list grouping, event dates,
+    lifecycle, event navigation, frontend layout, improvements, smoke,
+    version, and app updates (86 passed).
+  * `npm test` (318 passed, including Chromium and applicable mobile WebKit),
+    `npm run test:worker` (65 passed), `npm run test:version-check` (10
+    passed), and `npm run check:version` passed.
+  * `git diff --check` passed.
+* **Layout checks:** Fixed-team and rotating event lists were visually checked
+  at 320 px and 1280 px. Group order, lifecycle pills, progress, long-name
+  wrapping, completed-event access, row containment, and document overflow
+  were checked.
 * **Important implementation notes:**
+  * `EVENT_LIST_GROUPS`, `eventListGroupKey`, `eventListItemModel`, and
+    `eventListSections` derive the stable Today → Upcoming → In progress → Past
+    presentation from `eventLocalDate`, `eventLifecycleState`, and
+    `eventLifecycleFacts`. Complete events always appear in Past; active
+    `live`, `poolsComplete`, and `playoffs` events appear In progress regardless
+    of date; remaining events use their local date.
+  * Events keep the previous unfinished-first, newest-created-first ordering
+    within their derived groups. Missing dates retain the existing
+    `eventLocalDate` created-date/today fallback.
+  * Rows expose `[data-event-lifecycle]` and `[data-event-progress]`, retain the
+    same `openEvent` action, and show completed out of scheduled matches when a
+    schedule exists. Titles and pills stack below 600 px so long fixed and
+    rotating names remain readable.
+  * Grouping and status are render-time only. No event, backup, sync,
+    registration, rating, schedule, seeding, or persistence shape changed.
+* **Remaining before Done:**
+  * Create and merge the pull request, then replace the pull-request,
+    merge-commit, and completed-date `Pending` values.
+  * Only after the merge gate is satisfied, mark EUX-10 `Done`, change its
+    summary checkbox to `[x]`, add the dated Progress-log entry, and update
+    Current work to show the core event UI roadmap complete.
 
 ---
 

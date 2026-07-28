@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.7">
+<meta name="court-build" content="20260727.8">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1036,6 +1036,24 @@
   /* ---------- events / standings ---------- */
   .ev-row{display:block;width:100%;text-align:left;background:var(--surface2);border:1px solid var(--border);
     border-radius:16px;padding:13px 14px;margin-top:10px;color:inherit;font:inherit;cursor:pointer}
+  .event-list-group{margin-top:20px}
+  .event-list-group-head{display:flex;align-items:end;justify-content:space-between;gap:10px;margin:0 1px 9px}
+  .event-list-group-head h3{margin:0;color:var(--muted);font-size:12px;font-weight:850;letter-spacing:.11em;text-transform:uppercase}
+  .event-list-group-head span{color:var(--faint);font-size:11px}
+  .event-list-items{display:grid;gap:8px}
+  .event-list-items .ev-row{margin-top:0}
+  .event-list-row-head{display:grid;grid-template-columns:minmax(0,1fr);gap:7px}
+  .event-list-row-title{min-width:0;flex:1}
+  .event-list-row-title b{display:block;overflow-wrap:anywhere;line-height:1.3}
+  .event-list-row-pills{display:flex;flex:none;flex-wrap:wrap;justify-content:flex-start;gap:5px}
+  .event-list-row-meta,.event-list-row-detail{display:flex;flex-wrap:wrap;gap:3px 7px;line-height:1.4}
+  .event-list-row-meta{margin-top:4px}
+  .event-list-row-detail{margin-top:6px}
+  .event-list-row-detail>[data-event-progress]{color:var(--muted)}
+  @media(min-width:600px){
+    .event-list-row-head{display:flex;align-items:flex-start;justify-content:space-between;gap:9px}
+    .event-list-row-pills{justify-content:flex-end}
+  }
   .ev-team{display:flex;width:100%;background:none;border:none;border-bottom:1px solid var(--border);
     padding:10px 0;color:inherit;font:inherit;text-align:left;cursor:pointer;align-items:center;justify-content:space-between;gap:10px}
   .ev-team:last-child{border-bottom:none}
@@ -1222,9 +1240,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.34.0',
-  build: '20260727.7',
-  releaseNotes: 'Public event brackets now show every round, matchup state, final score, and champion in mobile- and print-friendly layouts.'
+  version: '0.35.0',
+  build: '20260727.8',
+  releaseNotes: 'Events are grouped by date and lifecycle, with compact status and scheduled-match progress.'
 });
 
 function appVersionLabel(){
@@ -7076,6 +7094,55 @@ function bracketCardsHtml(ev){
   });
   return html;
 }
+const EVENT_LIST_GROUPS=Object.freeze([
+  Object.freeze({key:'today',label:'Today'}),
+  Object.freeze({key:'upcoming',label:'Upcoming'}),
+  Object.freeze({key:'inProgress',label:'In progress'}),
+  Object.freeze({key:'past',label:'Past'})
+]);
+function eventListGroupKey(ev,state,today=todayLocalDate()){
+  const date=eventLocalDate(ev);
+  if(state==='complete')return 'past';
+  if(eventLifecycleStarted(state))return 'inProgress';
+  if(date===today)return 'today';
+  return date>today?'upcoming':'past';
+}
+function eventListItemModel(ev,{today=todayLocalDate()}={}){
+  const rotating=eventFormat(ev)==='rotatingGroups';
+  const sc=rotating?undefined:(ev?.sched?buildSchedule(ev):null);
+  const facts=eventLifecycleFacts(ev,{sc}),state=eventLifecycleState(ev,{sc});
+  const standings=rotating?entryStandings(ev):eventStandings(ev),lead=standings[0]||null;
+  const participants=rotating?rotatingEntries(ev).length:(ev.teams||[]).length;
+  const progressLabel=facts.scheduledMatches
+    ?`${facts.playedMatches} of ${facts.scheduledMatches} scheduled match${facts.scheduledMatches===1?'':'es'} complete`
+    :null;
+  return {
+    event:ev,state,meta:eventLifecycleMeta(state),group:eventListGroupKey(ev,state,today),
+    date:eventLocalDate(ev),rotating,participants,gameCount:evGameCount(ev),
+    leadName:lead?(rotating?lead.entry.name:lead.t.name):null,
+    venue:eventVenue(ev),progressLabel
+  };
+}
+function eventListSections(eventList=evts,{today=todayLocalDate()}={}){
+  const groups=new Map(EVENT_LIST_GROUPS.map(group=>[group.key,[]]));
+  eventList.slice().sort((a,b)=>((a.done?1:0)-(b.done?1:0))||(b.created-a.created)).forEach(ev=>{
+    const item=eventListItemModel(ev,{today});
+    groups.get(item.group).push(item);
+  });
+  return EVENT_LIST_GROUPS.map(group=>({...group,items:groups.get(group.key)})).filter(group=>group.items.length);
+}
+function eventListRowHtml(item){
+  const ev=item.event,date=formatEventDate(item.date,{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+  const participantNoun=item.rotating?'entries':`team${item.participants===1?'':'s'}`;
+  const lead=item.leadName&&item.gameCount?`${esc(item.leadName)} ${item.state==='complete'?'won':'leads'}`:null;
+  return `<button class="ev-row pressable" data-event-id="${esc(ev.id)}" onclick="openEvent('${ev.id}')">
+    <div class="event-list-row-head">
+      <div class="event-list-row-title"><b>${esc(ev.name)}</b><div class="event-list-row-meta tiny faint"><span>${esc(date)}</span>${item.venue?`<span data-event-venue>${esc(item.venue)}</span>`:''}</div></div>
+      <span class="event-list-row-pills"><span class="pill">${item.rotating?'Rotating Groups':'Fixed Teams'}</span><span class="pill ${item.meta.tone}" data-event-lifecycle="${esc(item.state)}">${esc(item.meta.label)}</span></span>
+    </div>
+    <div class="event-list-row-detail tiny faint"><span>${item.participants} ${participantNoun}</span>${item.progressLabel?`<span data-event-progress>${esc(item.progressLabel)}</span>`:`<span>${item.gameCount} saved game${item.gameCount===1?'':'s'}</span>`}${lead?`<span>${lead}</span>`:''}</div>
+  </button>`;
+}
 function renderEvents(){
   const openEv = window._evOpen ? evById(window._evOpen) : null;
   if(window._evOpen && !openEv) window._evOpen=null;
@@ -7085,17 +7152,12 @@ function renderEvents(){
   if(!evts.length){
     html += `<div class="empty" style="margin-top:12px"><b>No events yet</b>Create one on tournament day: name it, add fixed teams, then log each result. Ratings still update quietly underneath — score-only games count.</div>`;
   } else {
-    const sorted=evts.slice().sort((a,b)=>((a.done?1:0)-(b.done?1:0)) || (b.created-a.created));
-    html += sorted.map(ev=>{
-      const n=evGameCount(ev);
-      const pairEvent=eventFormat(ev)==='rotatingGroups';
-      const st=pairEvent?entryStandings(ev):eventStandings(ev);
-      const lead=st.length?st[0]:null;
-      const venue=eventVenue(ev);
-      return `<button class="ev-row pressable" onclick="openEvent('${ev.id}')">
-        <div class="row spread"><b>${esc(ev.name)}</b><span class="row" style="gap:5px"><span class="pill">${pairEvent?'Rotating Groups':'Fixed Teams'}</span><span class="pill" style="${ev.done?'':'color:var(--gold);border-color:#f2c66d55'}">${ev.done?'final':'live'}</span></span></div>
-        <div class="tiny faint" style="margin-top:5px">${esc(formatEventDate(eventLocalDate(ev),{weekday:'short',month:'short',day:'numeric',year:'numeric'}))}${venue?` · <span data-event-venue>${esc(venue)}</span>`:''} · ${pairEvent?rotatingEntries(ev).length:(ev.teams||[]).length} ${pairEvent?'entr':'team'}${pairEvent?'ies':(ev.teams||[]).length===1?'':'s'} · ${n} game${n===1?'':'s'}${(lead&&n)?` · ${esc(pairEvent?lead.entry.name:lead.t.name)} ${ev.done?'won':'leads'}`:''}</div>
-      </button>`;
+    html += eventListSections().map(group=>{
+      const headingId=`event-list-group-${group.key}`;
+      return `<section class="event-list-group" data-event-group="${group.key}" aria-labelledby="${headingId}">
+        <div class="event-list-group-head"><h3 id="${headingId}" data-event-group-heading>${group.label}</h3><span>${group.items.length} event${group.items.length===1?'':'s'}</span></div>
+        <div class="event-list-items">${group.items.map(eventListRowHtml).join('')}</div>
+      </section>`;
     }).join('');
   }
   main.innerHTML=html;
