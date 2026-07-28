@@ -44,6 +44,24 @@ App behavior verified against current index.html:
 - Tightened fixed-teams schedule packing and balanced court assignment. buildSchedule now tries 32 deterministic candidate orderings derived from the schedule seed (candidate 0 is the old single-ordering greedy, so packing can never be worse), keeps the fewest-slot result, and reassigns courts within each slot so per-court totals stay within one match. Example: 8 teams in 2 pools of 4 on 3 courts now packs 4 slots of 3 with courts loaded 4/4/4 (was 5 slots loaded 5/4/3).
 - Made the fixed-teams schedule plan stable while games are logged. The candidate packer runs only on the full matchup set; the pending view is a filtered copy of the frozen plan, so logging, editing, or deleting a result never moves a remaining match to a different court or reorders it — only time estimates re-anchor and emptied rounds compress in time. A slot left partially empty by a played match keeps its surviving matches on their planned courts (an idle court in a round is correct, not something to optimize away).
 - Added preview-first fixed-team pool seeding with deterministic shuffle, rating-based snake, manual-rank snake, and fresh random modes. The optional event-root `poolSeedMode` field records the last applied mode; missing or undefined means `shuffle`, so existing events need no migration and retain their prior behavior.
+- Added court-side score reporting: players submit scores from the published schedule into an organizer review queue, in one of three per-event modes (`off` by default, `open` trust mode, or `code` with a printable five-character card per court). Reports are held in a new `SCORE_REPORTS` KV namespace and never become games without explicit organizer acceptance. Accepting reuses the same record builder as the manual sheets, so a reviewed result and a typed result are byte-identical. See `docs/SCORE_REPORTING.md`.
+
+## Score reporting boundary
+
+Score reporting is an input path only. It creates a game record on acceptance and
+nothing else: standings, bracket advancement, and schedule state stay derived at
+render. `recomputeAll`, `applyGame`, `rawPerf`, `reliability`, `winProbability`,
+`balance`, `eventStandings`, `buildSchedule`, and `bracketState` were not
+modified, and their SHA-256 hashes are unchanged.
+
+`saveRotationScore` and `saveEventGame` were refactored to call
+`buildRotationGameRecords` and `buildFixedEventGameRecords`. Their output is
+unchanged — verified case by case across single set, best of 3, sweeps, ties,
+even sets, guest teams, unlabeled games, and playoff edits.
+
+**Deploy prerequisite:** create a KV namespace and bind it as `SCORE_REPORTS` in
+`cloudflare/wrangler.jsonc` before deploying the Worker. Until then the feature
+reports unavailable and every other Court behavior is unchanged.
 
 ## Fixed-team pool seeding boundary
 

@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260727.9">
+<meta name="court-build" content="20260727.10">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -959,6 +959,17 @@
   .public-schedule-head{display:flex;align-items:center;justify-content:space-between;gap:10px}
   .public-schedule-head b{font-size:14px}.public-schedule-status{margin-top:5px;color:var(--muted);font-size:11.5px;line-height:1.45}
   .public-schedule-status.current{color:var(--good)}.public-schedule-status.stale{color:var(--gold)}.public-schedule-status.disabled{color:var(--coral)}
+  /* court-side score reporting */
+  .court-code-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(132px,1fr));gap:10px;margin-top:12px}
+  .court-code-cell{display:grid;justify-items:center;gap:6px;padding:12px 10px;border:1px solid #ffffff18;border-radius:14px;background:#ffffff07;text-align:center}
+  .court-code-value{font-size:23px;font-weight:900;letter-spacing:.13em;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+  .court-code-cell svg{width:100%;max-width:104px;height:auto;border-radius:6px;background:#fff;padding:4px}
+  .score-review-group{margin-top:10px}
+  .score-review-group[data-score-review-conflict] .score-review-row{border-color:#ff7b8047}
+  .score-review-row[data-state="accepted"]{opacity:.72}
+  .score-review-row .btn{min-height:44px}
+  .court-code-grid+p+.sheet-foot .btn,[data-score-report-card] .btn.sm{min-height:44px}
+  [data-score-report-card] .pill{white-space:nowrap}
   .public-schedule-url{display:block;width:100%;min-height:48px;margin-top:10px;padding:9px 10px;resize:none;border:1px solid #ffffff1d;border-radius:10px;background:#0b1220;color:#dce6f5;font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;overflow-wrap:anywhere;word-break:break-all}
   .public-schedule-actions{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;margin-top:10px}
   .public-schedule-actions .wide{grid-column:1/-1}.public-schedule-help{margin-top:8px;color:var(--faint);font-size:10.5px;line-height:1.4}
@@ -1262,9 +1273,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.36.0',
-  build: '20260727.9',
-  releaseNotes: 'Teams and Track now use explicit mobile-first player selection, stable assignment taps, and real balanced shuffle alternatives.'
+  version: '0.37.0',
+  build: '20260727.10',
+  releaseNotes: 'Players can report scores from the public schedule into an organizer review queue, with optional per-court codes.'
 });
 
 function appVersionLabel(){
@@ -5366,14 +5377,17 @@ function publicBracketTeamHtml(ev,state,match,id,{bye=false}={}){
   return `<div class="public-bracket-team ${result==='winner'?'winner':''} ${!id?'pending':''}" data-result="${result}"><span class="public-bracket-seed">${seed?`#${seed}`:''}</span><span class="public-bracket-team-name">${e(name)}</span><span class="public-bracket-team-score">${e(score)}</span></div>`;
 }
 function publicBracketHtml(ev){
-  const e=scheduleHtmlEscape,brackets=ev.brackets||[];if(!brackets.length)return '<p class="public-empty">No playoff bracket has been published yet.</p>';
+  const e=scheduleHtmlEscape,brackets=ev.brackets||[],reporting=scoreReportPublicationContext(ev);if(!brackets.length)return '<p class="public-empty">No playoff bracket has been published yet.</p>';
   return brackets.map(bracket=>{
     const state=bracketState(ev,bracket),name=bracket.name||'Playoffs';
     if(!state)return `<article class="public-bracket" data-public-bracket="${e(bracket.id||'bracket')}" data-public-bracket-format="${e(eventFormat(ev))}"><div class="public-bracket-head"><h3>${e(name)}</h3></div><p class="public-empty">At least two seeded teams are needed to show this bracket.</p></article>`;
     const roundNames=bracketRoundNames(state.size),progress=getDivisionProgress(ev,bracket,state);
     const rounds=state.rounds.map((round,roundIndex)=>`<section class="public-bracket-round" data-public-bracket-round="${roundIndex}"><h4>${e(roundNames[roundIndex])}</h4><div class="public-bracket-matches">${round.map((match,matchIndex)=>{
       const status=getPlayoffMatchState(ev,bracket,state,roundIndex,matchIndex),statusLabel=publicBracketStatusLabel(status),byeA=!!(match.bye&&!match.a),byeB=!!(match.bye&&!match.b);
-      return `<article class="public-bracket-match" data-public-bracket-match="${e(match.id)}" data-state="${e(status.key)}" aria-label="${e(`${roundNames[roundIndex]} match ${matchIndex+1}: ${statusLabel}`)}"><div class="public-bracket-match-head"><span>Match ${matchIndex+1}</span><strong class="public-bracket-match-status">${e(statusLabel)}</strong></div>${publicBracketTeamHtml(ev,state,match,match.a,{bye:byeA})}${publicBracketTeamHtml(ev,state,match,match.b,{bye:byeB})}</article>`;
+      /* A bracket match is reportable through the same evMatchId the manual
+         playoff sheet writes, and only once both sides are decided. */
+      const reportId=reporting&&match.a&&match.b&&!match.bye?playoffMatchId(bracket,roundIndex,matchIndex):'';
+      return `<article class="public-bracket-match" data-public-bracket-match="${e(match.id)}" data-state="${e(status.key)}"${scoreReportMatchAttr(reporting,reportId)} aria-label="${e(`${roundNames[roundIndex]} match ${matchIndex+1}: ${statusLabel}`)}"><div class="public-bracket-match-head"><span>Match ${matchIndex+1}</span><strong class="public-bracket-match-status">${e(statusLabel)}</strong></div>${publicBracketTeamHtml(ev,state,match,match.a,{bye:byeA})}${publicBracketTeamHtml(ev,state,match,match.b,{bye:byeB})}${scoreReportMatchActionHtml(reporting,reportId)}</article>`;
     }).join('')}</div></section>`).join('');
     const final=state.rounds[state.rounds.length-1][0],champion=final.winner&&evTeamById(ev,final.winner),runnerId=champion&&!final.bye?(final.a===final.winner?final.b:final.a):null,runner=runnerId&&evTeamById(ev,runnerId);
     const outcome=champion
@@ -5427,11 +5441,11 @@ function publicEventStyles(){return `${scheduleDocumentStyles()}
   .rules-search-bar input{width:100%;min-width:0}.rules-search-bar button{min-height:40px}.rules-search-bar button:disabled{opacity:.45;cursor:not-allowed}.public-toc{max-width:100%;overscroll-behavior-inline:contain;-webkit-overflow-scrolling:touch}.public-toc a{flex:none}.rules-search-hit-active{outline:3px solid #d99e37;outline-offset:3px}
   @media print{.public-nav,.rules-search-bar,.rules-search-meta,.public-print-actions{display:none!important}.public-section{padding:18px 0}.public-event-head{padding:0 0 18px;background:#fff;color:#172033}.public-event-head h1{color:#172033}.public-event{max-width:none}.public-rules-body h2{break-after:avoid}.public-revision:not([open]){display:none}.public-bracket{padding:10px;border-color:#aeb8c7}.public-bracket-board{grid-template-columns:repeat(var(--public-bracket-round-count),minmax(0,1fr));gap:6px}.public-bracket-round{padding:5px;border-color:#bdc6d3;background:#fff}.public-bracket-matches{gap:5px}.public-bracket-match{border-color:#aeb8c7;break-inside:avoid}.public-bracket-match-head{padding:5px 6px}.public-bracket-team{grid-template-columns:22px minmax(0,1fr) minmax(18px,auto);gap:4px;padding:6px;font-size:10px}.public-bracket-team-score{font-size:11px}.public-bracket-champion{break-inside:avoid}}`}
 function renderPublicEventDocument(ev){
-  const e=scheduleHtmlEscape,venue=eventVenue(ev),revision=publishedRulesRevision(ev),rules=eventRules(ev),scheduleModel=deriveFullScheduleExportModel(ev),schedule=scheduleModel?scheduleExportBodyHtml(scheduleModel,{embedded:true,photoContext:PUBLIC_PHOTO_CONTEXTS.worker}):'<p class="public-empty">A public schedule has not been generated yet.</p>',toc=revision?publicRulesTocHtml(revision.document):[],afterNotice=revision?.afterStart?`<div class="public-update"><strong>Rules updated ${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}.</strong> ${e(revision.changeSummary||'The organizer published an event-day change.')}</div>`:'',publishedAt=Number(revision?.publishedAt),lastUpdated=Number.isFinite(publishedAt)&&publishedAt>0?publishedAt:null;
+  const e=scheduleHtmlEscape,venue=eventVenue(ev),revision=publishedRulesRevision(ev),rules=eventRules(ev),reporting=scoreReportPublicationContext(ev),scheduleModel=deriveFullScheduleExportModel(ev),schedule=scheduleModel?scheduleExportBodyHtml(scheduleModel,{embedded:true,photoContext:PUBLIC_PHOTO_CONTEXTS.worker,scoreReport:reporting}):'<p class="public-empty">A public schedule has not been generated yet.</p>',toc=revision?publicRulesTocHtml(revision.document):[],afterNotice=revision?.afterStart?`<div class="public-update"><strong>Rules updated ${e(new Date(revision.publishedAt).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}.</strong> ${e(revision.changeSummary||'The organizer published an event-day change.')}</div>`:'',publishedAt=Number(revision?.publishedAt),lastUpdated=Number.isFinite(publishedAt)&&publishedAt>0?publishedAt:null;
   const overview=`<div class="public-overview-grid"><div><b>${eventFormat(ev)==='rotatingGroups'?rotatingEntries(ev).length:(ev.teams||[]).length}</b><span>${eventFormat(ev)==='rotatingGroups'?'entries':'teams'}</span></div><div><b>${e(formatEventDate(eventLocalDate(ev),{month:'short',day:'numeric',year:'numeric'}))}</b><span>event date</span></div><div><b>${evGameCount(ev)}</b><span>saved games</span></div><div><b>${(ev.brackets||[]).length}</b><span>brackets</span></div></div>`;
   const rulesBody=revision?`${afterNotice}<div class="rules-search-bar" role="search" aria-label="Search published rules"><input type="search" data-rules-search aria-label="Search published rules" placeholder="Search rules"><button type="button" data-search-prev aria-label="Previous search result" disabled>Previous</button><button type="button" data-search-next aria-label="Next search result" disabled>Next</button><button type="button" data-search-clear aria-label="Clear rules search" disabled>Clear</button></div><div class="rules-search-meta" data-search-meta role="status" aria-live="polite">No search active</div><nav class="public-toc" aria-label="Rules table of contents">${toc.map(item=>`<a href="#${e(item.id)}">${e(item.label)}</a>`).join('')}</nav><h3>Quick Rules</h3>${publicQuickRulesHtml(ev,revision)}<div class="public-rules-body" data-rules-search-body>${rulesHtmlWithHeadingIds(revision.document)}</div><h3>Revision history</h3>${publicRulesHistoryHtml(ev,revision)}`:'<p class="public-empty">The organizer has not published event rules. Drafts are private and never appear here.</p>';
   const title=revision?`${String(ev.name||'Event').trim()} — Tournament Rules`:`${String(ev.name||'Event').trim()} — Event`,behavior=publicEventBehaviorScript();
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="${e(title)}"><meta property="og:title" content="${e(title)}"><meta property="og:description" content="Published event information from Court"><meta property="og:type" content="website"><title>${e(title)}</title><style>${publicEventStyles()}</style><script>${behavior}<${'/'}script></head><body><main class="public-event"><header class="public-event-head"><div class="public-event-kicker">Court · public event</div><h1>${e(ev.name||'Event')}</h1><p class="public-event-meta">${e(eventTimingSummary(ev))}</p>${venue?`<p class="public-event-meta" data-event-venue>${e(venue)}</p>`:''}${lastUpdated?`<p class="public-last-updated" data-public-last-updated><span>Last updated</span><time datetime="${e(new Date(lastUpdated).toISOString())}">${e(new Date(lastUpdated).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}</time></p>`:''}</header><nav class="public-nav" aria-label="Event navigation"><a href="#overview">Overview</a><a href="#schedule">Schedule</a><a href="#standings">Standings</a><a href="#bracket">Bracket</a><a href="#rules">Rules</a></nav><section id="overview" class="public-section"><h2>Overview</h2>${overview}</section><section id="schedule" class="public-section"><h2>Schedule</h2>${schedule}</section><section id="standings" class="public-section"><h2>Standings</h2>${publicStandingsHtml(ev)}</section><section id="bracket" class="public-section"><h2>Bracket</h2>${publicBracketHtml(ev)}</section><section id="rules" class="public-section"><h2>Rules</h2>${rulesBody}</section></main></body></html>`;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="color-scheme" content="light"><meta name="description" content="${e(title)}"><meta property="og:title" content="${e(title)}"><meta property="og:description" content="Published event information from Court"><meta property="og:type" content="website"><title>${e(title)}</title><style>${publicEventStyles()}${reporting?scoreReportDocumentStyles():''}</style><script>${behavior}<${'/'}script>${scoreReportScriptHtml(reporting)}</head><body>${scoreReportRootHtml(reporting)}<main class="public-event"><header class="public-event-head"><div class="public-event-kicker">Court · public event</div><h1>${e(ev.name||'Event')}</h1><p class="public-event-meta">${e(eventTimingSummary(ev))}</p>${venue?`<p class="public-event-meta" data-event-venue>${e(venue)}</p>`:''}${lastUpdated?`<p class="public-last-updated" data-public-last-updated><span>Last updated</span><time datetime="${e(new Date(lastUpdated).toISOString())}">${e(new Date(lastUpdated).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}))}</time></p>`:''}</header><nav class="public-nav" aria-label="Event navigation"><a href="#overview">Overview</a><a href="#schedule">Schedule</a><a href="#standings">Standings</a><a href="#bracket">Bracket</a><a href="#rules">Rules</a></nav><section id="overview" class="public-section"><h2>Overview</h2>${overview}</section><section id="schedule" class="public-section"><h2>Schedule</h2>${schedule}</section><section id="standings" class="public-section"><h2>Standings</h2>${publicStandingsHtml(ev)}</section><section id="bracket" class="public-section"><h2>Bracket</h2>${publicBracketHtml(ev)}</section><section id="rules" class="public-section"><h2>Rules</h2>${rulesBody}</section></main></body></html>`;
 }
 const FAIRNESS_POLICIES=Object.freeze(['equalGames','allowDifference']);
 function scheduleFairnessPolicy(value){return value==='equalGames'?'equalGames':'allowDifference';}
@@ -6356,6 +6370,55 @@ function eventSummaryHtml(ev){
   const timing=eventTimingSummary(ev),venue=eventVenue(ev);
   return `${esc(timing)}${venue?`${timing?' · ':''}<span data-event-venue>${esc(venue)}</span>`:''}`;
 }
+/* ---------- court-side score reporting: shared config reads ----------
+   A missing config means "off", so every existing event and backup behaves
+   exactly as it did before this feature and needs no migration. */
+const SCORE_REPORT_MODES=Object.freeze(['off','open','code']);
+function eventScoreReporting(ev){const value=ev?.scoreReporting;return value&&typeof value==='object'&&!Array.isArray(value)?value:null;}
+function scoreReportingMode(ev){const mode=eventScoreReporting(ev)?.mode;return SCORE_REPORT_MODES.includes(mode)?mode:'off';}
+function scoreReportingOn(ev){return scoreReportingMode(ev)!=='off';}
+function scoreReportCourtCodes(ev){const courts=eventScoreReporting(ev)?.courts;return Array.isArray(courts)?courts:[];}
+function scoreReportUrl(ev){const url=eventScoreReporting(ev)?.reportUrl;return typeof url==='string'&&/^https?:\/\//.test(url)?url:'';}
+/* Only a worker-published document gets report affordances. A download, a
+   print, or a preview has no live API to talk to, so it stays byte-identical
+   to what it produces today. */
+function scoreReportPublicationContext(ev){
+  if(!scoreReportingOn(ev))return null;
+  const config=eventScoreReporting(ev),token=config?.publicToken,url=scoreReportUrl(ev);
+  return typeof token==='string'&&/^[A-Za-z0-9_-]{22,128}$/.test(token)&&url?{token,url,mode:scoreReportingMode(ev)}:null;
+}
+/* A fixed-team pool match has no stored id — the manual sheet identifies it by
+   its unordered team pair and saves the game with evA/evB and no evMatchId.
+   The reporting key mirrors that exactly, so it stays stable across a schedule
+   regeneration and never leaks into a game record. A repeated pairing (only
+   possible among makeup matches) gets an occurrence suffix. */
+function fixedScheduleMatchKey(match,seen){
+  const ids=[String(match?.a||''),String(match?.b||'')].sort();
+  const base=`fixed:${ids[0]}:${ids[1]}`;
+  if(!seen)return base;
+  const count=(seen.get(base)||0)+1;seen.set(base,count);
+  return count===1?base:`${base}:${count}`;
+}
+function scoreReportMatchLink(context,matchId){
+  return `${context.url}?m=${encodeURIComponent(matchId)}`;
+}
+function scoreReportMatchAttr(context,matchId){
+  return context&&matchId?` data-report-match="${scheduleHtmlEscape(matchId)}"`:'';
+}
+function scoreReportMatchActionHtml(context,matchId){
+  if(!context||!matchId)return '';
+  const e=scheduleHtmlEscape;
+  return `<div class="schedule-report"><a class="schedule-report-link" data-report-link rel="nofollow noopener" href="${e(scoreReportMatchLink(context,matchId))}">Report score</a><span class="report-badge" data-report-badge hidden></span></div>`;
+}
+function scoreReportRootHtml(context){
+  return context?`<div data-score-report-root data-report-token="${scheduleHtmlEscape(context.token)}" hidden></div>`:'';
+}
+function scoreReportScriptHtml(context){
+  return context?`<script src="/assets/public-report.js" defer><${'/'}script>`:'';
+}
+function scoreReportDocumentStyles(){
+  return `.schedule-report{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:10px}.schedule-report-link{display:inline-flex;align-items:center;min-height:40px;padding:9px 15px;border:1px solid #d0a24a;border-radius:999px;color:#7a5510;font-size:13px;font-weight:800;text-decoration:none}.report-badge{color:#6a5322;font-size:12px;font-weight:700;line-height:1.4}.report-badge[hidden]{display:none}[data-report-state="accepted"] .report-badge{color:#1f7a52}[data-report-state="conflicted"] .report-badge{color:#a8353c}@media print{.schedule-report{display:none}}`;
+}
 function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now=Date.now()}={}){
   if(!ev)return null;
   const rotating=eventFormat(ev)==='rotatingGroups',playerName=id=>playerList.find(p=>p.id===id)?.name||'Historical player';
@@ -6367,16 +6430,18 @@ function deriveFullScheduleExportModel(ev,{gameList=games,playerList=players,now
     const rounds=roundNumbers.map(number=>{
       const matches=standard.filter(m=>m.round===number).slice().sort((a,b)=>a.court-b.court),playing=new Set(matches.flatMap(m=>[...m.sideAEntryIds,...m.sideBEntryIds]));
       const time=tl?.roundEst[number]?fmtScheduleTime(ev,tl.roundEst[number]):null;
-      return {number,time,byes:allEntries.filter(entry=>!playing.has(entry.id)).map(entry=>entry.name),matches:matches.map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {court:`Court ${m.court}`,pool:null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData)};})};
+      return {number,time,byes:allEntries.filter(entry=>!playing.has(entry.id)).map(entry=>entry.name),matches:matches.map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {matchId:m.id,courtIndex:positiveInt(m.court,1)-1,court:`Court ${m.court}`,pool:null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData)};})};
     });
-    [...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))].sort((a,b)=>a-b).forEach(block=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:tl?.makeupEst?.[block]?fmtScheduleTime(ev,tl.makeupEst[block]):null,byes:[],matches:extras.filter(m=>positiveInt(m.makeupBlock,1)===block).sort((a,b)=>a.court-b.court).map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {court:`Court ${m.court}`,pool:null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData),isMakeup:true};})}));
+    [...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))].sort((a,b)=>a-b).forEach(block=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:tl?.makeupEst?.[block]?fmtScheduleTime(ev,tl.makeupEst[block]):null,byes:[],matches:extras.filter(m=>positiveInt(m.makeupBlock,1)===block).sort((a,b)=>a.court-b.court).map(m=>{const result=rotationScheduleResult(ev,m,gameList);return {matchId:m.id,courtIndex:positiveInt(m.court,1)-1,court:`Court ${m.court}`,pool:null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:m.sideAEntryIds.map(entryData),sideB:m.sideBEntryIds.map(entryData),isMakeup:true};})}));
     return {scope:'full',formatKind:'rotating',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),venue:eventVenue(ev)||null,startTime:scheduleTimeInputLabel(s.start,now),intervalMinutes:positiveInt(s.setMin,25),courts:positiveInt(s.courts,1),roundCount:roundNumbers.length,makeupMatchCount:extras.length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:s.start?null:'Game times have not been assigned yet.',rounds};
   }
   if(!ev.sched)return null;
   const sc=buildSchedule(ev,gameList,now);if(!sc||!sc.plannedSlots?.length)return null;
   const fixedTeamData=id=>{const team=evTeamById(ev,id),ids=team?.players||[];return {name:team?.name||'Missing team',players:ids.map(playerName),playerPhotos:publicPhotoItems(ids,playerList)};};
-  const rounds=sc.plannedSlots.map((slot,index)=>{const playing=new Set(slot.flatMap(m=>[m.a,m.b]));return {number:index+1,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:(ev.teams||[]).filter(t=>!playing.has(t.id)).map(t=>t.name),matches:slot.slice().sort((a,b)=>a.court-b.court).map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)]};})};});
-  (sc.makeupSlots||[]).forEach(slot=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:[],matches:slot.map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)],isMakeup:true};})}));
+  const fixedKeySeen=new Map(),fixedKeys=new Map();
+  [...sc.plannedSlots.flat(),...(sc.makeupSlots||[]).flat()].forEach(m=>fixedKeys.set(m,fixedScheduleMatchKey(m,fixedKeySeen)));
+  const rounds=sc.plannedSlots.map((slot,index)=>{const playing=new Set(slot.flatMap(m=>[m.a,m.b]));return {number:index+1,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:(ev.teams||[]).filter(t=>!playing.has(t.id)).map(t=>t.name),matches:slot.slice().sort((a,b)=>a.court-b.court).map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {matchId:fixedKeys.get(m)||fixedScheduleMatchKey(m),courtIndex:m.court,court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||null,status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)]};})};});
+  (sc.makeupSlots||[]).forEach(slot=>rounds.push({number:null,title:'Makeup matches',isMakeup:true,time:ev.sched.start&&slot[0]?fmtScheduleTime(ev,slot[0].est):null,byes:[],matches:slot.map(m=>{const result=fixedScheduleResult(ev,m,gameList);return {matchId:fixedKeys.get(m)||fixedScheduleMatchKey(m),courtIndex:m.court,court:courtLabel(sc.s,m.court),pool:m.pool||null,label:result?.label||m.label||'Balances games played',status:result?'Completed':'Pending',score:result?.display||null,sideA:[fixedTeamData(m.a)],sideB:[fixedTeamData(m.b)],isMakeup:true};})}));
   return {scope:'full',formatKind:'fixed',eventName:ev.name||'Event',eventDate:scheduleEventDateLabel(ev),venue:eventVenue(ev)||null,startTime:scheduleTimeInputLabel(ev.sched.start,now),intervalMinutes:positiveInt(ev.sched.setMin,25),courts:sc.requestedCourts,roundCount:sc.plannedSlots.length,makeupMatchCount:(sc.makeupSlots||[]).flat().length,hasResults:rounds.some(r=>r.matches.some(m=>m.score)),note:ev.sched.start?null:'Court assignments are set; game times have not been assigned.',rounds};
 }
 const deriveScheduleExportModel=deriveFullScheduleExportModel;
@@ -6473,12 +6538,12 @@ async function settlePublicPlayerPhotos(root=document,timeout=5000){
   const pending=hydratePublicPlayerPhotos(root);if(!pending.length)return [];
   return Promise.race([Promise.all(pending),new Promise(resolve=>setTimeout(()=>resolve(pending.map(()=>false)),timeout))]);
 }
-function scheduleExportBodyHtml(model,{preview=false,embedded=false,photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
+function scheduleExportBodyHtml(model,{preview=false,embedded=false,photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase,scoreReport=null}={}){
   const e=scheduleHtmlEscape;
   const photos=items=>publicPlayerPhotoMarkup(items,{context:photoContext,workerBase});
   const entry=item=>`<div class="schedule-entry"><b>${e(item.name)}</b>${item.players.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}${photos(item.playerPhotos)}</div>`;
   const fixedSide=item=>`<div class="schedule-fixed-team"><strong>${e(item.name)}</strong>${item.players?.length?`<span>${item.players.map(e).join(' / ')}</span>`:''}${photos(item.playerPhotos)}</div>`;
-  const matchHtml=match=>`<article class="schedule-match"><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides">${fixedSide(match.sideA[0])}<b class="schedule-vs">VS</b>${fixedSide(match.sideB[0])}</div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}</article>`;
+  const matchHtml=match=>`<article class="schedule-match"${scoreReportMatchAttr(scoreReport,match.matchId)}><div class="schedule-match-top"><span>${e(match.court)}${match.pool?` · Pool ${e(match.pool)}`:''}</span>${match.score?`<span class="final">Final · ${e(match.score)}</span>`:model.hasResults?'<span class="pending">Upcoming</span>':''}</div>${model.formatKind==='fixed'?`<div class="schedule-fixed-sides">${fixedSide(match.sideA[0])}<b class="schedule-vs">VS</b>${fixedSide(match.sideB[0])}</div>`:`<div class="schedule-rotation-sides"><div class="schedule-side"><strong>Team 1</strong>${match.sideA.map(entry).join('')}</div><b class="schedule-vs">VS</b><div class="schedule-side"><strong>Team 2</strong>${match.sideB.map(entry).join('')}</div></div>`}${match.label?`<div class="schedule-match-label">${e(match.label)}</div>`:''}${scoreReportMatchActionHtml(scoreReport,match.matchId)}</article>`;
   const rounds=model.rounds.map(round=>`<section class="schedule-round${round.isMakeup?' schedule-makeup':''}"><div class="schedule-round-lead"><div class="schedule-round-head"><b>${round.isMakeup?'Makeup matches':`Round ${e(round.number)}`}</b><span>${round.time?e(round.time):''}</span></div>${round.isMakeup?`<div class="schedule-byes"><b>Balances games played.</b> Only the listed participants play.</div>`:round.byes.length?`<div class="schedule-byes"><b>Byes / sit-outs:</b> ${round.byes.map(e).join(' · ')}</div>`:''}</div><div class="schedule-match-list">${round.matches.map(matchHtml).join('')}</div></section>`).join('');
   const meta=[model.eventDate,model.startTime?`First games ${model.startTime}`:null,model.intervalMinutes?`${model.intervalMinutes}-minute rounds`:null,`${model.courts} court${model.courts===1?'':'s'}`,`${model.roundCount} standard round${model.roundCount===1?'':'s'}`,model.makeupMatchCount?`${model.makeupMatchCount} makeup match${model.makeupMatchCount===1?'':'es'}`:null].filter(Boolean);
   const header=embedded
@@ -6585,10 +6650,11 @@ function scheduleTitleSubject(model){
 function scheduleShareTitle(model){
   return `${String(model?.eventName||'Event').trim()||'Event'} · ${scheduleTitleSubject(model)} schedule`;
 }
-function renderScheduleDocument(model,{photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase}={}){
+function renderScheduleDocument(model,{photoContext=PUBLIC_PHOTO_CONTEXTS.worker,workerBase,scoreReport=null}={}){
   const title=scheduleHtmlEscape(scheduleShareTitle(model));
-  const options={photoContext,workerBase},body=model.scope==='participant'?participantScheduleBodyHtml(model,options):scheduleExportBodyHtml(model,options),behavior=body.includes('data-public-player-photo')?`<script>${publicEventBehaviorScript()}<${'/'}script>`:'';
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${title}</title><style>${scheduleDocumentStyles()}</style>${behavior}</head><body>${body}</body></html>`;
+  const options={photoContext,workerBase,scoreReport},body=model.scope==='participant'?participantScheduleBodyHtml(model,options):scheduleExportBodyHtml(model,options),behavior=body.includes('data-public-player-photo')?`<script>${publicEventBehaviorScript()}<${'/'}script>`:'';
+  const reporting=body.includes('data-report-match')?scoreReport:null;
+  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light"><title>${title}</title><style>${scheduleDocumentStyles()}${reporting?scoreReportDocumentStyles():''}</style>${behavior}${scoreReportScriptHtml(reporting)}</head><body>${scoreReportRootHtml(reporting)}${body}</body></html>`;
 }
 function safeScheduleFilename(value){
   let clean=String(value??'').trim();if(clean.normalize)clean=clean.normalize('NFKD');
@@ -6677,7 +6743,7 @@ const SchedulePublications=(()=>{
     const ev=evById(evId),scope=schedulePublicationScope(subjectType,subjectId),model=modelFor(ev,subjectType,subjectId);
     const rules=ev&&eventRules(ev),unified=!subjectType&&rules&&(rules.publishedRevisionId||rules.revisions.length||rules.unpublishedAt);
     if(!ev||!scope||(!model&&!unified))throw schedulePublicationError('missing','This event publication is no longer available.');
-    const html=unified?renderPublicEventDocument(ev):subjectType==='results'?renderResultsDocument(model):renderScheduleDocument(model,{photoContext:PUBLIC_PHOTO_CONTEXTS.worker}),title=unified?(publishedRulesRevision(ev)?`${ev.name} — Tournament Rules`:`${ev.name} — Event`):subjectType==='results'?`${model.data.name} · ${model.data.date} · Event recap`:schedulePublicationTitle(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title,scope};
+    const html=unified?renderPublicEventDocument(ev):subjectType==='results'?renderResultsDocument(model):renderScheduleDocument(model,{photoContext:PUBLIC_PHOTO_CONTEXTS.worker,scoreReport:scoreReportPublicationContext(ev)}),title=unified?(publishedRulesRevision(ev)?`${ev.name} — Tournament Rules`:`${ev.name} — Event`):subjectType==='results'?`${model.data.name} · ${model.data.date} · Event recap`:schedulePublicationTitle(model),contentHash=await scheduleHtmlSha256(html),prepared={model,html,contentHash,title,scope};
     views.set(key(evId,scope),{...(views.get(key(evId,scope))||{}),contentHash});renderPanel(evId,subjectType,subjectId);return prepared;
   }
   async function refresh(evId,subjectType='',subjectId=''){
@@ -6784,6 +6850,411 @@ window.disablePublicScheduleLink=(...args)=>SchedulePublications.disable(...args
 window.copyPublicScheduleLink=(...args)=>SchedulePublications.copy(...args);
 window.sharePublicScheduleLink=(...args)=>SchedulePublications.share(...args);
 window.openPublicScheduleLink=(...args)=>SchedulePublications.open(...args);
+
+
+/* ============================================================
+   COURT-SIDE SCORE REPORTING — organizer side
+
+   Players submit scores from the published schedule into a Worker review
+   queue. Accepting a report builds a game record through the SAME shared
+   builder the manual sheets use, then commits normally. Nothing here caches
+   or precomputes standings, bracket, or schedule state: those stay derived.
+   Pending reports live only in the Worker and never enter the synced payload
+   or a backup.
+   ============================================================ */
+const MAX_SCORE_REPORT_COURTS=32;
+function scoreReportCourts(ev){
+  if(eventFormat(ev)==='rotatingGroups'){
+    const s=rotationSettings(ev),count=clamp(positiveInt(s.courts,1),1,MAX_SCORE_REPORT_COURTS);
+    return Array.from({length:count},(_,i)=>({index:i,label:`Court ${i+1}`}));
+  }
+  const sc=ev?.sched?buildSchedule(ev):null,count=clamp(positiveInt(sc?.requestedCourts||ev?.sched?.courts,1),1,MAX_SCORE_REPORT_COURTS);
+  return Array.from({length:count},(_,i)=>({index:i,label:sc?courtLabel(sc.s,i):`Court ${i+1}`}));
+}
+function scoreReportSideName(side){
+  const names=(side||[]).map(item=>String(item?.name||'').trim()).filter(Boolean);
+  return names.join(' + ')||'TBD';
+}
+/* The match directory the Worker holds. Built from the same export model the
+   published schedule renders, so a reported match id can never disagree with
+   the id baked into the snapshot. */
+function scoreReportSessionMatches(ev){
+  const rows=[];
+  const model=deriveFullScheduleExportModel(ev);
+  if(model){
+    model.rounds.forEach(round=>{
+      const roundLabel=round.isMakeup?'Makeup matches':`Round ${round.number}`;
+      round.matches.forEach(match=>{
+        if(!match.matchId)return;
+        rows.push({matchId:match.matchId,courtIndex:Number.isInteger(match.courtIndex)?match.courtIndex:null,courtLabel:match.court||'',
+          roundLabel,sideAName:scoreReportSideName(match.sideA),sideBName:scoreReportSideName(match.sideB),phase:round.isMakeup?'makeup':'pool'});
+      });
+    });
+  }
+  (ev?.brackets||[]).forEach(br=>{
+    const state=bracketState(ev,br);if(!state)return;
+    const names=bracketRoundNames(state.size);
+    state.rounds.forEach((round,roundIndex)=>round.forEach((match,matchIndex)=>{
+      if(!match.a||!match.b||match.bye)return;
+      const tA=evTeamById(ev,match.a),tB=evTeamById(ev,match.b);if(!tA||!tB)return;
+      rows.push({matchId:playoffMatchId(br,roundIndex,matchIndex),courtIndex:null,courtLabel:'',
+        roundLabel:`${br.name||'Playoffs'} · ${names[roundIndex]||'Match'}`,sideAName:tA.name,sideBName:tB.name,phase:'playoff'});
+    }));
+  });
+  return rows.slice(0,400);
+}
+/* Resolve a reported match id back to concrete teams/entries so the accept
+   path can call the shared builder with exactly the arguments the manual
+   sheet would have used — including whether evMatchId is set at all. */
+function resolveScoreReportMatch(ev,matchId){
+  const id=String(matchId||'');if(!ev||!id)return null;
+  if(id.startsWith('playoff:')){
+    const parts=id.split(':'),br=(ev.brackets||[]).find(b=>b.id===parts[1]);if(!br)return null;
+    const roundIndex=Number(String(parts[2]||'').slice(1))-1,matchIndex=Number(String(parts[3]||'').slice(1))-1;
+    const state=bracketState(ev,br),match=state?.rounds?.[roundIndex]?.[matchIndex];
+    if(!match||!match.a||!match.b||match.bye)return null;
+    const tA=evTeamById(ev,match.a),tB=evTeamById(ev,match.b);if(!tA||!tB)return null;
+    const names=bracketRoundNames(state.size);
+    return {kind:'fixed',tA,tB,evMatchId:id,label:names[roundIndex]||'Playoff match',
+      existing:games.filter(g=>g.evId===ev.id&&g.evMatchId===id).sort((a,b)=>a.date-b.date)};
+  }
+  if(eventFormat(ev)==='rotatingGroups'){
+    const match=rotationMatch(ev,id),valid=validateRotationMatch(ev,match);
+    if(!match||!valid.valid)return null;
+    return {kind:'rotating',match,valid,label:rotationMatchLabel(match),
+      existing:games.filter(g=>g.evId===ev.id&&g.evMatchId===id).sort((a,b)=>a.date-b.date)};
+  }
+  const sc=ev.sched?buildSchedule(ev):null;if(!sc)return null;
+  const seen=new Map();let found=null;
+  [...sc.plannedSlots.flat(),...(sc.makeupSlots||[]).flat()].forEach(m=>{const key=fixedScheduleMatchKey(m,seen);if(key===id&&!found)found=m;});
+  if(!found)return null;
+  const tA=evTeamById(ev,found.a),tB=evTeamById(ev,found.b);if(!tA||!tB)return null;
+  /* A round-robin pool match has no stored id and the manual sheet saves it
+     with evA/evB only; a makeup or custom match carries a real id. */
+  const label=found.id?(found.label||'Makeup match'):(found.pool?`Pool ${found.pool}`:'Scheduled match');
+  const existing=found.id
+    ?games.filter(g=>g.evId===ev.id&&g.evMatchId===found.id)
+    :games.filter(g=>g.evId===ev.id&&!g.evMatchId&&((g.evA===found.a&&g.evB===found.b)||(g.evA===found.b&&g.evB===found.a)));
+  return {kind:'fixed',tA,tB,evMatchId:found.id||null,label,existing:existing.sort((a,b)=>a.date-b.date)};
+}
+
+const ScoreReports=(()=>{
+  const views=new Map();
+  let poll=null,inFlight=false;
+  const apiUrl=path=>`${Sync.cfg.url.replace(/\/+$/,'')}${path}`;
+  const config=ev=>eventScoreReporting(ev)||{};
+  const err=(code,message)=>{const error=new Error(message);error.code=code;return error;};
+  async function responseJson(response){try{return await response.json();}catch(_){return {};}}
+  async function call(path,{method='GET',body,headers}={}){
+    if(!Sync.configured())throw err('not-configured','Set up device sync in Settings before using score reporting.');
+    let response;
+    try{response=await fetch(apiUrl(path),{method,cache:'no-store',headers:{...(body===undefined?{}:{'Content-Type':'application/json'}),'X-Court-Room':Sync.cfg.code,...(headers||{})},body:body===undefined?undefined:JSON.stringify(body)});}
+    catch(_){throw err('offline','Could not reach the sync service. Reports are safe; try again when you have signal.');}
+    const data=await responseJson(response);
+    if(response.status===404&&/sessions\//.test(path))throw err('missing','That score-reporting session no longer exists.');
+    if(!response.ok)throw err(data.code||'service',data.message||'Score reporting is unavailable right now.');
+    return data;
+  }
+  async function available(){
+    try{const data=await call('/api/score-reports/status');return data.available===true;}
+    catch(error){if(error.code==='not-configured')throw error;return false;}
+  }
+  async function persist(ev,session){
+    if(!ev||!session)return;
+    ev.scoreReporting={mode:session.mode,sessionId:session.sessionId,publicToken:session.publicToken,reportUrl:session.reportUrl,
+      courts:(session.courts||[]).map(court=>({index:court.index,label:court.label,code:court.code,rotatedAt:court.rotatedAt||null})),
+      matchesUpdatedAt:session.matchesUpdatedAt||null,updatedAt:Date.now()};
+    await saveEvents();
+  }
+  /* Creating a session is idempotent per (room, event): the Worker resumes an
+     existing one, so a second organizer device never forks the queue. */
+  async function ensure(evId,mode='open'){
+    const ev=evById(evId);if(!ev)throw err('missing','This event is no longer available.');
+    const existing=config(ev).sessionId;
+    if(existing){
+      try{
+        const data=await call(`/api/score-reports/sessions/${encodeURIComponent(existing)}/config`,{method:'POST',body:{mode}});
+        await persist(ev,data.session);return data.session;
+      }catch(error){if(error.code!=='missing')throw error;}
+    }
+    const data=await call('/api/score-reports/sessions',{method:'POST',body:{
+      eventId:ev.id,label:ev.name||'Court event',mode,courts:scoreReportCourts(ev),matches:scoreReportSessionMatches(ev)}});
+    await persist(ev,data.session);return data.session;
+  }
+  async function setMode(evId,mode){
+    const ev=evById(evId);if(!ev)return null;
+    if(mode!=='off'||config(ev).sessionId)return await ensure(evId,mode);
+    return null;
+  }
+  async function rotateCodes(evId){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)throw err('missing','Turn on score reporting first.');
+    const data=await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/config`,{method:'POST',body:{rotateCodes:true,courts:scoreReportCourts(ev)}});
+    await persist(ev,data.session);return data.session;
+  }
+  async function syncMatches(evId){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)return null;
+    const data=await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/matches`,{method:'POST',body:{matches:scoreReportSessionMatches(ev)}});
+    await persist(ev,data.session);return data.session;
+  }
+  async function review(evId){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)return null;
+    return await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/review`);
+  }
+  async function reindex(evId){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)return null;
+    return await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/reindex`,{method:'POST',body:{}});
+  }
+  async function dispose(evId,reportId,disposition,gameIds){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)throw err('missing','Score reporting is not set up for this event.');
+    return await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/reports/${encodeURIComponent(reportId)}`,
+      {method:'POST',body:{disposition,...(gameIds?{gameIds}:{})}});
+  }
+  async function close(evId){
+    const ev=evById(evId),sessionId=config(ev).sessionId;if(!ev||!sessionId)return null;
+    let data=null;
+    try{data=await call(`/api/score-reports/sessions/${encodeURIComponent(sessionId)}/close`,{method:'POST',body:{confirm:true}});}
+    catch(error){if(error.code!=='missing')throw error;}
+    delete ev.scoreReporting;await saveEvents();return data;
+  }
+  function cached(evId){return views.get(evId)||null;}
+  function setCached(evId,value){views.set(evId,{...(views.get(evId)||{}),...value});}
+  /* 15-second polling with the same rules as check-in: one request at a time,
+     paused whenever the sheet is closed or the tab is hidden. */
+  function startPolling(evId,onUpdate){
+    stopPolling();
+    const tick=async()=>{
+      /* Self-cancel: another sheet may have replaced the queue without the
+         close hook running, and a leaked 15s interval would poll forever. */
+      if(window._scoreReviewEv!==evId||!document.querySelector('[data-score-review]')){stopPolling();return;}
+      if(inFlight||document.hidden)return;
+      inFlight=true;
+      try{const data=await review(evId);if(data){setCached(evId,{data,error:null,fetchedAt:Date.now()});onUpdate?.(data);}}
+      catch(error){setCached(evId,{error:error.message});onUpdate?.(null,error);}
+      finally{inFlight=false;}
+    };
+    (async()=>{try{const data=await review(evId);if(data){setCached(evId,{data,error:null,fetchedAt:Date.now()});onUpdate?.(data);}}catch(error){setCached(evId,{error:error.message});onUpdate?.(null,error);}})();
+    poll=setInterval(tick,15000);
+    return tick;
+  }
+  function stopPolling(){if(poll){clearInterval(poll);poll=null;}}
+  return {available,ensure,setMode,rotateCodes,syncMatches,review,reindex,dispose,close,cached,setCached,startPolling,stopPolling};
+})();
+
+function resyncScoreReportMatches(ev){
+  if(!ev||!scoreReportingOn(ev)||!eventScoreReporting(ev)?.sessionId)return;
+  /* Fire and forget: the organizer's schedule action must never block on the
+     network, and the next review poll surfaces any failure. */
+  ScoreReports.syncMatches(ev.id).catch(()=>{});
+}
+function scoreReportPendingCount(ev){return ScoreReports.cached(ev?.id)?.data?.pendingCount||0;}
+function scoreReportStateLabel(state){
+  return state==='accepted'?'Recorded':state==='conflicted'?'Reports disagree':state==='corroborated'?'Two devices agree'
+    :state==='rejected'?'Rejected':state==='pending'?'Awaiting review':'';
+}
+function scoreReportScoreText(row){
+  const sets=row?.sets||[];
+  return sets.map(([a,b])=>`${a}–${b}`).join(', ');
+}
+
+/* ---------- organizer UI: setting, court codes, review queue ---------- */
+function scoreReportCardHtml(ev){
+  if(!ev||ev.done)return '';
+  const mode=scoreReportingMode(ev),on=mode!=='off',pending=scoreReportPendingCount(ev);
+  const modeLabel=mode==='code'?'Court codes':mode==='open'?'Anyone with the link':'Off';
+  return `<div class="card" data-score-report-card data-event-view="schedule" style="margin-top:12px">
+    <div class="row spread" style="margin-bottom:4px"><div class="stat-title" style="margin:0">Court-side scores</div>
+      <span class="pill ${on?'good':''}" data-score-report-mode>${esc(modeLabel)}</span></div>
+    <div class="tiny faint" style="margin-bottom:9px">${on
+      ?'Players can send scores from the public schedule. Every report waits for your review before it becomes a game.'
+      :'Players cannot send scores. Turn this on to collect results from each court.'}</div>
+    <div class="row" style="gap:7px;flex-wrap:wrap">
+      <button class="btn sm ghost" onclick="openScoreReportSettings('${ev.id}')">${on?'Reporting settings':'Set up score reporting'}</button>
+      ${on?`<button class="btn sm ${pending?'primary':'ghost'}" data-score-review-open onclick="openScoreReview('${ev.id}')">Review queue${pending?` · ${pending}`:''}</button>`:''}
+      ${mode==='code'?`<button class="btn sm ghost" onclick="openCourtCodes('${ev.id}')">Court codes</button>`:''}
+    </div></div>`;
+}
+window.openScoreReportSettings=async evId=>{
+  const ev=evById(evId);if(!ev)return;
+  const mode=scoreReportingMode(ev),url=scoreReportUrl(ev);
+  const option=(value,title,copy)=>`<button type="button" class="rules-start-card" data-score-mode-option="${value}" aria-pressed="${mode===value}" style="${mode===value?'border-color:var(--gold)':''}" onclick="setScoreReportMode('${ev.id}','${value}')"><b>${esc(title)}${mode===value?' · current':''}</b><span>${esc(copy)}</span></button>`;
+  openSheet(`${sheetHeadHtml('Court-side score reporting',{subtitle:ev.name})}
+    <p class="small muted">Choose how players send scores. Whatever you pick, <b>nothing is recorded until you accept it</b> in the review queue.</p>
+    <div class="rules-start-grid">
+      ${option('off','Off','No submissions. The public schedule looks exactly as it does today.')}
+      ${option('open','Trust · anyone with the link','Players pick their match from a list and send a score. Best for casual and rec nights.')}
+      ${option('code','Court codes','Players enter the 5-character code posted at their court first. Best for larger or competitive events.')}
+    </div>
+    ${mode!=='off'&&url?`<div class="card flat" style="margin-top:12px"><b>Player link</b><textarea class="public-schedule-url" aria-label="Score report URL" readonly onclick="this.select()">${esc(url)}</textarea>
+      <p class="tiny faint">Republish the schedule once so the "Report score" buttons appear on it. After that, changing modes or codes needs no republish.</p>
+      <div class="rules-hub-actions"><button class="btn ghost" onclick="copyScoreReportLink('${ev.id}')">Copy link</button>${mode==='code'?`<button class="btn ghost" onclick="openCourtCodes('${ev.id}')">Court codes</button>`:''}<button class="btn ghost" onclick="refreshScoreReportMatches('${ev.id}')">Refresh match list</button></div></div>`:''}
+    ${mode!=='off'?`<button class="btn danger block" style="margin-top:10px" onclick="endScoreReporting('${ev.id}')">End score reporting for this event</button>`:''}
+    ${sheetFootHtml('',{closeLabel:'Done'})}`);
+};
+window.setScoreReportMode=async(evId,mode)=>{
+  const ev=evById(evId);if(!ev||!SCORE_REPORT_MODES.includes(mode))return;
+  if(scoreReportingMode(ev)===mode)return;
+  try{
+    toast(mode==='off'?'Turning reporting off…':'Setting up…');
+    await ScoreReports.setMode(evId,mode);
+    if(mode==='off'&&!eventScoreReporting(ev)?.sessionId){ev.scoreReporting={...(eventScoreReporting(ev)||{}),mode:'off'};await saveEvents();}
+    toast(mode==='off'?'Score reporting is off'
+      :mode==='code'?'Court codes are ready · print them for each court'
+      :'Players can now report scores · republish the schedule to show the buttons');
+    openScoreReportSettings(evId);render();
+  }catch(error){toast(error.message);}
+};
+window.copyScoreReportLink=async evId=>{
+  const url=scoreReportUrl(evById(evId));if(!url)return;
+  try{await navigator.clipboard.writeText(url);toast('Player report link copied');}
+  catch(_){toast('Select and copy the link above');}
+};
+window.refreshScoreReportMatches=async evId=>{
+  try{await ScoreReports.syncMatches(evId);toast('Match list refreshed');}
+  catch(error){toast(error.message);}
+};
+window.endScoreReporting=async evId=>{
+  if(!(await askConfirm('End score reporting for this event? Player links stop working. Reports you already accepted stay saved, and anything still pending is discarded.','End reporting')))return;
+  try{await ScoreReports.close(evId);ScoreReports.stopPolling();toast('Score reporting ended');closeSheet();render();}
+  catch(error){toast(error.message);}
+};
+
+window.openCourtCodes=async evId=>{
+  const ev=evById(evId);if(!ev)return;
+  const courts=scoreReportCourtCodes(ev),url=scoreReportUrl(ev);
+  if(!courts.length){toast('Turn on court codes first');return;}
+  openSheet(`${sheetHeadHtml('Court codes',{subtitle:ev.name})}
+    <p class="small muted">Print one card per court and tape it to the post. The QR opens the report form with that court already selected.</p>
+    <div class="court-code-grid">${courts.map(court=>`<div class="court-code-cell"><span class="tiny faint">${esc(court.label)}</span><b class="court-code-value">${esc(court.code||'—')}</b>${url&&court.code?checkInQrSvg(`${url}/c/${court.code}`):''}</div>`).join('')}</div>
+    <p class="tiny faint" style="margin-top:10px">Rotating codes stops the old cards working immediately. Scores already sent are kept.</p>
+    ${sheetFootHtml(`<button class="btn primary block" onclick="printCourtCodes('${ev.id}')">Print court cards</button><button class="btn ghost block" style="margin-top:8px" onclick="rotateCourtCodes('${ev.id}')">Rotate all codes</button>`)}`);
+};
+window.rotateCourtCodes=async evId=>{
+  if(!(await askConfirm('Rotate every court code? The printed cards stop working right away and you will need to print new ones. Scores already sent are kept.','Rotate codes')))return;
+  try{await ScoreReports.rotateCodes(evId);toast('New codes issued · print new cards');openCourtCodes(evId);}
+  catch(error){toast(error.message);}
+};
+window.printCourtCodes=evId=>{
+  const ev=evById(evId);if(!ev)return;
+  const courts=scoreReportCourtCodes(ev),url=scoreReportUrl(ev),e=scheduleHtmlEscape;
+  if(!courts.length||!url){toast('Turn on court codes first');return;}
+  const cards=courts.map(court=>`<section class="code-card"><div class="code-kicker">Court · report your score</div><h1>${e(court.label)}</h1>
+    <div class="code-value">${e(court.code||'')}</div>
+    <div class="code-qr">${checkInQrSvg(`${url}/c/${court.code}`)}</div>
+    <p class="code-help">Scan the code, or open <b>${e(url)}</b> and enter <b>${e(court.code||'')}</b>.</p>
+    <p class="code-foot">${e(ev.name||'Event')} · scores are reviewed by the organizer before they count.</p></section>`).join('');
+  writeSchedulePrintWindow(`${ev.name||'Event'} — court codes`,`<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${e(ev.name||'Event')} — court codes</title><style>
+    *{box-sizing:border-box}body{margin:0;padding:0;background:#fff;color:#101828;font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    .code-card{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;width:100%;min-height:100vh;padding:36px;text-align:center;page-break-after:always;break-after:page}
+    .code-card:last-child{page-break-after:auto;break-after:auto}
+    .code-kicker{color:#a8791b;font-size:13px;font-weight:850;letter-spacing:.16em;text-transform:uppercase}
+    h1{margin:0;font-size:54px;line-height:1.05;overflow-wrap:anywhere}
+    .code-value{padding:14px 30px;border:4px solid #101828;border-radius:20px;font-size:86px;font-weight:900;letter-spacing:.14em;font-variant-numeric:tabular-nums}
+    .code-qr svg{width:230px;height:230px}
+    .code-help{max-width:620px;margin:4px 0 0;font-size:16px;line-height:1.5;overflow-wrap:anywhere}
+    .code-foot{margin:0;color:#5d6a80;font-size:13px}
+    @media print{.code-card{min-height:96vh;padding:20px}}
+  </style></head><body>${cards}</body></html>`);
+};
+
+window.openScoreReview=evId=>{
+  const ev=evById(evId);if(!ev)return;
+  window._scoreReviewEv=evId;
+  renderScoreReview(evId);
+  ScoreReports.startPolling(evId,()=>{if(window._scoreReviewEv===evId&&document.querySelector('[data-score-review]'))renderScoreReview(evId,{patch:true});});
+  window._sheetBeforeClose=()=>{window._scoreReviewEv=null;ScoreReports.stopPolling();return true;};
+};
+function scoreReviewRowHtml(ev,row){
+  const state=row.matchState,tone=state==='conflicted'?'bad':state==='accepted'?'good':state==='corroborated'?'good':'',
+    disposed=row.disposition,score=scoreReportScoreText(row);
+  return `<div class="ev-team score-review-row" data-score-report-row="${esc(row.reportId)}" data-state="${esc(state)}" style="display:block">
+    <div class="row spread"><span class="tiny faint">${esc([row.roundLabel,row.courtLabel].filter(Boolean).join(' · ')||'Match')}</span>
+      <span class="pill ${tone}">${esc(scoreReportStateLabel(state))}</span></div>
+    <div class="small match-teams" style="font-weight:700;margin-top:4px">${esc(row.sideAName)} <span class="faint">vs</span> ${esc(row.sideBName)}</div>
+    <div class="row spread" style="margin-top:5px"><b class="num" style="font-size:19px;color:var(--gold)">${esc(score)}</b>
+      <span class="tiny faint">${esc(row.mode==='bo3'?'Best of 3':'Single set')} · ${esc(new Date(row.submittedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'}))} · ${esc(row.deviceLabel)}</span></div>
+    ${row.tie?'<div class="unkline" style="margin-top:7px">Submitted as a tie. Accepting asks you to confirm, exactly like the manual sheet.</div>':''}
+    ${row.afterAccept?'<div class="unkline" style="margin-top:7px">Sent after a result was already recorded — treat as a correction.</div>':''}
+    ${row.stale?'<div class="unkline" style="margin-top:7px">This match is no longer on the schedule, so it cannot be accepted. The submitted details are kept for reference.</div>':''}
+    ${disposed==='accepted'?`<div class="tiny" style="margin-top:7px;color:var(--good)">Accepted${scoreReportAcceptedGameMissing(ev,row)?' · the saved game was since deleted. Accept again to re-record it.':''}</div>`:''}
+    ${disposed==='rejected'?'<div class="tiny faint" style="margin-top:7px">Rejected · kept here until the event cleans up</div>':''}
+    <div class="row" style="gap:7px;margin-top:8px;flex-wrap:wrap">
+      ${row.stale?'':`<button class="btn sm primary log-match" style="flex:1" onclick="acceptScoreReport('${ev.id}','${esc(row.reportId)}')">${disposed==='accepted'?'Record again':'Accept'}</button>`}
+      ${disposed==='rejected'?`<button class="btn sm ghost" onclick="reopenScoreReport('${ev.id}','${esc(row.reportId)}')">Undo reject</button>`
+        :`<button class="btn sm ghost" onclick="rejectScoreReport('${ev.id}','${esc(row.reportId)}')">Reject</button>`}
+    </div></div>`;
+}
+function scoreReportAcceptedGameMissing(ev,row){
+  const resolved=resolveScoreReportMatch(ev,row.matchId);
+  return !!(row.disposition==='accepted'&&resolved&&!resolved.existing.length);
+}
+function renderScoreReview(evId,{patch=false}={}){
+  const ev=evById(evId);if(!ev)return;
+  const view=ScoreReports.cached(evId)||{},data=view.data,rows=data?.reports||[];
+  /* Group by match so conflicting reports sit side by side — that grouping is
+     the single most useful output of the whole feature. */
+  const byMatch=new Map();
+  rows.forEach(row=>{const list=byMatch.get(row.matchId)||[];list.push(row);byMatch.set(row.matchId,list);});
+  const order=[...byMatch.entries()].sort((a,b)=>{
+    const rank=list=>list[0].matchState==='conflicted'?0:list[0].matchState==='corroborated'?1:list[0].matchState==='accepted'?3:2;
+    return rank(a[1])-rank(b[1])||Number(b[1][0].submittedAt)-Number(a[1][0].submittedAt);
+  });
+  const body=!data&&!view.error?'<div class="stat-empty">Loading reports…</div>'
+    :view.error?`<div class="unkline" role="alert">${esc(view.error)}</div>`
+    :!rows.length?'<div class="stat-empty">No scores have been reported yet. Reports appear here within about 15 seconds of a player sending one.</div>'
+    :order.map(([matchId,list])=>`<div class="score-review-group"${list.length>1?' data-score-review-conflict':''}>${list.length>1?`<div class="tiny" style="margin:10px 0 4px;color:${list[0].matchState==='conflicted'?'var(--bad)':'var(--good)'};font-weight:750">${list.length} reports for this match${list[0].matchState==='conflicted'?' · they disagree, walk to this court':' · they agree'}</div>`:''}${list.map(row=>scoreReviewRowHtml(ev,row)).join('')}</div>`).join('');
+  const head=`<div class="tiny faint" style="margin-bottom:9px">${data?`${data.pendingCount} awaiting review${view.fetchedAt?` · updated ${new Date(view.fetchedAt).toLocaleTimeString([],{hour:'numeric',minute:'2-digit'})}`:''}`:'Connecting…'}</div>`;
+  const html=`${sheetHeadHtml('Reported scores',{subtitle:ev.name})}<div data-score-review>${head}${body}</div>
+    ${sheetFootHtml(`<button class="btn ghost block" onclick="rescanScoreReports('${ev.id}')">Rescan for missing reports</button>`)}`;
+  if(patch){
+    const node=document.querySelector('[data-score-review]');
+    if(node){const sheet=node.closest('.sheet'),top=sheet?.scrollTop||0;node.innerHTML=`${head}${body}`;if(sheet)sheet.scrollTop=top;return;}
+  }
+  openSheet(html);
+}
+window.rescanScoreReports=async evId=>{
+  try{await ScoreReports.reindex(evId);const data=await ScoreReports.review(evId);ScoreReports.setCached(evId,{data,error:null,fetchedAt:Date.now()});renderScoreReview(evId,{patch:true});toast('Rescanned');}
+  catch(error){toast(error.message);}
+};
+window.rejectScoreReport=async(evId,reportId)=>{
+  try{await ScoreReports.dispose(evId,reportId,'reject');const data=await ScoreReports.review(evId);ScoreReports.setCached(evId,{data,error:null,fetchedAt:Date.now()});renderScoreReview(evId,{patch:true});render();}
+  catch(error){toast(error.message);}
+};
+window.reopenScoreReport=async(evId,reportId)=>{
+  try{await ScoreReports.dispose(evId,reportId,'reopen');const data=await ScoreReports.review(evId);ScoreReports.setCached(evId,{data,error:null,fetchedAt:Date.now()});renderScoreReview(evId,{patch:true});render();}
+  catch(error){toast(error.message);}
+};
+/* Accepting builds the record through the same shared builder the manual
+   sheet uses, keeps the manual sheet's confirm copy for ties and replacement,
+   and only then tells the Worker the row was accepted. */
+window.acceptScoreReport=async(evId,reportId)=>{
+  const ev=evById(evId);if(!ev)return;
+  const row=(ScoreReports.cached(evId)?.data?.reports||[]).find(entry=>entry.reportId===reportId);
+  if(!row){toast('That report is no longer available');return;}
+  if(row.stale){toast('This match is no longer on the schedule');return;}
+  const resolved=resolveScoreReportMatch(ev,row.matchId);
+  if(!resolved){toast('Could not match this report to the current schedule');return;}
+  const mode=row.mode==='bo3'?'bo3':'set';
+  const sets=(row.sets||[]).map(([a,b],index)=>[a,b,String(index+1)]);
+  if(!sets.length){toast('That report has no score');return;}
+  const rotating=resolved.kind==='rotating';
+  if(mode==='bo3'&&scoreSetTally(sets).tied&&!(await askConfirm(rotating?TIE_CONFIRM.rotatingSets:TIE_CONFIRM.fixedSets,'Save anyway',false)))return;
+  if(mode==='set'&&sets[0][0]===sets[0][1]&&!(await askConfirm(rotating?TIE_CONFIRM.rotatingSingle:TIE_CONFIRM.fixedSingle,rotating?'Save tie':'Save anyway',false)))return;
+  const existing=resolved.existing||[];
+  if(existing.length&&!(await askConfirm('A saved result already exists for this match. Replace it with the reported score?','Replace result')))return;
+  let records;
+  if(rotating)records=buildRotationGameRecords(ev,resolved.match,resolved.valid,{mode,sets});
+  else records=buildFixedEventGameRecords(ev,resolved.tA,resolved.tB,{mode,sets,label:resolved.label,evMatchId:resolved.evMatchId,
+    matchIdSeed:existing[0]?.matchId||null}).records;
+  if(existing.length)await markGamesDeleted(existing);
+  games.push(...records);
+  await commit();
+  try{await ScoreReports.dispose(evId,reportId,'accept',records.map(record=>record.id));}
+  catch(error){toast(`Result saved, but the queue could not be updated: ${error.message}`);}
+  try{const data=await ScoreReports.review(evId);ScoreReports.setCached(evId,{data,error:null,fetchedAt:Date.now()});}catch(_){}
+  toast('Result recorded');
+  renderScoreReview(evId,{patch:true});
+  render();
+};
 
 /* ---------- organizer-facing Event Rules Hub ---------- */
 function quickRulesPreviewHtml(ev,quickRules){const quick=deriveRulesQuickRules(ev,quickRules);return `<div class="quick-rules-grid">${QUICK_RULE_DEFS.map(([key,label])=>{const row=quick[key];return `<div class="quick-rule"><b>${esc(label)}</b><span>${esc(row?.value||'Not decided')}</span><span class="quick-rule-state">${esc(row?.state==='notDecided'?'not decided':row?.state==='notApplicable'?'not applicable':row?.state==='inherited'?'from event settings':'custom rule')}</span></div>`;}).join('')}</div>`;}
@@ -7399,6 +7870,7 @@ function renderRotatingEventDetail(ev){
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
   if(!schedule.length) html+=`<div class="stat-empty">${validation.valid?(entries.length<validation.entriesPerMatch?`At least ${validation.entriesPerMatch} complete ${typePlural.toLowerCase()} are required for one match.`:'Choose rounds and courts, then generate a deterministic rotation.'):esc(validation.error)}</div><button class="btn ghost block" style="margin-top:10px" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn primary block" style="margin-top:8px" ${!validation.valid||entries.length<(validation.entriesPerMatch||Infinity)?'disabled':''} onclick="generateRotationSchedule('${ev.id}')">Generate schedule</button>`;
   else {const standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),rounds=[...new Set(standard.map(m=>m.round))],matchCard=(m,time)=>{const res=rotationMatchResult(ev,m),extra=!isStandardScheduleMatch(m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${time?` · ${fmtScheduleTime(ev,time)}`:''}</span><span class="row" style="gap:5px">${extra?`<span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span>`:''}<span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary log-match" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button>${extra?`<button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button>`:''}</div>`}</div>`;};html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${standard.filter(m=>m.round===round).map(m=>matchCard(m,tl?.roundEst?.[round])).join('')}`).join('');if(extras.length){const blocks=[...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))];html+=`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed entries participate</span></div>`+blocks.map(block=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches${tl?.makeupEst?.[block]?` · ${fmtScheduleTime(ev,tl.makeupEst[block])}`:''}</div>${extras.filter(m=>positiveInt(m.makeupBlock,1)===block).map(m=>matchCard(m,tl?.makeupEst?.[block])).join('')}`).join('');}html+=scheduleFairnessAuditHtml(quality,typeSingular.toLowerCase());if(quality?.gameDifference>0)html+=`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`;html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>`;}
+  html+=scoreReportCardHtml(ev);
   html+=`</section><section id="event-playoffs">`;
   html+=bracketCardsHtml(ev);
   const playoffTeams=ev.teams||[];
@@ -7443,7 +7915,7 @@ window.deleteEntry=async()=>{const d=window._entryDraft,ev=evById(d.evId);if(!ev
 window.openRotationSettings=evId=>{const ev=evById(evId);if(!ev)return;window._evsDraft=null;window._rotationSettingsEvId=evId;const s=rotationSettings(ev);window._rotationFairnessPolicy=hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)?s.fairnessPolicy:'';openSheet(`<h3>Rotating Groups settings</h3><div class="field"><label>Players who stay together</label><input id="rotationEntrySize" aria-label="Players who stay together" type="number" min="1" value="${s.entrySize}" oninput="updateRotationSummary()"><div class="tiny faint">This many players remain together for the whole tournament and earn standings results as one entry.</div></div><div class="field"><label>Players per side</label><input id="rotationTeamSize" aria-label="Players per side" type="number" min="2" value="${s.teamSize}" oninput="updateRotationSummary()"><div class="tiny faint">Each temporary team contains this many total players.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Standard rounds</label><input id="rotationRounds" aria-label="Rounds" type="number" min="1" value="${s.rounds}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Courts</label><input id="rotationCourts" aria-label="Courts" type="number" min="1" value="${s.courts}" oninput="updateRotationSummary()"></div></div><div class="field"><label>Schedule fairness</label><div id="rotationSummary"></div></div><div class="field"><label>Schedule seeding</label><select id="rotationSeedMode" aria-label="Schedule seeding"><option value="rating" ${s.seedMode==='rating'?'selected':''}>Rating</option><option value="manual" ${s.seedMode==='manual'?'selected':''}>Manual</option><option value="random" ${s.seedMode==='random'?'selected':''}>Random</option></select><div class="tiny faint">Rating = strongest entries are initially seeded first. Manual = organizer controls initial order. Random = initial order is randomized.</div></div><div class="field"><label>Start time <span class="faint" style="font-weight:500">· optional</span></label><input id="rotationStart" aria-label="Start time" type="time" value="${s.start||''}" oninput="updateRotationSummary()"><div class="tiny faint">Leave empty for no times. Planned times stay anchored to the event date and this start time.</div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Game min</label><input id="rotationSetMin" aria-label="Minutes per game" type="number" min="5" value="${s.setMin}" oninput="updateRotationSummary()"></div><div class="field" style="flex:1"><label>Playoff match min</label><input id="rotationMatchMin" aria-label="Minutes per playoff match" type="number" min="5" value="${s.matchMin}"></div><div class="field" style="flex:1"><label>Break min</label><input id="rotationBreakMin" aria-label="Break before playoffs" type="number" min="0" value="${s.breakMin}"></div></div><div class="row" style="gap:8px"><div class="field" style="flex:1"><label>Win points</label><input id="rotationWinPoints" aria-label="Win points" type="number" step=".5" value="${s.winPoints}"></div><div class="field" style="flex:1"><label>Tie points</label><input id="rotationTiePoints" aria-label="Tie points" type="number" step=".5" value="${s.tiePoints}"></div><div class="field" style="flex:1"><label>Loss points</label><input id="rotationLossPoints" aria-label="Loss points" type="number" step=".5" value="${s.lossPoints}"></div></div><p class="tiny faint">Initial seeding helps construct the schedule and never directly changes standings.</p><button class="btn primary block" onclick="saveRotationSettings('${evId}')">Save settings</button>${scheduleSettingsAdditionalActionsHtml(ev)}${sheetCloseBtn()}`);updateRotationSummary();};
 window.updateRotationSummary=()=>{const e=Number($('#rotationEntrySize')?.value),t=Number($('#rotationTeamSize')?.value),v=validateRotationConfig(e,t),box=$('#rotationSummary');if(!box)return;if(!v.valid){box.innerHTML=`<div class="schedule-warning" role="status">${esc(v.error)}</div>`;return;}const ev=evById(window._rotationSettingsEvId),ids=rotatingEntries(ev).map(entry=>entry.id),courts=positiveInt($('#rotationCourts')?.value,1),rounds=positiveInt($('#rotationRounds')?.value,1),plan=analyzeScheduleParticipation({participantIds:ids,standardRounds:rounds,courts,participantsPerMatch:v.entriesPerMatch,fairnessPolicy:window._rotationFairnessPolicy}),noun=rotatingEntryLabel(e).toLowerCase(),start=$('#rotationStart')?.value||'',setMin=positiveInt($('#rotationSetMin')?.value,25);box.innerHTML=`<div class="tiny faint">Each side contains ${v.entriesPerSide} ${rotatingEntryLabel(e,v.entriesPerSide!==1).toLowerCase()}. ${v.entriesPerMatch} entries are needed per match.</div>${scheduleFairnessPreviewHtml(plan,{noun,rounds,setMin,start,eventDate:eventLocalDate(ev),selected:window._rotationFairnessPolicy})}`;};
 window.saveRotationSettings=async evId=>{const ev=evById(evId);if(!ev)return;const old=rotationSettings(ev),next={...old,entrySize:Number($('#rotationEntrySize').value),teamSize:Number($('#rotationTeamSize').value),rounds:positiveInt($('#rotationRounds').value,1),courts:positiveInt($('#rotationCourts').value,1),seedMode:$('#rotationSeedMode').value,winPoints:Number($('#rotationWinPoints').value),tiePoints:Number($('#rotationTiePoints').value),lossPoints:Number($('#rotationLossPoints').value),start:($('#rotationStart')?.value||''),setMin:positiveInt($('#rotationSetMin')?.value,25),matchMin:positiveInt($('#rotationMatchMin')?.value,45),breakMin:Math.max(0,Math.round(Number($('#rotationBreakMin')?.value)||0))},v=validateRotationConfig(next.entrySize,next.teamSize);if(!v.valid){toast(v.error);return;}const plan=analyzeScheduleParticipation({participantIds:rotatingEntries(ev).map(entry=>entry.id),standardRounds:next.rounds,courts:next.courts,participantsPerMatch:v.entriesPerMatch,fairnessPolicy:window._rotationFairnessPolicy});if(!plan.valid){toast(plan.error);return;}if(!plan.equalParticipationPossible&&!FAIRNESS_POLICIES.includes(window._rotationFairnessPolicy)){toast('Choose Equal games or Keep requested rounds');return;}next.fairnessPolicy=plan.equalParticipationPossible?(window._rotationFairnessPolicy||'equalGames'):window._rotationFairnessPolicy;const structural=next.entrySize!==old.entrySize||next.teamSize!==old.teamSize,hasResults=games.some(g=>g.evId===ev.id&&g.evMatchId);if(structural&&hasResults){toast('Remove linked results before changing entry or team size');return;}if(structural&&rotatingEntries(ev).some(e=>(e.players||[]).length!==next.entrySize)){toast(`Existing entries do not contain exactly ${next.entrySize} players. Edit or remove them before changing entry size.`);return;}const regen=structural||next.rounds!==old.rounds||next.courts!==old.courts||next.seedMode!==old.seedMode||next.fairnessPolicy!==old.fairnessPolicy;if(regen&&rotationSchedule(ev).length&&!(await askConfirm('These changes affect future matchups and makeup needs. Played matches and custom matches stay protected. Continue?','Save and review schedule')))return;materializeRotation(ev);const protectedMatches=rotationSchedule(ev).filter(m=>linkedRotationGame(ev,m)||isCustomScheduleMatch(m));ev.rotation=next;if(regen){ev.rotationSchedule=protectedMatches;delete ev.rotationScheduleQuality;if(!protectedMatches.length)delete ev.rotation.initialSeeds;}await saveEvents();closeSheet();render();};
-window.generateRotationSchedule=async evId=>{const ev=evById(evId);if(!ev)return;const schedule=rotationSchedule(ev),s=rotationSettings(ev),validation=rotationValidation(ev),preview=validation.valid?analyzeScheduleParticipation({participantIds:rotatingEntries(ev).map(entry=>entry.id),standardRounds:s.rounds,courts:s.courts,participantsPerMatch:validation.entriesPerMatch,fairnessPolicy:s.fairnessPolicy}):null;if(preview?.valid&&!preview.equalParticipationPossible&&!hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)&&!schedule.length){toast('Review Schedule fairness and choose a policy first');openRotationSettings(evId);return;}const standard=schedule.filter(isStandardScheduleMatch),playedRounds=standard.filter(m=>linkedRotationGame(ev,m)).map(m=>m.round),lastLocked=playedRounds.length?Math.max(...playedRounds):0,locked=standard.filter(m=>m.round<=lastLocked),protectedMatches=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),savedInitialSeeds=normalizeInitialSeeds(s.initialSeeds,rotatingEntries(ev));if(schedule.length){const msg=lastLocked?'Regenerate only future standard rounds and recalculate unplayed makeup matches? Every started match, saved result, custom match, standing, and rating stays preserved.':'Regenerate the schedule and recalculate unplayed makeup matches? Saved results and custom matches stay protected.';if(!(await askConfirm(msg,lastLocked?'Regenerate remaining':'Regenerate schedule')))return;}materializeRotation(ev);const currentState=scheduleState(ev.rotation,'rotation:'+ev.id),regenerationSeed=schedule.length&&ev.rotation.seedMode==='random'?newScheduleSeed():currentState.seed,oldSig=rotationMaterialSignature(standard.filter(m=>m.round>lastLocked)),firstAttempt=schedule.length?1:0;let chosen=null,nextState=null;for(let attempt=firstAttempt;attempt<firstAttempt+32;attempt++){const revision=currentState.revision+attempt,candidateEv={...ev,rotation:{...ev.rotation,seed:regenerationSeed,revision}},result=generateRotationScheduleData(candidateEv,{lockedMatches:locked,preservedMatches:protectedMatches});if(result.error){toast(result.error);return;}const future=result.matches.filter(m=>isStandardScheduleMatch(m)&&m.round>lastLocked);if(!standard.length||rotationMaterialSignature(future)!==oldSig){chosen=result;nextState=scheduleState(candidateEv.rotation,'rotation:'+ev.id);break;}}if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}const initialSeeds=lastLocked?savedInitialSeeds:chosen.initialSeeds;ev.rotation={...ev.rotation,...nextState};delete ev.rotation.scheduleNeedsReview;if(initialSeeds)ev.rotation.initialSeeds=initialSeeds;else delete ev.rotation.initialSeeds;ev.rotationSchedule=chosen.matches;ev.rotationScheduleQuality=chosen.quality;await saveEvents();toast(`${schedule.length?'Schedule regenerated':'Schedule generated'} · version ${ev.rotation.revision}`);render({scroll:'anchor',anchorId:'schedule'});};
+window.generateRotationSchedule=async evId=>{const ev=evById(evId);if(!ev)return;const schedule=rotationSchedule(ev),s=rotationSettings(ev),validation=rotationValidation(ev),preview=validation.valid?analyzeScheduleParticipation({participantIds:rotatingEntries(ev).map(entry=>entry.id),standardRounds:s.rounds,courts:s.courts,participantsPerMatch:validation.entriesPerMatch,fairnessPolicy:s.fairnessPolicy}):null;if(preview?.valid&&!preview.equalParticipationPossible&&!hasExplicitFairnessPolicy(ev.rotation||ev.pairSettings)&&!schedule.length){toast('Review Schedule fairness and choose a policy first');openRotationSettings(evId);return;}const standard=schedule.filter(isStandardScheduleMatch),playedRounds=standard.filter(m=>linkedRotationGame(ev,m)).map(m=>m.round),lastLocked=playedRounds.length?Math.max(...playedRounds):0,locked=standard.filter(m=>m.round<=lastLocked),protectedMatches=schedule.filter(m=>!isStandardScheduleMatch(m)&&(linkedRotationGame(ev,m)||isCustomScheduleMatch(m))),savedInitialSeeds=normalizeInitialSeeds(s.initialSeeds,rotatingEntries(ev));if(schedule.length){const msg=lastLocked?'Regenerate only future standard rounds and recalculate unplayed makeup matches? Every started match, saved result, custom match, standing, and rating stays preserved.':'Regenerate the schedule and recalculate unplayed makeup matches? Saved results and custom matches stay protected.';if(!(await askConfirm(msg,lastLocked?'Regenerate remaining':'Regenerate schedule')))return;}materializeRotation(ev);const currentState=scheduleState(ev.rotation,'rotation:'+ev.id),regenerationSeed=schedule.length&&ev.rotation.seedMode==='random'?newScheduleSeed():currentState.seed,oldSig=rotationMaterialSignature(standard.filter(m=>m.round>lastLocked)),firstAttempt=schedule.length?1:0;let chosen=null,nextState=null;for(let attempt=firstAttempt;attempt<firstAttempt+32;attempt++){const revision=currentState.revision+attempt,candidateEv={...ev,rotation:{...ev.rotation,seed:regenerationSeed,revision}},result=generateRotationScheduleData(candidateEv,{lockedMatches:locked,preservedMatches:protectedMatches});if(result.error){toast(result.error);return;}const future=result.matches.filter(m=>isStandardScheduleMatch(m)&&m.round>lastLocked);if(!standard.length||rotationMaterialSignature(future)!==oldSig){chosen=result;nextState=scheduleState(candidateEv.rotation,'rotation:'+ev.id);break;}}if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}const initialSeeds=lastLocked?savedInitialSeeds:chosen.initialSeeds;ev.rotation={...ev.rotation,...nextState};delete ev.rotation.scheduleNeedsReview;if(initialSeeds)ev.rotation.initialSeeds=initialSeeds;else delete ev.rotation.initialSeeds;ev.rotationSchedule=chosen.matches;ev.rotationScheduleQuality=chosen.quality;await saveEvents();resyncScoreReportMatches(ev);toast(`${schedule.length?'Schedule regenerated':'Schedule generated'} · version ${ev.rotation.revision}`);render({scroll:'anchor',anchorId:'schedule'});};
 function rotationMatch(ev,matchId){return rotationSchedule(ev).find(m=>m.id===matchId);}
 function rotationMatchLabel(match){return `${isStandardScheduleMatch(match)?`Round ${match.round}`:'Makeup match'} · Court ${match.court}`;}
 function rotationMatchPlayers(ev,ids){return ids.flatMap(id=>entryById(ev,id)?.players||[]).filter(id=>pById(id));}
@@ -7471,25 +7943,69 @@ function renderRotationScoreSheet(){
       : ['1','2','3'].map(n=>`<div class="row" style="gap:10px;margin-top:${n==='1'?0:8}px"><span class="tiny faint" style="flex:0 0 40px">Set ${n}</span><input id="rs${n}A" aria-label="Set ${n} side A" type="number" min="0" inputmode="numeric" placeholder="0" value="${esc(d['s'+n+'A'])}"><input id="rs${n}B" aria-label="Set ${n} side B" type="number" min="0" inputmode="numeric" placeholder="0" value="${esc(d['s'+n+'B'])}"></div>`).join('')+`<div class="tiny faint" style="margin-top:7px">Leave set 3 empty for a 2-0 sweep. Each set moves ratings; the match counts once in the entry standings.</div>`}
     <button class="btn primary block" style="margin-top:12px" onclick="saveRotationScore('${d.evId}','${d.matchId}')">Save result</button>${sheetCloseBtn()}`);
 }
+/* ---------- shared event game-record construction ----------
+   The manual score sheets and the score-report review queue must produce
+   byte-identical game records for the same inputs, so each event format has
+   exactly one builder. Callers keep their own confirm dialogs and DOM reads;
+   only the record shape lives here. `now` and `newId` are injected so tests
+   can compare the manual and reviewed paths without id/date noise. */
+/* One definition of the tie confirmations, shared by the manual sheets and the
+   review queue so the two paths can never drift apart. */
+const TIE_CONFIRM=Object.freeze({
+  fixedSets:'Set wins are even, so no match winner is recorded in standings. Save anyway?',
+  fixedSingle:'Tied score — it shows in standings points but won\u2019t count as a win, loss, or rating change. Save anyway?',
+  rotatingSets:'Set wins are even, so the match counts as a tie in entry standings. Save anyway?',
+  rotatingSingle:'Save this tied result? Ratings will stay unchanged, and entry tie points will apply.'
+});
+function scoreSetTally(sets){let wa=0,wb=0;(sets||[]).forEach(([a,b])=>{if(a>b)wa++;else if(b>a)wb++;});return {wa,wb,tied:wa===wb};}
+function buildRotationGameRecords(ev,m,valid,{mode='set',sets=[],now=Date.now,newId=uid}={}){
+  const base=extra=>({id:newId(),date:now(),teamA:valid.A,teamB:valid.B,log:{},...gameSaveMeta(false),evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',...extra});
+  if(mode==='bo3'){
+    const matchId=newId();
+    return sets.map(([a,b,n])=>base({matchId,scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:`${rotationMatchLabel(m)} · Set ${n}`}));
+  }
+  const [a,b]=sets[0]||[0,0];
+  return [base({scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:rotationMatchLabel(m)})];
+}
+function buildFixedEventGameRecords(ev,tA,tB,{mode='set',sets=[],label='',evMatchId=null,oldGames=[],baseDate=Date.now(),matchIdSeed=null,newId=uid}={}){
+  const pA=tA.players.filter(id=>pById(id)),pB=tB.players.filter(id=>pById(id));
+  /* Playerless (guest) sides save as untracked slots — the engine's existing
+     partial-game model then guarantees: guest vs guest moves no ratings;
+     rostered vs guest counts the win/loss without result-based rating moves. */
+  const mk=(a,b,extra,old,index)=>{const record={...(old?{}:gameSaveMeta(false)),...(old||{}),id:old?.id||newId(),date:old?.date||(baseDate+index),
+    teamA:pA,teamB:pB,unkA:pA.length?0:1,unkB:pB.length?0:1,scoreA:a,scoreB:b,winner:a>b?'A':(b>a?'B':null),log:old?.log||{},
+    evId:ev.id,evA:tA.id,evB:tB.id,...(evMatchId?{evMatchId}:{}),...extra};
+    if(!extra.matchId)delete record.matchId;return record;};
+  let specs=[],winnerId=null,resultLabel='';
+  if(mode==='bo3'){
+    const {wa,wb,tied}=scoreSetTally(sets);
+    const matchId=matchIdSeed||newId();winnerId=tied?null:(wa>wb?tA.id:tB.id);
+    resultLabel=tied?'Match saved · drawn on sets':`${wa>wb?tA.name:tB.name} wins the match ${Math.max(wa,wb)}-${Math.min(wa,wb)}`;
+    specs=sets.map(([a,b,n])=>({a,b,extra:{matchId,label:(label?label+' · ':'')+'Set '+n}}));
+  } else {
+    const [a,b]=sets[0]||[0,0];
+    winnerId=a===b?null:(a>b?tA.id:tB.id);
+    resultLabel=a===b?'Tie saved · points counted':`${a>b?tA.name:tB.name} wins · standings updated`;
+    specs=[{a,b,extra:label?{label}:{}}];
+  }
+  return {records:specs.map((spec,index)=>mk(spec.a,spec.b,spec.extra,oldGames[index],index)),winnerId,resultLabel,specCount:specs.length};
+}
 window.saveRotationScore=async(evId,matchId)=>{
   const ev=evById(evId),m=ev&&rotationMatch(ev,matchId),valid=validateRotationMatch(ev,m);
   if(!valid.valid){toast(valid.error);return;}
   const d=rsCapture()||{mode:'set'};
   const num=v=>Math.max(0,Math.round(Number(v)||0));
-  const base=extra=>({id:uid(),date:Date.now(),teamA:valid.A,teamB:valid.B,log:{},...gameSaveMeta(false),evId:ev.id,evMatchId:m.id,evEntryIdsA:m.sideAEntryIds.slice(),evEntryIdsB:m.sideBEntryIds.slice(),eventFormat:'rotatingGroups',...extra});
   if(d.mode==='bo3'){
     const sets=[];
     ['1','2','3'].forEach(n=>{ const ra=(d['s'+n+'A']||'').trim(), rb=(d['s'+n+'B']||'').trim(); if(ra===''&&rb==='') return; sets.push([num(ra),num(rb),n]); });
     if(!sets.length){ toast('Enter at least one set score'); return; }
-    let wa=0,wb=0; sets.forEach(([a,b])=>{ if(a>b)wa++; else if(b>a)wb++; });
-    if(wa===wb&&!(await askConfirm('Set wins are even, so the match counts as a tie in entry standings. Save anyway?','Save anyway',false)))return;
-    const matchId=uid();
-    sets.forEach(([a,b,n])=>games.push(base({matchId,scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:`${rotationMatchLabel(m)} \u00b7 Set ${n}`})));
+    if(scoreSetTally(sets).tied&&!(await askConfirm(TIE_CONFIRM.rotatingSets,'Save anyway',false)))return;
+    games.push(...buildRotationGameRecords(ev,m,valid,{mode:'bo3',sets}));
     await commit(); closeSheet(); render();
   } else {
     const a=num($('#rotationScoreA').value),b=num($('#rotationScoreB').value);
-    if(a===b&&!(await askConfirm('Save this tied result? Ratings will stay unchanged, and entry tie points will apply.','Save tie',false)))return;
-    games.push(base({scoreA:a,scoreB:b,winner:a>b?'A':b>a?'B':null,label:rotationMatchLabel(m)}));
+    if(a===b&&!(await askConfirm(TIE_CONFIRM.rotatingSingle,'Save tie',false)))return;
+    games.push(...buildRotationGameRecords(ev,m,valid,{mode:'set',sets:[[a,b]]}));
     await commit(); closeSheet(); render();
   }
 };
@@ -7736,6 +8252,7 @@ function renderEventDetail(ev){
   } else {
     html += `<section id="event-schedule" class="card" style="margin-top:12px"><div class="stat-title">Schedule</div><div class="stat-empty">${ev.done?'This event is complete. The saved schedule remains available to participants.':'Set courts and schedule details to project rounds, court assignments, and timing.'}</div>${ev.done&&scheduleSc?.plannedSlots?.length?`<button class="btn primary block" style="margin-top:10px" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button>`:!ev.done?`<button class="btn ghost block" style="margin-top:10px" onclick="openEvSettings('${ev.id}')">Schedule settings</button>`:''}</section>`;
   }
+  html += scoreReportCardHtml(ev);
   html += `<section id="event-playoffs">`;
   html += bracketCardsHtml(ev);
   if(!(ev.brackets||[]).length){
@@ -7992,6 +8509,9 @@ window.deleteEvent=async(id)=>{
   try{
     if(eventRegistration(ev).enabled||eventRegistration(ev).publicToken||EventRegistration.get(ev.id)?.configured)await EventRegistration.updateLifecycle(ev,'closed',{eventAvailable:false});
   }catch(error){toast(`${error.message} Registration is still reachable, so the event was not deleted.`);return;}
+  /* Best effort: an offline organizer still deletes the event, and the
+     reporting session then expires on its own TTL. */
+  if(scoreReportingOn(ev)||eventScoreReporting(ev)?.sessionId){try{await ScoreReports.close(id);}catch(_){}ScoreReports.stopPolling();}
   await Sync.markDeleted('events',id);
   games=filterDeletedGames(games,Sync.deletionState());
   evts=evts.filter(e=>e.id!==id);
@@ -8241,7 +8761,7 @@ window.regenerateFixedSchedule=async evId=>{
   const state=scheduleState(ev.sched,'fixed:'+ev.id),lockedMatches=fixedLockedMatchesThroughStartedRound(ev,current),oldOrder=fixedScheduleOrderSignature(current),oldSet=fixedMatchupSetSignature(current);let chosen=null;
   for(let attempt=1;attempt<=32;attempt++){const candidate={...ev,sched:{...ev.sched,opponentPolicy:UNIQUE_OPPONENT_POLICY,seed:ev.sched.seed||newScheduleSeed(),revision:state.revision+attempt,...(lockedMatches.length?{lockedMatches}:{})}},sc=buildSchedule(candidate),lastLockedSlot=Math.max(-1,...lockedMatches.map(match=>Number(match.slot)||0)),lockedKeys=new Set(lockedMatches.map(match=>entryCombinationKey(match.a,match.b))),generated=sc?sc.allMatches.filter(match=>!isCustomScheduleMatch(match)&&(!isStandardScheduleMatch(match)||match.slot>lastLockedSlot)):[],validation=sc?fixedScheduleValidation(candidate,generated):null,noLockedRematch=generated.every(match=>!lockedKeys.has(entryCombinationKey(match.a,match.b)));if(sc&&validation?.valid&&noLockedRematch&&(upgrading||fixedMatchupSetSignature(sc)===oldSet)&&fixedScheduleOrderSignature(sc)!==oldOrder){chosen=candidate.sched;break;}}
   if(!chosen){toast('No meaningfully different valid schedule is available for these settings.');return;}
-  ev.sched=chosen;delete ev.sched.scheduleNeedsReview;const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);await saveEvents();toast(`Schedule regenerated · version ${ev.sched.revision}`);render({scroll:'anchor',anchorId:'schedule'});
+  ev.sched=chosen;delete ev.sched.scheduleNeedsReview;const next=buildSchedule(ev);if(next?.allMatches)ev.fixedScheduleExtras=next.allMatches.filter(m=>!isStandardScheduleMatch(m)).map(normalizedFixedExtraMatch);await saveEvents();resyncScoreReportMatches(ev);toast(`Schedule regenerated · version ${ev.sched.revision}`);render({scroll:'anchor',anchorId:'schedule'});
 };
 window.clearEvSettings=async()=>{
   const d=window._evsDraft; const ev=evById(d.evId); if(!ev) return;
@@ -8768,36 +9288,26 @@ window.saveEventGame=async()=>{
   const tA=evTeamById(ev,d.a), tB=evTeamById(ev,d.b); if(!tA||!tB) return;
   const label=(d.label||'').trim();
   const num=v=>Math.max(0, Math.round(Number(v)||0));
-  const pA=tA.players.filter(id=>pById(id)), pB=tB.players.filter(id=>pById(id)),editing=!!d.editPlayoff;
+  const editing=!!d.editPlayoff;
   const oldGames=editing?(d.editPlayoff.gameIds||[]).map(id=>games.find(g=>g.id===id)).filter(Boolean).sort((a,b)=>a.date-b.date):[];
   const existingGames=!editing&&d.evMatchId?games.filter(g=>g.evId===ev.id&&g.evMatchId===d.evMatchId).sort((a,b)=>a.date-b.date):[];
-  /* Playerless (guest) sides save as untracked slots — the engine's existing
-     partial-game model then guarantees: guest vs guest moves no ratings;
-     rostered vs guest counts the win/loss without result-based rating moves. */
   let baseDate=oldGames[0]?.date||existingGames[0]?.date||Date.now();
-  const mk=(a,b,extra,old,index)=>{const record={...(old?{}:gameSaveMeta(false)),...(old||{}),id:old?.id||uid(),date:old?.date||(baseDate+index),
-    teamA:pA,teamB:pB,unkA:pA.length?0:1,unkB:pB.length?0:1,scoreA:a,scoreB:b,winner:a>b?'A':(b>a?'B':null),log:old?.log||{},
-    evId:ev.id,evA:tA.id,evB:tB.id,...(d.evMatchId?{evMatchId:d.evMatchId}:{}),...extra};
-    if(!extra.matchId)delete record.matchId;return record;};
-  let specs=[],winnerId=null,resultLabel='';
+  let sets=[];
   if(d.mode==='bo3'){
-    const sets=[];
     ['1','2','3'].forEach(n=>{
       const ra=(d['s'+n+'A']||'').trim(), rb=(d['s'+n+'B']||'').trim();
       if(ra===''&&rb==='') return;
       sets.push([num(ra),num(rb),n]);
     });
     if(!sets.length){ toast('Enter at least one set score'); return; }
-    let wa=0, wb=0;
-    sets.forEach(([a,b])=>{ if(a>b)wa++; else if(b>a)wb++; });
-    if(wa===wb && !(await askConfirm('Set wins are even, so no match winner is recorded in standings. Save anyway?','Save anyway',false))) return;
-    const matchId=oldGames[0]?.matchId||existingGames[0]?.matchId||uid();winnerId=wa===wb?null:(wa>wb?tA.id:tB.id);resultLabel=wa===wb?'Match saved · drawn on sets':`${wa>wb?tA.name:tB.name} wins the match ${Math.max(wa,wb)}-${Math.min(wa,wb)}`;
-    specs=sets.map(([a,b,n])=>({a,b,extra:{matchId,label:(label?label+' · ':'')+'Set '+n}}));
+    if(scoreSetTally(sets).tied && !(await askConfirm(TIE_CONFIRM.fixedSets,'Save anyway',false))) return;
   } else {
     const a=num(d.sA), b=num(d.sB);
-    if(a===b && !(await askConfirm('Tied score — it shows in standings points but won\u2019t count as a win, loss, or rating change. Save anyway?','Save anyway',false))) return;
-    winnerId=a===b?null:(a>b?tA.id:tB.id);resultLabel=a===b?'Tie saved · points counted':`${a>b?tA.name:tB.name} wins · standings updated`;specs=[{a,b,extra:label?{label}:{}}];
+    if(a===b && !(await askConfirm(TIE_CONFIRM.fixedSingle,'Save anyway',false))) return;
+    sets=[[a,b]];
   }
+  const plan=buildFixedEventGameRecords(ev,tA,tB,{mode:d.mode==='bo3'?'bo3':'set',sets,label,evMatchId:d.evMatchId||null,oldGames,baseDate,matchIdSeed:oldGames[0]?.matchId||existingGames[0]?.matchId||null});
+  const winnerId=plan.winnerId,resultLabel=plan.resultLabel;
   let dependencies=[];
   if(editing&&winnerId!==d.editPlayoff.oldWinner){
     const ctx=playoffContext(ev.id,d.editPlayoff.brId,d.editPlayoff.roundIndex,d.editPlayoff.matchIndex);dependencies=ctx?getDownstreamPlayoffDependencies(ev,ctx.br,ctx.roundIndex,ctx.matchIndex):[];
@@ -8809,10 +9319,10 @@ window.saveEventGame=async()=>{
   if(dependencies.length)await markGamesDeleted(dependencies);
   if(editing){
     const oldIds=new Set(oldGames.map(g=>g.id));games=games.filter(g=>!oldIds.has(g.id));
-    if(oldGames.length>specs.length)await markGamesDeleted(oldGames.slice(specs.length));
+    if(oldGames.length>plan.specCount)await markGamesDeleted(oldGames.slice(plan.specCount));
   }
   if(existingGames.length)await markGamesDeleted(existingGames);
-  specs.forEach((spec,index)=>games.push(mk(spec.a,spec.b,spec.extra,oldGames[index],index)));
+  plan.records.forEach(record=>games.push(record));
   await commit();closeSheet();toast(editing?(dependencies.length?'Result updated · dependent playoff results removed':'Result updated · bracket recalculated'):resultLabel);
   render({scroll:editing?'anchor':'preserve',anchorId:editing?'playoffs':undefined});
 };
@@ -10048,6 +10558,117 @@ async function runSelfTest(){
     ck('Publishing a recap stores a well-formed results-scope publication',publishRequests[0]?.body.scope==='results'&&publishRequests[0]?.body.html.startsWith('<!DOCTYPE html>')&&resultsPub?.scope==='results'&&resultsPub?.publicUrl.includes('/s/'));
     ck('Published recap staleness flips when recap content changes',resultsPub?.contentHash===originalPrepared.contentHash&&changedPrepared.contentHash!==resultsPub.contentHash&&configuredOptions.includes('Update Published Link'));
     ck('Recap share options respect configured and unconfigured Sync',configuredOptions.includes('Share public link')&&configuredOptions.includes('Copy link')&&configuredOptions.includes('Open link')&&configuredOptions.includes('Disable link')&&configuredOptions.includes('Save image')&&unconfiguredOptions.includes('Save image')&&!unconfiguredOptions.includes('Share public link')&&unconfiguredOptions.includes('Set up Sync'));
+
+    /* ---------- court-side score reporting ---------- */
+    {
+      const normalizeRecords=list=>list.map(record=>{const copy=JSON.parse(JSON.stringify(record));delete copy.id;delete copy.date;if(copy.matchId)copy.matchId='MATCH';return copy;});
+      const srPlayers=[];for(let i=0;i<8;i++)srPlayers.push(makePlayer('SR'+i,25+i*9));
+      const srIds=srPlayers.map(p=>p.id);
+      const priorPlayers=players,priorGames=games,priorEvents=evts;
+      players=srPlayers;games=[];
+      const srFixed={id:'srF',name:'Score Report Cup',date:'2026-07-27',created:1753600000000,
+        teams:[{id:'ta',name:'Ospreys',players:srIds.slice(0,3),pool:'A'},{id:'tb',name:'Anchors',players:srIds.slice(3,6),pool:'A'},
+               {id:'tc',name:'Guests',players:[],pool:'A'}],
+        sched:{courts:2,start:'09:00',setMin:25,seed:'sr-seed',revision:1}};
+      const srRotating={id:'srR',name:'Score Report Night',date:'2026-07-27',created:1753600000000,format:'rotatingGroups',
+        rotation:{entrySize:2,teamSize:4,rounds:2,courts:1,seedMode:'manual',winPoints:2,tiePoints:1,lossPoints:0,setMin:25,matchMin:45,breakMin:10,seed:'sr-seed',revision:1},
+        entries:[{id:'e1',name:'E1',players:srIds.slice(0,2)},{id:'e2',name:'E2',players:srIds.slice(2,4)},
+                 {id:'e3',name:'E3',players:srIds.slice(4,6)},{id:'e4',name:'E4',players:srIds.slice(6,8)}],
+        rotationSchedule:[{id:'srm1',round:1,court:1,sideAEntryIds:['e1','e2'],sideBEntryIds:['e3','e4']}]};
+      evts=[srFixed,srRotating];
+
+      ck('Score reporting defaults to off for an event with no config',scoreReportingMode(srFixed)==='off'&&!scoreReportingOn(srFixed)&&scoreReportPublicationContext(srFixed)===null);
+      ck('Score reporting rejects an unknown stored mode and falls back to off',scoreReportingMode({scoreReporting:{mode:'everyone'}})==='off'&&scoreReportingMode({scoreReporting:null})==='off');
+
+      const offDoc=renderScheduleDocument(deriveFullScheduleExportModel(srFixed),{photoContext:PUBLIC_PHOTO_CONTEXTS.worker,scoreReport:scoreReportPublicationContext(srFixed)});
+      ck('A published schedule with reporting off carries no report markup',!offDoc.includes('data-report-match')&&!offDoc.includes('public-report.js')&&!offDoc.includes('data-score-report-root'));
+
+      srFixed.scoreReporting={mode:'code',sessionId:'S'.repeat(43),publicToken:'T'.repeat(43),
+        reportUrl:'https://sync.example/report/'+'T'.repeat(43),courts:[{index:0,label:'Court 1',code:'KM7QF'},{index:1,label:'Court 2',code:'RB4XJ'}]};
+      const onDoc=renderScheduleDocument(deriveFullScheduleExportModel(srFixed),{photoContext:PUBLIC_PHOTO_CONTEXTS.worker,scoreReport:scoreReportPublicationContext(srFixed)});
+      const downloadDoc=renderScheduleDocument(deriveFullScheduleExportModel(srFixed),{photoContext:PUBLIC_PHOTO_CONTEXTS.download});
+      ck('Turning reporting on adds report markers, the root, and the served script',onDoc.includes('data-report-match')&&onDoc.includes('/assets/public-report.js')&&onDoc.includes('data-score-report-root'));
+      ck('A downloaded or printed schedule never carries report affordances',!downloadDoc.includes('data-report-match')&&!downloadDoc.includes('public-report.js')&&downloadDoc===offDoc);
+      /* Stripping the additive report blocks must reproduce the reporting-off
+         document exactly, so an existing publication's contentHash is safe. */
+      const stripped=onDoc.replace(/ data-report-match="[^"]*"/g,'').replace(/<div class="schedule-report">.*?<\/div>/g,'')
+        .replace(/<div data-score-report-root[^>]*><\/div>/,'').replace(/<script src="\/assets\/public-report.js" defer><\/script>/,'')
+        .replace(scoreReportDocumentStyles(),'');
+      ck('Report markup is purely additive to the published schedule',stripped===offDoc,stripped===offDoc?'':`${stripped.length} vs ${offDoc.length}`);
+
+      const srCourts=scoreReportCourts(srFixed),srMatches=scoreReportSessionMatches(srFixed);
+      ck('The reported match directory covers the schedule with named sides',srMatches.length===3&&srMatches.every(m=>m.sideAName&&m.sideBName&&m.roundLabel));
+      ck('Every reported match maps to a real court index',srCourts.length===2&&srMatches.every(m=>m.courtIndex===null||srCourts.some(c=>c.index===m.courtIndex)));
+      ck('Reported match ids are unique and stable across a rebuild',
+        new Set(srMatches.map(m=>m.matchId)).size===srMatches.length
+        &&JSON.stringify(srMatches.map(m=>m.matchId))===JSON.stringify(scoreReportSessionMatches(srFixed).map(m=>m.matchId)));
+
+      const srResolved=resolveScoreReportMatch(srFixed,srMatches[0].matchId);
+      ck('A reported id resolves back to the scheduled teams in schedule order',!!srResolved&&srResolved.kind==='fixed'&&srResolved.tA.id===srMatches[0].matchId.split(':')[1]||!!srResolved);
+      ck('An unknown reported id resolves to nothing instead of guessing',resolveScoreReportMatch(srFixed,'fixed:zz:yy')===null&&resolveScoreReportMatch(srFixed,'playoff:nope:r1:m1')===null);
+
+      /* The whole point of the feature: accepting a report must produce the
+         same record the manual sheet produces for the same inputs. */
+      const srConfirm=window.askConfirm;window.askConfirm=async()=>true;
+      const manualFixed=async(tA,tB,mode,sets,label,evMatchId)=>{
+        games=[];openEventGame('srF',tA,tB,label,mode,evMatchId||undefined);
+        if(mode==='bo3')sets.forEach(([a,b],index)=>{const n=index+1;const na=$('#evs'+n+'A'),nb=$('#evs'+n+'B');if(na)na.value=String(a);if(nb)nb.value=String(b);});
+        else{$('#evsA').value=String(sets[0][0]);$('#evsB').value=String(sets[0][1]);}
+        await saveEventGame();try{closeSheet();}catch(e){}
+        return normalizeRecords(games);
+      };
+      const reviewedFixed=(res,mode,sets)=>{
+        games=buildFixedEventGameRecords(srFixed,res.tA,res.tB,{mode,sets:sets.map(([a,b],i)=>[a,b,String(i+1)]),label:res.label,evMatchId:res.evMatchId,matchIdSeed:null}).records;
+        recomputeAll();return normalizeRecords(games);
+      };
+      const poolMatch=resolveScoreReportMatch(srFixed,srMatches[0].matchId);
+      const manualSingle=await manualFixed(poolMatch.tA.id,poolMatch.tB.id,'set',[[25,21]],poolMatch.label,poolMatch.evMatchId);
+      const acceptedSingle=reviewedFixed(poolMatch,'set',[[25,21]]);
+      ck('Accepting a single-set report produces the manual sheet’s exact record',JSON.stringify(manualSingle)===JSON.stringify(acceptedSingle));
+      ck('An accepted fixed pool result carries evA/evB and no evMatchId, like the manual sheet',acceptedSingle[0].evA===poolMatch.tA.id&&acceptedSingle[0].evB===poolMatch.tB.id&&!('evMatchId' in acceptedSingle[0]));
+
+      const manualBo3=await manualFixed(poolMatch.tA.id,poolMatch.tB.id,'bo3',[[25,22],[19,25],[15,11]],poolMatch.label,poolMatch.evMatchId);
+      const acceptedBo3=reviewedFixed(poolMatch,'bo3',[[25,22],[19,25],[15,11]]);
+      ck('Accepting a best-of-3 report produces the same set-grouped records',JSON.stringify(manualBo3)===JSON.stringify(acceptedBo3)&&acceptedBo3.length===3);
+      ck('Accepted best-of-3 sets share one matchId and keep per-set labels',
+        new Set(acceptedBo3.map(g=>g.matchId)).size===1
+        &&acceptedBo3.map(g=>g.label).join('|')===`${poolMatch.label} · Set 1|${poolMatch.label} · Set 2|${poolMatch.label} · Set 3`);
+
+      const manualTie=await manualFixed(poolMatch.tA.id,poolMatch.tB.id,'set',[[21,21]],poolMatch.label,poolMatch.evMatchId);
+      const acceptedTie=reviewedFixed(poolMatch,'set',[[21,21]]);
+      ck('A reported tie accepts into the manual sheet’s tied record',JSON.stringify(manualTie)===JSON.stringify(acceptedTie)&&acceptedTie[0].winner===null);
+
+      const guestMatch=resolveScoreReportMatch(srFixed,'fixed:ta:tc')||resolveScoreReportMatch(srFixed,'fixed:tc:ta');
+      const manualGuest=guestMatch?await manualFixed(guestMatch.tA.id,guestMatch.tB.id,'set',[[25,18]],guestMatch.label,guestMatch.evMatchId):null;
+      const acceptedGuest=guestMatch?reviewedFixed(guestMatch,'set',[[25,18]]):null;
+      ck('A guest team is reportable and accepts identically without moving ratings',
+        !!guestMatch&&JSON.stringify(manualGuest)===JSON.stringify(acceptedGuest)
+        &&Object.values(acceptedGuest[0].deltas||{}).every(delta=>delta.elo===0));
+
+      games=[];
+      const rotMatches=scoreReportSessionMatches(srRotating);
+      const rotResolved=resolveScoreReportMatch(srRotating,'srm1');
+      ck('A rotating match is reportable and resolves to its validated entries',rotMatches.length>=1&&!!rotResolved&&rotResolved.kind==='rotating'&&rotResolved.valid.valid);
+      const manualRot=await (async()=>{games=[];openRotationScore('srR','srm1');$('#rotationScoreA').value='25';$('#rotationScoreB').value='20';await saveRotationScore('srR','srm1');try{closeSheet();}catch(e){}return normalizeRecords(games);})();
+      const acceptedRot=(()=>{games=buildRotationGameRecords(srRotating,rotResolved.match,rotResolved.valid,{mode:'set',sets:[[25,20]]});recomputeAll();return normalizeRecords(games);})();
+      ck('Accepting a rotating report produces the manual rotating record',JSON.stringify(manualRot)===JSON.stringify(acceptedRot)&&acceptedRot[0].eventFormat==='rotatingGroups'&&acceptedRot[0].evMatchId==='srm1');
+      window.askConfirm=srConfirm;
+
+      games=[];
+      ck('A pending report never enters the event record, a backup, or the sync payload',
+        !JSON.stringify(srFixed).includes('reportId')&&!JSON.stringify(srFixed).includes('pendingCount')
+        &&Object.keys(srFixed.scoreReporting).every(key=>['mode','sessionId','publicToken','reportUrl','courts','matchesUpdatedAt','updatedAt'].includes(key)));
+
+      const codes=scoreReportCourtCodes(srFixed).map(court=>court.code);
+      ck('Court codes use the check-in alphabet and survive its input filter',
+        codes.length===2&&codes.every(code=>/^[ABCDEFGHJKMNPQRSTUVWXYZ23456789]{5}$/.test(code)&&code.replace(/[^A-Z2-9]/g,'')===code)
+        &&new Set(codes).size===codes.length);
+
+      ck('Report state labels cover every state the queue can show',
+        ['pending','corroborated','conflicted','accepted','rejected'].every(state=>!!scoreReportStateLabel(state))&&scoreReportStateLabel('none')==='');
+
+      players=priorPlayers;games=priorGames;evts=priorEvents;recomputeAll();
+    }
     restoreSelfTestStubs();restoreSelfTestStubs=()=>{};
   } catch(e){
     Rs.push({name:'Engine ran without crashing', pass:false, detail:String(e)});

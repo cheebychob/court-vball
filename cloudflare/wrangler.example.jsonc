@@ -11,7 +11,11 @@
   "kv_namespaces": [
     { "binding": "COURT", "id": "REPLACE_WITH_COURT_KV_NAMESPACE_ID" },
     { "binding": "PUBLIC_SCHEDULES", "id": "REPLACE_WITH_PUBLIC_SCHEDULES_KV_NAMESPACE_ID" },
-    { "binding": "CHECK_IN_SESSIONS", "id": "REPLACE_WITH_CHECK_IN_SESSIONS_KV_NAMESPACE_ID" }
+    { "binding": "CHECK_IN_SESSIONS", "id": "REPLACE_WITH_CHECK_IN_SESSIONS_KV_NAMESPACE_ID" },
+    // SCORE_REPORTS is a NEW namespace created for court-side score reporting.
+    // Create it fresh (`wrangler kv namespace create SCORE_REPORTS`); unlike the
+    // bindings above it has no existing data to preserve.
+    { "binding": "SCORE_REPORTS", "id": "REPLACE_WITH_SCORE_REPORTS_KV_NAMESPACE_ID" }
   ],
   "r2_buckets": [
     { "binding": "PLAYER_PHOTOS", "bucket_name": "REPLACE_WITH_PRIVATE_PLAYER_PHOTOS_BUCKET_NAME" }
