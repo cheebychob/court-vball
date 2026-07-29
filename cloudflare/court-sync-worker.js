@@ -39,7 +39,7 @@ const REGISTRATION_DESCRIPTION_MAX = 2000;
 const REGISTRATION_DISPLAY_NAME_MAX = 100;
 const REGISTRATION_MEMBER_NAME_MAX = 100;
 const EVENT_STAFF_API_VERSION = 1;
-const EVENT_STAFF_SCHEMA_VERSION = 1;
+const EVENT_STAFF_SCHEMA_VERSION = 2;
 const EVENT_STAFF_PERMISSION_SCHEMA_VERSION = 1;
 const EVENT_STAFF_MAX_SNAPSHOT_BODY_BYTES = 2 * 1024 * 1024;
 const EVENT_STAFF_MAX_OPERATION_BODY_BYTES = 64 * 1024;
@@ -52,6 +52,9 @@ const EVENT_STAFF_MAX_GRANT_MS = 30 * 24 * 60 * 60 * 1000;
 const EVENT_STAFF_SESSION_MS = 8 * 60 * 60 * 1000;
 const EVENT_STAFF_MAX_ACTIVE_SESSIONS_PER_GRANT = 12;
 const EVENT_STAFF_PIN_ITERATIONS = 210000;
+const EVENT_STAFF_PIN_KDF_VERSION = 2;
+const EVENT_STAFF_PIN_LEGACY_KDF_VERSION = 1;
+const EVENT_STAFF_PIN_PBKDF2_CALL_LIMIT = 100000;
 const EVENT_STAFF_AUTH_WINDOW_MS = 10 * 60 * 1000;
 const EVENT_STAFF_AUTH_ADDRESS_LIMIT = 40;
 const EVENT_STAFF_AUTH_TOKEN_LIMIT = 10;
@@ -4726,6 +4729,50 @@ function eventStaffError(request, status, error, message, extra = {}) {
   }, status, request);
 }
 
+function eventStaffDiagnosticContext(request, eventRef = null, operationStage = "route_handler") {
+  return {
+    requestId: randomTokenBytes(12),
+    route: new URL(request.url).pathname,
+    method: request.method,
+    eventRef: eventRef || null,
+    operationStage,
+  };
+}
+
+function eventStaffSafeErrorMessage(error) {
+  if (error?.name === "NotSupportedError") {
+    return "The requested cryptographic operation is unsupported by this runtime.";
+  }
+  if (error?.name === "QuotaExceededError") {
+    return "A configured platform limit prevented the operation.";
+  }
+  return "The operation failed before completion.";
+}
+
+function logEventStaffFailure(context, error, { level = "error" } = {}) {
+  const record = {
+    requestId: context.requestId,
+    route: context.route,
+    method: context.method,
+    eventRef: context.eventRef,
+    operationStage: context.operationStage,
+    errorClass: String(error?.name || "Error").slice(0, 80),
+    safeMessage: eventStaffSafeErrorMessage(error),
+  };
+  console[level](JSON.stringify(record));
+}
+
+function eventStaffUnexpectedError(request, context, error, code = "EVENT_STAFF_UNEXPECTED_ERROR") {
+  logEventStaffFailure(context, error);
+  return eventStaffError(
+    request,
+    500,
+    "unexpected_error",
+    "Event staff access is temporarily unavailable.",
+    { code, requestId: context.requestId, retryable: true },
+  );
+}
+
 async function readEventStaffJson(request, maximum = EVENT_STAFF_MAX_OPERATION_BODY_BYTES) {
   if (!isJsonRequest(request)) {
     return { response: eventStaffError(request, 415, "json_required", "Use an application/json request.") };
@@ -4765,7 +4812,13 @@ async function eventStaffSchemaReady(env) {
       FROM sqlite_master
       WHERE type = 'table' AND name IN (${placeholders})
     `).bind(...EVENT_STAFF_TABLES));
-    return Number(row?.count) === EVENT_STAFF_TABLES.length;
+    if (Number(row?.count) !== EVENT_STAFF_TABLES.length) return false;
+    const pinKdfColumn = await d1First(db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM pragma_table_info('event_staff_grants')
+      WHERE name = ?
+    `).bind("pin_kdf_version"));
+    return Number(pinKdfColumn?.count) === 1;
   } catch {
     return false;
   }
@@ -4837,21 +4890,68 @@ function eventStaffBase64UrlBytes(value) {
   return Uint8Array.from(binary, character => character.charCodeAt(0));
 }
 
-async function deriveEventStaffPin(pin, salt, iterations = EVENT_STAFF_PIN_ITERATIONS) {
+async function deriveEventStaffPin(
+  pin,
+  salt,
+  iterations = EVENT_STAFF_PIN_ITERATIONS,
+  kdfVersion = EVENT_STAFF_PIN_LEGACY_KDF_VERSION,
+  diagnostic = null,
+) {
+  if (diagnostic) diagnostic.operationStage = "decode_pin_salt";
+  const saltBytes = eventStaffBase64UrlBytes(salt);
+  if (diagnostic) diagnostic.operationStage = "import_pin_key";
   const key = await crypto.subtle.importKey(
     "raw",
     new TextEncoder().encode(String(pin)),
-    "PBKDF2",
+    { name: "PBKDF2" },
     false,
     ["deriveBits"],
   );
-  const bits = await crypto.subtle.deriveBits({
-    name: "PBKDF2",
-    salt: eventStaffBase64UrlBytes(salt),
-    iterations: Number(iterations),
-    hash: "SHA-256",
-  }, key, 256);
-  return eventStaffBase64Url(new Uint8Array(bits));
+  const totalIterations = Number(iterations) || EVENT_STAFF_PIN_ITERATIONS;
+  if (Number(kdfVersion) === EVENT_STAFF_PIN_LEGACY_KDF_VERSION) {
+    if (diagnostic) diagnostic.operationStage = "derive_pin_hash";
+    const bits = await crypto.subtle.deriveBits({
+      name: "PBKDF2",
+      salt: saltBytes,
+      iterations: totalIterations,
+      hash: { name: "SHA-256" },
+    }, key, 256);
+    if (diagnostic) diagnostic.operationStage = "encode_pin_hash";
+    return eventStaffBase64Url(new Uint8Array(bits));
+  }
+  if (Number(kdfVersion) !== EVENT_STAFF_PIN_KDF_VERSION) {
+    throw new DOMException("Unsupported event staff PIN KDF version.", "NotSupportedError");
+  }
+
+  /*
+   * Cloudflare's Web Crypto PBKDF2 implementation rejects a single call above
+   * 100,000 iterations. KDF v2 preserves the 210,000-iteration work factor by
+   * deriving domain-separated blocks at or below that cap, then hashing their
+   * concatenation to a fixed 256-bit verifier. The stored total iteration count
+   * and explicit KDF version make both this encoding and legacy v1 deterministic.
+   */
+  const iterationBlocks = [];
+  for (let remaining = totalIterations; remaining > 0; remaining -= EVENT_STAFF_PIN_PBKDF2_CALL_LIMIT) {
+    iterationBlocks.push(Math.min(EVENT_STAFF_PIN_PBKDF2_CALL_LIMIT, remaining));
+  }
+  if (!iterationBlocks.length) throw new TypeError("Invalid event staff PIN iteration count.");
+  if (diagnostic) diagnostic.operationStage = "derive_pin_hash";
+  const blocks = await Promise.all(iterationBlocks.map((blockIterations, index) => {
+    const blockSalt = new Uint8Array(saltBytes.length + 3);
+    blockSalt.set(saltBytes);
+    blockSalt.set([0, EVENT_STAFF_PIN_KDF_VERSION, index + 1], saltBytes.length);
+    return crypto.subtle.deriveBits({
+      name: "PBKDF2",
+      salt: blockSalt,
+      iterations: blockIterations,
+      hash: { name: "SHA-256" },
+    }, key, 256);
+  }));
+  const combined = new Uint8Array(blocks.length * 32);
+  blocks.forEach((block, index) => combined.set(new Uint8Array(block), index * 32));
+  const digest = await crypto.subtle.digest({ name: "SHA-256" }, combined);
+  if (diagnostic) diagnostic.operationStage = "encode_pin_hash";
+  return eventStaffBase64Url(new Uint8Array(digest));
 }
 
 function stableEventStaffJson(value) {
@@ -6241,30 +6341,42 @@ function validateEventStaffGrantInput(value, { partial = false } = {}) {
   return { value: result };
 }
 
-async function eventStaffPinFields(pin) {
-  if (!pin) return { salt: null, hash: null, iterations: null };
+async function eventStaffPinFields(pin, diagnostic = null) {
+  if (!pin) return { salt: null, hash: null, iterations: null, kdfVersion: null };
+  if (diagnostic) diagnostic.operationStage = "generate_pin_salt";
   const salt = randomTokenBytes(16);
   return {
     salt,
-    hash: await deriveEventStaffPin(pin, salt, EVENT_STAFF_PIN_ITERATIONS),
+    hash: await deriveEventStaffPin(
+      pin,
+      salt,
+      EVENT_STAFF_PIN_ITERATIONS,
+      EVENT_STAFF_PIN_KDF_VERSION,
+      diagnostic,
+    ),
     iterations: EVENT_STAFF_PIN_ITERATIONS,
+    kdfVersion: EVENT_STAFF_PIN_KDF_VERSION,
   };
 }
 
-async function createEventStaffGrantRecord(request, auth, eventId, input, { status = 201 } = {}) {
+async function createEventStaffGrantRecord(request, auth, eventId, input, { status = 201, diagnostic = null } = {}) {
+  if (diagnostic) diagnostic.operationStage = "generate_invite_credential";
   const now = Date.now(), token = randomToken(), grantId = randomTokenBytes(16);
-  const pin = await eventStaffPinFields(input.pin);
+  const pin = await eventStaffPinFields(input.pin, diagnostic);
   const permissions = EVENT_STAFF_ROLE_PERMISSIONS[input.role];
+  if (diagnostic) diagnostic.operationStage = "hash_invite_credential";
+  const tokenHash = await sha256(token);
+  if (diagnostic) diagnostic.operationStage = "insert_grant_and_audit";
   const results = await d1Batch(auth.db, [
     auth.db.prepare(`
       INSERT INTO event_staff_grants (
         id, owner_scope, event_id, event_access_epoch, token_hash,
-        pin_salt, pin_hash, pin_iterations, staff_label, role,
+        pin_salt, pin_hash, pin_iterations, pin_kdf_version, staff_label, role,
         permission_schema_version, permissions_json, created_at, expires_at,
         revoked_at, last_used_at
       )
       SELECT ?, event.owner_scope, event.event_id, event.access_epoch, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
       FROM event_staff_events event
       WHERE event.owner_scope = ? AND event.event_id = ? AND event.deleted_at IS NULL
         AND (
@@ -6275,7 +6387,7 @@ async function createEventStaffGrantRecord(request, auth, eventId, input, { stat
             AND active.revoked_at IS NULL AND active.expires_at > ?
         ) < ?
     `).bind(
-      grantId, await sha256(token), pin.salt, pin.hash, pin.iterations,
+      grantId, tokenHash, pin.salt, pin.hash, pin.iterations, pin.kdfVersion,
       input.staffLabel, input.role, EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
       stableEventStaffJson(permissions), now, input.expiresAt,
       auth.ownerScope, eventId, now, EVENT_STAFF_MAX_ACTIVE_GRANTS,
@@ -6290,6 +6402,7 @@ async function createEventStaffGrantRecord(request, auth, eventId, input, { stat
       revision: auth.event.revision,
       createdAt: now,
     }),
+    eventStaffPruneAudit(auth.db, auth.ownerScope, eventId),
   ]);
   if (!Number(results[0]?.meta?.changes)) {
     const event = await getEventStaffEvent(auth.db, auth.ownerScope, eventId);
@@ -6298,8 +6411,10 @@ async function createEventStaffGrantRecord(request, auth, eventId, input, { stat
     }
     return eventStaffError(request, 409, "grant_limit_reached", `An event may have at most ${EVENT_STAFF_MAX_ACTIVE_GRANTS} active staff grants.`);
   }
-  await eventStaffPruneAudit(auth.db, auth.ownerScope, eventId).run();
+  if (diagnostic) diagnostic.operationStage = "read_created_grant";
   const stored = await d1First(auth.db.prepare("SELECT * FROM event_staff_grants WHERE id = ?").bind(grantId));
+  if (!stored) throw new Error("Created event staff grant could not be read.");
+  if (diagnostic) diagnostic.operationStage = "construct_invite_url";
   return eventStaffJson({
     ok: true,
     eventId,
@@ -6312,16 +6427,28 @@ async function createEventStaffGrantRecord(request, auth, eventId, input, { stat
 }
 
 async function createEventStaffGrant(request, env, eventId) {
-  const auth = await eventStaffOwnerEvent(request, env, eventId);
-  if (auth.response) return auth.response;
-  if (auth.event.deletedAt) {
-    return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+  const diagnostic = eventStaffDiagnosticContext(request, eventId, "authorize_owner");
+  try {
+    const auth = await eventStaffOwnerEvent(request, env, eventId);
+    if (auth.response) return auth.response;
+    if (auth.event.deletedAt) {
+      return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+    }
+    diagnostic.operationStage = "read_request";
+    const parsed = await readEventStaffJson(request);
+    if (parsed.response) return parsed.response;
+    diagnostic.operationStage = "validate_request";
+    const checked = validateEventStaffGrantInput(parsed.value);
+    if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
+    return await createEventStaffGrantRecord(request, auth, eventId, checked.value, { diagnostic });
+  } catch (error) {
+    return eventStaffUnexpectedError(
+      request,
+      diagnostic,
+      error,
+      "EVENT_STAFF_GRANT_CREATION_FAILED",
+    );
   }
-  const parsed = await readEventStaffJson(request);
-  if (parsed.response) return parsed.response;
-  const checked = validateEventStaffGrantInput(parsed.value);
-  if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
-  return createEventStaffGrantRecord(request, auth, eventId, checked.value);
 }
 
 async function getOwnedEventStaffGrant(db, ownerScope, eventId, grantId) {
@@ -6407,20 +6534,23 @@ async function rotateEventStaffGrant(request, env, eventId, grantId) {
     salt: original.pin_salt,
     hash: original.pin_hash,
     iterations: original.pin_iterations,
+    kdfVersion: original.pin_hash
+      ? Number(original.pin_kdf_version) || EVENT_STAFF_PIN_LEGACY_KDF_VERSION
+      : null,
   };
-  if (input.clearPin) pin = { salt: null, hash: null, iterations: null };
+  if (input.clearPin) pin = { salt: null, hash: null, iterations: null, kdfVersion: null };
   else if (Object.prototype.hasOwnProperty.call(input, "pin")) pin = await eventStaffPinFields(input.pin);
   const token = randomToken(), newGrantId = randomTokenBytes(16);
   const results = await d1Batch(auth.db, [
     auth.db.prepare(`
       INSERT INTO event_staff_grants (
         id, owner_scope, event_id, event_access_epoch, token_hash,
-        pin_salt, pin_hash, pin_iterations, staff_label, role,
+        pin_salt, pin_hash, pin_iterations, pin_kdf_version, staff_label, role,
         permission_schema_version, permissions_json, created_at, expires_at,
         revoked_at, last_used_at
       )
       SELECT ?, event.owner_scope, event.event_id, event.access_epoch, ?,
-             ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
       FROM event_staff_events event
       WHERE event.owner_scope = ? AND event.event_id = ? AND event.deleted_at IS NULL
         AND (
@@ -6432,7 +6562,7 @@ async function rotateEventStaffGrant(request, env, eventId, grantId) {
             AND active.revoked_at IS NULL AND active.expires_at > ?
         ) < ?
     `).bind(
-      newGrantId, await sha256(token), pin.salt, pin.hash, pin.iterations,
+      newGrantId, await sha256(token), pin.salt, pin.hash, pin.iterations, pin.kdfVersion,
       original.staff_label, original.role, EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
       stableEventStaffJson(EVENT_STAFF_ROLE_PERMISSIONS[original.role] || []),
       now, expiresAt, auth.ownerScope, eventId,
@@ -6740,10 +6870,16 @@ async function redeemEventStaffAccess(request, env) {
       suppliedPinValidShape ? suppliedPin : "0000",
       grant.pin_salt,
       Number(grant.pin_iterations) || EVENT_STAFF_PIN_ITERATIONS,
+      Number(grant.pin_kdf_version) || EVENT_STAFF_PIN_LEGACY_KDF_VERSION,
     );
     pinValid = suppliedPinValidShape && sameHash(derived, grant.pin_hash);
   } else if (!grant) {
-    await deriveEventStaffPin("0000", dummySalt, EVENT_STAFF_PIN_ITERATIONS);
+    await deriveEventStaffPin(
+      "0000",
+      dummySalt,
+      EVENT_STAFF_PIN_ITERATIONS,
+      EVENT_STAFF_PIN_KDF_VERSION,
+    );
     pinValid = false;
   }
   const now = Date.now();
@@ -8807,9 +8943,19 @@ export default {
         return await putEventStaffAwareSyncValue(request, env, room, key, rows);
       }
       return new Response("Method not allowed", { status: 405, headers: LEGACY_CORS });
-    } catch {
+    } catch (error) {
       if (eventStaffOwnerPath || eventStaffSessionPath) {
-        return eventStaffError(request, 500, "unexpected_error", "Event staff access is temporarily unavailable.");
+        const eventRef = eventStaffSnapshotMatch?.[1]
+          || eventStaffGrantsMatch?.[1]
+          || eventStaffGrantActionMatch?.[1]
+          || eventStaffRevokeAllMatch?.[1]
+          || eventStaffAuditMatch?.[1]
+          || null;
+        return eventStaffUnexpectedError(
+          request,
+          eventStaffDiagnosticContext(request, eventRef, "route_handler"),
+          error,
+        );
       }
       if (registrationPrivatePath) return registrationError(500, "UNEXPECTED_ERROR", "Registration is temporarily unavailable.", registrationHeaders(request));
       if (privateApiPath) return apiError(request, 500, "unexpected storage error");

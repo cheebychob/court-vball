@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { webcrypto } from 'node:crypto';
+import { createHash, pbkdf2Sync, webcrypto } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { DatabaseSync } from 'node:sqlite';
 import test from 'node:test';
@@ -15,6 +15,7 @@ const migrations = await Promise.all([
   '0003_registration_event_imports.sql',
   '0004_registration_contact.sql',
   '0005_event_staff_access.sql',
+  '0006_event_staff_pin_kdf_version.sql',
 ].map(name => readFile(new URL(`../cloudflare/migrations/${name}`, import.meta.url), 'utf8')));
 const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
@@ -61,7 +62,12 @@ class SQLiteD1Statement {
 class SQLiteD1 {
   constructor({ staffSchema = true } = {}) {
     this.database = new DatabaseSync(':memory:');
-    this.database.exec((staffSchema ? migrations : migrations.slice(0, 4)).join('\n'));
+    const selected = staffSchema === false
+      ? migrations.slice(0, 4)
+      : staffSchema === 'v1'
+        ? migrations.slice(0, 5)
+        : migrations;
+    this.database.exec(selected.join('\n'));
   }
   prepare(sql) { return new SQLiteD1Statement(this.database, sql); }
   async batch(statements) {
@@ -385,7 +391,7 @@ test('event-staff capability is schema-gated, private-origin scoped, and backwar
   }, {
     available: true,
     apiVersion: 1,
-    schemaVersion: 1,
+    schemaVersion: 2,
     permissionSchemaVersion: 1,
     maxActiveGrantsPerEvent: 10,
     maxGrantDays: 30,
@@ -402,6 +408,15 @@ test('event-staff capability is schema-gated, private-origin scoped, and backwar
   const unavailableBody = await unavailable.json();
   assert.equal(unavailableBody.available, false);
   assert.doesNotMatch(JSON.stringify(unavailableBody), /event_staff_|sqlite|d1|owner-a/i);
+
+  const v1Env = env({ staffSchema: 'v1' });
+  t.after(() => v1Env.EVENT_REGISTRATION_DB.close());
+  const missingKdfVersion = await worker.fetch(
+    request('/api/event-staff/status', { headers: { Origin: ORIGIN } }),
+    v1Env,
+  );
+  assert.equal(missingKdfVersion.status, 503);
+  assert.equal((await missingKdfVersion.json()).available, false);
 
   const blocked = await worker.fetch(request('/api/event-staff/status', { headers: { Origin: 'https://evil.example' } }), readyEnv);
   assert.equal(blocked.status, 403);
@@ -456,6 +471,7 @@ test('owner seeds one bounded event and grant creation stores only token/PIN has
   assert.notEqual(stored.token_hash, rawToken);
   assert.notEqual(stored.pin_hash, '4826');
   assert.equal(stored.pin_iterations, 210000);
+  assert.equal(stored.pin_kdf_version, 2);
   assert.equal(JSON.stringify(stored).includes(rawToken), false);
   assert.equal(JSON.stringify(stored).includes('4826'), false);
 
@@ -473,6 +489,335 @@ test('owner seeds one bounded event and grant creation stores only token/PIN has
   for (const forbidden of ['seedRating', 'deltas', 'winProb', 'history', 'aliases', 'sync', 'backup', 'owner-a']) {
     assert.doesNotMatch(storedSnapshot, new RegExp(forbidden, 'i'));
   }
+});
+
+test('PIN grant creation accepts every documented boundary, preserves leading zeroes, and uses unique versioned salts', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+
+  const cases = [
+    ['missing', {}, false],
+    ['empty', { pin: '' }, false],
+    ['minimum', { pin: '0123' }, true],
+    ['six digits', { pin: '012345' }, true],
+    ['maximum', { pin: '012345678901' }, true],
+    ['same PIN first', { pin: '4826' }, true],
+    ['same PIN second', { pin: '4826' }, true],
+  ];
+  const created = [];
+  for (const [label, input, hasPin] of cases) {
+    const result = await createGrant(bindings, 'event-1', {
+      staffLabel: label,
+      ...input,
+    });
+    assert.equal(result.response.status, 201, `${label}: ${JSON.stringify(result.body)}`);
+    assert.equal(result.body.grant.pinRequired, hasPin, label);
+    created.push(result);
+  }
+
+  const rows = bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    SELECT staff_label, token_hash, pin_salt, pin_hash, pin_iterations, pin_kdf_version
+    FROM event_staff_grants
+    ORDER BY created_at, staff_label
+  `).all();
+  assert.ok(rows.every(row => /^[a-f0-9]{64}$/.test(row.token_hash)));
+  for (const row of rows.filter(row => !['missing', 'empty'].includes(row.staff_label))) {
+    assert.match(row.pin_salt, /^[A-Za-z0-9_-]{22}$/);
+    assert.match(row.pin_hash, /^[A-Za-z0-9_-]{43}$/);
+    assert.equal(row.pin_iterations, 210000);
+    assert.equal(row.pin_kdf_version, 2);
+    assert.equal(JSON.stringify(row).includes('0123'), false);
+    assert.equal(JSON.stringify(row).includes('012345'), false);
+    assert.equal(JSON.stringify(row).includes('012345678901'), false);
+    assert.equal(JSON.stringify(row).includes('4826'), false);
+  }
+  const repeated = rows.filter(row => row.staff_label.startsWith('same PIN'));
+  assert.equal(repeated.length, 2);
+  assert.notEqual(repeated[0].pin_salt, repeated[1].pin_salt);
+  assert.notEqual(repeated[0].pin_hash, repeated[1].pin_hash);
+
+  const leadingZeroGrant = created.find(result => result.body.grant.staffLabel === 'six digits');
+  const token = inviteToken(leadingZeroGrant.body);
+  const wrong = await redeem(bindings, token, '12345');
+  assert.equal(wrong.response.status, 401);
+  const accepted = await redeem(bindings, token, '012345');
+  assert.equal(accepted.response.status, 200);
+  const revokedResponse = await worker.fetch(request(
+    `/api/event-staff/owner/events/event-1/grants/${leadingZeroGrant.body.grant.id}/revoke`,
+    ownerInit({ method: 'POST', body: { reason: 'boundary_test_complete' } }),
+  ), bindings);
+  assert.equal(revokedResponse.status, 200);
+  const ended = await redeem(bindings, token, '012345', { address: '203.0.113.61' });
+  assert.equal(ended.response.status, 401);
+});
+
+test('PIN grant validation rejects malformed, non-string, whitespace, Unicode, and out-of-range inputs before crypto or D1', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+
+  for (const [label, pin] of [
+    ['too short', '123'],
+    ['too long', '1'.repeat(13)],
+    ['letters', '12ab'],
+    ['whitespace', '    '],
+    ['Unicode digits', '１２３４'],
+    ['number', 1234],
+    ['object', { value: '1234' }],
+  ]) {
+    const result = await createGrant(bindings, 'event-1', {
+      staffLabel: label,
+      pin,
+    });
+    assert.equal(result.response.status, 400, label);
+    assert.equal(result.body.error, 'invalid_pin', label);
+  }
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+
+  const malformed = await worker.fetch(request('/api/event-staff/owner/events/event-1/grants', {
+    method: 'POST',
+    headers: {
+      Origin: ORIGIN,
+      'X-Court-Room': 'owner-a',
+      'Content-Type': 'application/json',
+    },
+    body: '{"staffLabel":',
+  }), bindings);
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error, 'invalid_json');
+});
+
+test('legacy version-1 PIN grants continue to redeem with their original verifier', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+
+  const token = 'L'.repeat(43);
+  const pin = '0426';
+  const saltBytes = Buffer.from('legacy-pin-salt');
+  const salt = saltBytes.toString('base64url');
+  const hash = pbkdf2Sync(pin, saltBytes, 210000, 32, 'sha256').toString('base64url');
+  const event = bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    SELECT owner_scope, access_epoch FROM event_staff_events WHERE event_id = ?
+  `).get('event-1');
+  const now = Date.now();
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    INSERT INTO event_staff_grants (
+      id, owner_scope, event_id, event_access_epoch, token_hash,
+      pin_salt, pin_hash, pin_iterations, pin_kdf_version, staff_label, role,
+      permission_schema_version, permissions_json, created_at, expires_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, 'viewOnly', 1, ?, ?, ?)
+  `).run(
+    'legacy-version-one',
+    event.owner_scope,
+    'event-1',
+    event.access_epoch,
+    createHash('sha256').update(token).digest('hex'),
+    salt,
+    hash,
+    210000,
+    'Legacy protected grant',
+    JSON.stringify(['viewEvent']),
+    now,
+    now + 60 * 60 * 1000,
+  );
+
+  assert.equal((await redeem(bindings, token, '1426')).response.status, 401);
+  const accepted = await redeem(bindings, token, pin, { address: '203.0.113.63' });
+  assert.equal(accepted.response.status, 200);
+  assert.equal(accepted.body.state.grant.staffLabel, 'Legacy protected grant');
+});
+
+test('PIN crypto failures return a safe request ID and persist no grant or sensitive diagnostics', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const originalCrypto = globalThis.crypto;
+  const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  const originalConsoleError = console.error;
+  const logs = [];
+  t.after(() => {
+    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+    console.error = originalConsoleError;
+  });
+  console.error = value => logs.push(String(value));
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {
+    getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto),
+    subtle: {
+      digest: originalCrypto.subtle.digest.bind(originalCrypto.subtle),
+      async importKey() {
+        throw Object.assign(new Error('owner-a PIN 012345 leaked crypto detail'), {
+          name: 'NotSupportedError',
+        });
+      },
+      deriveBits: originalCrypto.subtle.deriveBits.bind(originalCrypto.subtle),
+    },
+  } });
+
+  const result = await createGrant(bindings, 'event-1', {
+    staffLabel: 'Diagnostic crypto failure',
+    pin: '012345',
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.body.code, 'EVENT_STAFF_GRANT_CREATION_FAILED', JSON.stringify({ body: result.body, logs }));
+  assert.equal(result.body.retryable, true);
+  assert.match(result.body.requestId, /^[A-Za-z0-9_-]{16}$/);
+  assert.equal(Object.hasOwn(result.body, 'inviteUrl'), false);
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+  assert.equal(logs.length, 1);
+  const diagnostic = JSON.parse(logs[0]);
+  assert.equal(diagnostic.requestId, result.body.requestId);
+  assert.equal(diagnostic.operationStage, 'import_pin_key');
+  assert.equal(diagnostic.errorClass, 'NotSupportedError');
+  assert.deepEqual(Object.keys(diagnostic).sort(), [
+    'errorClass', 'eventRef', 'method', 'operationStage',
+    'requestId', 'route', 'safeMessage',
+  ]);
+  assert.doesNotMatch(logs[0], /owner-a|012345|pin_hash|token|X-Court-Room/i);
+});
+
+test('random PIN salt failures are identified before persistence without leaking the PIN', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const originalCrypto = globalThis.crypto;
+  const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  const originalConsoleError = console.error;
+  const logs = [];
+  let randomCalls = 0;
+  t.after(() => {
+    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+    console.error = originalConsoleError;
+  });
+  console.error = value => logs.push(String(value));
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {
+    getRandomValues(value) {
+      randomCalls += 1;
+      if (randomCalls === 4) throw new Error('salt failed for PIN 012345');
+      return originalCrypto.getRandomValues(value);
+    },
+    subtle: originalCrypto.subtle,
+  } });
+
+  const result = await createGrant(bindings, 'event-1', {
+    staffLabel: 'Diagnostic salt failure',
+    pin: '012345',
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.body.code, 'EVENT_STAFF_GRANT_CREATION_FAILED');
+  assert.equal(Object.hasOwn(result.body, 'inviteUrl'), false);
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+  assert.equal(JSON.parse(logs[0]).operationStage, 'generate_pin_salt');
+  assert.doesNotMatch(logs[0], /012345|owner-a|salt failed|X-Court-Room/i);
+});
+
+test('PBKDF2 deriveBits failures are stage-logged safely and create no grant', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const originalCrypto = globalThis.crypto;
+  const originalCryptoDescriptor = Object.getOwnPropertyDescriptor(globalThis, 'crypto');
+  const originalConsoleError = console.error;
+  const logs = [];
+  t.after(() => {
+    Object.defineProperty(globalThis, 'crypto', originalCryptoDescriptor);
+    console.error = originalConsoleError;
+  });
+  console.error = value => logs.push(String(value));
+  Object.defineProperty(globalThis, 'crypto', { configurable: true, value: {
+    getRandomValues: originalCrypto.getRandomValues.bind(originalCrypto),
+    subtle: {
+      digest: originalCrypto.subtle.digest.bind(originalCrypto.subtle),
+      importKey: originalCrypto.subtle.importKey.bind(originalCrypto.subtle),
+      async deriveBits() {
+        throw new Error('derive failed for PIN 012345 and owner-a');
+      },
+    },
+  } });
+
+  const result = await createGrant(bindings, 'event-1', {
+    staffLabel: 'Diagnostic derivation failure',
+    pin: '012345',
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.body.code, 'EVENT_STAFF_GRANT_CREATION_FAILED');
+  assert.equal(Object.hasOwn(result.body, 'inviteUrl'), false);
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+  assert.equal(JSON.parse(logs[0]).operationStage, 'derive_pin_hash');
+  assert.doesNotMatch(logs[0], /012345|owner-a|derive failed|X-Court-Room/i);
+});
+
+test('PIN hash encoding failures withhold the invite and persist no partial grant', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const originalBtoa = globalThis.btoa;
+  const originalConsoleError = console.error;
+  const logs = [];
+  let calls = 0;
+  t.after(() => {
+    globalThis.btoa = originalBtoa;
+    console.error = originalConsoleError;
+  });
+  console.error = value => logs.push(String(value));
+  globalThis.btoa = value => {
+    calls += 1;
+    if (calls === 5) throw new Error('encoding failed with PIN 012345');
+    return originalBtoa(value);
+  };
+
+  const result = await createGrant(bindings, 'event-1', {
+    staffLabel: 'Diagnostic encoding failure',
+    pin: '012345',
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.body.code, 'EVENT_STAFF_GRANT_CREATION_FAILED', JSON.stringify({ body: result.body, logs }));
+  assert.equal(Object.hasOwn(result.body, 'inviteUrl'), false);
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+  assert.equal(JSON.parse(logs[0]).operationStage, 'encode_pin_hash');
+  assert.doesNotMatch(logs[0], /012345|legacy-pin-salt|owner-a|X-Court-Room/i);
+});
+
+test('atomic D1 grant/audit failures return a request ID without a usable partial grant', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const originalBatch = bindings.EVENT_REGISTRATION_DB.batch.bind(bindings.EVENT_REGISTRATION_DB);
+  const originalConsoleError = console.error;
+  const logs = [];
+  t.after(() => {
+    bindings.EVENT_REGISTRATION_DB.batch = originalBatch;
+    console.error = originalConsoleError;
+  });
+  console.error = value => logs.push(String(value));
+  bindings.EVENT_REGISTRATION_DB.batch = async () => {
+    throw new Error('D1 rejected SQL containing PIN 012345 and owner-a');
+  };
+
+  const result = await createGrant(bindings, 'event-1', {
+    staffLabel: 'Diagnostic D1 failure',
+    pin: '012345',
+  });
+  assert.equal(result.response.status, 500);
+  assert.equal(result.body.code, 'EVENT_STAFF_GRANT_CREATION_FAILED');
+  assert.match(result.body.requestId, /^[A-Za-z0-9_-]{16}$/);
+  assert.equal(Object.hasOwn(result.body, 'inviteUrl'), false);
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT COUNT(*) AS count FROM event_staff_grants'
+  ).get().count, 0);
+  assert.equal(JSON.parse(logs[0]).operationStage, 'insert_grant_and_audit');
+  assert.doesNotMatch(logs[0], /012345|owner-a|X-Court-Room|rejected SQL/i);
 });
 
 test('owner snapshots reject cross-event references and only expose explicit event projections', async t => {

@@ -13,8 +13,9 @@ owner's normal sync credential.
    unrelated event to a staff endpoint.
 2. The Worker stores the event authority, its revision, access epoch, grants,
    sessions, idempotency records, and bounded audit history in D1. A grant stores
-   only a SHA-256 token hash. An optional PIN is PBKDF2-derived with a random
-   salt. Raw tokens and PINs are never stored.
+   only a SHA-256 token hash. An optional PIN is derived with a versioned,
+   PBKDF2-SHA-256 verifier and a random 16-byte salt. Raw tokens and PINs are
+   never stored.
 3. A newly issued link puts the raw capability in the URL fragment
    (`/staff#token=...`). Fragments are not sent in the initial HTTP request. The
    Tournament Desk removes the fragment immediately and exchanges the token
@@ -49,6 +50,40 @@ owner's normal sync credential.
 The D1 database is the strongly consistent serialization boundary for a staffed
 event. The existing `COURT` KV value remains the normal full-dataset transport,
 but it is not used for staff read-modify-write operations.
+
+## Optional PIN derivation and compatibility
+
+The PIN field is optional. Omitting it or sending an empty string creates the
+same no-PIN grant as before and stores `NULL` for all PIN fields. A supplied PIN
+must be a JSON string containing exactly 4–12 ASCII digits. It is never
+converted to a number, so leading zeroes such as `012345` are preserved.
+
+KDF version 2 stores:
+
+- a unique random 16-byte base salt encoded as unpadded base64url;
+- a 32-byte verifier encoded as unpadded base64url;
+- `pin_iterations = 210000`, the total PBKDF2 work factor; and
+- `pin_kdf_version = 2`, which identifies the derivation and encoding.
+
+Cloudflare's production Web Crypto runtime rejects an individual PBKDF2 call
+above 100,000 iterations. The previous implementation made one 210,000-
+iteration call, so PIN-protected creation failed during `derive_pin_hash`
+before the D1 grant/audit batch. No-PIN creation never entered that crypto path,
+which is why it continued to succeed. Version 2 retains the 210,000 total work
+factor as domain-separated 100,000, 100,000, and 10,000 iteration blocks, then
+SHA-256 hashes their concatenated 32-byte outputs into the stored verifier.
+Each platform call remains within the proven limit.
+
+Migration `0006_event_staff_pin_kdf_version.sql` adds the explicit version
+column. It marks any existing protected row as version 1 and leaves no-PIN rows
+unversioned. Redemption selects the algorithm from that stored version:
+version 1 continues to use the exact original single-call PBKDF2 encoding on a
+runtime that supports it, while all new and dummy verification uses version 2.
+The affected Cloudflare deployment could not successfully create a version-1
+protected grant because the failure occurred before insert; therefore this
+change does not invalidate a successfully issued production PIN link. Do not
+rewrite a version-1 verifier as version 2: rotate the grant with a new PIN
+instead.
 
 ## Initial permission presets
 
@@ -88,8 +123,10 @@ Migration `0005_event_staff_access.sql` adds:
 
 No new binding is required. The additive tables use the existing
 `EVENT_REGISTRATION_DB` D1 binding. An older Worker or a database without the
-migration makes `/api/event-staff/status` report unavailable, and the owner UI
-does not offer grant creation.
+migrations makes `/api/event-staff/status` report unavailable, and the owner UI
+does not offer grant creation. Migration `0006_event_staff_pin_kdf_version.sql`
+adds `event_staff_grants.pin_kdf_version`; schema version 2 requires that
+column.
 
 ## API contract
 
@@ -108,6 +145,13 @@ in a URL or returned by a response.
 | `POST /api/event-staff/owner/events/:eventId/revoke-all` | Increment that event's access epoch and revoke its grants/sessions |
 | `POST /api/event-staff/owner/revoke-all` | Invalidate every event epoch for the owner before restore or identity change |
 | `GET /api/event-staff/owner/events/:eventId/audit` | Read bounded owner-visible event staff activity |
+
+An unexpected grant-creation failure returns HTTP 500 with stable code
+`EVENT_STAFF_GRANT_CREATION_FAILED`, a safe message, a random `requestId`, and
+`retryable: true`. Court leaves the form open, clears only the PIN, and shows
+that request ID. It also suppresses duplicate submissions while the first
+request is running. The raw invite is returned only after the atomic grant and
+audit writes have succeeded and the new grant has been read back.
 
 The snapshot body is
 `{ event, games, participants, matches, gameMeta, deletedGameIds,
@@ -213,6 +257,10 @@ Use only disposable local data and credentials.
    and the 24-hour, 3-day, and 7-day expiration choices. Confirm the create
    sheet shows each raw link once, then shows only grant metadata after closing
    it. Rotate one link and verify the former link no longer redeems.
+   Also create PINs `0123`, `012345`, and `012345678901`; confirm leading
+   zeroes redeem correctly. Reject 3 digits, 13 digits, letters, whitespace,
+   Unicode digits, and a numeric JSON value. Submit a PIN-protected form twice
+   quickly and confirm only one grant is created.
 5. Open each link in a separate private browser profile or phone-sized context.
    Confirm the fragment disappears immediately, the page identifies itself as
    restricted access, Current Matches is the default, there is no full-app
@@ -250,6 +298,23 @@ Use only disposable local data and credentials.
     npm run verify
     ```
 
+## Failure diagnostics
+
+Application error logs are one-line JSON records containing only `requestId`,
+route pathname, HTTP method, opaque event reference, `operationStage`,
+`errorClass`, and a mapped safe message. Useful creation stages include
+`generate_pin_salt`, `decode_pin_salt`, `import_pin_key`, `derive_pin_hash`,
+`encode_pin_hash`, `insert_grant_and_audit`, and `read_created_grant`. The logs
+must never include request headers or bodies, owner room credentials, raw
+tokens, PINs, salts, hashes, or invite URLs.
+
+When an owner reports a failure, collect the displayed request ID and search
+for that exact value in Cloudflare Workers Logs. If a live `wrangler tail` is
+temporarily required, remember that the platform invocation envelope can
+include request headers even though Court's structured log does not. Retain
+only the matching Court JSON record, never paste the complete invocation
+envelope, and stop the tail immediately after the check.
+
 ## Deployment and rollback
 
 Deployment order and exact commands are recorded here so the UI cannot be
@@ -277,14 +342,16 @@ added by this feature.
    ```
 
 3. Return to the repository root, run the full verification, then return to
-   `cloudflare` and review and apply the production migration:
+   `cloudflare`. Confirm `0006_event_staff_pin_kdf_version.sql` is pending and
+   apply the production migrations before deploying the Worker:
 
    ```sh
    cd ..
    npm run verify
    cd cloudflare
+   npx wrangler d1 migrations list court-event-registration --remote --config wrangler.jsonc
    npx wrangler d1 migrations apply court-event-registration --remote --config wrangler.jsonc
-   npx wrangler d1 execute court-event-registration --remote --config wrangler.jsonc --command "SELECT name FROM sqlite_master WHERE name LIKE 'event_staff_%' ORDER BY name"
+   npx wrangler d1 execute court-event-registration --remote --config wrangler.jsonc --command "SELECT name, type FROM pragma_table_info('event_staff_grants') WHERE name = 'pin_kdf_version'"
    ```
 
 4. Deploy and smoke-test the Worker before the frontend:
@@ -295,7 +362,9 @@ added by this feature.
 
    Verify legacy owner sync, public schedules, public registration, and
    `GET /api/event-staff/status` from the Court origin. The status response
-   must report `available: true`.
+   must report `available: true` and `schemaVersion: 2`. Create and redeem one
+   disposable no-PIN grant and one PIN-protected grant with leading zeroes,
+   then revoke both.
 
 5. Deploy the versioned root `index.html` through the repository's existing
    GitHub Pages `master`-root release flow. The owner UI remains unavailable
@@ -312,9 +381,8 @@ npx wrangler rollback <PRE_RELEASE_VERSION_ID> --config wrangler.jsonc --message
 npx wrangler deployments status --config wrangler.jsonc
 ```
 
-Restore the reviewed pre-release frontend artifact—Git commit
-`d50404ed2d99aa86aeffa4d916c0828bc184ec53`, Court `0.39.0`, build
-`20260728.3` for this release—and redeploy that root `index.html` through the
-GitHub Pages `master`-root release flow. Leave the additive D1 tables in place;
-Worker rollbacks do not roll back D1 data, and older Court code ignores these
-tables. Do not drop the tables as an application rollback.
+Restore the immediately preceding Court `0.40.1`, build `20260729.2` root
+`index.html` artifact through the GitHub Pages `master`-root release flow.
+Leave the additive D1 tables and `pin_kdf_version` column in place; Worker
+rollbacks do not roll back D1 data, and older Court code ignores the added
+column. Do not drop the tables or column as an application rollback.

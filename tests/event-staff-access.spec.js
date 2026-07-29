@@ -146,6 +146,8 @@ function workerState(overrides = {}) {
     snapshotDelaySequence: [],
     snapshotDelayActive: 0,
     snapshotFailureSequence: [],
+    grantFailureSequence: [],
+    grantDelaySequence: [],
     offlineStatus: false,
     statusCode: 0,
     statusBody: null,
@@ -277,6 +279,17 @@ async function stubWorker(page, state) {
     if (/\/api\/event-staff\/owner\/events\/event-one\/grants$/.test(path) && request.method() === 'POST') {
       const input = request.postDataJSON();
       state.grantInputs.push(input);
+      const grantDelay = Number(state.grantDelaySequence.shift()) || 0;
+      if (grantDelay > 0) await new Promise(resolve => setTimeout(resolve, grantDelay));
+      const grantFailure = state.grantFailureSequence.shift();
+      if (grantFailure) return json(route, {
+        ok: false,
+        error: grantFailure.error || 'unexpected_error',
+        code: grantFailure.code || 'EVENT_STAFF_GRANT_CREATION_FAILED',
+        message: grantFailure.message || 'Event staff access is temporarily unavailable.',
+        requestId: grantFailure.requestId || 'request-pin-1234',
+        retryable: grantFailure.retryable ?? false,
+      }, grantFailure.status || 500);
       state.revision++;
       const grant = {
         id: `grant-${state.grants.length + 1}`,
@@ -499,6 +512,41 @@ test('owner creates a named, expiring, PIN-protected grant and sees its raw frag
     };
   });
   expect(duplicated).toEqual({ copiedKeys: [], grants: null, revision: 0 });
+});
+
+test('failed PIN creation stays open, clears only the PIN, shows the request ID, and cannot double-submit', async ({ page }) => {
+  const state = workerState({
+    grantDelaySequence: [150],
+    grantFailureSequence: [{
+      requestId: 'request-pin-failure-42',
+      retryable: false,
+    }],
+  });
+  await seedOwner(page);
+  await stubWorker(page, state);
+  await openOwnerEvent(page);
+  await openStaffManager(page);
+  await page.getByRole('button', { name: 'Create staff link' }).click();
+  await page.locator('#eventStaffLabel').fill('Court 3 scorekeeper');
+  await page.locator('#eventStaffRole').selectOption('scorekeeper');
+  await page.locator('#eventStaffPin').fill('012345');
+
+  await page.evaluate(() => {
+    createEventStaffGrant('event-one');
+    createEventStaffGrant('event-one');
+  });
+  await expect.poll(() => state.grantInputs.length).toBe(1);
+  await expect(page.locator('#toast')).toContainText('Request ID: request-pin-failure-42');
+  await expect(page.getByRole('heading', { name: 'Create staff link · Owner Cup' })).toBeVisible();
+  await expect(page.locator('#eventStaffLabel')).toHaveValue('Court 3 scorekeeper');
+  await expect(page.locator('#eventStaffRole')).toHaveValue('scorekeeper');
+  await expect(page.locator('#eventStaffPin')).toHaveValue('');
+  await expect(page.getByRole('button', { name: 'Create secure link' })).toBeEnabled();
+
+  await page.locator('.sheet').getByRole('button', { name: 'Cancel', exact: true }).click();
+  await openStaffManager(page);
+  await page.getByRole('button', { name: 'Create staff link' }).click();
+  await expect(page.locator('#eventStaffPin')).toHaveValue('');
 });
 
 test('owner grant management renders lifecycle details and confirms scoped revoke, rotate, and revoke-all actions', async ({ page }) => {
