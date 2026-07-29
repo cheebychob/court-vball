@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260729.2">
+<meta name="court-build" content="20260729.3">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1380,9 +1380,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.40.1',
-  build: '20260729.2',
-  releaseNotes: 'Tournament Desk scores now stay on the current event revision after owner sync, avoiding false first-attempt conflicts.'
+  version: '0.40.2',
+  build: '20260729.3',
+  releaseNotes: 'Optional-PIN Event Staff links now create reliably on Cloudflare and return a safe request ID if creation fails.'
 });
 
 function appVersionLabel(){
@@ -12038,7 +12038,7 @@ const EVENT_STAFF_ROLE_FALLBACK=Object.freeze({
   tournamentOperator:{id:'tournamentOperator',label:'Tournament Operator',summary:'Can score matches, run event-day check-in, view this event’s registration contacts, and move existing matches. Cannot edit players, ratings, event setup, or staff access.'}
 });
 const EventStaff=(()=>{
-  const states=new Map(),snapshotTimers=new Map(),snapshotSignatures=new Map(),resetAccessIds=new Set();
+  const states=new Map(),snapshotTimers=new Map(),snapshotSignatures=new Map(),resetAccessIds=new Set(),creatingGrants=new Set();
   let capabilityKey='',capabilityStatus='idle',capabilityInfo=null,capabilityMessage='',capabilityPromise=null,managerEventId=null;
   const cleanText=(value,max=160)=>String(value??'').trim().slice(0,max);
   const uniqueIds=value=>[...new Set((Array.isArray(value)?value:[]).filter(id=>id!=null&&String(id).trim()).map(id=>String(id)))];
@@ -12443,7 +12443,7 @@ const EventStaff=(()=>{
       <div class="field" id="eventStaffCustomExpiryField" hidden><label for="eventStaffCustomExpiry">Custom expiration · maximum ${maxDays} days</label><input id="eventStaffCustomExpiry" type="datetime-local" min="${localDateTimeValue(Date.now()+60000)}" max="${localDateTimeValue(max)}"></div>
       <div class="field"><label for="eventStaffPin">Optional PIN</label><input id="eventStaffPin" type="password" inputmode="numeric" autocomplete="new-password" minlength="4" maxlength="12" pattern="[0-9]{4,12}" placeholder="4–12 digits"></div>
       <div class="unkline">Anyone with this link and, when set, its PIN can use the selected permissions until it expires or you revoke it. Court shows the raw link only once.</div>
-      <button type="button" class="btn primary block" onclick="createEventStaffGrant('${esc(ev.id)}')">Create secure link</button>${sheetCloseBtn()}`;
+      <button type="button" class="btn primary block" data-event-staff-create onclick="createEventStaffGrant('${esc(ev.id)}')">Create secure link</button>${sheetCloseBtn()}`;
   }
   function expiryFromForm(ev,now=Date.now()){
     const choice=$('#eventStaffExpiry')?.value||'',maxDays=Math.min(30,Number(capabilityInfo?.maxGrantDays)||30),max=now+maxDays*86400000;
@@ -12477,18 +12477,27 @@ const EventStaff=(()=>{
   function expiryChanged(value){const field=$('#eventStaffCustomExpiryField');if(field)field.hidden=value!=='custom';if(value==='custom')$('#eventStaffCustomExpiry')?.focus();}
   async function createGrant(eventId){
     const ev=evById(eventId);if(!ev)return;
+    if(creatingGrants.has(eventId))return;
     if(!Sync.cfg.on){toast('Resume and finish adopting device sync before creating staff access.');return;}
-    const staffLabel=cleanText($('#eventStaffLabel')?.value,80),role=$('#eventStaffRole')?.value,pin=String($('#eventStaffPin')?.value||'').trim();
+    const pinInput=$('#eventStaffPin'),staffLabel=cleanText($('#eventStaffLabel')?.value,80),role=$('#eventStaffRole')?.value,pin=String(pinInput?.value||'');
     if(!staffLabel){toast('Enter a staff name');$('#eventStaffLabel')?.focus();return;}
     if(!EVENT_STAFF_ROLE_FALLBACK[role]){toast('Choose a permission role');return;}
-    if(pin&&!/^\d{4,12}$/.test(pin)){toast('PIN must be 4–12 digits');$('#eventStaffPin')?.focus();return;}
+    if(pin&&!/^\d{4,12}$/.test(pin)){toast('PIN must be 4–12 digits');pinInput?.focus();return;}
     let expiresAt;try{expiresAt=expiryFromForm(ev);}catch(error){toast(error.message);return;}
-    const button=document.querySelector('[onclick^="createEventStaffGrant"]');if(button)button.disabled=true;
+    const button=document.querySelector('[data-event-staff-create]');creatingGrants.add(eventId);if(button)button.disabled=true;
     try{
       await putSnapshot(ev,{force:true});
       const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants`,{method:'POST',body:{staffLabel,role,expiresAt,...(pin?{pin}:{})},eventId});
+      if(pinInput)pinInput.value='';
       await loadGrants(ev);showInvite(ev,result,'created');
-    }catch(error){toast(error.message);if(button)button.disabled=false;}
+    }catch(error){
+      if(pinInput)pinInput.value='';
+      const requestId=cleanText(error?.data?.requestId,80);
+      toast(`${error.message}${requestId?` · Request ID: ${requestId}`:''}`);
+    }finally{
+      creatingGrants.delete(eventId);
+      if(button?.isConnected)button.disabled=false;
+    }
   }
   async function revokeGrant(eventId,grantId){
     const ev=evById(eventId),grant=stateFor(eventId).grants?.find(item=>item.id===grantId);if(!ev||!grant)return;

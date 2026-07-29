@@ -8,7 +8,8 @@ const teamMigration = await readFile(new URL('../cloudflare/migrations/0002_team
 const integrationMigration = await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8');
 const contactMigration = await readFile(new URL('../cloudflare/migrations/0004_registration_contact.sql', import.meta.url), 'utf8');
 const eventStaffMigration = await readFile(new URL('../cloudflare/migrations/0005_event_staff_access.sql', import.meta.url), 'utf8');
-const migration = `${foundationMigration}\n${teamMigration}\n${integrationMigration}\n${contactMigration}\n${eventStaffMigration}`;
+const eventStaffPinKdfMigration = await readFile(new URL('../cloudflare/migrations/0006_event_staff_pin_kdf_version.sql', import.meta.url), 'utf8');
+const migration = `${foundationMigration}\n${teamMigration}\n${integrationMigration}\n${contactMigration}\n${eventStaffMigration}\n${eventStaffPinKdfMigration}`;
 
 test('registration migration applies cleanly with tables, indexes, foreign keys, and uniqueness constraints', () => {
   const database = new DatabaseSync(':memory:');
@@ -27,6 +28,7 @@ test('registration migration applies cleanly with tables, indexes, foreign keys,
   assert.ok(tables.includes('event_staff_audit'));
   assert.ok(tables.includes('event_staff_rate_limits'));
   assert.ok(database.prepare("PRAGMA table_info('event_registrations')").all().some(row => row.name === 'contact_json'));
+  assert.ok(database.prepare("PRAGMA table_info('event_staff_grants')").all().some(row => row.name === 'pin_kdf_version'));
   const indexes = database.prepare("SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name").all().map(row => row.name);
   for (const name of [
     'idx_event_registration_configs_owner',
@@ -225,5 +227,45 @@ test('event staff migration is additive and enforces scoped grants, role presets
     ) VALUES ('missing-event', 'owner-a', 'event-missing', 1, '${'e'.repeat(64)}', 'Missing',
       'viewOnly', '[]', ${now}, ${now + 60_000})
   `).run(), /FOREIGN KEY constraint failed/);
+  database.close();
+});
+
+test('event staff PIN KDF migration versions legacy protected grants without changing no-PIN grants', () => {
+  const database = new DatabaseSync(':memory:');
+  database.exec(foundationMigration);
+  database.exec(teamMigration);
+  database.exec(integrationMigration);
+  database.exec(contactMigration);
+  database.exec(eventStaffMigration);
+  const now = Date.now();
+  database.prepare(`
+    INSERT INTO event_staff_events (
+      owner_scope, event_id, event_json, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?)
+  `).run('owner-a', 'event-kdf', '{"id":"event-kdf"}', now, now);
+  const insert = database.prepare(`
+    INSERT INTO event_staff_grants (
+      id, owner_scope, event_id, event_access_epoch, token_hash,
+      pin_salt, pin_hash, pin_iterations, staff_label, role,
+      permissions_json, created_at, expires_at
+    ) VALUES (?, 'owner-a', 'event-kdf', 1, ?, ?, ?, ?, ?, 'viewOnly', '[]', ?, ?)
+  `);
+  insert.run(
+    'legacy-pin', 'a'.repeat(64), 'legacy-salt', 'legacy-hash', 210000,
+    'Legacy protected', now, now + 60_000,
+  );
+  insert.run(
+    'legacy-no-pin', 'b'.repeat(64), null, null, null,
+    'Legacy unprotected', now, now + 60_000,
+  );
+
+  assert.doesNotThrow(() => database.exec(eventStaffPinKdfMigration));
+  const rows = database.prepare(`
+    SELECT id, pin_kdf_version FROM event_staff_grants ORDER BY id
+  `).all();
+  assert.deepEqual(rows.map(row => ({ ...row })), [
+    { id: 'legacy-no-pin', pin_kdf_version: null },
+    { id: 'legacy-pin', pin_kdf_version: 1 },
+  ]);
   database.close();
 });
