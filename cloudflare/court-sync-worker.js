@@ -38,6 +38,75 @@ const REGISTRATION_TITLE_MAX = 120;
 const REGISTRATION_DESCRIPTION_MAX = 2000;
 const REGISTRATION_DISPLAY_NAME_MAX = 100;
 const REGISTRATION_MEMBER_NAME_MAX = 100;
+const EVENT_STAFF_API_VERSION = 1;
+const EVENT_STAFF_SCHEMA_VERSION = 1;
+const EVENT_STAFF_PERMISSION_SCHEMA_VERSION = 1;
+const EVENT_STAFF_MAX_SNAPSHOT_BODY_BYTES = 2 * 1024 * 1024;
+const EVENT_STAFF_MAX_OPERATION_BODY_BYTES = 64 * 1024;
+const EVENT_STAFF_MAX_EVENT_BYTES = 512 * 1024;
+const EVENT_STAFF_MAX_GAMES = 2500;
+const EVENT_STAFF_MAX_PARTICIPANTS = 1000;
+const EVENT_STAFF_MAX_MATCHES = 1500;
+const EVENT_STAFF_MAX_ACTIVE_GRANTS = 10;
+const EVENT_STAFF_MAX_GRANT_MS = 30 * 24 * 60 * 60 * 1000;
+const EVENT_STAFF_SESSION_MS = 8 * 60 * 60 * 1000;
+const EVENT_STAFF_MAX_ACTIVE_SESSIONS_PER_GRANT = 12;
+const EVENT_STAFF_PIN_ITERATIONS = 210000;
+const EVENT_STAFF_AUTH_WINDOW_MS = 10 * 60 * 1000;
+const EVENT_STAFF_AUTH_ADDRESS_LIMIT = 40;
+const EVENT_STAFF_AUTH_TOKEN_LIMIT = 10;
+const EVENT_STAFF_AUDIT_LIMIT = 500;
+const EVENT_STAFF_IDEMPOTENCY_LIMIT = 1000;
+const EVENT_STAFF_MAX_SCORE = 199;
+const EVENT_STAFF_LABEL_MAX = 80;
+const EVENT_STAFF_REASON_MAX = 240;
+const EVENT_STAFF_IDEMPOTENCY_PATTERN = /^[A-Za-z0-9._~-]{8,120}$/;
+const EVENT_STAFF_OPERATION_PERMISSIONS = Object.freeze({
+  recordEventScore: "recordEventScore",
+  correctEventScore: "correctEventScore",
+  completeBracketMatch: "completeBracketMatch",
+  setEntryCheckIn: "setEntryCheckIn",
+  setEntryAttendanceStatus: "setEntryAttendanceStatus",
+  moveScheduledMatch: "moveScheduledMatch",
+});
+const EVENT_STAFF_ATTENDANCE_STATUSES = new Set([
+  "not_checked_in", "partially_arrived", "checked_in", "needs_review",
+  "no_show", "withdrawn",
+]);
+const EVENT_STAFF_PLAYER_ATTENDANCE_STATUSES = new Set([
+  "not_present", "present", "substitute_present", "unknown_replacement", "excused",
+]);
+const EVENT_STAFF_GAME_EVENT_KEYS = new Set([
+  "ace", "sin", "serr", "goodPass", "pget", "perr",
+  "kill", "kerr", "dig", "block", "assist", "fault",
+]);
+const EVENT_STAFF_ROLE_PERMISSIONS = Object.freeze({
+  viewOnly: Object.freeze([
+    "viewEvent", "viewEntries", "viewSchedule", "viewMatches",
+    "viewStandings", "viewBracket", "viewResults",
+  ]),
+  scorekeeper: Object.freeze([
+    "viewEvent", "viewEntries", "viewSchedule", "viewMatches",
+    "viewStandings", "viewBracket", "viewResults",
+    "recordEventScore", "correctEventScore", "completeScheduledMatch",
+  ]),
+  tournamentOperator: Object.freeze([
+    "viewEvent", "viewEntries", "viewSchedule", "viewMatches",
+    "viewStandings", "viewBracket", "viewResults",
+    "recordEventScore", "correctEventScore", "completeScheduledMatch",
+    "setEntryCheckIn", "setEntryAttendanceStatus",
+    "viewRegistrationContact", "moveScheduledMatch",
+    "completeBracketMatch", "viewActivity",
+  ]),
+});
+const EVENT_STAFF_TABLES = Object.freeze([
+  "event_staff_events",
+  "event_staff_grants",
+  "event_staff_sessions",
+  "event_staff_idempotency",
+  "event_staff_audit",
+  "event_staff_rate_limits",
+]);
 const MAX_CHECK_IN_ROSTER = 250;
 const MAX_CHECK_INS_PER_SESSION = 350;
 const CHECK_IN_DEFAULT_TTL_MS = 6 * 60 * 60 * 1000;
@@ -4622,6 +4691,3708 @@ function scoreReportPage(publicToken = "", courtCode = "") {
   });
 }
 
+/* --------------------------------------------------------------------------
+ * Event staff access
+ *
+ * D1 is the serialization boundary for a staffed event.  The owner may seed a
+ * bounded event projection, but staff can only submit the narrow operations
+ * implemented below.  Staff credentials never enter COURT KV.
+ * ----------------------------------------------------------------------- */
+
+function eventStaffHeaders(request, extra = {}) {
+  return {
+    ...privateCors(request),
+    "Cache-Control": "no-store",
+    "Pragma": "no-cache",
+    "Expires": "0",
+    "X-Content-Type-Options": "nosniff",
+    "Referrer-Policy": "no-referrer",
+    "X-Robots-Tag": "noindex, nofollow, noarchive",
+    ...extra,
+  };
+}
+
+function eventStaffJson(body, status = 200, request = null, extra = {}) {
+  return json(body, status, eventStaffHeaders(request || { headers: new Headers() }, extra));
+}
+
+function eventStaffError(request, status, error, message, extra = {}) {
+  return eventStaffJson({
+    ok: false,
+    error,
+    code: String(error || "event_staff_error").toUpperCase(),
+    message,
+    ...extra,
+  }, status, request);
+}
+
+async function readEventStaffJson(request, maximum = EVENT_STAFF_MAX_OPERATION_BODY_BYTES) {
+  if (!isJsonRequest(request)) {
+    return { response: eventStaffError(request, 415, "json_required", "Use an application/json request.") };
+  }
+  const result = await readBoundedBody(request, maximum);
+  if (result.error === "too-large") {
+    return { response: eventStaffError(request, 413, "request_too_large", "The request is too large.") };
+  }
+  if (result.error) {
+    return { response: eventStaffError(request, 400, "invalid_body", "The request body could not be read.") };
+  }
+  try {
+    const value = JSON.parse(new TextDecoder().decode(result.bytes));
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("object required");
+    return { value };
+  } catch {
+    return { response: eventStaffError(request, 400, "invalid_json", "The request body must be a JSON object.") };
+  }
+}
+
+function eventStaffDb(env, constraint = "first-primary") {
+  const db = env?.EVENT_REGISTRATION_DB;
+  if (!db || typeof db.prepare !== "function") return null;
+  if (typeof db.withSession === "function") {
+    try { return db.withSession(constraint); } catch {}
+  }
+  return db;
+}
+
+async function eventStaffSchemaReady(env) {
+  const db = eventStaffDb(env);
+  if (!db) return false;
+  try {
+    const placeholders = EVENT_STAFF_TABLES.map(() => "?").join(",");
+    const row = await d1First(db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM sqlite_master
+      WHERE type = 'table' AND name IN (${placeholders})
+    `).bind(...EVENT_STAFF_TABLES));
+    return Number(row?.count) === EVENT_STAFF_TABLES.length;
+  } catch {
+    return false;
+  }
+}
+
+function eventStaffRoleDescriptor(role) {
+  const labels = {
+    viewOnly: "View Only",
+    scorekeeper: "Scorekeeper",
+    tournamentOperator: "Tournament Operator",
+  };
+  const permissions = EVENT_STAFF_ROLE_PERMISSIONS[role];
+  return permissions ? { id: role, label: labels[role], permissions: [...permissions] } : null;
+}
+
+async function eventStaffStatusRoute(request, env) {
+  if (!originAllowed(request)) {
+    return eventStaffError(request, 403, "origin_not_allowed", "This organizer origin is not allowed.");
+  }
+  if (!(await eventStaffSchemaReady(env))) {
+    return eventStaffJson({
+      available: false,
+      error: "staff_access_unavailable",
+      message: "Event staff access requires the compatible Worker migration.",
+    }, 503, request);
+  }
+  return eventStaffJson({
+    available: true,
+    apiVersion: EVENT_STAFF_API_VERSION,
+    schemaVersion: EVENT_STAFF_SCHEMA_VERSION,
+    permissionSchemaVersion: EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+    maxActiveGrantsPerEvent: EVENT_STAFF_MAX_ACTIVE_GRANTS,
+    maxGrantDays: EVENT_STAFF_MAX_GRANT_MS / (24 * 60 * 60 * 1000),
+    roles: Object.keys(EVENT_STAFF_ROLE_PERMISSIONS).map(eventStaffRoleDescriptor),
+  }, 200, request);
+}
+
+async function authorizeEventStaffOwner(request, env) {
+  if (!originAllowed(request)) {
+    return { response: eventStaffError(request, 403, "origin_not_allowed", "This organizer origin is not allowed.") };
+  }
+  if (!(await eventStaffSchemaReady(env))) {
+    return { response: eventStaffError(request, 503, "staff_access_unavailable", "Event staff access is unavailable.") };
+  }
+  if (!env?.COURT || typeof env.COURT.get !== "function") {
+    return { response: eventStaffError(request, 503, "owner_auth_unavailable", "Organizer authorization is unavailable.") };
+  }
+  const room = request.headers.get("X-Court-Room") || "";
+  if (!room || room.length > 256) {
+    return { response: eventStaffError(request, 401, "owner_auth_required", "Organizer authorization is required.") };
+  }
+  const exists = await env.COURT.get(`room:${room}`);
+  if (!exists) {
+    return { response: eventStaffError(request, 403, "owner_auth_failed", "Organizer authorization failed.") };
+  }
+  return { ownerScope: await sha256(room), room, db: eventStaffDb(env) };
+}
+
+function eventStaffBase64Url(bytes) {
+  let binary = "";
+  bytes.forEach(byte => { binary += String.fromCharCode(byte); });
+  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+}
+
+function eventStaffBase64UrlBytes(value) {
+  const raw = String(value || "").replace(/-/g, "+").replace(/_/g, "/");
+  const padded = raw + "=".repeat((4 - raw.length % 4) % 4);
+  const binary = atob(padded);
+  return Uint8Array.from(binary, character => character.charCodeAt(0));
+}
+
+async function deriveEventStaffPin(pin, salt, iterations = EVENT_STAFF_PIN_ITERATIONS) {
+  const key = await crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(String(pin)),
+    "PBKDF2",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits({
+    name: "PBKDF2",
+    salt: eventStaffBase64UrlBytes(salt),
+    iterations: Number(iterations),
+    hash: "SHA-256",
+  }, key, 256);
+  return eventStaffBase64Url(new Uint8Array(bits));
+}
+
+function stableEventStaffJson(value) {
+  if (Array.isArray(value)) return `[${value.map(stableEventStaffJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    return `{${Object.keys(value).sort().map(key => `${JSON.stringify(key)}:${stableEventStaffJson(value[key])}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+function parseEventStaffJson(value, fallback) {
+  try {
+    const parsed = JSON.parse(value);
+    return parsed == null ? fallback : parsed;
+  } catch {
+    return fallback;
+  }
+}
+
+function cleanEventStaffText(value, maximum = 120) {
+  if (typeof value !== "string") return "";
+  return value.trim().replace(/\s+/g, " ").slice(0, maximum);
+}
+
+function cleanEventStaffReason(value) {
+  return cleanEventStaffText(value, EVENT_STAFF_REASON_MAX);
+}
+
+function eventStaffInteger(value, minimum, maximum) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= minimum && number <= maximum ? number : null;
+}
+
+function eventStaffArray(value, maximum) {
+  return Array.isArray(value) && value.length <= maximum ? value : null;
+}
+
+function eventStaffGameMeta(value) {
+  const meta = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const ratingVersion = Number.isInteger(Number(meta.ratingVersion))
+    ? Math.max(1, Math.min(2, Number(meta.ratingVersion)))
+    : 2;
+  const families = {};
+  if (meta.eventFamilies && typeof meta.eventFamilies === "object" && !Array.isArray(meta.eventFamilies)) {
+    for (const [family, keys] of Object.entries(meta.eventFamilies)) {
+      if (!/^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(family) || !Array.isArray(keys)) continue;
+      families[family] = keys.filter(key => typeof key === "string" && /^[A-Za-z][A-Za-z0-9_-]{0,39}$/.test(key)).slice(0, 30);
+    }
+  }
+  return { ratingVersion, detailed: meta.detailed === true, eventFamilies: families };
+}
+
+function eventStaffRow(row) {
+  if (!row) return null;
+  return {
+    ownerScope: row.owner_scope,
+    eventId: row.event_id,
+    accessEpoch: Number(row.access_epoch),
+    revision: Number(row.revision),
+    event: parseEventStaffJson(row.event_json, {}),
+    games: parseEventStaffJson(row.games_json, []),
+    participants: parseEventStaffJson(row.participants_json, []),
+    matches: parseEventStaffJson(row.matches_json, []),
+    deletedGameIds: parseEventStaffJson(row.deleted_game_ids_json, {}),
+    staffScoreMatchIds: eventStaffSafeMatchIdList(
+      parseEventStaffJson(row.staff_score_match_ids_json, []),
+      EVENT_STAFF_MAX_MATCHES,
+    ),
+    createdAt: Number(row.created_at),
+    updatedAt: Number(row.updated_at),
+    deletedAt: row.deleted_at == null ? null : Number(row.deleted_at),
+  };
+}
+
+async function getEventStaffEvent(db, ownerScope, eventId) {
+  return eventStaffRow(await d1First(db.prepare(`
+    SELECT * FROM event_staff_events WHERE owner_scope = ? AND event_id = ?
+  `).bind(ownerScope, eventId)));
+}
+
+function safeEventStaffParticipant(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanEventStaffText(value.id, 120), name = cleanEventStaffText(value.name || value.displayName, 120);
+  if (!PLAYER_ID_PATTERN.test(id) || !name) return null;
+  return { id, name, ...(value.active === false ? { active: false } : {}) };
+}
+
+function eventStaffSafeIdList(value, maximum = 100) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(id => typeof id === "string" && PLAYER_ID_PATTERN.test(id)))].slice(0, maximum);
+}
+
+function eventStaffSafeMatchIdList(value, maximum = 100) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter(id => typeof id === "string" && SCORE_MATCH_ID_PATTERN.test(id)))].slice(0, maximum);
+}
+
+function safeEventStaffCheckIn(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const playerStatuses = {};
+  for (const [playerId, status] of Object.entries(value.playerStatuses || {})) {
+    if (PLAYER_ID_PATTERN.test(playerId) && EVENT_STAFF_PLAYER_ATTENDANCE_STATUSES.has(status)) {
+      playerStatuses[playerId] = status;
+    }
+  }
+  return {
+    teamStatus: EVENT_STAFF_ATTENDANCE_STATUSES.has(value.teamStatus)
+      ? value.teamStatus
+      : "not_checked_in",
+    activePlayerIds: eventStaffSafeIdList(value.activePlayerIds),
+    substitutePlayerIds: eventStaffSafeIdList(value.substitutePlayerIds),
+    playerStatuses,
+    updatedAt: Number(value.updatedAt) || null,
+  };
+}
+
+function safeEventStaffEntry(value, includeCheckIn = false) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanEventStaffText(value.id, 120), name = cleanEventStaffText(value.name, 120);
+  if (!PLAYER_ID_PATTERN.test(id) || !name) return null;
+  const safe = {
+    id,
+    name,
+    players: eventStaffSafeIdList(value.players || value.playerIds),
+    substitutePlayerIds: eventStaffSafeIdList(value.substitutePlayerIds),
+    ...(typeof value.pool === "string" ? { pool: value.pool.slice(0, 24) } : {}),
+    ...(Number.isFinite(Number(value.manualSeed)) ? { manualSeed: Number(value.manualSeed) } : {}),
+  };
+  if (includeCheckIn) {
+    const registrationId = cleanEventStaffText(value.registrationId, 160);
+    if (registrationId && PLAYER_ID_PATTERN.test(registrationId)) safe.registrationId = registrationId;
+    const checkIn = safeEventStaffCheckIn(value.checkIn);
+    if (checkIn) safe.checkIn = checkIn;
+  }
+  return safe;
+}
+
+function safeEventStaffMatch(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanEventStaffText(value.id || value.matchId, 120);
+  if (!SCORE_MATCH_ID_PATTERN.test(id)) return null;
+  const safe = {
+    id,
+    format: value.format === "rotatingGroups" || value.eventFormat === "rotatingGroups" ? "rotatingGroups" : "fixedTeams",
+    phase: ["pool", "makeup", "playoff"].includes(value.phase)
+      ? value.phase
+      : value.kind === "playoff" ? "playoff" : "pool",
+    status: ["pending", "ready", "inProgress", "complete", "completed", "final", "invalidated"].includes(value.status) ? value.status : "pending",
+    label: cleanEventStaffText(value.label || value.roundLabel, 120),
+    courtLabel: cleanEventStaffText(value.courtLabel, 60),
+    sideAName: cleanEventStaffText(value.sideAName, 120),
+    sideBName: cleanEventStaffText(value.sideBName, 120),
+    sideAPlayerIds: eventStaffSafeIdList(value.sideAPlayerIds || value.teamAPlayerIds),
+    sideBPlayerIds: eventStaffSafeIdList(value.sideBPlayerIds || value.teamBPlayerIds),
+    sideAEntryIds: eventStaffSafeIdList(value.sideAEntryIds || value.evEntryIdsA),
+    sideBEntryIds: eventStaffSafeIdList(value.sideBEntryIds || value.evEntryIdsB),
+    gameIds: eventStaffSafeIdList(value.gameIds || value.existingGameIds),
+    upstreamMatchIds: eventStaffSafeMatchIdList(value.upstreamMatchIds),
+    downstreamMatchIds: eventStaffSafeMatchIdList(value.downstreamMatchIds),
+  };
+  for (const key of ["teamAId", "teamBId", "sideAId", "sideBId", "a", "b", "bracketId"]) {
+    if (typeof value[key] === "string" && PLAYER_ID_PATTERN.test(value[key])) safe[key] = value[key];
+  }
+  for (const key of ["gameRecordMatchId", "canonicalEvMatchId", "bracketName"]) {
+    if (typeof value[key] === "string") safe[key] = value[key].slice(0, 120);
+    else if ((key === "gameRecordMatchId" || key === "canonicalEvMatchId") && value[key] === null) safe[key] = null;
+  }
+  for (const key of ["court", "scheduledAt", "slot", "round", "roundIndex", "matchIndex"]) {
+    if (Number.isFinite(Number(value[key]))) safe[key] = Number(value[key]);
+  }
+  if (typeof (value.upstreamComplete ?? value.upstreamReady) === "boolean") {
+    safe.upstreamComplete = value.upstreamComplete ?? value.upstreamReady;
+  }
+  if (Array.isArray(value.validPlacements)) {
+    safe.validPlacements = value.validPlacements.slice(0, 256).map(placement => ({
+      ...(Number.isInteger(Number(placement?.court)) ? { court: Number(placement.court) } : {}),
+      ...(Number.isFinite(Number(placement?.scheduledAt)) ? { scheduledAt: Number(placement.scheduledAt) } : {}),
+      ...(Number.isInteger(Number(placement?.slot)) ? { slot: Number(placement.slot) } : {}),
+    }));
+  }
+  return safe;
+}
+
+function safeEventStaffGame(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanEventStaffText(value.id, 120);
+  if (!PLAYER_ID_PATTERN.test(id)) return null;
+  const safe = {
+    id,
+    date: Number(value.date) || 0,
+    teamA: eventStaffSafeIdList(value.teamA),
+    teamB: eventStaffSafeIdList(value.teamB),
+    scoreA: Math.max(0, Math.min(EVENT_STAFF_MAX_SCORE, Number(value.scoreA) || 0)),
+    scoreB: Math.max(0, Math.min(EVENT_STAFF_MAX_SCORE, Number(value.scoreB) || 0)),
+    winner: value.winner === "A" || value.winner === "B" ? value.winner : null,
+  };
+  for (const key of ["evId", "evA", "evB", "evMatchId", "matchId", "label", "eventFormat"]) {
+    if (typeof value[key] === "string") safe[key] = value[key].slice(0, 160);
+  }
+  for (const key of ["evEntryIdsA", "evEntryIdsB", "evPairIdsA", "evPairIdsB"]) {
+    if (Array.isArray(value[key])) safe[key] = eventStaffSafeIdList(value[key]);
+  }
+  if (Number.isFinite(Number(value.unkA))) safe.unkA = Math.max(0, Math.round(Number(value.unkA)));
+  if (Number.isFinite(Number(value.unkB))) safe.unkB = Math.max(0, Math.round(Number(value.unkB)));
+  return safe;
+}
+
+function eventStaffExactIdArray(value, maximum = 100) {
+  if (!Array.isArray(value) || value.length > maximum) return null;
+  const safe = eventStaffSafeIdList(value, maximum);
+  return safe.length === value.length ? safe : null;
+}
+
+function eventStaffExactMatchIdArray(value, maximum = 100) {
+  if (!Array.isArray(value) || value.length > maximum) return null;
+  const safe = eventStaffSafeMatchIdList(value, maximum);
+  return safe.length === value.length ? safe : null;
+}
+
+function eventStaffStoredGame(value, eventId) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const id = cleanEventStaffText(value.id, 120);
+  const teamA = eventStaffExactIdArray(value.teamA);
+  const teamB = eventStaffExactIdArray(value.teamB);
+  const date = typeof value.date === "number" && Number.isFinite(value.date)
+    ? value.date
+    : null;
+  const scoreA = typeof value.scoreA === "number"
+    ? eventStaffInteger(value.scoreA, 0, EVENT_STAFF_MAX_SCORE)
+    : null;
+  const scoreB = typeof value.scoreB === "number"
+    ? eventStaffInteger(value.scoreB, 0, EVENT_STAFF_MAX_SCORE)
+    : null;
+  const entryIdsA = eventStaffExactIdArray(value.evEntryIdsA ?? []);
+  const entryIdsB = eventStaffExactIdArray(value.evEntryIdsB ?? []);
+  const unkA = value.unkA == null ? 0 : eventStaffInteger(value.unkA, 0, 1000);
+  const unkB = value.unkB == null ? 0 : eventStaffInteger(value.unkB, 0, 1000);
+  if (
+    !PLAYER_ID_PATTERN.test(id)
+    || value.evId !== eventId
+    || teamA == null
+    || teamB == null
+    || date == null
+    || scoreA == null
+    || scoreB == null
+    || entryIdsA == null
+    || entryIdsB == null
+    || unkA == null
+    || unkB == null
+  ) return null;
+  const winner = scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : null;
+  if ((value.winner ?? null) !== winner) return null;
+  const meta = eventStaffGameMeta(value);
+  const rawLog = value.log == null ? {} : value.log;
+  if (!rawLog || typeof rawLog !== "object" || Array.isArray(rawLog)) return null;
+  const gamePlayerIds = new Set([...teamA, ...teamB]);
+  const logEntries = Object.entries(rawLog);
+  if (logEntries.length > gamePlayerIds.size) return null;
+  const log = {};
+  for (const [playerId, counts] of logEntries) {
+    if (
+      !gamePlayerIds.has(playerId)
+      || !counts
+      || typeof counts !== "object"
+      || Array.isArray(counts)
+    ) return null;
+    const safeCounts = {};
+    for (const [key, count] of Object.entries(counts)) {
+      if (
+        !EVENT_STAFF_GAME_EVENT_KEYS.has(key)
+        || typeof count !== "number"
+        || !Number.isFinite(count)
+        || count < 0
+        || count > 1_000_000
+      ) return null;
+      safeCounts[key] = count;
+    }
+    log[playerId] = safeCounts;
+  }
+  const out = {
+    id,
+    date,
+    teamA,
+    teamB,
+    unkA,
+    unkB,
+    scoreA,
+    scoreB,
+    winner,
+    log,
+    ratingVersion: meta.ratingVersion,
+    detailed: meta.detailed,
+    eventFamilies: structuredClone(meta.eventFamilies),
+    evId: eventId,
+    evA: value.evA == null ? null : cleanEventStaffText(value.evA, 120),
+    evB: value.evB == null ? null : cleanEventStaffText(value.evB, 120),
+    evMatchId: value.evMatchId == null ? null : cleanEventStaffText(value.evMatchId, 120),
+    matchId: value.matchId == null ? null : cleanEventStaffText(value.matchId, 120),
+    evEntryIdsA: entryIdsA,
+    evEntryIdsB: entryIdsB,
+    eventFormat: value.eventFormat === "rotatingGroups" ? "rotatingGroups" : "fixedTeams",
+    label: cleanEventStaffText(value.label, 180),
+  };
+  if (
+    (out.evA != null && !PLAYER_ID_PATTERN.test(out.evA))
+    || (out.evB != null && !PLAYER_ID_PATTERN.test(out.evB))
+    || (out.evMatchId != null && !SCORE_MATCH_ID_PATTERN.test(out.evMatchId))
+    || (out.matchId != null && !SCORE_MATCH_ID_PATTERN.test(out.matchId))
+  ) return null;
+  for (const key of ["evPairIdsA", "evPairIdsB"]) {
+    if (value[key] == null) continue;
+    const ids = eventStaffExactIdArray(value[key]);
+    if (ids == null) return null;
+    out[key] = ids;
+  }
+  return out;
+}
+
+function eventStaffStoredMatch(value, eventId) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  if (value.eventId != null && value.eventId !== eventId) return null;
+  for (const key of [
+    "sideAEntryIds", "sideBEntryIds", "evEntryIdsA", "evEntryIdsB",
+    "sideAPlayerIds", "sideBPlayerIds", "teamAPlayerIds", "teamBPlayerIds",
+    "gameIds",
+  ]) {
+    if (value[key] != null && eventStaffExactIdArray(value[key], 256) == null) return null;
+  }
+  for (const key of ["upstreamMatchIds", "downstreamMatchIds"]) {
+    if (value[key] != null && eventStaffExactMatchIdArray(value[key], 256) == null) return null;
+  }
+  const safe = safeEventStaffMatch(value);
+  if (!safe) return null;
+  if (value.allowedScoreModes != null) {
+    if (
+      !Array.isArray(value.allowedScoreModes)
+      || !value.allowedScoreModes.length
+      || value.allowedScoreModes.some(mode => !["set", "bo3"].includes(mode))
+    ) return null;
+    safe.allowedScoreModes = [...new Set(value.allowedScoreModes)];
+  }
+  safe.gameMeta = eventStaffGameMeta(value.gameMeta);
+  if (value.kind === "scheduled" || value.kind === "playoff") safe.kind = value.kind;
+  return safe;
+}
+
+function safeEventStaffEvent(value, role) {
+  const event = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const includeCheckIn = role === "tournamentOperator";
+  const out = {
+    id: cleanEventStaffText(event.id, 120),
+    name: cleanEventStaffText(event.name, 160) || "Event",
+    format: event.format === "rotatingGroups" ? "rotatingGroups" : "fixedTeams",
+    done: event.done === true,
+    teams: (Array.isArray(event.teams) ? event.teams : []).map(value => safeEventStaffEntry(value, includeCheckIn)).filter(Boolean),
+    entries: (Array.isArray(event.entries || event.pairs) ? event.entries || event.pairs : []).map(value => safeEventStaffEntry(value, includeCheckIn)).filter(Boolean),
+  };
+  for (const key of ["eventDate", "venue", "location"]) {
+    if (typeof event[key] === "string") out[key] = event[key].slice(0, 240);
+  }
+  const schedule = event.sched || event.schedule;
+  if (schedule && typeof schedule === "object" && !Array.isArray(schedule)) {
+    out.scheduleSettings = {
+      start: typeof schedule.start === "string" ? schedule.start.slice(0, 16) : null,
+      courts: Number.isInteger(Number(schedule.courts)) ? Number(schedule.courts) : null,
+      courtStyle: schedule.courtStyle === "letter" ? "letter" : "number",
+    };
+  }
+  if (Array.isArray(event.brackets)) {
+    out.brackets = event.brackets.map(bracket => ({
+      id: cleanEventStaffText(bracket?.id, 120),
+      name: cleanEventStaffText(bracket?.name, 120),
+      seeds: eventStaffSafeIdList(bracket?.seeds),
+      created: Number(bracket?.created) || 0,
+    })).filter(bracket => PLAYER_ID_PATTERN.test(bracket.id));
+  }
+  if (role === "tournamentOperator") {
+    const source = event.registrationCheckIn && typeof event.registrationCheckIn === "object"
+      ? event.registrationCheckIn
+      : {};
+    const entries = {};
+    for (const [id, row] of Object.entries(source.entries || {})) {
+      if (!PLAYER_ID_PATTERN.test(id) || !row || typeof row !== "object") continue;
+      entries[id] = {
+        teamStatus: cleanEventStaffText(row.teamStatus, 40),
+        activePlayerIds: eventStaffSafeIdList(row.activePlayerIds),
+        substitutePlayerIds: eventStaffSafeIdList(row.substitutePlayerIds),
+        playerStatuses: Object.fromEntries(Object.entries(row.playerStatuses || {})
+          .filter(([playerId, status]) => PLAYER_ID_PATTERN.test(playerId) && typeof status === "string")
+          .slice(0, 200)),
+        updatedAt: Number(row.updatedAt) || null,
+      };
+    }
+    out.registrationCheckIn = { entries, updatedAt: Number(source.updatedAt) || null };
+  }
+  return out;
+}
+
+function eventStaffGrantSummary(row, now = Date.now()) {
+  const revokedAt = row.revoked_at == null ? null : Number(row.revoked_at);
+  const expiresAt = Number(row.expires_at);
+  return {
+    id: row.id,
+    staffLabel: row.staff_label,
+    role: row.role,
+    permissions: [...(EVENT_STAFF_ROLE_PERMISSIONS[row.role] || [])],
+    createdAt: Number(row.created_at),
+    expiresAt,
+    revokedAt,
+    lastUsedAt: row.last_used_at == null ? null : Number(row.last_used_at),
+    pinRequired: !!row.pin_hash,
+    status: revokedAt ? "revoked" : expiresAt <= now ? "expired" : "active",
+  };
+}
+
+function eventStaffOwnerState(row) {
+  return {
+    eventRevision: row.revision,
+    accessEpoch: row.accessEpoch,
+    serverTime: Date.now(),
+    event: row.event,
+    games: row.games,
+    participants: row.participants,
+    matches: row.matches,
+    deletedGameIds: row.deletedGameIds,
+    deletedAt: row.deletedAt,
+  };
+}
+
+function eventStaffFixedStandings(event, games) {
+  const rows = (Array.isArray(event?.teams) ? event.teams : []).map((team, seedOrder) => ({
+    id: team.id,
+    name: cleanEventStaffText(team.name, 120),
+    seedOrder,
+    wins: 0,
+    losses: 0,
+    ties: 0,
+    setTies: 0,
+    setWins: 0,
+    setLosses: 0,
+    pointsFor: 0,
+    pointsAgainst: 0,
+    matchesPlayed: 0,
+  }));
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const groups = new Map();
+  (games || []).forEach(game => {
+    if (game.evId !== event.id || !byId.has(game.evA) || !byId.has(game.evB)) return;
+    const key = game.matchId || game.id;
+    const list = groups.get(key) || [];
+    list.push(game);
+    groups.set(key, list);
+  });
+  groups.forEach(sets => {
+    const first = sets[0], a = byId.get(first.evA), b = byId.get(first.evB);
+    if (!a || !b) return;
+    let aSets = 0, bSets = 0;
+    sets.forEach(game => {
+      const direct = game.evA === a.id;
+      const scoreA = direct ? Number(game.scoreA) || 0 : Number(game.scoreB) || 0;
+      const scoreB = direct ? Number(game.scoreB) || 0 : Number(game.scoreA) || 0;
+      a.pointsFor += scoreA; a.pointsAgainst += scoreB;
+      b.pointsFor += scoreB; b.pointsAgainst += scoreA;
+      if (scoreA > scoreB) { aSets += 1; a.setWins += 1; b.setLosses += 1; }
+      else if (scoreB > scoreA) { bSets += 1; b.setWins += 1; a.setLosses += 1; }
+      else { a.setTies += 1; b.setTies += 1; }
+    });
+    a.matchesPlayed += 1; b.matchesPlayed += 1;
+    if (aSets > bSets) { a.wins += 1; b.losses += 1; }
+    else if (bSets > aSets) { b.wins += 1; a.losses += 1; }
+    else { a.ties += 1; b.ties += 1; }
+  });
+  rows.forEach(row => {
+    row.setDifferential = row.setWins - row.setLosses;
+    row.pointDifferential = row.pointsFor - row.pointsAgainst;
+    row.winPercentage = row.matchesPlayed ? row.wins / row.matchesPlayed : 0;
+  });
+  return rows.sort((a, b) =>
+    b.winPercentage - a.winPercentage
+    || b.wins - a.wins
+    || b.setDifferential - a.setDifferential
+    || b.pointDifferential - a.pointDifferential
+    || b.pointsFor - a.pointsFor
+    || a.seedOrder - b.seedOrder
+    || a.name.localeCompare(b.name));
+}
+
+function eventStaffRotatingStandings(event, games, matches = []) {
+  const source = Array.isArray(event?.entries || event?.pairs) ? event.entries || event.pairs : [];
+  const settings = event?.rotation || event?.pairSettings || {};
+  const winPoints = Number.isFinite(Number(settings.winPoints)) ? Number(settings.winPoints) : 1;
+  const tiePoints = Number.isFinite(Number(settings.tiePoints)) ? Number(settings.tiePoints) : 0.5;
+  const lossPoints = Number.isFinite(Number(settings.lossPoints)) ? Number(settings.lossPoints) : 0;
+  const rows = source.map(entry => ({
+    id: entry.id,
+    name: cleanEventStaffText(entry.name, 120),
+    wins: 0, losses: 0, ties: 0, standingsPoints: 0,
+    pointsFor: 0, pointsAgainst: 0, matchesPlayed: 0,
+  }));
+  const byId = new Map(rows.map(row => [row.id, row])), groups = new Map();
+  (games || []).forEach(game => {
+    if (game.evId !== event.id || !game.evMatchId) return;
+    const list = groups.get(game.evMatchId) || [];
+    list.push(game);
+    groups.set(game.evMatchId, list);
+  });
+  groups.forEach(sets => {
+    sets.sort((a, b) => Number(a.date) - Number(b.date));
+    const sideA = eventStaffSafeIdList(sets[0]?.evEntryIdsA || sets[0]?.evPairIdsA);
+    const sideB = eventStaffSafeIdList(sets[0]?.evEntryIdsB || sets[0]?.evPairIdsB);
+    let winsA = 0, winsB = 0, pointsA = 0, pointsB = 0;
+    sets.forEach(game => {
+      pointsA += Number(game.scoreA) || 0;
+      pointsB += Number(game.scoreB) || 0;
+      if (game.winner === "A") winsA += 1;
+      else if (game.winner === "B") winsB += 1;
+    });
+    sideA.forEach(id => {
+      const row = byId.get(id); if (!row) return;
+      row.matchesPlayed += 1; row.pointsFor += pointsA; row.pointsAgainst += pointsB;
+      if (winsA > winsB) { row.wins += 1; row.standingsPoints += winPoints; }
+      else if (winsB > winsA) { row.losses += 1; row.standingsPoints += lossPoints; }
+      else { row.ties += 1; row.standingsPoints += tiePoints; }
+    });
+    sideB.forEach(id => {
+      const row = byId.get(id); if (!row) return;
+      row.matchesPlayed += 1; row.pointsFor += pointsB; row.pointsAgainst += pointsA;
+      if (winsB > winsA) { row.wins += 1; row.standingsPoints += winPoints; }
+      else if (winsA > winsB) { row.losses += 1; row.standingsPoints += lossPoints; }
+      else { row.ties += 1; row.standingsPoints += tiePoints; }
+    });
+  });
+  rows.forEach(row => {
+    row.pointDifferential = row.pointsFor - row.pointsAgainst;
+    row.winPercentage = row.matchesPlayed ? row.wins / row.matchesPlayed : 0;
+  });
+  const configured = Array.isArray(settings.tiebreakers)
+    ? settings.tiebreakers
+    : ["winPct", "standingsPoints", "pointDiff", "pointsFor"];
+  const scheduledCounts = new Map(rows.map(row => [row.id, 0]));
+  for (const match of Array.isArray(matches) ? matches : []) {
+    if (!match || match.phase === "playoff" || match.kind === "playoff") continue;
+    const ids = new Set([
+      ...eventStaffSafeIdList(match.sideAEntryIds || match.evEntryIdsA),
+      ...eventStaffSafeIdList(match.sideBEntryIds || match.evEntryIdsB),
+    ]);
+    ids.forEach(id => {
+      if (scheduledCounts.has(id)) scheduledCounts.set(id, scheduledCounts.get(id) + 1);
+    });
+  }
+  const scheduledValues = [...scheduledCounts.values()];
+  const gameDifference = scheduledValues.length
+    ? Math.max(...scheduledValues) - Math.min(...scheduledValues)
+    : 0;
+  const unequal = settings.fairnessPolicy !== "equalGames" || gameDifference > 0;
+  const keys = unequal
+    ? ["winPct", ...configured.filter(key => key !== "winPct")]
+    : configured;
+  const values = {
+    winPct: row => row.winPercentage,
+    standingsPoints: row => row.standingsPoints,
+    wins: row => row.wins,
+    pointDiff: row => row.pointDifferential,
+    pointDiffPerGame: row => row.matchesPlayed ? row.pointDifferential / row.matchesPlayed : 0,
+    pointsFor: row => row.pointsFor,
+    pointsForPerGame: row => row.matchesPlayed ? row.pointsFor / row.matchesPlayed : 0,
+  };
+  return rows.sort((a, b) => {
+    for (const key of keys) {
+      if (values[key]) {
+        const difference = values[key](b) - values[key](a);
+        if (Math.abs(difference) > 1e-9) return difference;
+      }
+    }
+    return a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
+  });
+}
+
+function eventStaffMatchResult(match, games) {
+  const linked = (games || []).filter(game =>
+    game.evMatchId === match.id
+    || (Array.isArray(match.gameIds) && match.gameIds.includes(game.id)));
+  if (!linked.length) return null;
+  linked.sort((a, b) => Number(a.date) - Number(b.date));
+  let winsA = 0, winsB = 0;
+  linked.forEach(game => {
+    if (game.winner === "A") winsA += 1;
+    else if (game.winner === "B") winsB += 1;
+  });
+  const tied = winsA === winsB;
+  return {
+    gameIds: linked.map(game => game.id),
+    sets: linked.map(game => [Number(game.scoreA) || 0, Number(game.scoreB) || 0]),
+    winner: tied ? null : winsA > winsB ? "A" : "B",
+    scoreLabel: linked.length > 1
+      ? `${winsA}-${winsB}`
+      : `${Number(linked[0].scoreA) || 0}\u2013${Number(linked[0].scoreB) || 0}`,
+    tie: tied,
+  };
+}
+
+function eventStaffSafeMatches(row, { role = "viewOnly", staffScoreMatchIds = [] } = {}) {
+  const staffScoreIds = new Set(staffScoreMatchIds);
+  return (Array.isArray(row.matches) ? row.matches : []).map(safeEventStaffMatch).filter(Boolean).map(match => {
+    const result = eventStaffMatchResult(match, row.games);
+    return {
+      ...match,
+      status: result
+        ? (match.phase === "playoff" && result.winner == null ? "inProgress" : "complete")
+        : match.status,
+      result,
+      staffScoreCorrectable: role === "tournamentOperator"
+        || (role === "scorekeeper" && staffScoreIds.has(match.id)),
+    };
+  });
+}
+
+async function eventStaffRegistrationContacts(db, row) {
+  try {
+    const records = await d1Rows(db.prepare(`
+      SELECT registration.id, registration.display_name, registration.status,
+             registration.contact_json
+      FROM event_registrations registration
+      JOIN event_registration_configs config
+        ON config.event_id = registration.event_id
+      WHERE config.owner_scope = ? AND config.event_id = ?
+      ORDER BY registration.submitted_at ASC, registration.id ASC
+      LIMIT 500
+    `).bind(row.ownerScope, row.eventId));
+    return records.map(record => ({
+      registrationId: record.id,
+      displayName: cleanEventStaffText(record.display_name, 120),
+      status: cleanEventStaffText(record.status, 40),
+      contact: (() => {
+        const value = parseEventStaffJson(record.contact_json, {});
+        return {
+          name: cleanEventStaffText(value.name, 120),
+          email: cleanEventStaffText(value.email, 254),
+          phone: cleanEventStaffText(value.phone, 40),
+          preferredMethod: cleanEventStaffText(value.preferredMethod, 20),
+          notes: typeof value.notes === "string" ? value.notes.trim().slice(0, 1000) : "",
+        };
+      })(),
+    }));
+  } catch {
+    return [];
+  }
+}
+
+function eventStaffAuditSerializer(record) {
+  return {
+    id: record.id,
+    timestamp: Number(record.created_at),
+    staffLabel: record.staff_label,
+    role: record.role,
+    action: record.action_type,
+    targetType: record.target_type || null,
+    targetId: record.target_id || null,
+    previous: parseEventStaffJson(record.previous_json, null),
+    next: parseEventStaffJson(record.new_json, null),
+    revision: record.resulting_revision == null ? null : Number(record.resulting_revision),
+    reference: record.idempotency_key || record.id,
+    source: record.source,
+  };
+}
+
+async function eventStaffActivity(db, row, { owner = false } = {}) {
+  const filter = owner
+    ? ""
+    : "AND source IN ('online', 'queued') AND grant_id IS NOT NULL";
+  const records = await d1Rows(db.prepare(`
+    SELECT * FROM event_staff_audit
+    WHERE owner_scope = ? AND event_id = ? ${filter}
+    ORDER BY created_at DESC, id DESC
+    LIMIT ?
+  `).bind(row.ownerScope, row.eventId, EVENT_STAFF_AUDIT_LIMIT));
+  return records.map(eventStaffAuditSerializer);
+}
+
+async function eventStaffScopedState(db, row, grant) {
+  const role = grant.role, permissions = [...(EVENT_STAFF_ROLE_PERMISSIONS[role] || [])];
+  const eventGames = (row.games || []).filter(game => game?.evId === row.eventId);
+  const matches = eventStaffSafeMatches(
+    { ...row, games: eventGames },
+    { role, staffScoreMatchIds: row.staffScoreMatchIds || [] },
+  );
+  const linkedParticipantIds = new Set();
+  eventStaffEntryCollection(row.event).forEach(entry => {
+    eventStaffSafeIdList(entry?.players || entry?.playerIds).forEach(id => linkedParticipantIds.add(id));
+    eventStaffSafeIdList(entry?.substitutePlayerIds).forEach(id => linkedParticipantIds.add(id));
+  });
+  matches.forEach(match => {
+    [...match.sideAPlayerIds, ...match.sideBPlayerIds].forEach(id => linkedParticipantIds.add(id));
+  });
+  eventGames.forEach(game => {
+    [...eventStaffSafeIdList(game?.teamA), ...eventStaffSafeIdList(game?.teamB)]
+      .forEach(id => linkedParticipantIds.add(id));
+  });
+  const state = {
+    eventRevision: row.revision,
+    accessEpoch: row.accessEpoch,
+    serverTime: Date.now(),
+    grant: {
+      id: grant.id,
+      staffLabel: grant.staff_label,
+      role,
+      permissions,
+      expiresAt: Number(grant.expires_at),
+    },
+    event: safeEventStaffEvent(row.event, role),
+    games: eventGames.map(safeEventStaffGame).filter(Boolean),
+    participants: row.participants
+      .map(safeEventStaffParticipant)
+      .filter(value => value && linkedParticipantIds.has(value.id)),
+    matches,
+    deletedGameIds: { ...(row.deletedGameIds || {}) },
+    standings: row.event?.format === "rotatingGroups"
+      ? eventStaffRotatingStandings(row.event, eventGames, row.matches)
+      : eventStaffFixedStandings(row.event, eventGames),
+    bracket: matches.filter(match => match.phase === "playoff"),
+  };
+  if (role === "tournamentOperator") {
+    state.contacts = await eventStaffRegistrationContacts(db, row);
+    state.activity = await eventStaffActivity(db, row);
+  }
+  return state;
+}
+
+function eventStaffAuditInsert(db, {
+  id = randomTokenBytes(16),
+  ownerScope,
+  eventId,
+  grantId = null,
+  staffLabel = "Owner",
+  role = "owner",
+  action,
+  targetType = null,
+  targetId = null,
+  previous = null,
+  next = null,
+  revision = null,
+  idempotencyKey = null,
+  source = "owner",
+  createdAt = Date.now(),
+} = {}) {
+  return db.prepare(`
+    INSERT INTO event_staff_audit (
+      id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+      target_type, target_id, previous_json, new_json, resulting_revision,
+      idempotency_key, source, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).bind(
+    id, ownerScope, eventId, grantId, staffLabel, role, action,
+    targetType, targetId,
+    previous == null ? null : stableEventStaffJson(previous),
+    next == null ? null : stableEventStaffJson(next),
+    revision, idempotencyKey, source, createdAt,
+  );
+}
+
+function eventStaffAuditEventGuardInsert(db, {
+  id,
+  ownerScope,
+  eventId,
+  expectedRevision,
+  expectedEpoch,
+  staffLabel = "Owner",
+  role = "owner",
+  action,
+  targetType = null,
+  targetId = null,
+  previous = null,
+  next = null,
+  revision = null,
+  source = "owner",
+  createdAt = Date.now(),
+} = {}) {
+  return db.prepare(`
+    INSERT INTO event_staff_audit (
+      id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+      target_type, target_id, previous_json, new_json, resulting_revision,
+      idempotency_key, source, created_at
+    )
+    SELECT ?, event.owner_scope, event.event_id, NULL, ?, ?, ?, ?, ?, ?, ?, ?,
+           NULL, ?, ?
+    FROM event_staff_events event
+    WHERE event.owner_scope = ? AND event.event_id = ?
+      AND event.revision = ? AND event.access_epoch = ?
+  `).bind(
+    id, staffLabel, role, action, targetType, targetId,
+    previous == null ? null : stableEventStaffJson(previous),
+    next == null ? null : stableEventStaffJson(next),
+    revision, source, createdAt,
+    ownerScope, eventId, expectedRevision, expectedEpoch,
+  );
+}
+
+function eventStaffAuditGrantGuardInsert(db, {
+  id = randomTokenBytes(16),
+  ownerScope,
+  eventId,
+  grantId,
+  guardGrantId = grantId,
+  guardRevokedAt,
+  action,
+  previous = null,
+  next = null,
+  revision = null,
+  createdAt = Date.now(),
+} = {}) {
+  const revokedClause = guardRevokedAt == null ? "" : "AND guard.revoked_at = ?";
+  const values = [
+    id, action, grantId,
+    previous == null ? null : stableEventStaffJson(previous),
+    next == null ? null : stableEventStaffJson(next),
+    revision, createdAt,
+    guardGrantId, ownerScope, eventId,
+  ];
+  if (guardRevokedAt != null) values.push(guardRevokedAt);
+  return db.prepare(`
+    INSERT INTO event_staff_audit (
+      id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+      target_type, target_id, previous_json, new_json, resulting_revision,
+      idempotency_key, source, created_at
+    )
+    SELECT ?, guard.owner_scope, guard.event_id, NULL, 'Owner', 'owner', ?,
+           'grant', ?, ?, ?, ?, NULL, 'owner', ?
+    FROM event_staff_grants guard
+    WHERE guard.id = ? AND guard.owner_scope = ? AND guard.event_id = ?
+      ${revokedClause}
+  `).bind(...values);
+}
+
+function eventStaffPruneAudit(db, ownerScope, eventId) {
+  return db.prepare(`
+    DELETE FROM event_staff_audit
+    WHERE owner_scope = ? AND event_id = ?
+      AND id NOT IN (
+        SELECT id FROM event_staff_audit
+        WHERE owner_scope = ? AND event_id = ?
+        ORDER BY created_at DESC, id DESC LIMIT ?
+      )
+  `).bind(ownerScope, eventId, ownerScope, eventId, EVENT_STAFF_AUDIT_LIMIT);
+}
+
+function eventStaffPruneOwnerAudit(db, ownerScope) {
+  return db.prepare(`
+    DELETE FROM event_staff_audit
+    WHERE id IN (
+      SELECT id FROM (
+        SELECT id,
+               ROW_NUMBER() OVER (
+                 PARTITION BY event_id
+                 ORDER BY created_at DESC, id DESC
+               ) AS event_row_number
+        FROM event_staff_audit
+        WHERE owner_scope = ?
+      )
+      WHERE event_row_number > ?
+    )
+  `).bind(ownerScope, EVENT_STAFF_AUDIT_LIMIT);
+}
+
+async function saveEventStaffSnapshot(request, env, eventId) {
+  if (!PLAYER_ID_PATTERN.test(eventId)) {
+    return eventStaffError(request, 404, "event_not_found", "The event was not found.");
+  }
+  const auth = await authorizeEventStaffOwner(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readEventStaffJson(request, EVENT_STAFF_MAX_SNAPSHOT_BODY_BYTES);
+  if (parsed.response) return parsed.response;
+  const allowed = [
+    "event", "games", "participants", "matches", "deletedGameIds", "gameMeta",
+    "historicalGameIds", "expectedRevision", "deleted", "resetAccess",
+  ];
+  if (unexpectedFields(parsed.value, allowed).length) {
+    return eventStaffError(request, 400, "invalid_fields", "The snapshot contains unsupported fields.");
+  }
+  const deleting = parsed.value.deleted === true;
+  const event = parsed.value.event;
+  if (!event || typeof event !== "object" || Array.isArray(event) || event.id !== eventId) {
+    return eventStaffError(request, 400, "event_mismatch", "The snapshot event must match the requested event.");
+  }
+  const games = eventStaffArray(parsed.value.games, EVENT_STAFF_MAX_GAMES);
+  const participants = eventStaffArray(parsed.value.participants, EVENT_STAFF_MAX_PARTICIPANTS);
+  const matches = eventStaffArray(parsed.value.matches, EVENT_STAFF_MAX_MATCHES);
+  if (!games || !participants || !matches) {
+    return eventStaffError(request, 400, "snapshot_bounds", "The event snapshot exceeds its bounded collection limits.");
+  }
+  if (new TextEncoder().encode(JSON.stringify(event)).byteLength > EVENT_STAFF_MAX_EVENT_BYTES) {
+    return eventStaffError(request, 413, "event_too_large", "The event projection is too large.");
+  }
+  const storedParticipants = participants.map(safeEventStaffParticipant);
+  const storedMatches = matches.map(value => eventStaffStoredMatch(value, eventId));
+  const storedGames = games.map(value => eventStaffStoredGame(value, eventId));
+  if (storedParticipants.some(value => !value)) {
+    return eventStaffError(request, 400, "invalid_participants", "The participant projection is invalid.");
+  }
+  if (storedMatches.some(value => !value)) {
+    return eventStaffError(request, 400, "invalid_matches", "The match projection is invalid.");
+  }
+  if (storedGames.some(value => !value)) {
+    return eventStaffError(request, 400, "invalid_games", "The event-game projection is invalid.");
+  }
+  const uniqueIds = values => new Set(values.map(value => value.id)).size === values.length;
+  if (!uniqueIds(storedParticipants) || !uniqueIds(storedMatches) || !uniqueIds(storedGames)) {
+    return eventStaffError(request, 400, "duplicate_snapshot_ids", "Snapshot identifiers must be unique within each collection.");
+  }
+  const validatedEventCollections = {};
+  for (const key of ["teams", "entries", "pairs"]) {
+    if (event[key] == null) continue;
+    if (!Array.isArray(event[key]) || event[key].length > EVENT_STAFF_MAX_PARTICIPANTS) {
+      return eventStaffError(request, 400, "invalid_event_entries", "The event entry projection is invalid.");
+    }
+    const safe = event[key].map(value => safeEventStaffEntry(value, true));
+    if (safe.some(value => !value) || !uniqueIds(safe)) {
+      return eventStaffError(request, 400, "invalid_event_entries", "The event entry projection is invalid.");
+    }
+    validatedEventCollections[key] = safe;
+  }
+  const eventCollections = event.format === "rotatingGroups"
+    ? (validatedEventCollections.entries || validatedEventCollections.pairs || [])
+    : (validatedEventCollections.teams || []);
+  if (!eventCollections.length) {
+    return eventStaffError(request, 400, "invalid_event_entries", "The event has no canonical entry projection.");
+  }
+  const entryIds = new Set(eventCollections.map(value => value.id));
+  const entriesById = new Map(eventCollections.map(value => [value.id, value]));
+  const participantIds = new Set(storedParticipants.map(value => value.id));
+  const gameIds = new Set(storedGames.map(value => value.id));
+  const historicalGameIds = parsed.value.historicalGameIds == null
+    ? []
+    : eventStaffExactIdArray(parsed.value.historicalGameIds, EVENT_STAFF_MAX_GAMES);
+  if (
+    historicalGameIds == null
+    || historicalGameIds.some(id => !gameIds.has(id))
+  ) {
+    return eventStaffError(request, 400, "invalid_historical_games", "Historical game exceptions must reference games in this event snapshot.");
+  }
+  const historicalGameIdSet = new Set(historicalGameIds);
+  const db = auth.db;
+  let current = await getEventStaffEvent(db, auth.ownerScope, eventId);
+  const currentGamesById = new Map((current?.games || []).map(game => [game.id, game]));
+  const rawCheckInState = event.registrationCheckIn;
+  if (
+    rawCheckInState != null
+    && (!rawCheckInState || typeof rawCheckInState !== "object" || Array.isArray(rawCheckInState))
+  ) {
+    return eventStaffError(request, 400, "invalid_registration_check_in", "The event check-in projection is invalid.");
+  }
+  const rawCheckInEntries = rawCheckInState?.entries;
+  if (
+    rawCheckInEntries != null
+    && (!rawCheckInEntries || typeof rawCheckInEntries !== "object" || Array.isArray(rawCheckInEntries))
+  ) {
+    return eventStaffError(request, 400, "invalid_registration_check_in", "The event check-in projection is invalid.");
+  }
+  const checkInRows = rawCheckInEntries || {};
+  const entriesByRegistrationId = new Map();
+  const canonicalCheckInEntries = {};
+  const checkInWithinRoster = (checkIn, rosterIds) =>
+    [...checkIn.activePlayerIds, ...checkIn.substitutePlayerIds, ...Object.keys(checkIn.playerStatuses)]
+      .every(id => rosterIds.has(id));
+  for (const entry of eventCollections) {
+    const rosterIds = new Set([...entry.players, ...entry.substitutePlayerIds]);
+    if ([...rosterIds].some(id => !participantIds.has(id))) {
+      return eventStaffError(request, 400, "unlinked_entry_participant", "An event entry references a participant outside this event snapshot.");
+    }
+    const registrationId = entry.registrationId;
+    if (!registrationId) {
+      if (entry.checkIn) {
+        return eventStaffError(request, 400, "unlinked_registration_check_in", "Check-in state must belong to a registration-linked event entry.");
+      }
+      continue;
+    }
+    if (entriesByRegistrationId.has(registrationId)) {
+      return eventStaffError(request, 400, "duplicate_registration_link", "Registration links must be unique within the event snapshot.");
+    }
+    entriesByRegistrationId.set(registrationId, entry);
+    const entryCheckIn = entry.checkIn || null;
+    const eventCheckIn = Object.prototype.hasOwnProperty.call(checkInRows, registrationId)
+      ? safeEventStaffCheckIn(checkInRows[registrationId])
+      : null;
+    if (Object.prototype.hasOwnProperty.call(checkInRows, registrationId) && !eventCheckIn) {
+      return eventStaffError(request, 400, "invalid_registration_check_in", "The event check-in projection is invalid.");
+    }
+    for (const checkIn of [entryCheckIn, eventCheckIn].filter(Boolean)) {
+      if (!checkInWithinRoster(checkIn, rosterIds)) {
+        return eventStaffError(request, 400, "cross_event_check_in_participant", "Check-in state references a participant outside its event entry.");
+      }
+    }
+    const selected = entryCheckIn && eventCheckIn
+      ? (Number(eventCheckIn.updatedAt) > Number(entryCheckIn.updatedAt) ? eventCheckIn : entryCheckIn)
+      : entryCheckIn || eventCheckIn;
+    if (selected) {
+      entry.checkIn = structuredClone(selected);
+      canonicalCheckInEntries[registrationId] = structuredClone(selected);
+    }
+  }
+  if (Object.keys(checkInRows).some(registrationId => !entriesByRegistrationId.has(registrationId))) {
+    return eventStaffError(request, 400, "cross_event_registration_check_in", "The event check-in projection contains an unrelated registration.");
+  }
+  const linkedParticipantIds = new Set();
+  eventCollections.forEach(entry => {
+    [...entry.players, ...entry.substitutePlayerIds].forEach(id => linkedParticipantIds.add(id));
+  });
+  for (const match of storedMatches) {
+    for (const id of [
+      ...match.sideAPlayerIds, ...match.sideBPlayerIds,
+    ]) {
+      linkedParticipantIds.add(id);
+      if (!participantIds.has(id)) {
+        return eventStaffError(request, 400, "unlinked_match_participant", "A match references a participant outside this event snapshot.");
+      }
+    }
+    for (const id of [...match.sideAEntryIds, ...match.sideBEntryIds]) {
+      if (!entryIds.has(id)) {
+        return eventStaffError(request, 400, "unlinked_match_entry", "A match references an entry outside this event snapshot.");
+      }
+    }
+    for (const key of ["teamAId", "teamBId", "sideAId", "sideBId", "a", "b"]) {
+      if (match[key] != null && !entryIds.has(match[key])) {
+        return eventStaffError(request, 400, "unlinked_match_entry", "A match references an entry outside this event snapshot.");
+      }
+    }
+    if (match.gameIds.some(id => !gameIds.has(id))) {
+      return eventStaffError(request, 400, "unlinked_match_game", "A match references a game outside this event snapshot.");
+    }
+    const sideEntryIds = side => {
+      const upper = side === "A" ? "A" : "B";
+      const lower = side === "A" ? "a" : "b";
+      return new Set([
+        ...match[`side${upper}EntryIds`],
+        match[`team${upper}Id`],
+        match[`side${upper}Id`],
+        match[lower],
+      ].filter(Boolean));
+    };
+    for (const side of ["A", "B"]) {
+      const scheduled = new Set(match[`side${side}PlayerIds`]);
+      const expectedPlayers = new Set();
+      sideEntryIds(side).forEach(id => {
+        const entry = entriesById.get(id);
+        (entry?.players || []).forEach(playerId => expectedPlayers.add(playerId));
+      });
+      if (
+        scheduled.size !== expectedPlayers.size
+        || [...scheduled].some(id => !expectedPlayers.has(id))
+      ) {
+        return eventStaffError(request, 400, "match_participant_mismatch", "Scheduled match participants do not match their event entries.");
+      }
+    }
+  }
+  for (const game of storedGames) {
+    [...game.teamA, ...game.teamB].forEach(id => linkedParticipantIds.add(id));
+    if ([...game.teamA, ...game.teamB].some(id => !participantIds.has(id))) {
+      return eventStaffError(request, 400, "unlinked_game_participant", "A game references a participant outside this event snapshot.");
+    }
+    if (game.eventFormat === "rotatingGroups") {
+      const ids = [...game.evEntryIdsA, ...game.evEntryIdsB];
+      if (!ids.length || ids.some(id => !entryIds.has(id))) {
+        return eventStaffError(request, 400, "unlinked_game_entry", "A game references an entry outside this event snapshot.");
+      }
+    } else if (!game.evA || !game.evB || !entryIds.has(game.evA) || !entryIds.has(game.evB)) {
+      return eventStaffError(request, 400, "unlinked_game_entry", "A game references an entry outside this event snapshot.");
+    }
+    const sidePlayers = side => {
+      const ids = game.eventFormat === "rotatingGroups"
+        ? (side === "A" ? game.evEntryIdsA : game.evEntryIdsB)
+        : [side === "A" ? game.evA : game.evB];
+      const players = new Set();
+      ids.forEach(id => {
+        (entriesById.get(id)?.players || []).forEach(playerId => players.add(playerId));
+      });
+      return players;
+    };
+    const sameIds = (left, right) =>
+      left.size === right.size && [...left].every(id => right.has(id));
+    const rosterMatches = sameIds(new Set(game.teamA), sidePlayers("A"))
+      && sameIds(new Set(game.teamB), sidePlayers("B"));
+    const existing = currentGamesById.get(game.id);
+    const identity = value => stableEventStaffJson({
+      teamA: value?.teamA || [],
+      teamB: value?.teamB || [],
+      unkA: Number(value?.unkA) || 0,
+      unkB: Number(value?.unkB) || 0,
+      evA: value?.evA ?? null,
+      evB: value?.evB ?? null,
+      evMatchId: value?.evMatchId ?? null,
+      eventFormat: value?.eventFormat === "rotatingGroups" ? "rotatingGroups" : "fixedTeams",
+      evEntryIdsA: value?.evEntryIdsA || [],
+      evEntryIdsB: value?.evEntryIdsB || [],
+      evPairIdsA: value?.evPairIdsA || [],
+      evPairIdsB: value?.evPairIdsB || [],
+    });
+    const preservesStoredHistory = !!existing && identity(existing) === identity(game);
+    if (!rosterMatches && !historicalGameIdSet.has(game.id) && !preservesStoredHistory) {
+      return eventStaffError(request, 400, "game_participant_mismatch", "Saved game participants do not match their event entries.");
+    }
+  }
+  if (storedParticipants.some(value => !linkedParticipantIds.has(value.id))) {
+    return eventStaffError(request, 400, "unlinked_participant", "The participant projection contains a person outside this event.");
+  }
+  const hasDeletedGameIds = Object.prototype.hasOwnProperty.call(parsed.value, "deletedGameIds");
+  if (hasDeletedGameIds && (
+    !parsed.value.deletedGameIds
+    || typeof parsed.value.deletedGameIds !== "object"
+    || Array.isArray(parsed.value.deletedGameIds)
+  )) {
+    return eventStaffError(request, 400, "invalid_deleted_game_ids", "Deleted game identifiers must be an object.");
+  }
+  const requestedDeletedEntries = hasDeletedGameIds
+    ? Object.entries(parsed.value.deletedGameIds)
+    : [];
+  if (
+    requestedDeletedEntries.length > EVENT_STAFF_MAX_GAMES
+    || requestedDeletedEntries.some(([id, timestamp]) =>
+      !PLAYER_ID_PATTERN.test(id)
+      || typeof timestamp !== "number"
+      || !Number.isFinite(timestamp)
+    )
+  ) {
+    return eventStaffError(request, 400, "invalid_deleted_game_ids", "Deleted game identifiers must be event-scoped timestamps.");
+  }
+  let deletedGameIds = hasDeletedGameIds
+    ? Object.fromEntries(requestedDeletedEntries)
+    : null;
+  const eventCopy = structuredClone(event);
+  delete eventCopy.teams;
+  delete eventCopy.entries;
+  delete eventCopy.pairs;
+  if (event.format === "rotatingGroups") {
+    eventCopy.entries = structuredClone(eventCollections);
+  } else {
+    eventCopy.teams = structuredClone(eventCollections);
+  }
+  if (rawCheckInState != null || Object.keys(canonicalCheckInEntries).length) {
+    eventCopy.registrationCheckIn = {
+      entries: canonicalCheckInEntries,
+      updatedAt: Number(rawCheckInState?.updatedAt) || null,
+    };
+  } else {
+    delete eventCopy.registrationCheckIn;
+  }
+  eventCopy.staffGameMeta = eventStaffGameMeta(parsed.value.gameMeta || event.staffGameMeta);
+  const eventJson = stableEventStaffJson(eventCopy);
+  const now = Date.now();
+  if (hasDeletedGameIds) {
+    const scopedDeletedIds = new Set([
+      ...Object.keys(current?.deletedGameIds || {}),
+      ...(current?.games || []).map(game => game.id),
+    ]);
+    if (Object.keys(deletedGameIds).some(id => !scopedDeletedIds.has(id))) {
+      return eventStaffError(request, 400, "unlinked_deleted_game", "A deleted game identifier is outside this event snapshot.");
+    }
+  }
+  /*
+   * A staff move remains authoritative across a normal owner projection only
+   * while that projection carries the exact moved placement. Owner changes to
+   * the placement intentionally clear the marker.
+   */
+  if (current) {
+    const currentMatches = new Map((current.matches || []).map(value => [value.id, value]));
+    storedMatches.forEach(match => {
+      const previous = currentMatches.get(match.id);
+      if (
+        Number.isFinite(Number(previous?.staffMovedAt))
+        && Number(previous.court) === Number(match.court)
+        && Number(previous.slot) === Number(match.slot)
+        && Number(previous.scheduledAt) === Number(match.scheduledAt)
+      ) {
+        match.staffMovedAt = Number(previous.staffMovedAt);
+      }
+    });
+  }
+  const gamesJson = stableEventStaffJson(storedGames);
+  const participantsJson = stableEventStaffJson(storedParticipants);
+  const matchesJson = stableEventStaffJson(storedMatches);
+  const incomingMatchIds = new Set(storedMatches.map(match => match.id));
+  const staffScoreMatchIds = (deleting || parsed.value.resetAccess)
+    ? []
+    : (current?.staffScoreMatchIds || []).filter(id => incomingMatchIds.has(id));
+  const staffScoreMatchIdsJson = stableEventStaffJson(staffScoreMatchIds);
+  /*
+   * Owner projections do not necessarily include the global sync tombstone
+   * map. An omitted field must retain staff-created correction tombstones;
+   * callers can still explicitly replace the bounded map by supplying it.
+   */
+  if (deletedGameIds == null) deletedGameIds = current?.deletedGameIds || {};
+  const deletedJson = stableEventStaffJson(deletedGameIds);
+  const hasExpectedRevision = Object.prototype.hasOwnProperty.call(parsed.value, "expectedRevision");
+  const expected = hasExpectedRevision && typeof parsed.value.expectedRevision === "number"
+    ? eventStaffInteger(parsed.value.expectedRevision, 0, 2_000_000_000)
+    : null;
+  if (hasExpectedRevision && expected == null) {
+    return eventStaffError(request, 400, "invalid_revision", "The expected event revision is invalid.");
+  }
+
+  if (!current) {
+    if (deleting) {
+      return eventStaffError(request, 404, "event_not_found", "The event staff snapshot does not exist.");
+    }
+    if (expected != null && expected !== 0) {
+      return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", { currentRevision: 0 });
+    }
+    const result = await db.prepare(`
+      INSERT INTO event_staff_events (
+        owner_scope, event_id, access_epoch, revision, event_json, games_json,
+        participants_json, matches_json, deleted_game_ids_json,
+        staff_score_match_ids_json, created_at, updated_at, deleted_at
+      ) VALUES (?, ?, 1, 1, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      ON CONFLICT(owner_scope, event_id) DO NOTHING
+    `).bind(
+      auth.ownerScope, eventId, eventJson, gamesJson, participantsJson,
+      matchesJson, deletedJson, staffScoreMatchIdsJson, now, now,
+    ).run();
+    if (!Number(result?.meta?.changes)) {
+      current = await getEventStaffEvent(db, auth.ownerScope, eventId);
+      return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+        currentRevision: current?.revision || 0,
+        state: current ? eventStaffOwnerState(current) : null,
+      });
+    }
+    return eventStaffJson({
+      ok: true, eventId, revision: 1, accessEpoch: 1, created: true, serverTime: now,
+    }, 201, request);
+  }
+
+  if (current.deletedAt && !parsed.value.resetAccess && !deleting) {
+    return eventStaffError(request, 409, "event_access_reset_required", "Restored event access must be explicitly reinitialized.", {
+      currentRevision: current.revision,
+      accessEpoch: current.accessEpoch,
+    });
+  }
+  if (!hasExpectedRevision) {
+    return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+      currentRevision: current.revision,
+      state: eventStaffOwnerState(current),
+    });
+  }
+  if (expected !== current.revision) {
+    return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+      currentRevision: current.revision,
+      state: eventStaffOwnerState(current),
+    });
+  }
+  const unchanged = !deleting && !current.deletedAt
+    && current.event && stableEventStaffJson(current.event) === eventJson
+    && stableEventStaffJson(current.games) === gamesJson
+    && stableEventStaffJson(current.participants) === participantsJson
+    && stableEventStaffJson(current.matches) === matchesJson
+    && stableEventStaffJson(current.deletedGameIds) === deletedJson
+    && stableEventStaffJson(current.staffScoreMatchIds) === staffScoreMatchIdsJson;
+  if (unchanged) {
+    return eventStaffJson({
+      ok: true, eventId, revision: current.revision, accessEpoch: current.accessEpoch,
+      created: false, unchanged: true, serverTime: now,
+    }, 200, request);
+  }
+  const nextRevision = current.revision + 1;
+  const nextEpoch = current.accessEpoch + ((deleting || parsed.value.resetAccess) ? 1 : 0);
+  const deletedAt = deleting ? now : null;
+  const guardId = randomTokenBytes(16);
+  const statements = [
+    eventStaffAuditEventGuardInsert(db, {
+      id: guardId,
+      ownerScope: auth.ownerScope,
+      eventId,
+      expectedRevision: current.revision,
+      expectedEpoch: current.accessEpoch,
+      action: deleting ? "event.deleted" : parsed.value.resetAccess ? "event.accessReset" : "event.snapshotUpdated",
+      targetType: "event",
+      targetId: eventId,
+      previous: { revision: current.revision, accessEpoch: current.accessEpoch, deletedAt: current.deletedAt },
+      next: { revision: nextRevision, accessEpoch: nextEpoch, deletedAt },
+      revision: nextRevision,
+      createdAt: now,
+    }),
+    db.prepare(`
+      UPDATE event_staff_events
+      SET access_epoch = ?, revision = ?, event_json = ?, games_json = ?,
+          participants_json = ?, matches_json = ?, deleted_game_ids_json = ?,
+          staff_score_match_ids_json = ?, updated_at = ?, deleted_at = ?
+      WHERE owner_scope = ? AND event_id = ? AND revision = ? AND access_epoch = ?
+        AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+    `).bind(
+      nextEpoch, nextRevision, eventJson, gamesJson, participantsJson, matchesJson,
+      deletedJson, staffScoreMatchIdsJson, now, deletedAt,
+      auth.ownerScope, eventId, current.revision, current.accessEpoch, guardId,
+    ),
+  ];
+  if (deleting || parsed.value.resetAccess) {
+    statements.push(
+      db.prepare(`
+        UPDATE event_staff_grants SET revoked_at = COALESCE(revoked_at, ?)
+        WHERE owner_scope = ? AND event_id = ?
+          AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+      `).bind(now, auth.ownerScope, eventId, guardId),
+      db.prepare(`
+        UPDATE event_staff_sessions SET revoked_at = COALESCE(revoked_at, ?)
+        WHERE owner_scope = ? AND event_id = ?
+          AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+      `).bind(now, auth.ownerScope, eventId, guardId),
+    );
+  }
+  const results = await d1Batch(db, statements);
+  if (!Number(results[0]?.meta?.changes) || !Number(results[1]?.meta?.changes)) {
+    current = await getEventStaffEvent(db, auth.ownerScope, eventId);
+    return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+      currentRevision: current?.revision || 0,
+      state: current ? eventStaffOwnerState(current) : null,
+    });
+  }
+  await eventStaffPruneAudit(db, auth.ownerScope, eventId).run();
+  return eventStaffJson({
+    ok: true, eventId, revision: nextRevision, accessEpoch: nextEpoch,
+    created: false, deleted: deleting, serverTime: now,
+  }, 200, request);
+}
+
+async function eventStaffOwnerEvent(request, env, eventId) {
+  const auth = await authorizeEventStaffOwner(request, env);
+  if (auth.response) return auth;
+  if (!PLAYER_ID_PATTERN.test(eventId)) {
+    return { ...auth, response: eventStaffError(request, 404, "event_not_found", "The event was not found.") };
+  }
+  const event = await getEventStaffEvent(auth.db, auth.ownerScope, eventId);
+  if (!event) {
+    return { ...auth, response: eventStaffError(request, 404, "event_not_found", "The event staff snapshot was not found.") };
+  }
+  return { ...auth, event };
+}
+
+async function listEventStaffGrants(request, env, eventId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  const records = await d1Rows(auth.db.prepare(`
+    SELECT * FROM event_staff_grants
+    WHERE owner_scope = ? AND event_id = ?
+    ORDER BY created_at DESC, id DESC
+    LIMIT 250
+  `).bind(auth.ownerScope, eventId));
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    revision: auth.event.revision,
+    accessEpoch: auth.event.accessEpoch,
+    grants: records.map(record => eventStaffGrantSummary(record)),
+    serverTime: Date.now(),
+  }, 200, request);
+}
+
+function validateEventStaffGrantInput(value, { partial = false } = {}) {
+  const allowed = partial
+    ? ["expiresAt", "pin", "clearPin", "reason"]
+    : ["staffLabel", "role", "expiresAt", "pin"];
+  if (!value || typeof value !== "object" || Array.isArray(value) || unexpectedFields(value, allowed).length) {
+    return { error: ["invalid_fields", "The grant request contains unsupported fields."] };
+  }
+  const now = Date.now();
+  const result = {};
+  if (!partial || Object.prototype.hasOwnProperty.call(value, "expiresAt")) {
+    const expiresAt = eventStaffInteger(value.expiresAt, now + 60_000, now + EVENT_STAFF_MAX_GRANT_MS);
+    if (expiresAt == null) {
+      return { error: ["invalid_expiration", "Choose an expiration between one minute and 30 days from now."] };
+    }
+    result.expiresAt = expiresAt;
+  }
+  if (!partial) {
+    result.staffLabel = cleanEventStaffText(value.staffLabel, EVENT_STAFF_LABEL_MAX);
+    if (!result.staffLabel) return { error: ["invalid_staff_label", "Enter a recognizable staff name."] };
+    if (!EVENT_STAFF_ROLE_PERMISSIONS[value.role]) {
+      return { error: ["invalid_role", "Choose a supported event staff role."] };
+    }
+    result.role = value.role;
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "pin") && value.pin != null && value.pin !== "") {
+    if (typeof value.pin !== "string" || !/^\d{4,12}$/.test(value.pin)) {
+      return { error: ["invalid_pin", "A PIN must contain 4 to 12 digits."] };
+    }
+    result.pin = value.pin;
+  } else if (Object.prototype.hasOwnProperty.call(value, "pin")) {
+    result.pin = null;
+  }
+  result.clearPin = value.clearPin === true;
+  result.reason = cleanEventStaffReason(value.reason);
+  return { value: result };
+}
+
+async function eventStaffPinFields(pin) {
+  if (!pin) return { salt: null, hash: null, iterations: null };
+  const salt = randomTokenBytes(16);
+  return {
+    salt,
+    hash: await deriveEventStaffPin(pin, salt, EVENT_STAFF_PIN_ITERATIONS),
+    iterations: EVENT_STAFF_PIN_ITERATIONS,
+  };
+}
+
+async function createEventStaffGrantRecord(request, auth, eventId, input, { status = 201 } = {}) {
+  const now = Date.now(), token = randomToken(), grantId = randomTokenBytes(16);
+  const pin = await eventStaffPinFields(input.pin);
+  const permissions = EVENT_STAFF_ROLE_PERMISSIONS[input.role];
+  const results = await d1Batch(auth.db, [
+    auth.db.prepare(`
+      INSERT INTO event_staff_grants (
+        id, owner_scope, event_id, event_access_epoch, token_hash,
+        pin_salt, pin_hash, pin_iterations, staff_label, role,
+        permission_schema_version, permissions_json, created_at, expires_at,
+        revoked_at, last_used_at
+      )
+      SELECT ?, event.owner_scope, event.event_id, event.access_epoch, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
+      FROM event_staff_events event
+      WHERE event.owner_scope = ? AND event.event_id = ? AND event.deleted_at IS NULL
+        AND (
+          SELECT COUNT(*) FROM event_staff_grants active
+          WHERE active.owner_scope = event.owner_scope
+            AND active.event_id = event.event_id
+            AND active.event_access_epoch = event.access_epoch
+            AND active.revoked_at IS NULL AND active.expires_at > ?
+        ) < ?
+    `).bind(
+      grantId, await sha256(token), pin.salt, pin.hash, pin.iterations,
+      input.staffLabel, input.role, EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+      stableEventStaffJson(permissions), now, input.expiresAt,
+      auth.ownerScope, eventId, now, EVENT_STAFF_MAX_ACTIVE_GRANTS,
+    ),
+    eventStaffAuditGrantGuardInsert(auth.db, {
+      ownerScope: auth.ownerScope,
+      eventId,
+      grantId,
+      guardGrantId: grantId,
+      action: "grant.created",
+      next: { grantId, staffLabel: input.staffLabel, role: input.role, expiresAt: input.expiresAt, pinRequired: !!pin.hash },
+      revision: auth.event.revision,
+      createdAt: now,
+    }),
+  ]);
+  if (!Number(results[0]?.meta?.changes)) {
+    const event = await getEventStaffEvent(auth.db, auth.ownerScope, eventId);
+    if (!event || event.deletedAt) {
+      return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+    }
+    return eventStaffError(request, 409, "grant_limit_reached", `An event may have at most ${EVENT_STAFF_MAX_ACTIVE_GRANTS} active staff grants.`);
+  }
+  await eventStaffPruneAudit(auth.db, auth.ownerScope, eventId).run();
+  const stored = await d1First(auth.db.prepare("SELECT * FROM event_staff_grants WHERE id = ?").bind(grantId));
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    revision: auth.event.revision,
+    accessEpoch: auth.event.accessEpoch,
+    grant: eventStaffGrantSummary(stored, now),
+    inviteUrl: `${new URL(request.url).origin}/staff#token=${encodeURIComponent(token)}`,
+    serverTime: now,
+  }, status, request);
+}
+
+async function createEventStaffGrant(request, env, eventId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  if (auth.event.deletedAt) {
+    return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+  }
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  const checked = validateEventStaffGrantInput(parsed.value);
+  if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
+  return createEventStaffGrantRecord(request, auth, eventId, checked.value);
+}
+
+async function getOwnedEventStaffGrant(db, ownerScope, eventId, grantId) {
+  if (!TOKEN_PATTERN.test(grantId)) return null;
+  return d1First(db.prepare(`
+    SELECT * FROM event_staff_grants
+    WHERE id = ? AND owner_scope = ? AND event_id = ?
+  `).bind(grantId, ownerScope, eventId));
+}
+
+async function revokeEventStaffGrant(request, env, eventId, grantId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["reason"]).length) {
+    return eventStaffError(request, 400, "invalid_fields", "The revoke request contains unsupported fields.");
+  }
+  const grant = await getOwnedEventStaffGrant(auth.db, auth.ownerScope, eventId, grantId);
+  if (!grant) return eventStaffError(request, 404, "grant_not_found", "The staff grant was not found.");
+  const now = Date.now(), reason = cleanEventStaffReason(parsed.value.reason);
+  if (!grant.revoked_at) {
+    const results = await d1Batch(auth.db, [
+      auth.db.prepare(`
+        UPDATE event_staff_grants SET revoked_at = ?
+        WHERE id = ? AND owner_scope = ? AND event_id = ? AND revoked_at IS NULL
+      `).bind(now, grantId, auth.ownerScope, eventId),
+      auth.db.prepare(`
+        UPDATE event_staff_sessions SET revoked_at = COALESCE(revoked_at, ?)
+        WHERE grant_id = ? AND owner_scope = ? AND event_id = ?
+          AND EXISTS (
+            SELECT 1 FROM event_staff_grants guard
+            WHERE guard.id = ? AND guard.revoked_at = ?
+          )
+      `).bind(now, grantId, auth.ownerScope, eventId, grantId, now),
+      eventStaffAuditGrantGuardInsert(auth.db, {
+        ownerScope: auth.ownerScope,
+        eventId,
+        grantId,
+        guardGrantId: grantId,
+        guardRevokedAt: now,
+        action: "grant.revoked",
+        previous: { status: eventStaffGrantSummary(grant, now).status },
+        next: { status: "revoked", reason: reason || null },
+        revision: auth.event.revision,
+        createdAt: now,
+      }),
+    ]);
+    if (Number(results[0]?.meta?.changes)) {
+      await eventStaffPruneAudit(auth.db, auth.ownerScope, eventId).run();
+    }
+  }
+  const updated = await getOwnedEventStaffGrant(auth.db, auth.ownerScope, eventId, grantId);
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    revision: auth.event.revision,
+    accessEpoch: auth.event.accessEpoch,
+    grant: eventStaffGrantSummary(updated, now),
+    serverTime: now,
+  }, 200, request);
+}
+
+async function rotateEventStaffGrant(request, env, eventId, grantId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  if (auth.event.deletedAt) {
+    return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+  }
+  const original = await getOwnedEventStaffGrant(auth.db, auth.ownerScope, eventId, grantId);
+  if (!original) return eventStaffError(request, 404, "grant_not_found", "The staff grant was not found.");
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  const checked = validateEventStaffGrantInput(parsed.value, { partial: true });
+  if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
+  const input = checked.value, now = Date.now();
+  const expiresAt = input.expiresAt || (
+    Number(original.expires_at) > now + 60_000
+      ? Math.min(Number(original.expires_at), now + EVENT_STAFF_MAX_GRANT_MS)
+      : now + 24 * 60 * 60 * 1000
+  );
+  let pin = {
+    salt: original.pin_salt,
+    hash: original.pin_hash,
+    iterations: original.pin_iterations,
+  };
+  if (input.clearPin) pin = { salt: null, hash: null, iterations: null };
+  else if (Object.prototype.hasOwnProperty.call(input, "pin")) pin = await eventStaffPinFields(input.pin);
+  const token = randomToken(), newGrantId = randomTokenBytes(16);
+  const results = await d1Batch(auth.db, [
+    auth.db.prepare(`
+      INSERT INTO event_staff_grants (
+        id, owner_scope, event_id, event_access_epoch, token_hash,
+        pin_salt, pin_hash, pin_iterations, staff_label, role,
+        permission_schema_version, permissions_json, created_at, expires_at,
+        revoked_at, last_used_at
+      )
+      SELECT ?, event.owner_scope, event.event_id, event.access_epoch, ?,
+             ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL
+      FROM event_staff_events event
+      WHERE event.owner_scope = ? AND event.event_id = ? AND event.deleted_at IS NULL
+        AND (
+          SELECT COUNT(*) FROM event_staff_grants active
+          WHERE active.owner_scope = event.owner_scope
+            AND active.event_id = event.event_id
+            AND active.event_access_epoch = event.access_epoch
+            AND active.id <> ?
+            AND active.revoked_at IS NULL AND active.expires_at > ?
+        ) < ?
+    `).bind(
+      newGrantId, await sha256(token), pin.salt, pin.hash, pin.iterations,
+      original.staff_label, original.role, EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+      stableEventStaffJson(EVENT_STAFF_ROLE_PERMISSIONS[original.role] || []),
+      now, expiresAt, auth.ownerScope, eventId,
+      grantId, now, EVENT_STAFF_MAX_ACTIVE_GRANTS,
+    ),
+    auth.db.prepare(`
+      UPDATE event_staff_grants SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE id = ? AND owner_scope = ? AND event_id = ?
+        AND EXISTS (SELECT 1 FROM event_staff_grants replacement WHERE replacement.id = ?)
+    `).bind(now, grantId, auth.ownerScope, eventId, newGrantId),
+    auth.db.prepare(`
+      UPDATE event_staff_sessions SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE grant_id = ? AND owner_scope = ? AND event_id = ?
+        AND EXISTS (SELECT 1 FROM event_staff_grants replacement WHERE replacement.id = ?)
+    `).bind(now, grantId, auth.ownerScope, eventId, newGrantId),
+    eventStaffAuditGrantGuardInsert(auth.db, {
+      ownerScope: auth.ownerScope,
+      eventId,
+      grantId,
+      guardGrantId: newGrantId,
+      action: "grant.rotated",
+      previous: { grantId, status: eventStaffGrantSummary(original, now).status },
+      next: { grantId: newGrantId, staffLabel: original.staff_label, role: original.role, expiresAt, pinRequired: !!pin.hash, reason: input.reason || null },
+      revision: auth.event.revision,
+      createdAt: now,
+    }),
+  ]);
+  if (!Number(results[0]?.meta?.changes)) {
+    const event = await getEventStaffEvent(auth.db, auth.ownerScope, eventId);
+    if (!event || event.deletedAt) {
+      return eventStaffError(request, 409, "event_unavailable", "The event is no longer available for staff access.");
+    }
+    return eventStaffError(request, 409, "grant_limit_reached", `An event may have at most ${EVENT_STAFF_MAX_ACTIVE_GRANTS} active staff grants.`);
+  }
+  await eventStaffPruneAudit(auth.db, auth.ownerScope, eventId).run();
+  const created = await getOwnedEventStaffGrant(auth.db, auth.ownerScope, eventId, newGrantId);
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    revision: auth.event.revision,
+    accessEpoch: auth.event.accessEpoch,
+    previousGrantId: grantId,
+    grant: eventStaffGrantSummary(created, now),
+    inviteUrl: `${new URL(request.url).origin}/staff#token=${encodeURIComponent(token)}`,
+    serverTime: now,
+  }, 201, request);
+}
+
+async function revokeAllEventStaffAccess(request, env, eventId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["expectedRevision", "reason"]).length) {
+    return eventStaffError(request, 400, "invalid_fields", "The revoke-all request contains unsupported fields.");
+  }
+  if (parsed.value.expectedRevision != null && eventStaffInteger(parsed.value.expectedRevision, 1, 2_000_000_000) == null) {
+    return eventStaffError(request, 400, "invalid_revision", "The expected event revision is invalid.");
+  }
+  if (parsed.value.expectedRevision != null && Number(parsed.value.expectedRevision) !== auth.event.revision) {
+    return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+      currentRevision: auth.event.revision,
+      state: eventStaffOwnerState(auth.event),
+    });
+  }
+  const now = Date.now(), nextRevision = auth.event.revision + 1, nextEpoch = auth.event.accessEpoch + 1;
+  const active = await d1First(auth.db.prepare(`
+    SELECT COUNT(*) AS count FROM event_staff_grants
+    WHERE owner_scope = ? AND event_id = ? AND revoked_at IS NULL AND expires_at > ?
+  `).bind(auth.ownerScope, eventId, now));
+  const guardId = randomTokenBytes(16);
+  const results = await d1Batch(auth.db, [
+    eventStaffAuditEventGuardInsert(auth.db, {
+      id: guardId,
+      ownerScope: auth.ownerScope,
+      eventId,
+      expectedRevision: auth.event.revision,
+      expectedEpoch: auth.event.accessEpoch,
+      action: "grant.revokeAll",
+      targetType: "event",
+      targetId: eventId,
+      previous: { accessEpoch: auth.event.accessEpoch, revision: auth.event.revision },
+      next: { accessEpoch: nextEpoch, revision: nextRevision, reason: cleanEventStaffReason(parsed.value.reason) || null },
+      revision: nextRevision,
+      createdAt: now,
+    }),
+    auth.db.prepare(`
+      UPDATE event_staff_events
+      SET access_epoch = access_epoch + 1, revision = revision + 1, updated_at = ?
+      WHERE owner_scope = ? AND event_id = ? AND revision = ? AND access_epoch = ?
+        AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+    `).bind(now, auth.ownerScope, eventId, auth.event.revision, auth.event.accessEpoch, guardId),
+    auth.db.prepare(`
+      UPDATE event_staff_grants SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE owner_scope = ? AND event_id = ?
+        AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+    `).bind(now, auth.ownerScope, eventId, guardId),
+    auth.db.prepare(`
+      UPDATE event_staff_sessions SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE owner_scope = ? AND event_id = ?
+        AND EXISTS (SELECT 1 FROM event_staff_audit WHERE id = ?)
+    `).bind(now, auth.ownerScope, eventId, guardId),
+  ]);
+  if (!Number(results[0]?.meta?.changes) || !Number(results[1]?.meta?.changes)) {
+    const current = await getEventStaffEvent(auth.db, auth.ownerScope, eventId);
+    return eventStaffError(request, 409, "revision_conflict", "The event staff revision changed.", {
+      currentRevision: current?.revision || 0,
+      state: current ? eventStaffOwnerState(current) : null,
+    });
+  }
+  await eventStaffPruneAudit(auth.db, auth.ownerScope, eventId).run();
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    previousRevision: auth.event.revision,
+    revision: nextRevision,
+    accessEpoch: nextEpoch,
+    revokedCount: Number(active?.count) || 0,
+    serverTime: now,
+  }, 200, request);
+}
+
+async function revokeAllOwnerEventStaffAccess(request, env) {
+  const auth = await authorizeEventStaffOwner(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["reason"]).length) {
+    return eventStaffError(request, 400, "invalid_fields", "The owner revoke-all request contains unsupported fields.");
+  }
+  const now = Date.now(), reason = cleanEventStaffReason(parsed.value.reason);
+  const results = await d1Batch(auth.db, [
+    auth.db.prepare(`
+      INSERT INTO event_staff_audit (
+        id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+        target_type, target_id, previous_json, new_json, resulting_revision,
+        idempotency_key, source, created_at
+      )
+      SELECT lower(hex(randomblob(16))), owner_scope, event_id, NULL,
+             'Owner', 'owner', 'owner.revokeAll', 'owner', NULL,
+             json_object('accessEpoch', access_epoch, 'revision', revision),
+             json_object(
+               'accessEpoch', access_epoch + 1,
+               'revision', revision + 1,
+               'reason', ?
+             ),
+             revision + 1, NULL, 'owner', ?
+      FROM event_staff_events
+      WHERE owner_scope = ?
+    `).bind(reason || null, now, auth.ownerScope),
+    auth.db.prepare(`
+      UPDATE event_staff_events
+      SET access_epoch = access_epoch + 1, revision = revision + 1, updated_at = ?
+      WHERE owner_scope = ?
+    `).bind(now, auth.ownerScope),
+    auth.db.prepare(`
+      UPDATE event_staff_grants SET revoked_at = ?
+      WHERE owner_scope = ? AND revoked_at IS NULL
+    `).bind(now, auth.ownerScope),
+    auth.db.prepare(`
+      UPDATE event_staff_sessions SET revoked_at = ?
+      WHERE owner_scope = ? AND revoked_at IS NULL
+    `).bind(now, auth.ownerScope),
+  ]);
+  await eventStaffPruneOwnerAudit(auth.db, auth.ownerScope).run();
+  return eventStaffJson({
+    ok: true,
+    eventCount: Number(results[1]?.meta?.changes) || 0,
+    revokedCount: Number(results[2]?.meta?.changes) || 0,
+    serverTime: now,
+  }, 200, request);
+}
+
+async function getOwnerEventStaffAudit(request, env, eventId) {
+  const auth = await eventStaffOwnerEvent(request, env, eventId);
+  if (auth.response) return auth.response;
+  return eventStaffJson({
+    ok: true,
+    eventId,
+    revision: auth.event.revision,
+    accessEpoch: auth.event.accessEpoch,
+    activity: await eventStaffActivity(auth.db, auth.event, { owner: true }),
+    serverTime: Date.now(),
+  }, 200, request);
+}
+
+function eventStaffSameOrigin(request) {
+  const origin = request.headers.get("Origin");
+  return !origin || origin === new URL(request.url).origin;
+}
+
+async function eventStaffAccessRateScopes(request, tokenHash) {
+  const now = Date.now(), windowStart = Math.floor(now / EVENT_STAFF_AUTH_WINDOW_MS) * EVENT_STAFF_AUTH_WINDOW_MS;
+  const address = request.headers.get("CF-Connecting-IP") || "unknown";
+  const addressScope = await sha256(`event-staff:auth:address:${address}`);
+  const tokenScope = await sha256(`event-staff:auth:token:${tokenHash}`);
+  return { now, windowStart, addressScope, tokenScope };
+}
+
+async function reserveEventStaffAccessAttempt(request, db, tokenHash) {
+  const scopes = await eventStaffAccessRateScopes(request, tokenHash);
+  const addressResult = await db.prepare(`
+    INSERT INTO event_staff_rate_limits (scope_hash, window_start, attempt_count, updated_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(scope_hash, window_start)
+    DO UPDATE SET attempt_count = attempt_count + 1, updated_at = excluded.updated_at
+    WHERE attempt_count < ?
+  `).bind(
+    scopes.addressScope, scopes.windowStart, scopes.now,
+    EVENT_STAFF_AUTH_ADDRESS_LIMIT,
+  ).run();
+  const addressAdmitted = Number(addressResult?.meta?.changes) === 1;
+  if (!addressAdmitted) {
+    return {
+      ...scopes,
+      addressAdmitted: false,
+      tokenAdmitted: false,
+      admitted: false,
+    };
+  }
+
+  const tokenResult = await db.prepare(`
+    INSERT INTO event_staff_rate_limits (scope_hash, window_start, attempt_count, updated_at)
+    VALUES (?, ?, 1, ?)
+    ON CONFLICT(scope_hash, window_start)
+    DO UPDATE SET attempt_count = attempt_count + 1, updated_at = excluded.updated_at
+    WHERE attempt_count < ?
+  `).bind(
+    scopes.tokenScope, scopes.windowStart, scopes.now,
+    EVENT_STAFF_AUTH_TOKEN_LIMIT,
+  ).run();
+  await db.prepare("DELETE FROM event_staff_rate_limits WHERE updated_at < ?")
+    .bind(scopes.now - 24 * 60 * 60 * 1000).run();
+  const tokenAdmitted = Number(tokenResult?.meta?.changes) === 1;
+  return {
+    ...scopes,
+    addressAdmitted,
+    tokenAdmitted,
+    admitted: addressAdmitted && tokenAdmitted,
+  };
+}
+
+async function releaseEventStaffAccessReservation(db, reservation) {
+  const releaseScope = async scopeHash => {
+    await db.prepare(`
+      UPDATE event_staff_rate_limits
+      SET attempt_count = MAX(0, attempt_count - 1), updated_at = ?
+      WHERE scope_hash = ? AND window_start = ? AND attempt_count > 0
+    `).bind(reservation.now, scopeHash, reservation.windowStart).run();
+    await db.prepare(`
+      DELETE FROM event_staff_rate_limits
+      WHERE scope_hash = ? AND window_start = ? AND attempt_count = 0
+    `).bind(scopeHash, reservation.windowStart).run();
+  };
+  await Promise.all([
+    reservation.addressAdmitted ? releaseScope(reservation.addressScope) : null,
+    reservation.tokenAdmitted ? releaseScope(reservation.tokenScope) : null,
+  ]);
+}
+
+async function redeemEventStaffAccess(request, env) {
+  if (!eventStaffSameOrigin(request)) {
+    return eventStaffError(request, 403, "origin_not_allowed", "Cross-origin event staff requests are not allowed.");
+  }
+  if (!(await eventStaffSchemaReady(env))) {
+    return eventStaffError(request, 503, "staff_access_unavailable", "Event staff access is unavailable.");
+  }
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  if (unexpectedFields(parsed.value, ["token", "pin"]).length) {
+    return eventStaffError(request, 401, "access_denied", "This staff link or PIN could not be accepted.");
+  }
+  const suppliedToken = typeof parsed.value.token === "string" ? parsed.value.token : "";
+  const suppliedPin = typeof parsed.value.pin === "string" ? parsed.value.pin : "";
+  const suppliedPinValidShape = /^[0-9]{4,12}$/.test(suppliedPin);
+  const tokenHash = await sha256(suppliedToken.slice(0, 256));
+  const db = eventStaffDb(env);
+  /*
+   * Reserve both the address-global and token-global failure budgets before
+   * any grant lookup or PBKDF2 work. Each capped UPSERT is one atomic admission
+   * decision, so concurrent guesses cannot all pass a check-then-increment
+   * gap. A fully successful redemption releases its reservation below.
+   */
+  const reservation = await reserveEventStaffAccessAttempt(request, db, tokenHash);
+  if (!reservation.admitted) {
+    await releaseEventStaffAccessReservation(db, reservation);
+    return eventStaffError(request, 429, "rate_limited", "Too many access attempts. Wait before trying again.", {
+      retryAfter: Math.ceil(EVENT_STAFF_AUTH_WINDOW_MS / 1000),
+    });
+  }
+  const grant = TOKEN_PATTERN.test(suppliedToken)
+    ? await d1First(db.prepare(`
+        SELECT grant.*, event.access_epoch AS current_access_epoch,
+               event.revision AS current_revision, event.deleted_at AS event_deleted_at
+        FROM event_staff_grants grant
+        JOIN event_staff_events event
+          ON event.owner_scope = grant.owner_scope AND event.event_id = grant.event_id
+        WHERE grant.token_hash = ?
+      `).bind(tokenHash))
+    : null;
+  const dummySalt = "AAAAAAAAAAAAAAAAAAAAAA";
+  let pinValid = true;
+  if (grant?.pin_hash) {
+    const derived = await deriveEventStaffPin(
+      suppliedPinValidShape ? suppliedPin : "0000",
+      grant.pin_salt,
+      Number(grant.pin_iterations) || EVENT_STAFF_PIN_ITERATIONS,
+    );
+    pinValid = suppliedPinValidShape && sameHash(derived, grant.pin_hash);
+  } else if (!grant) {
+    await deriveEventStaffPin("0000", dummySalt, EVENT_STAFF_PIN_ITERATIONS);
+    pinValid = false;
+  }
+  const now = Date.now();
+  const valid = grant
+    && !grant.revoked_at
+    && Number(grant.expires_at) > now
+    && !grant.event_deleted_at
+    && Number(grant.event_access_epoch) === Number(grant.current_access_epoch)
+    && pinValid;
+  if (!valid) {
+    return eventStaffError(request, 401, "access_denied", "This staff link or PIN could not be accepted.");
+  }
+  const sessionToken = randomToken(), sessionHash = await sha256(sessionToken);
+  const expiresAt = Math.min(Number(grant.expires_at), now + EVENT_STAFF_SESSION_MS);
+  await db.prepare(`
+    DELETE FROM event_staff_sessions
+    WHERE expires_at <= ? OR revoked_at IS NOT NULL
+  `).bind(now).run();
+  const results = await d1Batch(db, [
+    db.prepare(`
+      INSERT INTO event_staff_sessions (
+        session_hash, grant_id, owner_scope, event_id, event_access_epoch,
+        created_at, expires_at, last_used_at, revoked_at
+      )
+      SELECT ?, grant.id, grant.owner_scope, grant.event_id, grant.event_access_epoch,
+             ?, ?, ?, NULL
+      FROM event_staff_grants grant
+      JOIN event_staff_events event
+        ON event.owner_scope = grant.owner_scope AND event.event_id = grant.event_id
+      WHERE grant.id = ? AND grant.revoked_at IS NULL AND grant.expires_at > ?
+        AND event.deleted_at IS NULL
+        AND event.access_epoch = grant.event_access_epoch
+        AND (
+          SELECT COUNT(*)
+          FROM event_staff_sessions active
+          WHERE active.grant_id = grant.id
+            AND active.revoked_at IS NULL AND active.expires_at > ?
+        ) < ?
+    `).bind(
+      sessionHash, now, expiresAt, now, grant.id, now, now,
+      EVENT_STAFF_MAX_ACTIVE_SESSIONS_PER_GRANT,
+    ),
+    db.prepare(`
+      UPDATE event_staff_grants SET last_used_at = ?
+      WHERE id = ? AND EXISTS (
+        SELECT 1 FROM event_staff_sessions WHERE session_hash = ?
+      )
+    `).bind(now, grant.id, sessionHash),
+  ]);
+  if (!Number(results[0]?.meta?.changes)) {
+    /*
+     * The link and PIN were already verified. A session-cap or authorization
+     * race is not an invalid credential attempt and must not poison the
+     * token-global failure budget.
+     */
+    await releaseEventStaffAccessReservation(db, reservation);
+    return eventStaffError(request, 401, "access_denied", "This staff link or PIN could not be accepted.");
+  }
+  await releaseEventStaffAccessReservation(db, reservation);
+  const event = await getEventStaffEvent(db, grant.owner_scope, grant.event_id);
+  const state = await eventStaffScopedState(db, event, grant);
+  return eventStaffJson({
+    ok: true,
+    sessionToken,
+    sessionExpiresAt: expiresAt,
+    queueScope: await sha256(`${grant.id}:${grant.event_access_epoch}`),
+    state,
+  }, 200, request);
+}
+
+async function authorizeEventStaffSession(request, env, { touch = true } = {}) {
+  if (!eventStaffSameOrigin(request)) {
+    return { response: eventStaffError(request, 403, "origin_not_allowed", "Cross-origin event staff requests are not allowed.") };
+  }
+  if (!(await eventStaffSchemaReady(env))) {
+    return { response: eventStaffError(request, 503, "staff_access_unavailable", "Event staff access is unavailable.") };
+  }
+  const authorization = request.headers.get("Authorization") || "";
+  const match = authorization.match(/^Bearer ([A-Za-z0-9_-]{43})$/);
+  if (!match) {
+    return { response: eventStaffError(request, 401, "access_ended", "Event staff access has ended.") };
+  }
+  const db = eventStaffDb(env), sessionHash = await sha256(match[1]), now = Date.now();
+  const joined = await d1First(db.prepare(`
+    SELECT
+      session.session_hash, session.grant_id, session.owner_scope AS session_owner_scope,
+      session.event_id AS session_event_id, session.event_access_epoch AS session_access_epoch,
+      session.created_at AS session_created_at, session.expires_at AS session_expires_at,
+      session.last_used_at AS session_last_used_at, session.revoked_at AS session_revoked_at,
+      grant.id AS id, grant.owner_scope, grant.event_id, grant.event_access_epoch,
+      grant.staff_label, grant.role, grant.permissions_json, grant.created_at,
+      grant.expires_at, grant.revoked_at, grant.last_used_at,
+      event.access_epoch AS current_access_epoch, event.revision AS current_revision,
+      event.deleted_at AS event_deleted_at
+    FROM event_staff_sessions session
+    LEFT JOIN event_staff_grants grant ON grant.id = session.grant_id
+    LEFT JOIN event_staff_events event
+      ON event.owner_scope = session.owner_scope AND event.event_id = session.event_id
+    WHERE session.session_hash = ?
+  `).bind(sessionHash));
+  const valid = joined
+    && joined.id
+    && !joined.session_revoked_at
+    && Number(joined.session_expires_at) > now
+    && !joined.revoked_at
+    && Number(joined.expires_at) > now
+    && !joined.event_deleted_at
+    && Number(joined.session_access_epoch) === Number(joined.event_access_epoch)
+    && Number(joined.event_access_epoch) === Number(joined.current_access_epoch)
+    && joined.session_owner_scope === joined.owner_scope
+    && joined.session_event_id === joined.event_id;
+  if (!valid) {
+    const ended = joined && (
+      joined.session_revoked_at || joined.revoked_at
+      || Number(joined.session_access_epoch) !== Number(joined.current_access_epoch)
+      || joined.event_deleted_at
+    ) ? "access_revoked" : "access_expired";
+    return { response: eventStaffError(request, 401, ended, "Event staff access has ended.") };
+  }
+  if (!EVENT_STAFF_ROLE_PERMISSIONS[joined.role]) {
+    return { response: eventStaffError(request, 403, "role_unsupported", "This event staff role is not supported by this Worker.") };
+  }
+  const event = await getEventStaffEvent(db, joined.owner_scope, joined.event_id);
+  if (!event || event.deletedAt) {
+    return { response: eventStaffError(request, 401, "access_revoked", "Event staff access has ended.") };
+  }
+  if (touch && now - Number(joined.session_last_used_at || 0) >= 5 * 60 * 1000) {
+    await d1Batch(db, [
+      db.prepare(`
+        UPDATE event_staff_sessions SET last_used_at = ?
+        WHERE session_hash = ? AND revoked_at IS NULL
+      `).bind(now, sessionHash),
+      db.prepare(`
+        UPDATE event_staff_grants SET last_used_at = ?
+        WHERE id = ? AND revoked_at IS NULL
+      `).bind(now, joined.id),
+    ]);
+  }
+  return { db, sessionHash, grant: joined, event };
+}
+
+async function getEventStaffState(request, env) {
+  const auth = await authorizeEventStaffSession(request, env);
+  if (auth.response) return auth.response;
+  return eventStaffJson({
+    ok: true,
+    state: await eventStaffScopedState(auth.db, auth.event, auth.grant),
+  }, 200, request);
+}
+
+async function logoutEventStaffSession(request, env) {
+  const auth = await authorizeEventStaffSession(request, env, { touch: false });
+  if (auth.response) {
+    /*
+     * Logout is intentionally idempotent.  A client clearing an already-ended
+     * restricted session must not need to retain or retry the credential.
+     */
+    return eventStaffJson({ ok: true }, 200, request);
+  }
+  await auth.db.prepare(`
+    UPDATE event_staff_sessions SET revoked_at = COALESCE(revoked_at, ?)
+    WHERE session_hash = ?
+  `).bind(Date.now(), auth.sessionHash).run();
+  return eventStaffJson({ ok: true }, 200, request);
+}
+
+function eventStaffOperationAttempt(value) {
+  return {
+    eventId: cleanEventStaffText(value?.eventId, 120),
+    action: cleanEventStaffText(value?.action, 80),
+    targetId: cleanEventStaffText(value?.targetId, 120),
+    expectedRevision: Number(value?.expectedRevision),
+    payload: value?.payload && typeof value.payload === "object" && !Array.isArray(value.payload)
+      ? structuredClone(value.payload)
+      : {},
+  };
+}
+
+function validateEventStaffOperation(value) {
+  const allowed = [
+    "eventId", "action", "targetId", "expectedRevision",
+    "idempotencyKey", "payload", "replayed",
+  ];
+  if (!value || typeof value !== "object" || Array.isArray(value) || unexpectedFields(value, allowed).length) {
+    return { error: ["invalid_fields", "The event operation contains unsupported fields."] };
+  }
+  const eventId = cleanEventStaffText(value.eventId, 120);
+  const targetId = cleanEventStaffText(value.targetId, 120);
+  const expectedRevision = eventStaffInteger(value.expectedRevision, 1, 2_000_000_000);
+  const idempotencyKey = typeof value.idempotencyKey === "string" ? value.idempotencyKey : "";
+  if (!PLAYER_ID_PATTERN.test(eventId)) {
+    return { error: ["invalid_event", "The event operation has an invalid event identifier."] };
+  }
+  if (!SCORE_MATCH_ID_PATTERN.test(targetId)) {
+    return { error: ["invalid_target", "The event operation has an invalid target identifier."] };
+  }
+  if (!EVENT_STAFF_OPERATION_PERMISSIONS[value.action]) {
+    return { error: ["unsupported_action", "This event staff action is not supported."] };
+  }
+  if (expectedRevision == null) {
+    return { error: ["invalid_revision", "The event operation requires a valid expected revision."] };
+  }
+  if (!EVENT_STAFF_IDEMPOTENCY_PATTERN.test(idempotencyKey)) {
+    return { error: ["invalid_idempotency_key", "The event operation requires a valid request identifier."] };
+  }
+  if (!value.payload || typeof value.payload !== "object" || Array.isArray(value.payload)) {
+    return { error: ["invalid_payload", "The event operation payload must be an object."] };
+  }
+  if (value.replayed != null && typeof value.replayed !== "boolean") {
+    return { error: ["invalid_replay_flag", "The replay marker must be true or false."] };
+  }
+  return {
+    value: {
+      eventId,
+      action: value.action,
+      targetId,
+      expectedRevision,
+      idempotencyKey,
+      payload: structuredClone(value.payload),
+      replayed: value.replayed === true,
+    },
+  };
+}
+
+function eventStaffMatchGames(row, match) {
+  const listed = new Set(Array.isArray(match?.gameIds) ? match.gameIds : []);
+  const canonicalMatchId = match?.gameRecordMatchId ?? match?.canonicalEvMatchId
+    ?? ((match?.phase === "playoff" || match?.kind === "playoff" || match?.format === "rotatingGroups") ? match?.id : null);
+  const eventGames = (Array.isArray(row.games) ? row.games : [])
+    .filter(game => game && game.evId === row.eventId);
+  let linked = eventGames.filter(game => listed.has(game.id));
+  if (!linked.length && canonicalMatchId) {
+    linked = eventGames.filter(game => game.evMatchId === canonicalMatchId);
+  }
+  if (!linked.length && !canonicalMatchId && match?.format !== "rotatingGroups") {
+    const sideA = match.teamAId || match.sideAId || match.a;
+    const sideB = match.teamBId || match.sideBId || match.b;
+    if (sideA && sideB) {
+      linked = eventGames.filter(game => !game.evMatchId && (
+        (game.evA === sideA && game.evB === sideB)
+        || (game.evA === sideB && game.evB === sideA)
+      ));
+    }
+  }
+  return linked
+    .sort((left, right) => Number(left.date) - Number(right.date) || String(left.id).localeCompare(String(right.id)));
+}
+
+function eventStaffScoreSummary(games, match) {
+  const ordered = (games || []).slice().sort((left, right) =>
+    Number(left.date) - Number(right.date) || String(left.id).localeCompare(String(right.id)));
+  let winsA = 0, winsB = 0;
+  const sets = ordered.map(game => {
+    const scoreA = Number(game.scoreA) || 0, scoreB = Number(game.scoreB) || 0;
+    if (scoreA > scoreB) winsA += 1;
+    else if (scoreB > scoreA) winsB += 1;
+    return [scoreA, scoreB];
+  });
+  return {
+    gameIds: ordered.map(game => game.id),
+    sets,
+    winner: winsA === winsB ? null : winsA > winsB ? "A" : "B",
+    winnerId: winsA === winsB
+      ? null
+      : winsA > winsB
+        ? (match.teamAId || match.sideAId || match.a || null)
+        : (match.teamBId || match.sideBId || match.b || null),
+  };
+}
+
+function validateEventStaffScorePayload(payload, match) {
+  const allowed = [
+    "mode", "sets", "scoreA", "scoreB", "winner",
+    "confirmDownstreamImpact", "reason",
+  ];
+  if (unexpectedFields(payload, allowed).length) {
+    return { error: ["invalid_score_fields", "The score operation contains unsupported fields."] };
+  }
+  let rawSets = payload.sets;
+  if (rawSets == null && (payload.scoreA != null || payload.scoreB != null)) {
+    rawSets = [[payload.scoreA, payload.scoreB]];
+  }
+  if (!Array.isArray(rawSets) || !rawSets.length || rawSets.length > 3) {
+    return { error: ["invalid_score", "Enter between one and three set scores."] };
+  }
+  const sets = [];
+  for (const value of rawSets) {
+    const pair = Array.isArray(value)
+      ? value
+      : value && typeof value === "object" && !Array.isArray(value)
+        ? [value.scoreA, value.scoreB]
+        : null;
+    if (!pair || pair.length !== 2) {
+      return { error: ["invalid_score", "Each set must contain exactly two scores."] };
+    }
+    const scoreA = eventStaffInteger(pair[0], 0, EVENT_STAFF_MAX_SCORE);
+    const scoreB = eventStaffInteger(pair[1], 0, EVENT_STAFF_MAX_SCORE);
+    if (scoreA == null || scoreB == null) {
+      return { error: ["invalid_score", `Scores must be whole numbers from 0 to ${EVENT_STAFF_MAX_SCORE}.`] };
+    }
+    sets.push([scoreA, scoreB]);
+  }
+  const mode = payload.mode == null
+    ? (sets.length > 1 ? "bo3" : "set")
+    : payload.mode;
+  if (!["set", "bo3"].includes(mode) || (mode === "set" && sets.length !== 1)) {
+    return { error: ["invalid_score_mode", "Choose a supported single-set or best-of-three score shape."] };
+  }
+  if (Array.isArray(match.allowedScoreModes) && !match.allowedScoreModes.includes(mode)) {
+    return { error: ["score_mode_not_allowed", "That score format is not available for this match."] };
+  }
+  let winsA = 0, winsB = 0;
+  sets.forEach(([scoreA, scoreB]) => {
+    if (scoreA > scoreB) winsA += 1;
+    else if (scoreB > scoreA) winsB += 1;
+  });
+  const winner = winsA === winsB ? null : winsA > winsB ? "A" : "B";
+  if (Object.prototype.hasOwnProperty.call(payload, "winner")) {
+    let supplied = payload.winner;
+    const sideAId = match.teamAId || match.sideAId || match.a;
+    const sideBId = match.teamBId || match.sideBId || match.b;
+    if (supplied === sideAId) supplied = "A";
+    if (supplied === sideBId) supplied = "B";
+    if (supplied === "") supplied = null;
+    if (supplied !== winner) {
+      return { error: ["winner_mismatch", "The submitted winner does not agree with the set scores."] };
+    }
+  }
+  return {
+    value: {
+      mode,
+      sets,
+      winner,
+      winnerId: winner === "A"
+        ? (match.teamAId || match.sideAId || match.a || null)
+        : winner === "B"
+          ? (match.teamBId || match.sideBId || match.b || null)
+          : null,
+      confirmDownstreamImpact: payload.confirmDownstreamImpact === true,
+      reason: cleanEventStaffReason(payload.reason),
+    },
+  };
+}
+
+function eventStaffGameRecords(row, match, score, existing, now) {
+  const rotating = match.format === "rotatingGroups" || match.eventFormat === "rotatingGroups";
+  const currentTeamA = eventStaffSafeIdList(match.sideAPlayerIds || match.teamAPlayerIds);
+  const currentTeamB = eventStaffSafeIdList(match.sideBPlayerIds || match.teamBPlayerIds);
+  const currentEntryIdsA = eventStaffSafeIdList(match.sideAEntryIds || match.evEntryIdsA);
+  const currentEntryIdsB = eventStaffSafeIdList(match.sideBEntryIds || match.evEntryIdsB);
+  const teamAId = match.teamAId || match.sideAId || match.a || null;
+  const teamBId = match.teamBId || match.sideBId || match.b || null;
+  const metadata = eventStaffGameMeta(match.gameMeta || row.event?.staffGameMeta || row.event?.gameMeta);
+  const canonicalMatchId = match.gameRecordMatchId ?? match.canonicalEvMatchId
+    ?? ((match.phase === "playoff" || match.kind === "playoff" || rotating) ? match.id : null);
+  const sharedMatchId = score.mode === "bo3"
+    ? (existing[0]?.matchId || randomTokenBytes(16))
+    : null;
+  const baseDate = existing[0]?.date ?? now;
+  return score.sets.map(([scoreA, scoreB], index) => {
+    const old = existing[index] && typeof existing[index] === "object"
+      ? structuredClone(existing[index])
+      : null;
+    /*
+     * A correction edits the historical score, not the historical roster.
+     * Owner-side roster changes apply to future games, so every replacement
+     * record (including a newly added set) inherits identity/linkage from the
+     * original match records when they exist.
+     */
+    const historical = old || (
+      existing[0] && typeof existing[0] === "object"
+        ? existing[0]
+        : null
+    );
+    const teamA = historical && Array.isArray(historical.teamA)
+      ? eventStaffSafeIdList(historical.teamA)
+      : currentTeamA;
+    const teamB = historical && Array.isArray(historical.teamB)
+      ? eventStaffSafeIdList(historical.teamB)
+      : currentTeamB;
+    const entryIdsA = historical && Array.isArray(historical.evEntryIdsA)
+      ? eventStaffSafeIdList(historical.evEntryIdsA)
+      : currentEntryIdsA;
+    const entryIdsB = historical && Array.isArray(historical.evEntryIdsB)
+      ? eventStaffSafeIdList(historical.evEntryIdsB)
+      : currentEntryIdsB;
+    const recordRotating = historical
+      ? historical.eventFormat === "rotatingGroups"
+      : rotating;
+    const recordMetadata = historical ? eventStaffGameMeta(historical) : metadata;
+    const record = {
+      ...(old || {}),
+      ratingVersion: recordMetadata.ratingVersion,
+      detailed: recordMetadata.detailed,
+      eventFamilies: structuredClone(recordMetadata.eventFamilies),
+      id: old?.id || randomTokenBytes(16),
+      date: old?.date ?? (baseDate + index),
+      teamA,
+      teamB,
+      unkA: historical && Number.isFinite(Number(historical.unkA))
+        ? Math.max(0, Math.round(Number(historical.unkA)))
+        : teamA.length ? 0 : 1,
+      unkB: historical && Number.isFinite(Number(historical.unkB))
+        ? Math.max(0, Math.round(Number(historical.unkB)))
+        : teamB.length ? 0 : 1,
+      scoreA,
+      scoreB,
+      winner: scoreA > scoreB ? "A" : scoreB > scoreA ? "B" : null,
+      log: old?.log && typeof old.log === "object" && !Array.isArray(old.log)
+        ? structuredClone(old.log)
+        : {},
+      evId: row.eventId,
+      label: score.mode === "bo3"
+        ? `${cleanEventStaffText(match.label, 150) || "Match"} · Set ${index + 1}`
+        : cleanEventStaffText(match.label, 180),
+    };
+    if (score.mode === "bo3") record.matchId = sharedMatchId;
+    else delete record.matchId;
+    const historicalMatchId = historical?.evMatchId || null;
+    if (historicalMatchId || canonicalMatchId) record.evMatchId = historicalMatchId || canonicalMatchId;
+    else delete record.evMatchId;
+    if (recordRotating) {
+      record.evEntryIdsA = entryIdsA;
+      record.evEntryIdsB = entryIdsB;
+      record.eventFormat = "rotatingGroups";
+      delete record.evA;
+      delete record.evB;
+      for (const key of ["evPairIdsA", "evPairIdsB"]) {
+        if (Array.isArray(historical?.[key])) {
+          record[key] = eventStaffSafeIdList(historical[key]);
+        } else {
+          delete record[key];
+        }
+      }
+    } else {
+      record.evA = historical && Object.prototype.hasOwnProperty.call(historical, "evA")
+        ? historical.evA
+        : teamAId;
+      record.evB = historical && Object.prototype.hasOwnProperty.call(historical, "evB")
+        ? historical.evB
+        : teamBId;
+      delete record.evEntryIdsA;
+      delete record.evEntryIdsB;
+      delete record.evPairIdsA;
+      delete record.evPairIdsB;
+      delete record.eventFormat;
+    }
+    return record;
+  });
+}
+
+function eventStaffDownstreamMatches(row, match) {
+  if (match.phase !== "playoff" || !match.bracketId) return [];
+  const roundIndex = Number(match.roundIndex), matchIndex = Number(match.matchIndex);
+  if (!Number.isInteger(roundIndex) || !Number.isInteger(matchIndex)) return [];
+  return (row.matches || []).filter(candidate => {
+    if (!candidate || candidate.phase !== "playoff" || candidate.bracketId !== match.bracketId) return false;
+    const candidateRound = Number(candidate.roundIndex), candidateIndex = Number(candidate.matchIndex);
+    if (!Number.isInteger(candidateRound) || !Number.isInteger(candidateIndex) || candidateRound <= roundIndex) return false;
+    const roundsAhead = candidateRound - roundIndex;
+    return candidateIndex === Math.floor(matchIndex / (2 ** roundsAhead));
+  });
+}
+
+function eventStaffBracketTeam(event, teamId) {
+  const team = (Array.isArray(event?.teams) ? event.teams : [])
+    .find(value => value && value.id === teamId);
+  return {
+    name: cleanEventStaffText(team?.name, 120) || (teamId ? "Team" : "TBD"),
+    players: eventStaffSafeIdList(team?.players || team?.playerIds),
+  };
+}
+
+function eventStaffSetBracketSide(match, side, teamId, event) {
+  const upper = side === "A" ? "A" : "B";
+  const lower = side === "A" ? "a" : "b";
+  const team = eventStaffBracketTeam(event, teamId);
+  match[`team${upper}Id`] = teamId || null;
+  match[`side${upper}Id`] = teamId || null;
+  if (Object.prototype.hasOwnProperty.call(match, lower)) match[lower] = teamId || null;
+  match[`team${upper}PlayerIds`] = teamId ? team.players : [];
+  match[`side${upper}PlayerIds`] = teamId ? team.players : [];
+  match[`side${upper}EntryIds`] = teamId ? [teamId] : [];
+  match[`side${upper}Name`] = teamId ? team.name : "TBD";
+}
+
+function eventStaffRebuildBracketFeed(matches, sourceMatch, winnerId, event) {
+  let source = sourceMatch, advancing = winnerId;
+  for (;;) {
+    const roundIndex = Number(source.roundIndex), matchIndex = Number(source.matchIndex);
+    if (!Number.isInteger(roundIndex) || !Number.isInteger(matchIndex)) return;
+    const next = matches.find(candidate =>
+      candidate
+      && candidate.bracketId === source.bracketId
+      && Number(candidate.roundIndex) === roundIndex + 1
+      && Number(candidate.matchIndex) === Math.floor(matchIndex / 2));
+    if (!next) return;
+    eventStaffSetBracketSide(next, matchIndex % 2 === 0 ? "A" : "B", advancing, event);
+    next.gameIds = [];
+    const ready = !!(next.teamAId && next.teamBId);
+    next.upstreamComplete = ready;
+    next.upstreamReady = ready;
+    next.status = ready ? "ready" : "waiting";
+    /*
+     * This downstream match was invalidated and now has no canonical winner.
+     * Its feed into every later round must therefore be cleared recursively.
+     */
+    advancing = null;
+    source = next;
+  }
+}
+
+function eventStaffScorePlan(row, operation) {
+  const matches = structuredClone(row.matches || []);
+  const match = matches.find(value => value && value.id === operation.targetId);
+  if (!match) return { error: [404, "match_not_found", "The scheduled match is no longer available."] };
+  const playoff = match.phase === "playoff" || match.kind === "playoff";
+  if (operation.action === "completeBracketMatch" && !playoff) {
+    return { error: [400, "not_bracket_match", "Only a playoff match can use bracket completion."] };
+  }
+  if (operation.action === "recordEventScore" && playoff) {
+    return { error: [403, "bracket_operation_required", "Playoff results require the bracket operation."] };
+  }
+  if (playoff && (
+    match.upstreamComplete === false
+    || match.upstreamReady === false
+    || !(match.teamAId || match.sideAId || match.a)
+    || !(match.teamBId || match.sideBId || match.b)
+  )) {
+    return { error: [409, "bracket_not_ready", "The upstream bracket results are not complete."] };
+  }
+  const existing = eventStaffMatchGames(row, match);
+  const correcting = operation.action === "correctEventScore";
+  if (correcting && !existing.length) {
+    return { error: [409, "score_not_found", "There is no saved score to correct for this match."] };
+  }
+  if (!correcting && existing.length) {
+    return { error: [409, "score_already_recorded", "This match already has a saved score. Use an intentional correction."] };
+  }
+  const checked = validateEventStaffScorePayload(operation.payload, match);
+  if (checked.error) return { error: [400, checked.error[0], checked.error[1]] };
+  const score = checked.value, previousSummary = eventStaffScoreSummary(existing, match);
+  const downstream = correcting && playoff && previousSummary.winnerId !== score.winnerId
+    ? eventStaffDownstreamMatches({ ...row, matches }, match)
+    : [];
+  const downstreamGames = downstream.flatMap(candidate => eventStaffMatchGames(row, candidate));
+  if (downstreamGames.length && !score.confirmDownstreamImpact) {
+    return {
+      error: [
+        409,
+        "downstream_confirmation_required",
+        "Changing this winner affects completed later playoff matches. Confirm the recovery before continuing.",
+        {
+          dependentMatches: downstream
+            .filter(candidate => eventStaffMatchGames(row, candidate).length)
+            .map(candidate => ({
+              id: candidate.id,
+              label: cleanEventStaffText(candidate.label, 120),
+              result: eventStaffScoreSummary(eventStaffMatchGames(row, candidate), candidate),
+            })),
+        },
+      ],
+    };
+  }
+  const now = Date.now();
+  const records = eventStaffGameRecords(row, match, score, existing, now);
+  const removed = [
+    ...existing.slice(records.length),
+    ...downstreamGames,
+  ];
+  const removedIds = new Set(removed.map(game => game.id));
+  const existingIds = new Set(existing.map(game => game.id));
+  const downstreamIds = new Set(downstreamGames.map(game => game.id));
+  const games = [];
+  let insertedRecords = false;
+  for (const game of Array.isArray(row.games) ? row.games : []) {
+    if (existingIds.has(game.id)) {
+      if (!insertedRecords) {
+        games.push(...records);
+        insertedRecords = true;
+      }
+      continue;
+    }
+    if (downstreamIds.has(game.id)) continue;
+    games.push(game);
+  }
+  if (!insertedRecords) games.push(...records);
+  match.gameIds = records.map(record => record.id);
+  match.status = playoff && !score.winner ? "inProgress" : "complete";
+  if (playoff && (!correcting || previousSummary.winnerId !== score.winnerId)) {
+    eventStaffRebuildBracketFeed(matches, match, score.winnerId, row.event);
+  }
+  downstream.forEach(candidate => {
+    if (!eventStaffMatchGames(row, candidate).length) return;
+    candidate.gameIds = [];
+    candidate.status = candidate.upstreamComplete === false ? "waiting" : "ready";
+  });
+  const deletedGameIds = { ...(row.deletedGameIds || {}) };
+  removedIds.forEach(id => { deletedGameIds[id] = now; });
+  const warnings = [];
+  if (score.sets.some(([scoreA, scoreB]) => scoreA === scoreB)) {
+    warnings.push({
+      code: "tie_no_rating_impact",
+      message: "Tie recorded; tied games currently have no rating impact.",
+    });
+  }
+  if (downstreamGames.length) {
+    warnings.push({
+      code: "downstream_results_removed",
+      message: `${downstreamGames.length} dependent playoff game record${downstreamGames.length === 1 ? "" : "s"} must be re-entered.`,
+    });
+  }
+  return {
+    event: structuredClone(row.event),
+    games,
+    matches,
+    deletedGameIds,
+    previous: previousSummary.gameIds.length ? previousSummary : null,
+    next: {
+      ...eventStaffScoreSummary(records, match),
+      reason: score.reason || null,
+      removedDependentGameIds: downstreamGames.map(game => game.id),
+    },
+    targetType: playoff ? "bracketMatch" : "match",
+    warnings,
+  };
+}
+
+function eventStaffEntryCollection(event) {
+  return event?.format === "rotatingGroups"
+    ? (Array.isArray(event.entries) ? event.entries : Array.isArray(event.pairs) ? event.pairs : [])
+    : (Array.isArray(event.teams) ? event.teams : []);
+}
+
+function eventStaffCheckInPlan(row, operation) {
+  const event = structuredClone(row.event || {});
+  const entry = eventStaffEntryCollection(event).find(value => value && value.id === operation.targetId);
+  if (!entry) return { error: [404, "entry_not_found", "The event entry is no longer available."] };
+  const allowed = operation.action === "setEntryCheckIn"
+    ? ["checkedIn", "reason"]
+    : ["status", "reason"];
+  if (unexpectedFields(operation.payload, allowed).length) {
+    return { error: [400, "invalid_attendance_fields", "The attendance operation contains unsupported fields."] };
+  }
+  let status;
+  if (operation.action === "setEntryCheckIn") {
+    if (typeof operation.payload.checkedIn !== "boolean") {
+      return { error: [400, "invalid_check_in", "Check-in must be true or false."] };
+    }
+    status = operation.payload.checkedIn ? "checked_in" : "not_checked_in";
+  } else {
+    status = operation.payload.status;
+    if (!EVENT_STAFF_ATTENDANCE_STATUSES.has(status)) {
+      return { error: [400, "invalid_attendance_status", "Choose a supported attendance status."] };
+    }
+  }
+  const registrationId = cleanEventStaffText(entry.registrationId, 160);
+  if (!registrationId || !PLAYER_ID_PATTERN.test(registrationId)) {
+    return { error: [409, "entry_not_registration_linked", "Only an accepted registration-linked entry can be checked in."] };
+  }
+  const current = safeEventStaffCheckIn(entry.checkIn) || {
+    teamStatus: "not_checked_in",
+    activePlayerIds: eventStaffSafeIdList(entry.players),
+    substitutePlayerIds: eventStaffSafeIdList(entry.substitutePlayerIds),
+    playerStatuses: {},
+    updatedAt: null,
+  };
+  const next = structuredClone(current), now = Date.now();
+  next.teamStatus = status;
+  next.updatedAt = now;
+  if (status === "checked_in") {
+    next.activePlayerIds.forEach(id => { next.playerStatuses[id] = "present"; });
+  } else if (status === "not_checked_in" || status === "no_show" || status === "withdrawn") {
+    const playerIds = new Set([
+      ...next.activePlayerIds,
+      ...next.substitutePlayerIds,
+      ...Object.keys(next.playerStatuses),
+    ]);
+    playerIds.forEach(id => { next.playerStatuses[id] = "not_present"; });
+  }
+  entry.checkIn = next;
+  const state = event.registrationCheckIn && typeof event.registrationCheckIn === "object"
+    && !Array.isArray(event.registrationCheckIn)
+    ? structuredClone(event.registrationCheckIn)
+    : {};
+  state.entries = state.entries && typeof state.entries === "object" && !Array.isArray(state.entries)
+    ? state.entries
+    : {};
+  state.entries[registrationId] = next;
+  state.updatedAt = now;
+  event.registrationCheckIn = state;
+  return {
+    event,
+    games: structuredClone(row.games),
+    matches: structuredClone(row.matches),
+    deletedGameIds: { ...(row.deletedGameIds || {}) },
+    previous: current,
+    next: { ...next, reason: cleanEventStaffReason(operation.payload.reason) || null },
+    targetType: "entry",
+    warnings: [],
+  };
+}
+
+function eventStaffMovePlan(row, operation) {
+  const matches = structuredClone(row.matches || []);
+  const match = matches.find(value => value && value.id === operation.targetId);
+  if (!match || match.phase === "playoff" || match.kind === "playoff") {
+    return { error: [404, "scheduled_match_not_found", "The movable scheduled match is no longer available."] };
+  }
+  if (eventStaffMatchGames(row, match).length) {
+    return { error: [409, "match_already_started", "A match with a saved result cannot be moved."] };
+  }
+  if (unexpectedFields(operation.payload, ["court", "scheduledAt", "slot", "reason"]).length) {
+    return { error: [400, "invalid_move_fields", "The match move contains unsupported fields."] };
+  }
+  const court = eventStaffInteger(operation.payload.court, 0, 1000);
+  const scheduledAt = eventStaffInteger(operation.payload.scheduledAt, 1, 9_000_000_000_000_000);
+  const slot = operation.payload.slot == null
+    ? (Number.isInteger(Number(match.slot)) ? Number(match.slot) : null)
+    : eventStaffInteger(operation.payload.slot, 0, 100_000);
+  if (court == null || scheduledAt == null || slot == null) {
+    return { error: [400, "invalid_match_placement", "Choose a valid court, time, and schedule slot."] };
+  }
+  const placements = Array.isArray(match.validPlacements) ? match.validPlacements : [];
+  if (!placements.some(value =>
+    Number(value?.court) === court
+    && Number(value?.scheduledAt) === scheduledAt
+    && Number(value?.slot) === slot
+  )) {
+    return { error: [409, "invalid_match_placement", "That court and time are no longer a valid placement for this match."] };
+  }
+  const schedulingIds = value => {
+    const ids = new Set();
+    for (const key of [
+      "sideAEntryIds", "sideBEntryIds", "evEntryIdsA", "evEntryIdsB",
+      "sideAPlayerIds", "sideBPlayerIds", "teamAPlayerIds", "teamBPlayerIds",
+    ]) {
+      for (const id of Array.isArray(value?.[key]) ? value[key] : []) {
+        if (typeof id === "string" && id) ids.add(id);
+      }
+    }
+    for (const key of ["teamAId", "teamBId", "sideAId", "sideBId", "a", "b"]) {
+      if (typeof value?.[key] === "string" && value[key]) ids.add(value[key]);
+    }
+    return ids;
+  };
+  const targetIds = schedulingIds(match);
+  const conflict = matches.find(other => {
+    if (!other || other.id === match.id) return false;
+    const sameWindow = (
+      other.slot != null && Number.isInteger(Number(other.slot)) && Number(other.slot) === slot
+    ) || (
+      other.scheduledAt != null && Number.isFinite(Number(other.scheduledAt)) && Number(other.scheduledAt) === scheduledAt
+    );
+    if (!sameWindow) return false;
+    if (Number(other.court) === court) return true;
+    const otherIds = schedulingIds(other);
+    for (const id of targetIds) {
+      if (otherIds.has(id)) return true;
+    }
+    return false;
+  });
+  if (conflict) {
+    return {
+      error: [
+        409,
+        "match_placement_conflict",
+        "That placement now conflicts with another scheduled match. Refresh the schedule and choose another court or time.",
+      ],
+    };
+  }
+  const previous = {
+    court: Number(match.court),
+    scheduledAt: Number(match.scheduledAt) || null,
+    slot: Number.isInteger(Number(match.slot)) ? Number(match.slot) : null,
+    courtLabel: cleanEventStaffText(match.courtLabel, 60),
+  };
+  match.court = court;
+  match.scheduledAt = scheduledAt;
+  match.slot = slot;
+  match.courtLabel = `Court ${court}`;
+  match.staffMovedAt = Date.now();
+  return {
+    event: structuredClone(row.event),
+    games: structuredClone(row.games),
+    matches,
+    deletedGameIds: { ...(row.deletedGameIds || {}) },
+    previous,
+    next: {
+      court,
+      scheduledAt,
+      slot,
+      courtLabel: match.courtLabel,
+      reason: cleanEventStaffReason(operation.payload.reason) || null,
+    },
+    targetType: "scheduledMatch",
+    warnings: [],
+  };
+}
+
+function eventStaffCorrectionAllowed(row, targetId) {
+  return (row.staffScoreMatchIds || []).includes(targetId);
+}
+
+async function eventStaffOperationPlan(auth, operation) {
+  if (["recordEventScore", "correctEventScore", "completeBracketMatch"].includes(operation.action)) {
+    const target = (auth.event.matches || []).find(match => match?.id === operation.targetId);
+    if (
+      auth.grant.role === "scorekeeper"
+      && (target?.phase === "playoff" || target?.kind === "playoff")
+    ) {
+      return {
+        error: [
+          403,
+          "permission_denied",
+          "Scorekeepers cannot operate playoff bracket matches.",
+        ],
+      };
+    }
+    if (
+      operation.action === "correctEventScore"
+      && auth.grant.role === "scorekeeper"
+      && !eventStaffCorrectionAllowed(auth.event, operation.targetId)
+    ) {
+      return {
+        error: [
+          403,
+          "correction_not_permitted",
+          "Scorekeepers may only correct a result previously entered through event staff access.",
+        ],
+      };
+    }
+    return eventStaffScorePlan(auth.event, operation);
+  }
+  if (["setEntryCheckIn", "setEntryAttendanceStatus"].includes(operation.action)) {
+    const plan = eventStaffCheckInPlan(auth.event, operation);
+    if (plan.error) return plan;
+    const entry = eventStaffEntryCollection(auth.event.event)
+      .find(value => value && value.id === operation.targetId);
+    const registrationId = cleanEventStaffText(entry?.registrationId, 160);
+    const accepted = await d1First(auth.db.prepare(`
+      SELECT registration.id
+      FROM event_registrations registration
+      JOIN event_registration_configs config
+        ON config.event_id = registration.event_id
+      WHERE registration.id = ?
+        AND registration.event_id = ?
+        AND registration.status = 'accepted'
+        AND config.owner_scope = ?
+      LIMIT 1
+    `).bind(registrationId, auth.event.eventId, auth.event.ownerScope));
+    if (!accepted) {
+      return {
+        error: [
+          409,
+          "registration_not_accepted",
+          "Only an accepted registration for this event can be checked in.",
+        ],
+      };
+    }
+    plan.acceptedRegistrationId = registrationId;
+    return plan;
+  }
+  if (operation.action === "moveScheduledMatch") {
+    return eventStaffMovePlan(auth.event, operation);
+  }
+  return { error: [400, "unsupported_action", "This event staff action is not supported."] };
+}
+
+async function eventStaffIdempotentResponse(request, db, row, grant, record) {
+  const stored = parseEventStaffJson(record.response_json, {});
+  const current = await getEventStaffEvent(db, row.ownerScope, row.eventId);
+  return eventStaffJson({
+    ...stored,
+    ok: true,
+    idempotentReplay: true,
+    revision: Number(record.resulting_revision),
+    eventRevision: Number(record.resulting_revision),
+    state: await eventStaffScopedState(db, current || row, grant),
+  }, 200, request);
+}
+
+function eventStaffPruneIdempotency(db, ownerScope, eventId) {
+  return db.prepare(`
+    DELETE FROM event_staff_idempotency
+    WHERE owner_scope = ? AND event_id = ?
+      AND (owner_scope, event_id, grant_id, idempotency_key) NOT IN (
+        SELECT owner_scope, event_id, grant_id, idempotency_key
+        FROM event_staff_idempotency
+        WHERE owner_scope = ? AND event_id = ?
+        ORDER BY created_at DESC, idempotency_key DESC LIMIT ?
+      )
+  `).bind(ownerScope, eventId, ownerScope, eventId, EVENT_STAFF_IDEMPOTENCY_LIMIT);
+}
+
+async function applyEventStaffOperation(request, env) {
+  const auth = await authorizeEventStaffSession(request, env);
+  if (auth.response) return auth.response;
+  const parsed = await readEventStaffJson(request);
+  if (parsed.response) return parsed.response;
+  const checked = validateEventStaffOperation(parsed.value);
+  if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
+  const operation = checked.value;
+  if (operation.eventId !== auth.event.eventId || operation.eventId !== auth.grant.event_id) {
+    return eventStaffError(request, 403, "event_scope_mismatch", "This grant cannot operate that event.");
+  }
+  const requiredPermission = EVENT_STAFF_OPERATION_PERMISSIONS[operation.action];
+  if (!(EVENT_STAFF_ROLE_PERMISSIONS[auth.grant.role] || []).includes(requiredPermission)) {
+    return eventStaffError(request, 403, "permission_denied", "This event staff role cannot perform that action.");
+  }
+  const requestHash = await sha256(stableEventStaffJson({
+    eventId: operation.eventId,
+    action: operation.action,
+    targetId: operation.targetId,
+    expectedRevision: operation.expectedRevision,
+    payload: operation.payload,
+  }));
+  const existingIdempotency = await d1First(auth.db.prepare(`
+    SELECT * FROM event_staff_idempotency
+    WHERE owner_scope = ? AND event_id = ? AND grant_id = ? AND idempotency_key = ?
+  `).bind(auth.event.ownerScope, auth.event.eventId, auth.grant.id, operation.idempotencyKey));
+  if (existingIdempotency) {
+    if (!sameHash(existingIdempotency.request_hash, requestHash)) {
+      return eventStaffError(request, 409, "idempotency_key_reused", "That request identifier was already used for a different operation.");
+    }
+    return eventStaffIdempotentResponse(request, auth.db, auth.event, auth.grant, existingIdempotency);
+  }
+  if (operation.expectedRevision !== auth.event.revision) {
+    return eventStaffError(request, 409, "revision_conflict", "The event changed before this operation could be saved.", {
+      currentRevision: auth.event.revision,
+      attempted: eventStaffOperationAttempt(operation),
+      state: await eventStaffScopedState(auth.db, auth.event, auth.grant),
+    });
+  }
+  const plan = await eventStaffOperationPlan(auth, operation);
+  if (plan.error) {
+    const [status, error, message, extra = {}] = plan.error;
+    return eventStaffError(request, status, error, message, extra);
+  }
+  const now = Date.now(), nextRevision = auth.event.revision + 1;
+  const operationReference = randomTokenBytes(16);
+  const storedResponse = {
+    ok: true,
+    revision: nextRevision,
+    eventRevision: nextRevision,
+    serverTimestamp: now,
+    warnings: plan.warnings,
+    operationReference,
+  };
+  const responseJson = stableEventStaffJson(storedResponse);
+  const source = operation.replayed ? "queued" : "online";
+  const staffScoreMatchIds = new Set(auth.event.staffScoreMatchIds || []);
+  if (["recordEventScore", "correctEventScore", "completeBracketMatch"].includes(operation.action)) {
+    staffScoreMatchIds.add(operation.targetId);
+  }
+  const staffScoreMatchIdsJson = stableEventStaffJson(
+    [...staffScoreMatchIds].filter(id => SCORE_MATCH_ID_PATTERN.test(id)).slice(0, EVENT_STAFF_MAX_MATCHES),
+  );
+  const results = await d1Batch(auth.db, [
+    auth.db.prepare(`
+      UPDATE event_staff_events
+      SET revision = ?, event_json = ?, games_json = ?, matches_json = ?,
+          deleted_game_ids_json = ?, staff_score_match_ids_json = ?, updated_at = ?
+      WHERE owner_scope = ? AND event_id = ? AND revision = ? AND access_epoch = ?
+        AND deleted_at IS NULL
+        AND (
+          ? IS NULL OR EXISTS (
+            SELECT 1
+            FROM event_registrations registration
+            JOIN event_registration_configs config
+              ON config.event_id = registration.event_id
+            WHERE registration.id = ?
+              AND registration.event_id = ?
+              AND registration.status = 'accepted'
+              AND config.owner_scope = ?
+          )
+        )
+        AND NOT EXISTS (
+          SELECT 1 FROM event_staff_idempotency ledger
+          WHERE ledger.owner_scope = ? AND ledger.event_id = ?
+            AND ledger.grant_id = ? AND ledger.idempotency_key = ?
+        )
+        AND EXISTS (
+          SELECT 1
+          FROM event_staff_sessions session
+          JOIN event_staff_grants grant ON grant.id = session.grant_id
+          WHERE session.session_hash = ? AND session.grant_id = ?
+            AND session.owner_scope = ? AND session.event_id = ?
+            AND session.event_access_epoch = ?
+            AND session.revoked_at IS NULL AND session.expires_at > ?
+            AND grant.revoked_at IS NULL AND grant.expires_at > ?
+            AND grant.event_access_epoch = ?
+        )
+    `).bind(
+      nextRevision,
+      stableEventStaffJson(plan.event),
+      stableEventStaffJson(plan.games),
+      stableEventStaffJson(plan.matches),
+      stableEventStaffJson(plan.deletedGameIds),
+      staffScoreMatchIdsJson,
+      now,
+      auth.event.ownerScope, auth.event.eventId, auth.event.revision, auth.event.accessEpoch,
+      plan.acceptedRegistrationId || null, plan.acceptedRegistrationId || "",
+      auth.event.eventId, auth.event.ownerScope,
+      auth.event.ownerScope, auth.event.eventId, auth.grant.id, operation.idempotencyKey,
+      auth.sessionHash, auth.grant.id, auth.event.ownerScope, auth.event.eventId,
+      auth.event.accessEpoch, now, now, auth.event.accessEpoch,
+    ),
+    auth.db.prepare(`
+      INSERT INTO event_staff_idempotency (
+        owner_scope, event_id, grant_id, idempotency_key, request_hash,
+        response_json, resulting_revision, created_at
+      )
+      SELECT ?, ?, ?, ?, ?, ?, ?, ?
+      WHERE changes() = 1
+    `).bind(
+      auth.event.ownerScope, auth.event.eventId, auth.grant.id,
+      operation.idempotencyKey, requestHash, responseJson, nextRevision, now,
+    ),
+    auth.db.prepare(`
+      INSERT INTO event_staff_audit (
+        id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+        target_type, target_id, previous_json, new_json, resulting_revision,
+        idempotency_key, source, created_at
+      )
+      SELECT ?, ledger.owner_scope, ledger.event_id, ledger.grant_id, ?, ?, ?,
+             ?, ?, ?, ?, ledger.resulting_revision, ledger.idempotency_key, ?, ?
+      FROM event_staff_idempotency ledger
+      WHERE ledger.owner_scope = ? AND ledger.event_id = ?
+        AND ledger.grant_id = ? AND ledger.idempotency_key = ?
+        AND ledger.request_hash = ? AND ledger.response_json = ?
+        AND changes() = 1
+    `).bind(
+      operationReference, auth.grant.staff_label, auth.grant.role, operation.action,
+      plan.targetType, operation.targetId,
+      plan.previous == null ? null : stableEventStaffJson(plan.previous),
+      plan.next == null ? null : stableEventStaffJson(plan.next),
+      source, now,
+      auth.event.ownerScope, auth.event.eventId, auth.grant.id,
+      operation.idempotencyKey, requestHash, responseJson,
+    ),
+  ]);
+  if (!Number(results[0]?.meta?.changes) || !Number(results[1]?.meta?.changes)) {
+    const raced = await d1First(auth.db.prepare(`
+      SELECT * FROM event_staff_idempotency
+      WHERE owner_scope = ? AND event_id = ? AND grant_id = ? AND idempotency_key = ?
+    `).bind(auth.event.ownerScope, auth.event.eventId, auth.grant.id, operation.idempotencyKey));
+    if (raced) {
+      if (!sameHash(raced.request_hash, requestHash)) {
+        return eventStaffError(request, 409, "idempotency_key_reused", "That request identifier was already used for a different operation.");
+      }
+      return eventStaffIdempotentResponse(request, auth.db, auth.event, auth.grant, raced);
+    }
+    const reauthorized = await authorizeEventStaffSession(request, env, { touch: false });
+    if (reauthorized.response) return reauthorized.response;
+    const current = await getEventStaffEvent(auth.db, auth.event.ownerScope, auth.event.eventId);
+    return eventStaffError(request, 409, "revision_conflict", "The event changed before this operation could be saved.", {
+      currentRevision: current?.revision || 0,
+      attempted: eventStaffOperationAttempt(operation),
+      state: current ? await eventStaffScopedState(auth.db, current, auth.grant) : null,
+    });
+  }
+  await Promise.all([
+    eventStaffPruneAudit(auth.db, auth.event.ownerScope, auth.event.eventId).run(),
+    eventStaffPruneIdempotency(auth.db, auth.event.ownerScope, auth.event.eventId).run(),
+  ]);
+  const current = await getEventStaffEvent(auth.db, auth.event.ownerScope, auth.event.eventId);
+  return eventStaffJson({
+    ...storedResponse,
+    state: await eventStaffScopedState(auth.db, current, auth.grant),
+  }, 200, request);
+}
+
+async function eventStaffRowsForOwner(env, room) {
+  if (!room || !(await eventStaffSchemaReady(env))) return [];
+  const ownerScope = await sha256(room), db = eventStaffDb(env);
+  const records = await d1Rows(db.prepare(`
+    SELECT * FROM event_staff_events
+    WHERE owner_scope = ?
+    ORDER BY
+      CASE WHEN deleted_at IS NULL THEN 0 ELSE 1 END ASC,
+      updated_at DESC,
+      event_id ASC
+    LIMIT 1000
+  `).bind(ownerScope));
+  return records.map(eventStaffRow).filter(Boolean);
+}
+
+function mergeEventStaffDeletionMap(current, incoming) {
+  const out = current && typeof current === "object" && !Array.isArray(current)
+    ? { ...current }
+    : {};
+  for (const [id, timestamp] of Object.entries(incoming || {})) {
+    if (!PLAYER_ID_PATTERN.test(id) || !Number.isFinite(Number(timestamp))) continue;
+    out[id] = Math.max(Number(out[id]) || 0, Number(timestamp));
+  }
+  return out;
+}
+
+function eventStaffApplyMovedMatch(ownerEvent, match) {
+  if (!match || match.phase === "playoff" || match.kind === "playoff") return;
+  if (!Number.isFinite(Number(match.staffMovedAt)) || Number(match.staffMovedAt) <= 0) return;
+  const court = Number(match.court), slot = Number(match.slot), scheduledAt = Number(match.scheduledAt);
+  if (!Number.isInteger(court) || !Number.isInteger(slot) || !Number.isFinite(scheduledAt)) return;
+  if (match.format === "rotatingGroups" || ownerEvent.format === "rotatingGroups") {
+    const key = Array.isArray(ownerEvent.rotationSchedule)
+      ? "rotationSchedule"
+      : Array.isArray(ownerEvent.pairSchedule) ? "pairSchedule" : "rotationSchedule";
+    const schedule = Array.isArray(ownerEvent[key]) ? ownerEvent[key].map(value => ({ ...value })) : [];
+    const index = schedule.findIndex(value => value?.id === match.id);
+    if (index < 0) return;
+    schedule[index] = {
+      ...schedule[index],
+      court,
+      round: slot + 1,
+      timeOffsetMinutes: slot * Math.max(1, Number(ownerEvent.rotation?.setMin || ownerEvent.pairSettings?.setMin) || 25),
+      scheduledAt,
+      staffScheduledAt: scheduledAt,
+    };
+    ownerEvent[key] = schedule;
+    return;
+  }
+  const canonicalId = match.gameRecordMatchId ?? match.canonicalEvMatchId;
+  const extras = Array.isArray(ownerEvent.fixedScheduleExtras)
+    ? ownerEvent.fixedScheduleExtras.map(value => ({ ...value }))
+    : [];
+  const extraIndex = canonicalId == null
+    ? -1
+    : extras.findIndex(value => value?.id === canonicalId);
+  const zeroBasedCourt = Math.max(0, court - 1);
+  if (extraIndex >= 0) {
+    extras[extraIndex] = {
+      ...extras[extraIndex],
+      court: zeroBasedCourt,
+      slot,
+      round: slot + 1,
+      est: scheduledAt,
+    };
+    ownerEvent.fixedScheduleExtras = extras;
+    return;
+  }
+  if (!ownerEvent.sched || typeof ownerEvent.sched !== "object" || Array.isArray(ownerEvent.sched)) return;
+  const teamAId = match.teamAId || match.sideAId || match.a;
+  const teamBId = match.teamBId || match.sideBId || match.b;
+  if (!teamAId || !teamBId) return;
+  const pairKey = (left, right) => [String(left), String(right)].sort().join("\u0000");
+  const targetPair = pairKey(teamAId, teamBId);
+  const locked = Array.isArray(ownerEvent.sched.lockedMatches)
+    ? ownerEvent.sched.lockedMatches.map(value => ({ ...value }))
+    : [];
+  const lockIndex = locked.findIndex(value => pairKey(value?.a, value?.b) === targetPair);
+  const next = {
+    ...(lockIndex >= 0 ? locked[lockIndex] : {}),
+    a: teamAId,
+    b: teamBId,
+    slot,
+    round: slot + 1,
+    court: zeroBasedCourt,
+    est: scheduledAt,
+    scheduleBlock: match.phase === "makeup" ? "makeup" : "standard",
+    status: match.status || "pending",
+  };
+  /*
+   * A synthetic operation target must not become a persisted canonical match
+   * ID. Otherwise later game records would gain a linkage the owner builder
+   * intentionally omits for legacy generated pool matches.
+   */
+  delete next.id;
+  if (lockIndex >= 0) locked[lockIndex] = next;
+  else locked.push(next);
+  ownerEvent.sched = { ...ownerEvent.sched, lockedMatches: locked };
+}
+
+function eventStaffOverlayOwnerData(source, rows) {
+  const data = source && typeof source === "object" && !Array.isArray(source)
+    ? structuredClone(source)
+    : {};
+  const events = Array.isArray(data.events) ? data.events : [];
+  let games = Array.isArray(data.games) ? data.games : [];
+  const revisions = data.eventStaffRevisions && typeof data.eventStaffRevisions === "object"
+    && !Array.isArray(data.eventStaffRevisions)
+    ? { ...data.eventStaffRevisions }
+    : {};
+  let gameDeletions = mergeEventStaffDeletionMap(
+    data.deletions?.games,
+    data.tomb,
+  );
+  const eventDeletions = data.deletions?.events
+    && typeof data.deletions.events === "object"
+    && !Array.isArray(data.deletions.events)
+    ? { ...data.deletions.events }
+    : {};
+  for (const row of rows) {
+    revisions[row.eventId] = row.revision;
+    const eventIndex = events.findIndex(event => event && event.id === row.eventId);
+    if (row.deletedAt) {
+      if (eventIndex >= 0) events.splice(eventIndex, 1);
+      eventDeletions[row.eventId] = Math.max(
+        Number(eventDeletions[row.eventId]) || 0,
+        Number(row.deletedAt),
+      );
+    } else if (eventIndex >= 0) {
+      delete eventDeletions[row.eventId];
+      const ownerEvent = structuredClone(events[eventIndex]);
+      if (row.event?.registrationCheckIn && typeof row.event.registrationCheckIn === "object") {
+        ownerEvent.registrationCheckIn = structuredClone(row.event.registrationCheckIn);
+      }
+      (row.matches || []).forEach(match => eventStaffApplyMovedMatch(ownerEvent, match));
+      events[eventIndex] = ownerEvent;
+    }
+    const rowGames = (row.games || []).filter(game => game?.evId === row.eventId);
+    const rowGameIds = new Set(rowGames.map(game => game.id));
+    const retained = games.filter(game =>
+      game?.evId !== row.eventId && !rowGameIds.has(game?.id)
+    );
+    games = retained.concat(rowGames.map(game => {
+      const copy = structuredClone(game);
+      if (row.deletedAt) {
+        for (const key of [
+          "evId", "evA", "evB", "label", "matchId", "evMatchId",
+          "evEntryIdsA", "evEntryIdsB", "evPairIdsA", "evPairIdsB", "eventFormat",
+        ]) delete copy[key];
+      }
+      return copy;
+    }));
+    gameDeletions = mergeEventStaffDeletionMap(gameDeletions, row.deletedGameIds);
+  }
+  games = games.filter(game => !game?.id || !Object.prototype.hasOwnProperty.call(gameDeletions, game.id));
+  data.events = events;
+  data.games = games;
+  data.eventStaffRevisions = revisions;
+  data.deletions = data.deletions && typeof data.deletions === "object" && !Array.isArray(data.deletions)
+    ? { ...data.deletions, games: gameDeletions, events: eventDeletions }
+    : { games: gameDeletions, events: eventDeletions };
+  data.tomb = { ...gameDeletions };
+  return data;
+}
+
+function parseEventStaffSyncEnvelope(value) {
+  try {
+    const envelope = JSON.parse(value);
+    if (!envelope || typeof envelope !== "object" || Array.isArray(envelope)) return null;
+    const data = typeof envelope.data === "string" ? JSON.parse(envelope.data) : null;
+    if (!data || typeof data !== "object" || Array.isArray(data)) return null;
+    return { envelope, data };
+  } catch {
+    return null;
+  }
+}
+
+async function getEventStaffAwareSyncValue(env, room, storedValue, rows = null) {
+  const staffRows = rows || await eventStaffRowsForOwner(env, room);
+  if (!staffRows.length) return { value: storedValue, rows: staffRows, changed: false };
+  const fallback = storedValue || JSON.stringify({ ts: 0, data: null });
+  const parsed = parseEventStaffSyncEnvelope(fallback);
+  if (!parsed) return { value: fallback, rows: staffRows, changed: false };
+  const overlaid = eventStaffOverlayOwnerData(parsed.data, staffRows);
+  const data = JSON.stringify(overlaid);
+  if (data === parsed.envelope.data) return { value: fallback, rows: staffRows, changed: false };
+  const newestStaffUpdate = staffRows.reduce((latest, row) => Math.max(latest, Number(row.updatedAt) || 0), 0);
+  const staffRevisionClock = staffRows.reduce((total, row) => total + Math.max(1, Number(row.revision) || 1), 0);
+  /*
+   * A normal owner pull only applies envelopes newer than its last timestamp.
+   * Bump past the stored KV timestamp whenever D1 materially overlays it,
+   * including the same-millisecond collision case.
+   */
+  const ts = Math.max((Number(parsed.envelope.ts) || 0) + staffRevisionClock, newestStaffUpdate);
+  return {
+    value: JSON.stringify({ ...parsed.envelope, ts, data }),
+    rows: staffRows,
+    changed: true,
+  };
+}
+
+async function deleteOmittedEventStaffRows(env, rows) {
+  if (!rows.length) return { ok: true };
+  const db = eventStaffDb(env), now = Date.now(), ownerScope = rows[0].ownerScope;
+  const payload = stableEventStaffJson(rows.map(row => ({
+    eventId: row.eventId,
+    revision: row.revision,
+    accessEpoch: row.accessEpoch,
+    auditId: randomTokenBytes(16),
+  })));
+  const guardScope = `event-staff:sync-delete:${randomTokenBytes(16)}`;
+  const statements = [
+    db.prepare(`
+      INSERT INTO event_staff_audit (
+        id, owner_scope, event_id, grant_id, staff_label, role, action_type,
+        target_type, target_id, previous_json, new_json, resulting_revision,
+        idempotency_key, source, created_at
+      )
+      SELECT
+        json_extract(item.value, '$.auditId'),
+        event.owner_scope,
+        event.event_id,
+        NULL,
+        'Owner',
+        'owner',
+        'event.deleted',
+        'event',
+        event.event_id,
+        json_object(
+          'revision', event.revision,
+          'accessEpoch', event.access_epoch,
+          'deletedAt', event.deleted_at
+        ),
+        json_object(
+          'revision', event.revision + 1,
+          'accessEpoch', event.access_epoch + 1,
+          'deletedAt', ?,
+          'reason', 'Owner sync removed the event'
+        ),
+        event.revision + 1,
+        NULL,
+        'owner',
+        ?
+      FROM json_each(?) item
+      JOIN event_staff_events event
+        ON event.owner_scope = ?
+       AND event.event_id = json_extract(item.value, '$.eventId')
+       AND event.revision = json_extract(item.value, '$.revision')
+       AND event.access_epoch = json_extract(item.value, '$.accessEpoch')
+       AND event.deleted_at IS NULL
+    `).bind(now, now, payload, ownerScope),
+    db.prepare(`
+      UPDATE event_staff_events
+      SET access_epoch = access_epoch + 1,
+          revision = revision + 1,
+          staff_score_match_ids_json = '[]',
+          updated_at = ?,
+          deleted_at = ?
+      WHERE owner_scope = ?
+        AND EXISTS (
+          SELECT 1
+          FROM json_each(?) item
+          JOIN event_staff_audit audit
+            ON audit.id = json_extract(item.value, '$.auditId')
+          WHERE event_staff_events.event_id = json_extract(item.value, '$.eventId')
+        )
+    `).bind(now, now, ownerScope, payload),
+    db.prepare(`
+      UPDATE event_staff_grants
+      SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE owner_scope = ?
+        AND EXISTS (
+          SELECT 1
+          FROM json_each(?) item
+          JOIN event_staff_audit audit
+            ON audit.id = json_extract(item.value, '$.auditId')
+          WHERE event_staff_grants.event_id = json_extract(item.value, '$.eventId')
+        )
+    `).bind(now, ownerScope, payload),
+    db.prepare(`
+      UPDATE event_staff_sessions
+      SET revoked_at = COALESCE(revoked_at, ?)
+      WHERE owner_scope = ?
+        AND EXISTS (
+          SELECT 1
+          FROM json_each(?) item
+          JOIN event_staff_audit audit
+            ON audit.id = json_extract(item.value, '$.auditId')
+          WHERE event_staff_sessions.event_id = json_extract(item.value, '$.eventId')
+        )
+    `).bind(now, ownerScope, payload),
+  ];
+  /*
+   * D1 batch execution is transactional. This deliberately violates the
+   * attempt_count CHECK only when any guarded deletion did not land, forcing
+   * the whole multi-event deletion/revocation batch to roll back.
+   */
+  statements.push(db.prepare(`
+    INSERT INTO event_staff_rate_limits (
+      scope_hash, window_start, attempt_count, updated_at
+    )
+    SELECT ?, ?, -1, ?
+    WHERE EXISTS (
+      SELECT 1
+      FROM json_each(?) item
+      LEFT JOIN event_staff_events event
+        ON event.owner_scope = ?
+       AND event.event_id = json_extract(item.value, '$.eventId')
+      WHERE event.event_id IS NULL
+         OR event.revision != json_extract(item.value, '$.revision') + 1
+         OR event.access_epoch != json_extract(item.value, '$.accessEpoch') + 1
+         OR event.deleted_at != ?
+    )
+  `).bind(guardScope, now, now, payload, ownerScope, now));
+  let results;
+  try {
+    results = await d1Batch(db, statements);
+  } catch {
+    return { ok: false, row: rows[0] };
+  }
+  if (
+    Number(results[0]?.meta?.changes) !== rows.length
+    || Number(results[1]?.meta?.changes) !== rows.length
+  ) {
+    return { ok: false, row: rows[0] };
+  }
+  await Promise.all(rows.map(row =>
+    eventStaffPruneAudit(db, row.ownerScope, row.eventId).run()
+  ));
+  return { ok: true };
+}
+
+async function putEventStaffAwareSyncValue(request, env, room, key, rows) {
+  const raw = await request.text();
+  if (!rows.length) {
+    await env.COURT.put(key, raw);
+    return json({ ok: true }, 200, LEGACY_CORS);
+  }
+  const parsed = parseEventStaffSyncEnvelope(raw);
+  if (!parsed) {
+    return json({ ok: false, error: "invalid sync envelope" }, 400, LEGACY_CORS);
+  }
+  const supplied = parsed.data.eventStaffRevisions && typeof parsed.data.eventStaffRevisions === "object"
+    && !Array.isArray(parsed.data.eventStaffRevisions)
+    ? parsed.data.eventStaffRevisions
+    : {};
+  const submittedEventIds = new Set(
+    (Array.isArray(parsed.data.events) ? parsed.data.events : [])
+      .map(event => event?.id)
+      .filter(id => typeof id === "string"),
+  );
+  const omittedRows = rows.filter(row =>
+    !row.deletedAt && !submittedEventIds.has(row.eventId)
+  );
+  if (omittedRows.length) {
+    const deleted = await deleteOmittedEventStaffRows(env, omittedRows);
+    if (!deleted.ok) {
+      const currentRows = await eventStaffRowsForOwner(env, room);
+      const currentRevisions = Object.fromEntries(
+        currentRows.map(row => [row.eventId, row.revision]),
+      );
+      return json({
+        ok: false,
+        error: "revision_conflict",
+        eventStaffRevisions: currentRevisions,
+        currentRevisions,
+        conflicts: [{
+          eventId: deleted.row.eventId,
+          currentRevision: currentRevisions[deleted.row.eventId] || 0,
+          submittedRevision: deleted.row.revision,
+        }],
+      }, 409, LEGACY_CORS);
+    }
+    rows = await eventStaffRowsForOwner(env, room);
+  }
+  const currentRevisions = Object.fromEntries(rows.map(row => [row.eventId, row.revision]));
+  const restoreWithoutReset = rows.filter(row =>
+    row.deletedAt && submittedEventIds.has(row.eventId)
+  );
+  if (restoreWithoutReset.length) {
+    return json({
+      ok: false,
+      error: "event_access_reset_required",
+      eventStaffRevisions: currentRevisions,
+      currentRevisions,
+      conflicts: restoreWithoutReset.map(row => ({
+        eventId: row.eventId,
+        currentRevision: row.revision,
+        reason: "explicit_event_staff_access_reset_required",
+      })),
+    }, 409, LEGACY_CORS);
+  }
+  const missingRevisions = rows.filter(row =>
+    !row.deletedAt
+    && submittedEventIds.has(row.eventId)
+    && !Object.prototype.hasOwnProperty.call(supplied, row.eventId)
+  );
+  if (missingRevisions.length) {
+    return json({
+      ok: false,
+      error: "event_staff_revision_required",
+      eventStaffRevisions: currentRevisions,
+      currentRevisions,
+      conflicts: missingRevisions.map(row => ({
+        eventId: row.eventId,
+        currentRevision: row.revision,
+        submittedRevision: null,
+      })),
+    }, 409, LEGACY_CORS);
+  }
+  const conflicts = rows.filter(row => {
+    if (!submittedEventIds.has(row.eventId)) return false;
+    if (!Object.prototype.hasOwnProperty.call(supplied, row.eventId)) return false;
+    const revision = Number(supplied[row.eventId]);
+    return !Number.isInteger(revision) || revision !== row.revision;
+  });
+  if (conflicts.length) {
+    return json({
+      ok: false,
+      error: "revision_conflict",
+      eventStaffRevisions: currentRevisions,
+      currentRevisions,
+      conflicts: conflicts.map(row => ({
+        eventId: row.eventId,
+        currentRevision: row.revision,
+        submittedRevision: Number(supplied[row.eventId]) || 0,
+      })),
+    }, 409, LEGACY_CORS);
+  }
+  const overlaid = eventStaffOverlayOwnerData(parsed.data, rows);
+  const data = JSON.stringify(overlaid);
+  const newestStaffUpdate = rows.reduce((latest, row) => Math.max(latest, Number(row.updatedAt) || 0), 0);
+  const envelope = {
+    ...parsed.envelope,
+    ts: Math.max(Number(parsed.envelope.ts) || 0, newestStaffUpdate),
+    data,
+  };
+  await env.COURT.put(key, JSON.stringify(envelope));
+  return json({ ok: true, eventStaffRevisions: currentRevisions }, 200, LEGACY_CORS);
+}
+
+function eventStaffDeskPage() {
+  const nonce = randomTokenBytes(16);
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="robots" content="noindex,nofollow,noarchive">
+  <meta name="referrer" content="no-referrer">
+  <title>Tournament Desk · Court</title>
+  <style nonce="${nonce}">
+    :root{color-scheme:light;--ink:#172033;--muted:#647187;--line:#d9e0eb;--paper:#fff;--wash:#f3f6fa;--navy:#17243b;--gold:#efc461;--ok:#237447;--warn:#9a6111;--bad:#a63737;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    *{box-sizing:border-box}html{background:var(--wash)}body{margin:0;color:var(--ink);background:var(--wash);line-height:1.4}button,input,select{font:inherit}button{min-height:44px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);font-weight:750;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #2679ad;outline-offset:2px}button.primary{border-color:#244b72;background:#244b72;color:#fff}button.danger{border-color:#d8adad;color:var(--bad)}button.link{border:0;background:transparent;color:#245f8c}.shell{width:min(760px,100%);min-height:100vh;margin:0 auto;background:#f8fafd;padding-bottom:calc(86px + env(safe-area-inset-bottom))}
+    header{padding:calc(18px + env(safe-area-inset-top)) 18px 18px;background:var(--navy);color:#fff}header h1{margin:4px 0 2px;font-size:clamp(24px,7vw,34px);overflow-wrap:anywhere}.restricted{display:inline-flex;padding:5px 8px;border:1px solid #f0ca71aa;border-radius:999px;color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}.head-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.head-row button{flex:none;border-color:#ffffff55;background:#ffffff0e;color:#fff}.meta{margin-top:8px;color:#d5deeb;font-size:13px}.status-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pill{padding:5px 8px;border-radius:999px;background:#ffffff16;color:#e7edf6;font-size:11px}.pill.online{background:#dff4e8;color:#185b35}.pill.offline{background:#fff0d2;color:#744708}.pill.pending{background:#fff0d2;color:#744708}
+    nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}nav button{min-width:0;padding:8px;font-size:12px}nav button.on{border-color:#244b72;background:#e9f1f8;color:#163f63}main{padding:14px}.panel{display:none}.panel.on{display:block}.panel h2{margin:3px 0 12px;font-size:21px}.card{margin:0 0 11px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 2px 8px #1823390a}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.eyebrow{color:var(--muted);font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.teams{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:10px 0;font-size:16px;font-weight:850}.teams span:nth-child(2){color:var(--muted);font-size:11px}.teams span:last-child{text-align:right}.score{font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}.actions button{flex:1 1 130px;padding:9px}.muted{color:var(--muted)}.small{font-size:12px}.empty{padding:26px 14px;text-align:center;color:var(--muted)}.notice{margin:12px 14px 0;padding:11px 13px;border-radius:11px;background:#eaf3fa;color:#234f70;font-size:13px}.notice.warn{background:#fff1d6;color:#70440a}.notice.bad{background:#fde8e8;color:#812d2d}.notice.ok{background:#e3f4e9;color:#1c653b}.queue{margin:12px 14px 0;padding:12px;border:1px solid #e2c37e;border-radius:12px;background:#fff7e4}.queue button{margin-top:8px;margin-right:6px;padding:8px 11px}.entry-row,.schedule-row,.standing-row,.activity-row{display:grid;gap:5px;margin-bottom:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}.standing-row{grid-template-columns:32px minmax(0,1fr) auto;align-items:center}.entry-row select{width:100%;min-height:44px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff}.contact{margin-top:8px;padding:9px;border-radius:9px;background:var(--wash);overflow-wrap:anywhere}
+    dialog{width:min(520px,calc(100% - 24px));max-height:calc(100vh - 32px);padding:0;border:0;border-radius:16px;box-shadow:0 22px 70px #10182766}dialog::backdrop{background:#10182799}.dialog-body{padding:18px;overflow:auto}.dialog-body h2{margin:0 0 6px}.field{margin-top:13px}.field label{display:block;margin-bottom:5px;font-size:12px;font-weight:800}.field input,.field select{width:100%;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.set-row{display:grid;grid-template-columns:42px 1fr 1fr;align-items:center;gap:8px;margin-top:8px}.set-row input{width:100%;min-width:0;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.dialog-actions{display:flex;gap:8px;margin-top:16px}.dialog-actions button{flex:1}.access{width:min(500px,calc(100% - 28px));margin:calc(36px + env(safe-area-inset-top)) auto;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 12px 35px #17243b1a}.access h1{margin:6px 0}.access input{width:100%;min-height:48px;margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:11px}.access button{width:100%}.access .restricted{color:#77510e;border-color:#d4ad55}.hidden{display:none!important}@media(min-width:620px){nav{grid-template-columns:repeat(4,minmax(0,1fr))}main{padding:18px}.card{padding:16px}}
+  </style>
+</head>
+<body>
+  <div id="access" class="access hidden">
+    <span class="restricted">Restricted event access</span>
+    <h1>Tournament Desk</h1>
+    <p id="access-copy" class="muted">Use the staff link and optional PIN supplied by the organizer.</p>
+    <label class="small" for="staff-pin"><b>PIN, if required</b></label>
+    <input id="staff-pin" type="password" inputmode="numeric" pattern="[0-9]*" maxlength="12" autocomplete="one-time-code">
+    <button id="redeem" class="primary" type="button">Open Tournament Desk</button>
+    <p id="access-message" role="status" class="small"></p>
+  </div>
+  <div id="desk" class="shell hidden">
+    <header>
+      <div class="head-row"><div><span class="restricted">Restricted event access</span><h1 id="event-name">Tournament Desk</h1></div><div class="head-actions"><button id="refresh" type="button">Refresh</button><button id="logout" type="button">Logout</button></div></div>
+      <div id="event-meta" class="meta"></div><div id="staff-meta" class="meta"></div>
+      <div class="status-row"><span id="connection" class="pill">Connecting…</span><span id="last-sync" class="pill">Not synchronized</span></div>
+    </header>
+    <div id="notice" class="notice hidden" role="status"></div>
+    <div id="queue-state" class="queue hidden" role="status"></div>
+    <nav id="tabs" aria-label="Tournament Desk sections"></nav>
+    <main id="content"></main>
+  </div>
+  <dialog id="score-dialog" aria-labelledby="score-title"><form method="dialog" class="dialog-body">
+    <h2 id="score-title">Record score</h2><p id="score-match" class="muted"></p>
+    <div class="field"><label for="score-mode">Score format</label><select id="score-mode"><option value="set">Single set</option><option value="bo3">Best of 3</option></select></div>
+    <div id="score-sets"></div>
+    <p class="small muted">Tied sets are saved for event standings, but currently have no rating impact.</p>
+    <div class="field"><label for="score-reason">Correction note, if applicable</label><input id="score-reason" maxlength="240"></div>
+    <div class="dialog-actions"><button id="score-cancel" type="button">Cancel</button><button id="score-discard" class="danger" type="button">Discard draft</button><button id="score-save" class="primary" type="button">Review &amp; queue</button></div>
+  </form></dialog>
+  <dialog id="move-dialog" aria-labelledby="move-title"><form method="dialog" class="dialog-body">
+    <h2 id="move-title">Move scheduled match</h2><p id="move-match" class="muted"></p>
+    <div class="field"><label for="move-placement">Valid court and time</label><select id="move-placement"></select></div>
+    <div class="dialog-actions"><button id="move-cancel" type="button">Cancel</button><button id="move-save" class="primary" type="button">Queue move</button></div>
+  </form></dialog>
+  <script nonce="${nonce}">
+  (function(){
+    "use strict";
+    var fragment=new URLSearchParams(location.hash.slice(1));
+    var linkToken=fragment.get("token")||"";
+    history.replaceState(null,"",location.pathname+location.search);
+    var SESSION_KEY="court:event-staff:session:v1",DB_NAME="court-event-staff-v1";
+    var session=null,state=null,queueScope="",activeTab="matches",lastSuccess=0,busy=false,queueBlocked=false,queueIssue=null,queueSequence=0,drainRevision=null,serviceUnavailable=false,scoreMatch=null,scorePrefill=null,scoreReturnFocus=null,moveMatch=null,moveReturnFocus=null,dbPromise=null;
+    var access=document.getElementById("access"),desk=document.getElementById("desk"),notice=document.getElementById("notice"),queueBox=document.getElementById("queue-state");
+    function text(value){return value==null?"":String(value)}
+    function el(tag,attrs,children){var node=document.createElement(tag);Object.keys(attrs||{}).forEach(function(key){if(key==="class")node.className=attrs[key];else if(key==="hidden")node.hidden=!!attrs[key];else node.setAttribute(key,attrs[key])});(Array.isArray(children)?children:[children]).forEach(function(child){if(child==null)return;node.append(child.nodeType?child:document.createTextNode(text(child)))});return node}
+    function showNotice(message,kind){notice.textContent=message||"";notice.className="notice"+(kind?" "+kind:"")+(message?"":" hidden")}
+    function roleLabel(role){return ({viewOnly:"View Only",scorekeeper:"Scorekeeper",tournamentOperator:"Tournament Operator"})[role]||role}
+    function can(permission){return !!state&&Array.isArray(state.grant.permissions)&&state.grant.permissions.indexOf(permission)>=0}
+    function randomKey(){var bytes=new Uint8Array(18);crypto.getRandomValues(bytes);var raw="";bytes.forEach(function(value){raw+=String.fromCharCode(value)});return "desk-"+btoa(raw).replace(/\\+/g,"-").replace(/\\//g,"_").replace(/=+$/,"")}
+    function formatTime(value){var date=new Date(Number(value));return Number.isFinite(date.getTime())?date.toLocaleString([], {month:"short",day:"numeric",hour:"numeric",minute:"2-digit"}):"Time TBD"}
+    function openDb(){if(dbPromise)return dbPromise;dbPromise=new Promise(function(resolve,reject){var request=indexedDB.open(DB_NAME,1);request.onupgradeneeded=function(){["queue","drafts","cache"].forEach(function(name){if(!request.result.objectStoreNames.contains(name))request.result.createObjectStore(name,{keyPath:"key"})})};request.onsuccess=function(){resolve(request.result)};request.onerror=function(){reject(request.error)}});return dbPromise}
+    async function storePut(name,value){try{var db=await openDb();await new Promise(function(resolve,reject){var tx=db.transaction(name,"readwrite");try{tx.objectStore(name).put(value)}catch(error){reject(error);return}tx.oncomplete=resolve;tx.onerror=function(){reject(tx.error)};tx.onabort=function(){reject(tx.error||new Error("Storage write aborted"))}});return true}catch(error){return false}}
+    async function storeDelete(name,key){try{var db=await openDb();await new Promise(function(resolve,reject){var tx=db.transaction(name,"readwrite");tx.objectStore(name).delete(key);tx.oncomplete=resolve;tx.onerror=function(){reject(tx.error)}})}catch(error){}}
+    async function storeAll(name){try{var db=await openDb();return await new Promise(function(resolve,reject){var tx=db.transaction(name,"readonly"),request=tx.objectStore(name).getAll();request.onsuccess=function(){resolve(request.result||[])};request.onerror=function(){reject(request.error)}})}catch(error){return []}}
+    async function clearScope(scope){var targetScope=scope||queueScope,names=["queue","drafts","cache"],all;if(!targetScope)return;for(var i=0;i<names.length;i+=1){all=await storeAll(names[i]);for(var j=0;j<all.length;j+=1)if(all[j].scope===targetScope)await storeDelete(names[i],all[j].key)}}
+    function saveSession(){if(session)sessionStorage.setItem(SESSION_KEY,JSON.stringify(session));else sessionStorage.removeItem(SESSION_KEY)}
+    function loadSession(){try{var value=JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");if(value&&value.token&&value.expiresAt>Date.now())return value;sessionStorage.removeItem(SESSION_KEY);if(value&&typeof value.queueScope==="string"&&value.queueScope)clearScope(value.queueScope)}catch(error){sessionStorage.removeItem(SESSION_KEY)}return null}
+    async function api(path,options){var headers={"Content-Type":"application/json"},response;if(session&&session.token)headers.Authorization="Bearer "+session.token;try{response=await fetch(path,{method:options&&options.method||"GET",headers:headers,body:options&&options.body?JSON.stringify(options.body):undefined,cache:"no-store",credentials:"same-origin"})}catch(error){serviceUnavailable=true;setConnection();throw error}serviceUnavailable=response.status>=500;setConnection();var body={};try{body=await response.json()}catch(error){}if(!response.ok){var failure=new Error(body.message||"Request failed");failure.status=response.status;failure.body=body;throw failure}return body}
+    function setConnection(){var online=navigator.onLine&&!serviceUnavailable;var node=document.getElementById("connection");node.textContent=!navigator.onLine?"Offline · writes pending":serviceUnavailable?"Service unavailable · writes pending":"Online";node.className="pill "+(online?"online":"offline");document.getElementById("last-sync").textContent=lastSuccess?"Last sync "+new Date(lastSuccess).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Not synchronized"}
+    function showAccess(message){desk.classList.add("hidden");access.classList.remove("hidden");document.getElementById("access-message").textContent=message||"";document.getElementById("staff-pin").focus()}
+    function setState(next){state=next;lastSuccess=Date.now();setConnection();if(queueScope)storePut("cache",{key:"cache:"+queueScope,scope:queueScope,state:state,updatedAt:lastSuccess});render()}
+    async function redeem(){if(!linkToken){showAccess("Open the staff link supplied by the organizer.");return}var button=document.getElementById("redeem");button.disabled=true;document.getElementById("access-message").textContent="Checking access…";try{var result=await api("/api/event-staff/redeem",{method:"POST",body:{token:linkToken,pin:document.getElementById("staff-pin").value}});session={token:result.sessionToken,expiresAt:result.sessionExpiresAt,queueScope:result.queueScope};queueScope=result.queueScope;saveSession();linkToken="";document.getElementById("staff-pin").value="";access.classList.add("hidden");desk.classList.remove("hidden");setState(result.state);await processQueue()}catch(error){document.getElementById("access-message").textContent=error.status===429?"Too many attempts. Wait before trying again.":"The staff link or PIN could not be accepted."}finally{button.disabled=false}}
+    async function refresh(){if(!session)return false;try{var result=await api("/api/event-staff/state");desk.classList.remove("hidden");access.classList.add("hidden");setState(result.state);queueBlocked=false;queueIssue=null;await processQueue();return true}catch(error){if(error.status===401){await clearScope();session=null;state=null;saveSession();showAccess(error.body&&error.body.error==="access_revoked"?"This staff access was revoked.":"This staff access expired.")}else{var cached=(await storeAll("cache")).find(function(row){return row.key==="cache:"+queueScope});if(cached&&cached.state){state=cached.state;lastSuccess=Number(cached.updatedAt)||0;desk.classList.remove("hidden");access.classList.add("hidden");render();showNotice("Offline · showing the last synchronized event state. Writes will remain pending.","warn")}else showAccess("The Tournament Desk is unavailable while offline.")}return false}}
+    async function manualRefresh(){var button=document.getElementById("refresh");if(!session||button.disabled)return;button.disabled=true;button.textContent="Refreshing…";showNotice("Refreshing event…");try{if(await refresh())showNotice("Event refreshed.","ok")}finally{button.disabled=false;button.textContent="Refresh"}}
+    function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"],["info","Event Information"]];if(can("setEntryCheckIn"))list.splice(1,0,["checkin","Check-In"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
+    function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="activity")renderActivity(panel);else renderInfo(panel);setConnection();renderQueue()}
+    function heading(panel,title){panel.append(el("h2",{},title))}
+    function matchCard(match,actions){var card=el("article",{class:"card"}),head=el("div",{class:"card-head"});head.append(el("div",{},[el("div",{class:"eyebrow"},[match.courtLabel||"Court TBD"," · ",formatTime(match.scheduledAt)]),el("div",{class:"small muted"},match.label||"Scheduled match")]),el("strong",{class:match.result?"score":""},match.result?match.result.scoreLabel:(match.status||"Pending")));card.append(head,el("div",{class:"teams"},[el("span",{},match.sideAName||"Side A"),el("span",{},"VS"),el("span",{},match.sideBName||"Side B")]));if(actions){var row=el("div",{class:"actions"});if(can("recordEventScore")&&!match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var score=el("button",{type:"button",class:"primary","data-match-action":"score","data-match-id":match.id},"Enter score");score.addEventListener("click",function(){openScore(match,score)});row.append(score)}var correctionAllowed=state.grant.role==="tournamentOperator"||match.staffScoreCorrectable===true;if(can("correctEventScore")&&correctionAllowed&&match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var correct=el("button",{type:"button","data-match-action":"score","data-match-id":match.id},"Correct score");correct.addEventListener("click",function(){openScore(match,correct)});row.append(correct)}if(can("moveScheduledMatch")&&!match.result&&match.phase!=="playoff"&&Array.isArray(match.validPlacements)&&match.validPlacements.length){var move=el("button",{type:"button","data-match-action":"move","data-match-id":match.id},"Move match");move.addEventListener("click",function(){openMove(match,move)});row.append(move)}if(row.childNodes.length)card.append(row)}return card}
+    function renderMatches(panel){heading(panel,"Current Matches");var list=(state.matches||[]).slice().sort(function(a,b){return Number(a.scheduledAt||9e15)-Number(b.scheduledAt||9e15)});var current=list.filter(function(match){return !match.result||match.status==="inProgress"});(current.length?current:list.slice(0,20)).forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No scheduled matches are available."))}
+    function renderSchedule(panel){heading(panel,"Schedule");(state.matches||[]).filter(function(match){return match.phase!=="playoff"}).sort(function(a,b){return Number(a.scheduledAt)-Number(b.scheduledAt)}).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.matches||[]).length)panel.append(el("div",{class:"empty"},"No schedule is available."))}
+    function renderStandings(panel){heading(panel,"Standings");(state.standings||[]).forEach(function(row,index){panel.append(el("div",{class:"standing-row"},[el("strong",{},index+1),el("span",{},[el("b",{},row.name),el("span",{class:"small muted"},(row.wins||0)+" wins · "+(row.losses||0)+" losses"+(row.ties?" · "+row.ties+" ties":""))]),el("strong",{},row.standingsPoints!=null?row.standingsPoints:(row.pointDifferential>0?"+":"")+Number(row.pointDifferential||0))]))});if(!(state.standings||[]).length)panel.append(el("div",{class:"empty"},"Standings will appear after results are saved."))}
+    function renderBracket(panel){heading(panel,"Bracket");(state.bracket||[]).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.bracket||[]).length)panel.append(el("div",{class:"empty"},"No bracket is available."))}
+    function entryContact(entry){var contacts=state.contacts||[];return contacts.find(function(item){return item.registrationId===entry.registrationId})}
+    function renderCheckIn(panel){heading(panel,"Check-In");var entries=state.event.format==="rotatingGroups"?state.event.entries:state.event.teams;(entries||[]).forEach(function(entry){var box=el("article",{class:"entry-row"}),status=entry.checkIn&&entry.checkIn.teamStatus||"not_checked_in";box.append(el("b",{},entry.name),el("span",{class:"small muted"},status.replace(/_/g," ")));var select=el("select",{"aria-label":"Attendance status for "+entry.name});[["not_checked_in","Not checked in"],["checked_in","Checked in"],["partially_arrived","Partially arrived"],["needs_review","Needs review"],["no_show","No-show"],["withdrawn","Withdrawn"]].forEach(function(option){var node=el("option",{value:option[0]},option[1]);if(option[0]===status)node.selected=true;select.append(node)});select.addEventListener("change",async function(){var selected=select.value;select.disabled=true;var queued=await queueOperation("setEntryAttendanceStatus",entry.id,{status:selected});if(!queued){select.value=status;showNotice("Attendance not queued because local storage is unavailable.","bad")}select.disabled=false});box.append(select);var contact=entryContact(entry);if(contact&&contact.contact)box.append(el("div",{class:"contact small"},[el("b",{},"Event contact"),el("div",{},contact.contact.name),el("div",{},contact.contact.email),el("div",{},contact.contact.phone)]));panel.append(box)});if(!(entries||[]).length)panel.append(el("div",{class:"empty"},"No accepted entries are available for check-in."))}
+    function renderActivity(panel){heading(panel,"Activity");(state.activity||[]).forEach(function(item){panel.append(el("div",{class:"activity-row"},[el("b",{},item.staffLabel+" · "+item.action),el("span",{class:"small muted"},new Date(item.timestamp).toLocaleString()),el("span",{class:"small"},item.targetId||"Event")]))});if(!(state.activity||[]).length)panel.append(el("div",{class:"empty"},"No staff activity yet."))}
+    function renderInfo(panel){heading(panel,"Event Information");var event=state.event;panel.append(el("article",{class:"card"},[el("b",{},event.name),el("p",{class:"muted"},[event.eventDate,event.venue||event.location].filter(Boolean).join(" · ")||"No date or location provided."),el("p",{class:"small"},"This Desk is restricted to this event. Player, rating, sync, backup, setup, and public-link controls are not available.")]));var entries=event.format==="rotatingGroups"?event.entries:event.teams;(entries||[]).forEach(function(entry){panel.append(el("div",{class:"entry-row"},[el("b",{},entry.name),el("span",{class:"small muted"},(entry.players||[]).map(function(id){var player=(state.participants||[]).find(function(item){return item.id===id});return player?player.name:"Historical participant"}).join(" · "))]))})}
+    function scoreRows(){var holder=document.getElementById("score-sets"),mode=document.getElementById("score-mode").value,existing=scorePrefill&&scorePrefill.sets||scoreMatch&&scoreMatch.result&&scoreMatch.result.sets||[];holder.replaceChildren();var count=mode==="bo3"?3:1;for(var i=0;i<count;i+=1){var row=el("div",{class:"set-row"},[el("span",{class:"small"},"Set "+(i+1)),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side A set "+(i+1)}),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side B set "+(i+1)})]);if(existing[i]){row.children[1].value=existing[i][0];row.children[2].value=existing[i][1]}holder.append(row)}if(!scorePrefill)loadDraft()}
+    async function loadDraft(){if(!scoreMatch||!queueScope||scorePrefill)return;var all=await storeAll("drafts"),draft=all.find(function(row){return row.key==="draft:"+queueScope+":"+scoreMatch.id});if(!draft)return;var mode=draft.mode==="bo3"?"bo3":"set";if(document.getElementById("score-mode").value!==mode){document.getElementById("score-mode").value=mode;scorePrefill=draft;scoreRows();scorePrefill=null}else{var rows=document.querySelectorAll("#score-sets .set-row");(draft.sets||[]).forEach(function(pair,index){if(rows[index]){rows[index].children[1].value=pair[0];rows[index].children[2].value=pair[1]}})}document.getElementById("score-reason").value=draft.reason||""}
+    async function persistScoreDraft(){if(!scoreMatch||!queueScope)return false;var sets=[];document.querySelectorAll("#score-sets .set-row").forEach(function(row){sets.push([row.children[1].value,row.children[2].value])});var saved=await storePut("drafts",{key:"draft:"+queueScope+":"+scoreMatch.id,scope:queueScope,matchId:scoreMatch.id,mode:document.getElementById("score-mode").value,sets:sets,reason:document.getElementById("score-reason").value,updatedAt:Date.now()});if(!saved)showNotice("Score draft not saved because local storage is unavailable. Keep this dialog open and try again.","bad");return saved}
+    async function discardScoreDraft(){if(scoreMatch&&queueScope)await storeDelete("drafts","draft:"+queueScope+":"+scoreMatch.id);scorePrefill=null;document.getElementById("score-dialog").close();showNotice("Score draft discarded.","warn")}
+    function focusAfterDialog(saved,action,matchId){setTimeout(function(){var node=saved&&saved.node&&saved.node.isConnected?saved.node:document.querySelector('[data-match-action="'+action+'"][data-match-id="'+CSS.escape(matchId||"")+'"]');if(!node)node=document.querySelector("#tabs button.on");if(node&&typeof node.focus==="function")node.focus()},0)}
+    function openScore(match,prefillOrInvoker,invoker){var prefill=prefillOrInvoker&&prefillOrInvoker.nodeType?null:prefillOrInvoker,trigger=prefillOrInvoker&&prefillOrInvoker.nodeType?prefillOrInvoker:invoker;scoreMatch=match;scorePrefill=prefill||null;scoreReturnFocus={node:trigger||document.activeElement,matchId:match.id};document.getElementById("score-title").textContent=match.result?"Correct score":"Record score";document.getElementById("score-match").textContent=(match.sideAName||"Side A")+" vs "+(match.sideBName||"Side B");document.getElementById("score-mode").value=scorePrefill&&scorePrefill.mode?scorePrefill.mode:(match.result&&match.result.sets.length>1?"bo3":"set");document.getElementById("score-reason").value=scorePrefill&&scorePrefill.reason||"";scoreRows();document.getElementById("score-dialog").showModal();setTimeout(function(){var input=document.querySelector("#score-sets input");if(input)input.focus()},0)}
+    async function saveScore(){if(!scoreMatch)return;var match=scoreMatch,mode=document.getElementById("score-mode").value,sets=[],reason=document.getElementById("score-reason").value;document.querySelectorAll("#score-sets .set-row").forEach(function(row){var left=row.children[1].value,right=row.children[2].value;if(left===""&&right==="")return;sets.push([Number(left),Number(right)])});if(!sets.length){showNotice("Enter at least one set score.","bad");return}var draftKey="draft:"+queueScope+":"+match.id,draftSaved=await storePut("drafts",{key:draftKey,scope:queueScope,matchId:match.id,mode:mode,sets:sets,reason:reason});if(!draftSaved){showNotice("Score draft not saved because local storage is unavailable. Keep this dialog open and try again.","bad");return}var winsA=0,winsB=0;sets.forEach(function(pair){if(pair[0]>pair[1])winsA++;else if(pair[1]>pair[0])winsB++});var winner=winsA===winsB?null:(winsA>winsB?"A":"B"),action=match.result?"correctEventScore":(match.phase==="playoff"?"completeBracketMatch":"recordEventScore"),queued=await queueOperation(action,match.id,{mode:mode,sets:sets,winner:winner,reason:reason});if(!queued){showNotice("Score not queued because local storage is unavailable. Your draft is still open.","bad");return}document.getElementById("score-dialog").close();await storeDelete("drafts",draftKey);scoreMatch=null;scorePrefill=null}
+    function openMove(match,invoker){moveMatch=match;moveReturnFocus={node:invoker||document.activeElement,matchId:match.id};document.getElementById("move-match").textContent=(match.sideAName||"Side A")+" vs "+(match.sideBName||"Side B");var select=document.getElementById("move-placement");select.replaceChildren();(match.validPlacements||[]).forEach(function(value,index){var option=el("option",{value:String(index)},"Court "+value.court+" · "+formatTime(value.scheduledAt));select.append(option)});document.getElementById("move-dialog").showModal();setTimeout(function(){select.focus()},0)}
+    async function saveMove(){if(!moveMatch)return;var match=moveMatch,placement=match.validPlacements[Number(document.getElementById("move-placement").value)];if(!placement)return;var queued=await queueOperation("moveScheduledMatch",match.id,{court:placement.court,scheduledAt:placement.scheduledAt,slot:placement.slot});if(!queued){showNotice("Match move not queued because local storage is unavailable.","bad");return}document.getElementById("move-dialog").close();moveMatch=null}
+    async function queueOperation(action,targetId,payload){if(!state||!queueScope)return false;var current=await queued();queueSequence=Math.max(queueSequence,current.reduce(function(max,row){return Math.max(max,Number(row.sequence)||0)},0))+1;var operation={eventId:state.event.id,action:action,targetId:targetId,expectedRevision:state.eventRevision,idempotencyKey:randomKey(),payload:payload,replayed:false},record={key:"queue:"+queueScope+":"+operation.idempotencyKey,scope:queueScope,createdAt:Date.now(),sequence:queueSequence,attempted:false,originatedOffline:!navigator.onLine,operation:operation};if(!(await storePut("queue",record)))return false;showNotice("Pending server confirmation.","warn");renderQueue();processQueue();return true}
+    async function queued(){var rows=await storeAll("queue");return rows.filter(function(row){return row.scope===queueScope}).sort(function(a,b){return (Number(a.sequence)||0)-(Number(b.sequence)||0)||a.createdAt-b.createdAt})}
+    function scoreText(sets){return Array.isArray(sets)?sets.map(function(pair){return pair[0]+"–"+pair[1]}).join(", "):"No score"}
+    async function reviewQueueConflict(){if(!queueIssue||!queueIssue.record)return;var record=queueIssue.record,match=(state.matches||[]).find(function(item){return item.id===record.operation.targetId});await storeDelete("queue",record.key);queueBlocked=false;queueIssue=null;await renderQueue();if(match&&["recordEventScore","correctEventScore","completeBracketMatch"].indexOf(record.operation.action)>=0){openScore(match,record.operation.payload);showNotice("Review both scores, then save a new intentional correction.","warn")}else showNotice("The stale action was discarded. Review the current event and enter the change again.","warn")}
+    async function confirmDownstreamRecovery(){if(!queueIssue||queueIssue.type!=="downstream")return;var record=queueIssue.record,payload=Object.assign({},record.operation.payload,{confirmDownstreamImpact:true});await storeDelete("queue",record.key);queueBlocked=false;queueIssue=null;await renderQueue();await queueOperation("correctEventScore",record.operation.targetId,payload)}
+    async function renderQueue(){var rows=await queued();if(!rows.length){queueBox.classList.add("hidden");return}queueBox.classList.remove("hidden");queueBox.replaceChildren(el("b",{},rows.length+" pending action"+(rows.length===1?"":"s")),el("div",{class:"small"},"Writes stay pending until the server authorizes and acknowledges them."));if(queueIssue&&queueIssue.record){var attempted=queueIssue.record.operation.payload&&queueIssue.record.operation.payload.sets,current=(state.matches||[]).find(function(item){return item.id===queueIssue.record.operation.targetId});if(queueIssue.type==="downstream"){var dependent=queueIssue.body&&queueIssue.body.dependentMatches||[];queueBox.append(el("div",{class:"small"},"Changing this winner invalidates "+dependent.length+" completed later bracket match"+(dependent.length===1?"":"es")+". Those results will be removed and must be re-entered."));var confirm=el("button",{type:"button",class:"danger"},"Confirm bracket recovery");confirm.addEventListener("click",confirmDownstreamRecovery);queueBox.append(confirm)}else if(queueIssue.type==="conflict"){queueBox.append(el("div",{class:"small"},"Current server score: "+scoreText(current&&current.result&&current.result.sets)+" · Your attempted score: "+scoreText(attempted)));var review=el("button",{type:"button"},"Review and create correction");review.addEventListener("click",reviewQueueConflict);queueBox.append(review)}else queueBox.append(el("div",{class:"small"},queueIssue.message||"The pending action needs review."))}else{var retry=el("button",{type:"button"},"Retry network request");retry.addEventListener("click",function(){queueBlocked=false;queueIssue=null;processQueue()});queueBox.append(retry)}var discard=el("button",{type:"button"},"Discard pending");discard.addEventListener("click",async function(){for(var i=0;i<rows.length;i++)await storeDelete("queue",rows[i].key);queueBlocked=false;queueIssue=null;renderQueue();showNotice("Pending actions discarded.","warn")});queueBox.append(discard)}
+    async function processQueue(){if(busy||queueBlocked||!navigator.onLine||!session)return;var acknowledged=false,acknowledgedRevision=drainRevision;drainRevision=null;busy=true;try{var rows=await queued();for(var i=0;i<rows.length;i+=1){var record=rows[i],firstAttempt=!record.attempted;if(firstAttempt){if(acknowledgedRevision!=null)record.operation.expectedRevision=acknowledgedRevision;record.operation.replayed=record.originatedOffline===true;record.attempted=true;if(!(await storePut("queue",record))){queueBlocked=true;queueIssue={type:"storage",record:record,message:"Pending action could not be saved to local storage."};showNotice("Pending action could not be saved to local storage.","bad");break}}else if(!record.operation.replayed){record.operation.replayed=true;if(!(await storePut("queue",record))){queueBlocked=true;queueIssue={type:"storage",record:record,message:"Pending action could not be updated in local storage."};showNotice("Pending action could not be updated in local storage.","bad");break}}try{var result=await api("/api/event-staff/operations",{method:"POST",body:record.operation});acknowledged=true;var resultRevision=Number(result.eventRevision!=null?result.eventRevision:result.revision);if(Number.isInteger(resultRevision)&&resultRevision>0)acknowledgedRevision=resultRevision;await storeDelete("queue",record.key);setState(result.state);if(result.warnings&&result.warnings.length)showNotice(result.warnings.map(function(item){return item.message}).join(" "),"warn");else showNotice("Saved and synchronized.","ok")}catch(error){if(error.status===409){queueBlocked=true;if(error.body&&error.body.state)setState(error.body.state);if(error.body&&error.body.error==="downstream_confirmation_required"){queueIssue={type:"downstream",record:record,body:error.body};showNotice("Bracket recovery confirmation required before dependent results can be removed.","bad")}else if(error.body&&error.body.error==="revision_conflict"){queueIssue={type:"conflict",record:record,body:error.body};showNotice("Conflict: compare the server score with your attempted score before creating a new correction.","bad")}else{queueIssue={type:"invalid",record:record,message:error.message};showNotice(error.message,"bad")}}else if(error.status===401){queueBlocked=true;await clearScope();session=null;state=null;saveSession();queueIssue=null;showAccess("This staff access expired or was revoked. Pending actions and cached event data were cleared.")}else if(!error.status||error.status>=500){queueBlocked=true;queueIssue={type:"network"};record.operation.replayed=true;await storePut("queue",record);showNotice("Offline or unavailable · action remains pending.","warn")}else{queueBlocked=true;queueIssue={type:"invalid",record:record,message:error.message};showNotice(error.message,"bad")}break}}}finally{busy=false;renderQueue();if(acknowledged&&!queueBlocked&&navigator.onLine&&session){var remaining=await queued();if(remaining.length){drainRevision=acknowledgedRevision;setTimeout(processQueue,0)}}else drainRevision=null}}
+    async function logout(){try{if(session)await api("/api/event-staff/logout",{method:"POST",body:{}})}catch(error){}await clearScope();session=null;state=null;saveSession();queueScope="";location.replace("/staff")}
+    function switchInviteFromFragment(){if(new URLSearchParams(location.hash.slice(1)).get("token"))location.reload()}
+    document.getElementById("redeem").addEventListener("click",redeem);document.getElementById("staff-pin").addEventListener("keydown",function(event){if(event.key==="Enter")redeem()});document.getElementById("refresh").addEventListener("click",manualRefresh);document.getElementById("logout").addEventListener("click",logout);document.getElementById("score-mode").addEventListener("change",async function(){await persistScoreDraft();scoreRows()});document.getElementById("score-dialog").addEventListener("input",function(){persistScoreDraft()});document.getElementById("score-dialog").addEventListener("close",function(){focusAfterDialog(scoreReturnFocus,"score",scoreReturnFocus&&scoreReturnFocus.matchId);scoreReturnFocus=null});document.getElementById("score-cancel").addEventListener("click",function(){scorePrefill=null;document.getElementById("score-dialog").close()});document.getElementById("score-discard").addEventListener("click",discardScoreDraft);document.getElementById("score-save").addEventListener("click",saveScore);document.getElementById("move-dialog").addEventListener("close",function(){focusAfterDialog(moveReturnFocus,"move",moveReturnFocus&&moveReturnFocus.matchId);moveReturnFocus=null});document.getElementById("move-cancel").addEventListener("click",function(){document.getElementById("move-dialog").close()});document.getElementById("move-save").addEventListener("click",saveMove);window.addEventListener("online",function(){if(queueIssue&&queueIssue.type==="network"){queueBlocked=false;queueIssue=null}setConnection();processQueue()});window.addEventListener("offline",setConnection);window.addEventListener("hashchange",switchInviteFromFragment);document.addEventListener("visibilitychange",function(){if(!document.hidden&&session)refresh()});
+    async function start(){session=loadSession();if(linkToken){var previousScope=session&&session.queueScope||"";session=null;queueScope="";saveSession();if(previousScope)await clearScope(previousScope);showAccess("")}else if(session){queueScope=session.queueScope||"";refresh()}else showAccess("Open the staff link supplied by the organizer.")}
+    start();
+  })();
+  </script>
+</body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: {
+      "Content-Type": "text/html; charset=utf-8",
+      "Cache-Control": "private, no-store, max-age=0",
+      "Pragma": "no-cache",
+      "Expires": "0",
+      "X-Content-Type-Options": "nosniff",
+      "Referrer-Policy": "no-referrer",
+      "X-Robots-Tag": "noindex, nofollow, noarchive",
+      "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+      "Content-Security-Policy": `default-src 'none'; script-src 'nonce-${nonce}'; style-src 'nonce-${nonce}'; connect-src 'self'; img-src 'self' data:; font-src 'none'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'`,
+    },
+  });
+}
+
 async function resolveCheckInShortCode(env, code, url) {
   if (!hasCheckInStorage(env) || !SHORT_CODE_PATTERN.test(code)) return publicMessage(404, "Check-in not found", "Ask the organizer for the current five-character code.");
   const pointer = await readCheckInRecord(env.CHECK_IN_SESSIONS, checkInShortKey(code));
@@ -4677,6 +8448,19 @@ export default {
     const registrationManagementPlayerMatch = path.match(/^\/api\/event-registration\/manage\/([^/]+)\/players$/);
     const registrationManagementWithdrawMatch = path.match(/^\/api\/event-registration\/manage\/([^/]+)\/withdraw$/);
     const registrationManagementPageMatch = path.match(/^\/event-registration\/manage\/([^/]+)$/);
+    const eventStaffSnapshotMatch = path.match(/^\/api\/event-staff\/owner\/events\/([^/]+)\/snapshot$/);
+    const eventStaffGrantsMatch = path.match(/^\/api\/event-staff\/owner\/events\/([^/]+)\/grants$/);
+    const eventStaffGrantActionMatch = path.match(/^\/api\/event-staff\/owner\/events\/([^/]+)\/grants\/([^/]+)\/(revoke|rotate)$/);
+    const eventStaffRevokeAllMatch = path.match(/^\/api\/event-staff\/owner\/events\/([^/]+)\/revoke-all$/);
+    const eventStaffAuditMatch = path.match(/^\/api\/event-staff\/owner\/events\/([^/]+)\/audit$/);
+    const eventStaffOwnerPath = path === "/api/event-staff/status"
+      || path === "/api/event-staff/owner/revoke-all"
+      || !!eventStaffSnapshotMatch || !!eventStaffGrantsMatch || !!eventStaffGrantActionMatch
+      || !!eventStaffRevokeAllMatch || !!eventStaffAuditMatch;
+    const eventStaffSessionPath = path === "/api/event-staff/redeem"
+      || path === "/api/event-staff/state"
+      || path === "/api/event-staff/operations"
+      || path === "/api/event-staff/logout";
     const photoApiPath = path === "/api/player-photos/status" || !!photoUploadMatch;
     const checkInPrivatePath = path === "/api/check-in/status" || path === "/api/check-in/sessions"
       || !!checkInReviewMatch || !!checkInCloseMatch || !!checkInDispositionMatch;
@@ -4693,7 +8477,7 @@ export default {
       || !!registrationPageMatch || !!registrationManagementApiMatch || !!registrationManagementPlayerMatch
       || !!registrationManagementWithdrawMatch || !!registrationManagementPageMatch;
     const privateApiPath = path === "/api/public-schedules/status" || path === "/api/public-schedules" || !!publicationMatch
-      || photoApiPath || checkInPrivatePath || registrationPrivatePath || scorePrivatePath;
+      || photoApiPath || checkInPrivatePath || registrationPrivatePath || scorePrivatePath || eventStaffOwnerPath;
 
     try {
       if (request.method === "OPTIONS" && privateApiPath) {
@@ -4709,6 +8493,9 @@ export default {
       if (request.method === "OPTIONS" && registrationPublicPath) {
         return registrationError(405, "METHOD_NOT_ALLOWED", "Cross-origin registration requests are not allowed.");
       }
+      if (request.method === "OPTIONS" && eventStaffSessionPath) {
+        return eventStaffError(request, 405, "method_not_allowed", "Cross-origin event staff requests are not allowed.");
+      }
       if (request.method === "OPTIONS") return new Response(null, { headers: LEGACY_CORS });
 
       if (path === "/assets/public-event.js") {
@@ -4719,6 +8506,64 @@ export default {
       if (path === "/assets/public-report.js") {
         if (request.method !== "GET") return new Response("Method not allowed", { status: 405 });
         return new Response(PUBLIC_REPORT_SCRIPT, { status: 200, headers: { "Content-Type": "application/javascript; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff", "Referrer-Policy": "no-referrer" } });
+      }
+
+      if (path === "/staff") {
+        if (request.method !== "GET") {
+          return new Response("Method not allowed", {
+            status: 405,
+            headers: eventStaffHeaders(request, { Allow: "GET" }),
+          });
+        }
+        return eventStaffDeskPage();
+      }
+
+      if (path === "/api/event-staff/status") {
+        if (request.method !== "GET") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await eventStaffStatusRoute(request, env);
+      }
+      if (eventStaffSnapshotMatch) {
+        if (request.method !== "PUT") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await saveEventStaffSnapshot(request, env, eventStaffSnapshotMatch[1]);
+      }
+      if (eventStaffGrantsMatch) {
+        if (request.method === "GET") return await listEventStaffGrants(request, env, eventStaffGrantsMatch[1]);
+        if (request.method === "POST") return await createEventStaffGrant(request, env, eventStaffGrantsMatch[1]);
+        return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+      }
+      if (eventStaffGrantActionMatch) {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return eventStaffGrantActionMatch[3] === "revoke"
+          ? await revokeEventStaffGrant(request, env, eventStaffGrantActionMatch[1], eventStaffGrantActionMatch[2])
+          : await rotateEventStaffGrant(request, env, eventStaffGrantActionMatch[1], eventStaffGrantActionMatch[2]);
+      }
+      if (eventStaffRevokeAllMatch) {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await revokeAllEventStaffAccess(request, env, eventStaffRevokeAllMatch[1]);
+      }
+      if (path === "/api/event-staff/owner/revoke-all") {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await revokeAllOwnerEventStaffAccess(request, env);
+      }
+      if (eventStaffAuditMatch) {
+        if (request.method !== "GET") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await getOwnerEventStaffAudit(request, env, eventStaffAuditMatch[1]);
+      }
+      if (path === "/api/event-staff/redeem") {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await redeemEventStaffAccess(request, env);
+      }
+      if (path === "/api/event-staff/state") {
+        if (request.method !== "GET") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await getEventStaffState(request, env);
+      }
+      if (path === "/api/event-staff/operations") {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await applyEventStaffOperation(request, env);
+      }
+      if (path === "/api/event-staff/logout") {
+        if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await logoutEventStaffSession(request, env);
       }
 
       if (path === "/api/score-reports/status") {
@@ -4953,14 +8798,19 @@ export default {
       const key = "room:" + room;
       if (request.method === "GET") {
         const value = await env.COURT.get(key);
-        return new Response(value || JSON.stringify({ ts: 0, data: null }), { headers: { ...LEGACY_CORS, "Content-Type": "application/json" } });
+        const stored = value || JSON.stringify({ ts: 0, data: null });
+        const aware = await getEventStaffAwareSyncValue(env, room, stored);
+        return new Response(aware.value, { headers: { ...LEGACY_CORS, "Content-Type": "application/json" } });
       }
       if (request.method === "POST") {
-        await env.COURT.put(key, await request.text());
-        return json({ ok: true }, 200, LEGACY_CORS);
+        const rows = await eventStaffRowsForOwner(env, room);
+        return await putEventStaffAwareSyncValue(request, env, room, key, rows);
       }
       return new Response("Method not allowed", { status: 405, headers: LEGACY_CORS });
     } catch {
+      if (eventStaffOwnerPath || eventStaffSessionPath) {
+        return eventStaffError(request, 500, "unexpected_error", "Event staff access is temporarily unavailable.");
+      }
       if (registrationPrivatePath) return registrationError(500, "UNEXPECTED_ERROR", "Registration is temporarily unavailable.", registrationHeaders(request));
       if (privateApiPath) return apiError(request, 500, "unexpected storage error");
       if (registrationPublicPath) return registrationError(500, "UNEXPECTED_ERROR", "Registration is temporarily unavailable.");
