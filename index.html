@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260728.3">
+<meta name="court-build" content="20260729.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1380,9 +1380,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.39.0',
-  build: '20260728.3',
-  releaseNotes: 'Event entries now manage participants separately from compact standings, with stable registration selection and quick organizer review actions.'
+  version: '0.40.0',
+  build: '20260729.1',
+  releaseNotes: 'Event owners can now issue secure, temporary, role-based access to a focused Tournament Desk for one event.'
 });
 
 function appVersionLabel(){
@@ -1589,7 +1589,7 @@ const DEFAULT_EVENT_REGISTRATION=Object.freeze({
   publicToken:null,publicUrl:null,updatedAt:null
 });
 const REGISTRATION_IMPORT_SOURCE_VERSION=1;
-const EVENT_DAY_TEAM_STATUSES=Object.freeze(['not_checked_in','partially_arrived','checked_in','needs_review','no_show']);
+const EVENT_DAY_TEAM_STATUSES=Object.freeze(['not_checked_in','partially_arrived','checked_in','needs_review','no_show','withdrawn']);
 const EVENT_DAY_PLAYER_STATUSES=Object.freeze(['not_present','present','substitute_present','unknown_replacement','excused']);
 
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
@@ -8098,7 +8098,7 @@ function renderRotatingEventDetail(ev){
   const nextAction=nextActionHtml('data-event-next-action');
   let html=`<button class="btn sm ghost" style="margin-bottom:4px" onclick="closeEvent()">‹ All events</button>${screenHead(`Rotating Groups · ${meta.label}`,esc(ev.name),`${eventSummaryHtml(ev)} · ${esc(rotatingFormatDescription(s.entrySize,s.teamSize))}`)}${eventSubnavHtml(eventSectionModel(ev,{state,showRegistration}))}${eventStatusStripHtml(meta,nextActionHtml('data-event-status-action'))}
     <section id="event-overview" class="card" data-event-lifecycle="${state}"><div class="row spread"><div><div class="stat-title" style="margin:0">${meta.title}</div><div class="small soft" style="margin-top:5px">${meta.blurb}</div></div><span class="pill ${meta.tone}">${meta.label}</span></div><p class="small soft">${esc(rotatingFormatDescription(s.entrySize,s.teamSize))} Each side contains ${validation.valid?validation.entriesPerSide:'—'} ${typePlural.toLowerCase()}.</p><div class="event-overview"><div class="event-metric"><b class="num">${entries.length}</b><span>${typePlural.toLowerCase()}</span></div><div class="event-metric"><b class="num">${s.teamSize}s</b><span>players per side</span></div><div class="event-metric"><b class="num">${validation.valid?validation.entriesPerSide:'—'}</b><span>entries per side</span></div><div class="event-metric"><b class="num">${completed}</b><span>completed</span></div><div class="event-metric"><b class="num">${Math.max(0,schedule.length-completed)}</b><span>remaining</span></div><div class="event-metric"><b>${leader?esc(leader.entry.name):'—'}</b><span>leader</span></div></div><div class="tiny faint">${s.rounds} rounds · ${s.courts} courts · Win ${s.winPoints} · tie ${s.tiePoints} · loss ${s.lossPoints}. ${esc(entryRulesLabel(ev))}</div>${tl?`<div class="tiny" style="margin-top:7px;color:var(--gold)">Planned pool play ends ${fmtScheduleTime(ev,tl.poolsEnd)}${tl.playoff?` · playoffs ${fmtScheduleTime(ev,tl.playoff[0].est)} · awards ${fmtScheduleTime(ev,tl.awards)}`:''}</div>`:''}${quality?`<div class="unkline" style="margin-top:9px">Games per ${typeSingular.toLowerCase()}: ${quality.gamesMin}–${quality.gamesMax} · byes ${quality.byesMin}–${quality.byesMax} · repeated teammate combinations ${quality.repeatedTeammates??quality.repeatedPartnerships??0} · repeated opponent combinations ${quality.repeatedOpponents||0} · back-to-back assignments ${quality.backToBack||0} · incomplete rounds ${quality.invalidRounds||0}${settings.hideRatings?'':` · average seed spread ${(quality.seedSpread||0).toFixed(1)}`}</div>`:''}${placementNote?`<div class="tiny faint" style="margin-top:6px">${esc(placementNote)}</div>`:''}${nextAction}</section>
-    ${championsStripHtml(ev,state)}${rulesEntryActionHtml(ev)}${showRegistration?registrationSummaryHtml(ev,complete):''}`;
+    ${championsStripHtml(ev,state)}${rulesEntryActionHtml(ev)}${showRegistration?registrationSummaryHtml(ev,complete):''}${EventStaff.cardHtml(ev)}`;
   html+=`<section id="event-schedule" class="card"><div class="stat-title" style="margin:0">Rotating schedule${schedule.length?` <span class="tiny faint" style="font-weight:500">· version ${scheduleState(s,'rotation:'+ev.id).revision}</span>`:''}</div><p class="tiny faint">Teammate rotation: approximately ${rotationInfo.recommendedRounds} rounds for useful variety. ${rotationInfo.note} Tap a ${typeSingular.toLowerCase()} name anywhere for its full schedule.</p>${tl?`<div class="tiny faint" style="margin:2px 0 6px">${esc(tl.timeNote)}</div>`:schedule.length&&!ev.done?`<div class="tiny faint" style="margin:2px 0 6px">Times off · set a start time in Schedule settings for per-round estimates.</div>`:''}`;
   if(!schedule.length) html+=`<div class="stat-empty">${validation.valid?(entries.length<validation.entriesPerMatch?`At least ${validation.entriesPerMatch} complete ${typePlural.toLowerCase()} are required for one match.`:'Choose rounds and courts, then generate a deterministic rotation.'):esc(validation.error)}</div><button class="btn ghost block" style="margin-top:10px" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn primary block" style="margin-top:8px" ${!validation.valid||entries.length<(validation.entriesPerMatch||Infinity)?'disabled':''} onclick="generateRotationSchedule('${ev.id}')">Generate schedule</button>`;
   else {const standard=schedule.filter(isStandardScheduleMatch),extras=schedule.filter(m=>!isStandardScheduleMatch(m)),rounds=[...new Set(standard.map(m=>m.round))],matchCard=(m,time)=>{const res=rotationMatchResult(ev,m),extra=!isStandardScheduleMatch(m);return `<div class="ev-team" data-scroll-key="entry-match-${m.id}" style="display:block"><div class="row spread"><span class="tiny faint">Court ${m.court}${time?` · ${fmtScheduleTime(ev,time)}`:''}</span><span class="row" style="gap:5px">${extra?`<span class="makeup-label">${isCustomScheduleMatch(m)?'custom':'balances games played'}</span>`:''}<span class="pill ${res?'good':''}">${res?'final':'pending'}</span></span></div><div class="rotation-match"><div><span class="tiny faint">Side A</span>${sideHtml(m.sideAEntryIds)}</div><b class="versus">VS</b><div><span class="tiny faint">Side B</span>${sideHtml(m.sideBEntryIds)}</div></div>${res?`<button class="btn sm ghost block" style="margin-top:8px" onclick="viewGame('${res.first.id}')">Final · ${res.disp}</button>`:`<div class="row" style="gap:7px;margin-top:8px"><button class="btn sm primary log-match" style="flex:1" onclick="openRotationScore('${ev.id}','${m.id}')">Log final score</button><button class="btn sm ghost" style="flex:1" onclick="trackRotationMatch('${ev.id}','${m.id}')">Start tracking</button>${extra?`<button class="btn sm ghost" aria-label="Edit match" onclick="openCustomScheduleMatch('${ev.id}','${m.id}')">Edit</button>`:''}</div>`}</div>`;};html+=rounds.map(round=>`<div class="pool-title">Round ${round}${tl&&tl.roundEst[round]?` <span class="tiny num faint" style="text-transform:none;letter-spacing:0">· ${fmtScheduleTime(ev,tl.roundEst[round])}</span>`:''}</div>${standard.filter(m=>m.round===round).map(m=>matchCard(m,tl?.roundEst?.[round])).join('')}`).join('');if(extras.length){const blocks=[...new Set(extras.map(m=>positiveInt(m.makeupBlock,1)))];html+=`<div class="pool-title">Makeup matches <span class="tiny faint" style="text-transform:none;letter-spacing:0">· only listed entries participate</span></div>`+blocks.map(block=>`<div class="tiny" style="margin:9px 0 5px;color:var(--gold);font-weight:750">Makeup matches${tl?.makeupEst?.[block]?` · ${fmtScheduleTime(ev,tl.makeupEst[block])}`:''}</div>${extras.filter(m=>positiveInt(m.makeupBlock,1)===block).map(m=>matchCard(m,tl?.makeupEst?.[block])).join('')}`).join('');}html+=scheduleFairnessAuditHtml(quality,typeSingular.toLowerCase());if(quality?.gameDifference>0)html+=`<div class="schedule-warning">Entries played different numbers of matches. Rankings use win percentage first. Opponent paths may still be less directly comparable.</div>`;html+=`<div class="schedule-actions"><button class="btn ghost" onclick="openRotationSettings('${ev.id}')">Schedule settings</button><button class="btn ghost" onclick="generateRotationSchedule('${ev.id}')">${completed?'Regenerate remaining':'Regenerate schedule'}</button><button class="btn primary" onclick="openScheduleShare('${ev.id}')">Save / Share Schedule</button></div>`;}
@@ -8453,6 +8453,7 @@ function renderEventDetail(ev){
   html += championsStripHtml(ev,state);
   html += rulesEntryActionHtml(ev);
   if(showRegistration) html += registrationSummaryHtml(ev,complete);
+  html += EventStaff.cardHtml(ev);
   if(sc){
     html += `<section id="event-schedule" class="card" style="margin-top:12px">
       <div class="row spread" style="margin-bottom:2px"><div><div class="stat-title" style="margin:0">Schedule</div><div class="tiny faint">Version ${scheduleState(ev.sched,'fixed:'+ev.id).revision}</div></div>
@@ -8724,9 +8725,13 @@ window.toggleEventDone=async(id)=>{ const ev=evById(id); if(!ev) return;
   }catch(error){toast(`${error.message} The event was not marked complete.`);}
 };
 window.deleteEvent=async(id)=>{
-  const ev=evById(id); if(!ev) return;
+  let ev=evById(id); if(!ev) return;
   const n=evGameCount(ev);
   if(!(await askConfirm(`Delete "${ev.name}"?${n?` Its ${n} game${n===1?'':'s'} stay in history and keep their rating impact — they just lose the event grouping and standings.`:''}`,'Delete event'))) return;
+  try{await EventStaff.beforeEventDelete(ev);}
+  catch(error){toast(`${error.message} The event was not deleted.`);return;}
+  ev=evById(id);
+  if(!ev){toast('The event changed during synchronization. Reload Court before deleting it.');return;}
   try{
     if(eventRegistration(ev).enabled||eventRegistration(ev).publicToken||EventRegistration.get(ev.id)?.configured)await EventRegistration.updateLifecycle(ev,'closed',{eventAvailable:false});
   }catch(error){toast(`${error.message} Registration is still reachable, so the event was not deleted.`);return;}
@@ -9669,7 +9674,7 @@ window.syncConnect=async()=>{
   if(!code){ toast('Enter a sync code'); return; }
   if(url&&!/^https?:\/\//i.test(url)){ toast('URL should start with https://'); return; }
   toast('Connecting…');
-  const res=await Sync.connect(url,code);
+  let res;try{res=await Sync.connect(url,code);}catch(error){toast(error.message);return;}
   if(res==='error'){ toast('Could not reach that URL'); return; }
   if(res==='seeded'){ closeSheet(); toast('Sync on · this device is the source'); render(); return; }
   openSheet(`<h3>Existing data found</h3>
@@ -9680,7 +9685,7 @@ window.syncConnect=async()=>{
     ${sheetCloseBtn('Cancel')}`);
 };
 window.syncChoose=async(mode)=>{ toast(mode==='replace'?'Loading synced data…':'Merging…'); await Sync.adopt(mode); closeSheet(); toast('Sync on'); render(); };
-window.syncNow=async()=>{ toast('Syncing…'); await Sync.pull({}); await Sync.push({force:true}); toast('Synced'); render(); };
+window.syncNow=async()=>{ toast('Syncing…'); await Sync.pull({}); const pushed=await Sync.push({force:true}); toast(pushed===false?'Sync conflict · loading the current event':'Synced'); render(); };
 window.syncToggle=async()=>{ await Sync.setOn(!Sync.cfg.on); closeSheet(); toast(Sync.cfg.on?'Syncing resumed':'Syncing paused'); render(); };
 function copyTextFallback(text){
   const area=document.createElement('textarea');
@@ -9726,11 +9731,16 @@ window.openImport=()=>{
 };
 async function restoreBackupData(d){
   if(!d||!Array.isArray(d.players))throw new Error('invalid backup');
-  const restored=await Sync.prepareReplacement(d);
-  players=restored.players;games=restored.games;evts=restored.events;attendanceSessions=restored.attendanceSessions;savedCrews=restored.savedCrews;
-  settings={...DEFAULT_SETTINGS,...(d.settings||{})};
-  migrateEvents();migratePlayers();
-  await commit();await saveSettings();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
+  await Sync.beginReplacement();let completed=false;
+  try{
+    await EventStaff.beforeRestore(d);
+    const restored=await Sync.prepareReplacement(d);
+    players=restored.players;games=restored.games;evts=restored.events;attendanceSessions=restored.attendanceSessions;savedCrews=restored.savedCrews;
+    settings={...DEFAULT_SETTINGS,...(d.settings||{})};
+    migrateEvents();migratePlayers();
+    await commit();await saveSettings();await saveEvents();await saveAttendanceSessions();await saveSavedCrews();
+    await EventStaff.afterRestore(evts);completed=true;
+  }finally{await Sync.endReplacement({sync:completed});}
 }
 window.importFile=(e)=>{
   const f=e.target.files&&e.target.files[0]; if(!f) return;
@@ -9747,9 +9757,13 @@ window.doImport=async()=>{
 };
 window.resetAll=async()=>{
   if(!(await askConfirm('Delete ALL players, games, events, saved crews, and settings? This cannot be undone. Consider copying a backup first.','Reset everything'))) return;
-  await Sync.markDeletedMany({players,games,events:evts,savedCrews});
-  players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; attendanceSessions=[];savedCrews=[];window._evOpen=null;
-  await savePlayers(); await saveGames(); await saveSettings(); await saveEvents();await saveAttendanceSessions();await saveSavedCrews();toast('Reset'); render();
+  await Sync.beginReplacement();let completed=false;
+  try{
+    try{await EventStaff.beforeRestore({events:[]});}catch(error){toast(`${error.message} Nothing was reset.`);return;}
+    await Sync.markDeletedMany({players,games,events:evts,savedCrews});
+    players=[]; games=[]; settings={...DEFAULT_SETTINGS}; evts=[]; attendanceSessions=[];savedCrews=[];window._evOpen=null;
+    await savePlayers(); await saveGames(); await saveSettings(); await saveEvents();await saveAttendanceSessions();await saveSavedCrews();completed=true;toast('Reset'); render();
+  }finally{await Sync.endReplacement({sync:completed});}
 };
 /* ============================================================
    DEMO DATA + SELF-TEST (for trying things without real games)
@@ -11674,14 +11688,36 @@ function collectionChanged(before,after){return before.length!==after.length||be
 const Sync=(()=>{
   let cfg={url:SYNC_DEFAULT_URL,code:'',on:false};
   let deletions=emptyDeletionState(),lastTs=0,lastSig='';
+  let eventStaffRevisions={};
   let pushTimer=null,poller=null,busy=false,lastSyncedAt=0,visBound=false;
+  let replacementDepth=0,activePull=null;
+  const activePushes=new Set();
+  let conflictPullQueued=false;
 
   const endpoint=()=>cfg.url.replace(/\/+$/,'')+'/?room='+encodeURIComponent(cfg.code);
   const configured=()=>!!(cfg.url&&cfg.code);
   // Keep the legacy game-only tomb alias during the generalized-registry
   // transition so older Court builds can still honor game deletions.
-  const payload=()=>({players,games,settings,events:evts,attendanceSessions,savedCrews,deletions,tomb:{...deletions.games},v:4});
+  const payload=()=>({players,games,settings,events:evts,attendanceSessions,savedCrews,deletions,tomb:{...deletions.games},
+    ...(Object.keys(eventStaffRevisions).length?{eventStaffRevisions:{...eventStaffRevisions}}:{}),v:4});
   const payloadStr=()=>JSON.stringify(payload());
+  const eventStaffIdentity=()=>`${String(cfg.url||'').replace(/\/+$/,'')}\n${String(cfg.code||'')}`;
+  function normalizeEventStaffRevisions(value){
+    const out={};if(!value||typeof value!=='object'||Array.isArray(value))return out;
+    Object.entries(value).forEach(([eventId,revision])=>{const n=Number(revision);if(eventId&&Number.isInteger(n)&&n>0)out[eventId]=n;});
+    return out;
+  }
+  const saveEventStaffRevisions=()=>Store.set('vb:eventStaffRevisions',JSON.stringify({
+    identity:eventStaffIdentity(),revisions:{...eventStaffRevisions}
+  })).catch(()=>{});
+  function mergeEventStaffRevisions(value){
+    const incoming=normalizeEventStaffRevisions(value),next={...eventStaffRevisions};
+    // Revisions supplied by the compatible root sync overlay are authoritative
+    // D1 values. Replace those keys exactly so a corrupt/future local marker can
+    // recover; keys omitted by the response remain locally remembered.
+    Object.entries(incoming).forEach(([eventId,revision])=>next[eventId]=revision);
+    eventStaffRevisions=next;saveEventStaffRevisions();return {...eventStaffRevisions};
+  }
 
   async function loadLocalState(){
     try{const c=await Store.get('vb:sync');if(c)cfg={...cfg,...JSON.parse(c)};}catch(e){}
@@ -11690,8 +11726,12 @@ const Sync=(()=>{
     try{const d=await Store.get('vb:deletions');if(d)savedDeletions=JSON.parse(d)||{};}catch(e){}
     deletions=normalizeDeletionState(savedDeletions,legacyGames);
     try{const l=await Store.get('vb:syncTs');if(l)lastTs=Number(l)||0;}catch(e){}
+    try{
+      const stored=JSON.parse(await Store.get('vb:eventStaffRevisions')||'null');
+      if(stored?.identity===eventStaffIdentity())eventStaffRevisions=normalizeEventStaffRevisions(stored.revisions);
+    }catch(e){}
     if(!cfg.url)cfg.url=SYNC_DEFAULT_URL;
-    await saveDeletions();
+    await Promise.all([saveDeletions(),saveEventStaffRevisions()]);
   }
   const saveCfg=()=>Store.set('vb:sync',JSON.stringify(cfg)).catch(()=>{});
   const saveDeletions=()=>Promise.all([
@@ -11706,11 +11746,74 @@ const Sync=(()=>{
     players=next.players;games=next.games;evts=next.events;savedCrews=next.savedCrews;
     return changed;
   }
+  function managedGameKey(game){
+    if(!game?.evId)return '';
+    const matchId=game.evMatchId??game.matchId;
+    return matchId==null||String(matchId)===''?'':`${String(game.evId)}\n${String(matchId)}`;
+  }
+  function managedGameResultSignature(game){
+    const ids=value=>(Array.isArray(value)?value:[]).map(String);
+    return JSON.stringify({
+      scoreA:Number(game?.scoreA)||0,scoreB:Number(game?.scoreB)||0,winner:game?.winner||null,
+      teamA:ids(game?.teamA),teamB:ids(game?.teamB),unkA:Number(game?.unkA)||0,unkB:Number(game?.unkB)||0
+    });
+  }
+  function managedGameSummary(game){
+    if(!game)return null;
+    return {
+      id:String(game.id),matchId:game.evMatchId==null?(game.matchId==null?null:String(game.matchId)):String(game.evMatchId),
+      scoreA:Number(game.scoreA)||0,scoreB:Number(game.scoreB)||0,winner:game.winner==='A'||game.winner==='B'?game.winner:null,
+      label:String(game.label||'').slice(0,120)
+    };
+  }
   function applyRemote(obj,mode){
     const remote=obj&&typeof obj==='object'?obj:{};
+    const priorRevisions={...eventStaffRevisions},incomingRevisions=normalizeEventStaffRevisions(remote.eventStaffRevisions);
+    const authoritativeEventIds=new Set();
+    if(mode!=='replace'&&Array.isArray(remote.games)){
+      Object.entries(incomingRevisions).forEach(([eventId,revision])=>{
+        if(revision!==(Number(priorRevisions[eventId])||0))authoritativeEventIds.add(String(eventId));
+      });
+    }
+    const gameReplacementNotices=[];
+    if(authoritativeEventIds.size){
+      const remoteByEvent=new Map();
+      remote.games.forEach(game=>{
+        const eventId=game?.evId==null?'':String(game.evId);if(!authoritativeEventIds.has(eventId))return;
+        if(!remoteByEvent.has(eventId))remoteByEvent.set(eventId,[]);
+        remoteByEvent.get(eventId).push(game);
+      });
+      authoritativeEventIds.forEach(eventId=>{
+        const localGames=games.filter(game=>String(game?.evId||'')===eventId),remoteGames=remoteByEvent.get(eventId)||[];
+        if((Number(incomingRevisions[eventId])||0)>(Number(priorRevisions[eventId])||0)){
+          const remoteById=new Map(remoteGames.map(game=>[String(game.id),game]));
+          const remoteByMatch=new Map(remoteGames.map(game=>[managedGameKey(game),game]).filter(([key])=>key));
+          const rejected=localGames.filter(game=>{
+            const current=remoteById.get(String(game.id));
+            return !current||managedGameResultSignature(current)!==managedGameResultSignature(game);
+          });
+          if(rejected.length)gameReplacementNotices.push({
+            eventId,revision:incomingRevisions[eventId],count:rejected.length,
+            scores:rejected.slice(0,4).map(game=>{
+              const current=remoteById.get(String(game.id))||remoteByMatch.get(managedGameKey(game))||null;
+              return {attempted:managedGameSummary(game),current:managedGameSummary(current)};
+            })
+          });
+        }
+      });
+    }
+    mergeEventStaffRevisions(remote.eventStaffRevisions);
     deletions=mergeDeletionStates(deletions,normalizeDeletionState(remote));
     const hasRemoteCrews=Object.prototype.hasOwnProperty.call(remote,'savedCrews');
-    const resolved=resolveDeletionProtectedRecords({players,games,events:evts,savedCrews},remote,deletions,mode);
+    /*
+     * A changed D1 revision means the compatible root response contains the
+     * authoritative event projection. Remove every local game in that event
+     * before the ordinary ID union so competing owner/staff game IDs for one
+     * logical match can never both affect ratings. Same-revision pulls retain
+     * unuploaded owner games so they can still win their normal snapshot CAS.
+     */
+    const localGames=authoritativeEventIds.size?games.filter(game=>!authoritativeEventIds.has(String(game?.evId||''))):games;
+    const resolved=resolveDeletionProtectedRecords({players,games:localGames,events:evts,savedCrews},remote,deletions,mode);
     players=resolved.players;games=resolved.games;evts=resolved.events;
     savedCrews=hasRemoteCrews?resolved.savedCrews:filterDeletedRecords('savedCrews',savedCrews,deletions);
     attendanceSessions=mode==='replace'
@@ -11718,6 +11821,8 @@ const Sync=(()=>{
       :mergeAttendanceSessionsById(attendanceSessions,remote.attendanceSessions,true);
     settings={...DEFAULT_SETTINGS,...(remote.settings||{})};
     migrateEvents();migratePlayers();
+    window.EventStaff?.noteSyncApplied?.(remote.eventStaffRevisions);
+    gameReplacementNotices.forEach(notice=>window.EventStaff?.noteAuthoritativeGameReplacement?.(notice.eventId,notice));
   }
   function bindVis(){
     if(visBound)return;
@@ -11725,13 +11830,24 @@ const Sync=(()=>{
     document.addEventListener('visibilitychange',()=>{if(!document.hidden)pull({});});
   }
   async function pull(opts={}){
-    if(!cfg.on||!configured()||busy)return;
+    if(replacementDepth&&!opts.staffConflict){
+      if(opts.requireSuccess)throw new Error('A data replacement is already in progress.');
+      return false;
+    }
+    if((!cfg.on&&!opts.staffConflict)||!configured()){
+      if(opts.requireSuccess)throw new Error('Active device sync is required to reconcile event staff changes.');
+      return false;
+    }
+    if(busy){
+      if(opts.requireSuccess)throw new Error('A sync is already in progress. Try again when it finishes.');
+      return false;
+    }
     busy=true;
+    let finishPull;
+    activePull=new Promise(resolve=>{finishPull=resolve;});
     try{
-      const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
-      if(!r.ok)throw new Error('http '+r.status);
-      const env=await r.json();
-      if(env&&env.data){
+      const applySyncEnvelope=async env=>{
+        if(!env?.data)return false;
         const rts=Number(env.ts)||0;
         if(rts>lastTs||opts.force){
           applyRemote(JSON.parse(env.data),opts.mode||'merge');
@@ -11744,26 +11860,87 @@ const Sync=(()=>{
           if(merged!==env.data)await push({fromMerge:true});
           if(typeof render==='function')render();
         }else lastSyncedAt=Date.now();
-      }else if(players.length||games.length||evts.length||savedCrews.length||DELETION_KINDS.some(kind=>Object.keys(deletions[kind]).length)){
-        await push({seed:true});lastSyncedAt=Date.now();
-      }else lastSyncedAt=Date.now();
-    }catch(e){/* Offline and transient failures never block local use. */}
-    finally{busy=false;updateStatus();}
+        return true;
+      };
+      const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
+      if(!r.ok)throw new Error('http '+r.status);
+      let env=await r.json(),applied=await applySyncEnvelope(env);
+      if(!applied&&(players.length||games.length||evts.length||savedCrews.length||DELETION_KINDS.some(kind=>Object.keys(deletions[kind]).length))){
+        const seeded=await push({seed:true});
+        if(opts.requireSuccess){
+          if(seeded!==true)throw new Error('root seed failed');
+          const retry=await fetch(endpoint(),{method:'GET',cache:'no-store'});
+          if(!retry.ok)throw new Error('http '+retry.status);
+          env=await retry.json();applied=await applySyncEnvelope(env);
+          if(!applied)throw new Error('root data unavailable');
+        }
+        lastSyncedAt=Date.now();
+      }else if(!applied)lastSyncedAt=Date.now();
+      return true;
+    }catch(e){
+      if(opts.requireSuccess)throw new Error('Court could not reconcile the latest event staff changes. Check the connection and try again.');
+      /* Offline and transient failures never block ordinary local use. */
+      return false;
+    }
+    finally{
+      busy=false;updateStatus();
+      finishPull();activePull=null;
+      if(conflictPullQueued){conflictPullQueued=false;setTimeout(()=>pull({force:true}),0);}
+    }
+  }
+  function noteStaffConflict(value){
+    const body=value&&typeof value==='object'?value:{};
+    window.EventStaff?.noteConflict?.(body);
+    toast('Event staff data changed elsewhere · refreshing current state');
+  }
+  function queueConflictPull(){
+    if(conflictPullQueued)return;conflictPullQueued=true;
+    if(!busy){conflictPullQueued=false;setTimeout(()=>pull({force:true}),0);}
   }
   async function push(opts={}){
-    if(!cfg.on||!configured())return;
-    if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveSavedCrews();}
-    const body=payloadStr();
-    if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return;
-    const ts=Math.max(Date.now(),lastTs+1);
+    if(replacementDepth&&!opts.replacement)return false;
+    if(!cfg.on||!configured())return false;
+    let finishPush;
+    const activePush=new Promise(resolve=>{finishPush=resolve;});activePushes.add(activePush);
     try{
-      const r=await fetch(endpoint(),{method:'POST',body:JSON.stringify({ts,data:body})});
-      if(!r.ok)throw new Error('http '+r.status);
-      lastTs=ts;lastSig=body;lastSyncedAt=Date.now();await saveTs();
-    }catch(e){/* Retried on the next change, poll, foreground, or manual sync. */}
-    finally{updateStatus();}
+      if(applyLocalDeletions()){recomputeAll();await savePlayers();await saveGames();await saveEvents();await saveSavedCrews();}
+      try{await window.EventStaff?.flushManaged?.();}catch(error){toast(error.message||'Event staff changes must sync before this dataset can be uploaded.');return false;}
+      const body=payloadStr();
+      if(body===lastSig&&!opts.force&&!opts.seed&&!opts.fromMerge)return true;
+      const ts=Math.max(Date.now(),lastTs+1);
+      try{
+        const r=await fetch(endpoint(),{method:'POST',body:JSON.stringify({ts,data:body})});
+        if(r.status===409){let body={};try{body=await r.json();}catch(e){}noteStaffConflict(body);queueConflictPull();return false;}
+        if(!r.ok)throw new Error('http '+r.status);
+        let result={};try{result=await r.json();}catch(e){}
+        if(result?.eventStaffRevisions)mergeEventStaffRevisions(result.eventStaffRevisions);
+        lastTs=ts;lastSig=payloadStr();lastSyncedAt=Date.now();await saveTs();
+        return true;
+      }catch(e){/* Retried on the next change, poll, foreground, or manual sync. */return false;}
+    }finally{
+      activePushes.delete(activePush);finishPush();updateStatus();
+    }
   }
-  function touch(){if(cfg.on&&configured()){clearTimeout(pushTimer);pushTimer=setTimeout(()=>push({}),1500);}}
+  function touch(){if(!replacementDepth&&cfg.on&&configured()){clearTimeout(pushTimer);pushTimer=setTimeout(()=>push({}),1500);}}
+  async function beginReplacement(){
+    replacementDepth++;
+    clearTimeout(pushTimer);pushTimer=null;
+    window.EventStaff?.pauseManagedWrites?.();
+    const pending=[...(activePull?[activePull]:[]),...activePushes];
+    if(pending.length)await Promise.allSettled(pending);
+  }
+  async function endReplacement({sync=false}={}){
+    if(replacementDepth<=0)return false;
+    replacementDepth--;
+    if(replacementDepth)return true;
+    clearTimeout(pushTimer);pushTimer=null;
+    if(sync){
+      const uploaded=await push({force:true,replacement:true});
+      if(!uploaded)touch();
+      return uploaded;
+    }
+    touch();return true;
+  }
   async function markDeleted(kind,id,deletedAt=Date.now()){
     if(!DELETION_KINDS.includes(kind)||id==null||String(id)==='')return;
     const ts=Number(deletedAt),value=Number.isFinite(ts)&&ts>0?ts:Date.now();
@@ -11814,14 +11991,30 @@ const Sync=(()=>{
   }
   return {
     init,pull,push,touch,startPoll,stopPoll,statusHtml,configured,endpoint,applyLocalDeletions,
-    markDeleted,markDeletedMany,prepareReplacement,
+    markDeleted,markDeletedMany,prepareReplacement,beginReplacement,endReplacement,
     noteGameDelete:(id,deletedAt)=>markDeleted('games',id,deletedAt),
     notePlayerDelete:(id,deletedAt)=>markDeleted('players',id,deletedAt),
     deletionState:()=>normalizeDeletionState(deletions),
-    persistLocalState:()=>Promise.all([saveDeletions(),saveTs()]),
+    eventStaffRevisions:()=>({...eventStaffRevisions}),
+    eventStaffRevision:eventId=>Number(eventStaffRevisions[eventId])||0,
+    noteEventStaffRevision:(eventId,revision)=>{
+      const n=Number(revision);
+      if(eventId&&Number.isInteger(n)&&n>0){
+        eventStaffRevisions[eventId]=Math.max(Number(eventStaffRevisions[eventId])||0,n);
+        saveEventStaffRevisions();
+      }
+    },
+    clearEventStaffRevisions:()=>{eventStaffRevisions={};saveEventStaffRevisions();},
+    persistLocalState:()=>Promise.all([saveDeletions(),saveTs(),saveEventStaffRevisions()]),
+    replacementActive:()=>replacementDepth>0,
     get cfg(){return cfg;},
     async connect(url,code){
-      cfg.url=(url||'').trim()||SYNC_DEFAULT_URL;cfg.code=code.trim();cfg.on=false;stopPoll();window.PlayerPhotos?.resetCapability();await saveCfg();updateStatus();
+      const nextUrl=(url||'').trim()||SYNC_DEFAULT_URL,nextCode=code.trim();
+      const identityChanged=configured()&&(cfg.url.replace(/\/+$/,'')!==nextUrl.replace(/\/+$/,'')||cfg.code!==nextCode);
+      if(identityChanged)await window.EventStaff?.beforeIdentityChange?.({url:nextUrl,code:nextCode});
+      cfg.url=nextUrl;cfg.code=nextCode;cfg.on=false;stopPoll();window.PlayerPhotos?.resetCapability();
+      if(identityChanged){eventStaffRevisions={};await saveEventStaffRevisions();window.EventStaff?.resetIdentity?.();}
+      await saveCfg();updateStatus();
       try{
         const r=await fetch(endpoint(),{method:'GET',cache:'no-store'});
         if(!r.ok)throw new Error('http '+r.status);
@@ -11835,6 +12028,649 @@ const Sync=(()=>{
     async setOn(on){cfg.on=on;await saveCfg();if(on){await pull({});startPoll();bindVis();}else stopPoll();updateStatus();}
   };
 })();
+
+/* ============================================================
+   EVENT STAFF ACCESS — owner-only management and projections
+   ============================================================ */
+const EVENT_STAFF_ROLE_FALLBACK=Object.freeze({
+  viewOnly:{id:'viewOnly',label:'View Only',summary:'Can view this event, its participants, schedule, current matches, standings, brackets, and results. Cannot make changes.'},
+  scorekeeper:{id:'scorekeeper',label:'Scorekeeper',summary:'Can view this event and enter or correct delegated scores. Cannot check teams in, view contacts, move matches, or change setup.'},
+  tournamentOperator:{id:'tournamentOperator',label:'Tournament Operator',summary:'Can score matches, run event-day check-in, view this event’s registration contacts, and move existing matches. Cannot edit players, ratings, event setup, or staff access.'}
+});
+const EventStaff=(()=>{
+  const states=new Map(),snapshotTimers=new Map(),snapshotSignatures=new Map(),resetAccessIds=new Set();
+  let capabilityKey='',capabilityStatus='idle',capabilityInfo=null,capabilityMessage='',capabilityPromise=null,managerEventId=null;
+  const cleanText=(value,max=160)=>String(value??'').trim().slice(0,max);
+  const uniqueIds=value=>[...new Set((Array.isArray(value)?value:[]).filter(id=>id!=null&&String(id).trim()).map(id=>String(id)))];
+  const apiBase=()=>Sync.configured()?normalizedWorkerBaseUrl(Sync.cfg.url):'';
+  const apiUrl=path=>`${apiBase()}${path}`;
+  const ownerHeaders=(body=false)=>({...body?{'Content-Type':'application/json'}:{},'X-Court-Room':Sync.cfg.code});
+  const stateFor=eventId=>{
+    if(!states.has(eventId)){
+      const revision=Sync.eventStaffRevision(eventId);
+      states.set(eventId,{eventId,grants:null,activity:null,loading:false,error:'',conflict:'',reviewNotice:'',scoreReviews:[],revision,observedRevision:revision,accessEpoch:0,fetchedAt:0});
+    }
+    return states.get(eventId);
+  };
+  const responseData=async response=>{try{return await response.json();}catch(_){return {};}};
+  function failure(response,data,fallback){
+    const error=new Error(data?.message||data?.error||fallback);error.status=response.status;error.code=data?.error||data?.code||'';error.workerCode=data?.code||'';error.data=data;return error;
+  }
+  function noteRevision(eventId,result,{safe=false}={}){
+    const revision=Number(result?.revision??result?.eventRevision??result?.currentRevision);
+    if(Number.isInteger(revision)&&revision>0){
+      const state=stateFor(eventId);state.observedRevision=Math.max(Number(state.observedRevision)||0,revision);
+      if(safe){Sync.noteEventStaffRevision(eventId,revision);state.revision=Math.max(Number(state.revision)||0,revision);}
+    }
+    const epoch=Number(result?.accessEpoch);if(Number.isInteger(epoch)&&epoch>0)stateFor(eventId).accessEpoch=epoch;
+  }
+  async function handleConflict(eventId,result){
+    noteRevision(eventId,result);const current=Number(result?.currentRevision)||stateFor(eventId).observedRevision;
+    const state=stateFor(eventId);state.conflict=`Staff access changed elsewhere${current?` at revision ${current}`:''}. Court refreshed the event; review it before retrying.`;state.error=state.conflict;
+    toast('Event staff conflict · refreshing current state');
+    try{await reconcileStaffData(eventId);}catch(_){}
+    patchCard(eventId);
+  }
+  async function request(path,{method='GET',body,eventId='',allow404=false,handleRevisionConflict=true}={}){
+    if(!Sync.configured())throw Object.assign(new Error('Set up device sync before using Event Staff Access.'),{code:'SYNC_REQUIRED'});
+    const base=apiBase();if(!base)throw new Error('The configured sync service URL is invalid.');
+    let response;
+    try{response=await fetch(`${base}${path}`,{method,cache:'no-store',headers:ownerHeaders(body!==undefined),body:body===undefined?undefined:JSON.stringify(body)});}
+    catch(_){throw Object.assign(new Error('Event Staff Access could not reach the sync service.'),{code:'OFFLINE'});}
+    const result=await responseData(response);
+    if(response.status===404&&allow404)return null;
+    if(response.status===409&&eventId&&handleRevisionConflict&&result?.error==='revision_conflict'){await handleConflict(eventId,result);throw failure(response,result,'Event staff data changed elsewhere.');}
+    if(!response.ok)throw failure(response,result,'Event Staff Access could not complete the request.');
+    if(eventId)noteRevision(eventId,result);
+    return result;
+  }
+  async function capability({force=false}={}){
+    if(!Sync.configured()){capabilityStatus='unconfigured';capabilityInfo=null;capabilityMessage='Set up device sync before creating staff access.';return false;}
+    const base=apiBase();if(!base){capabilityStatus='unavailable';capabilityMessage='The configured sync service URL is invalid.';return false;}
+    if(capabilityStatus==='unconfigured')capabilityStatus='idle';
+    if(!force&&capabilityKey===base&&capabilityStatus==='available')return true;
+    if(!force&&capabilityKey===base&&capabilityStatus==='unavailable')return false;
+    if(capabilityPromise)return capabilityPromise;
+    capabilityKey=base;capabilityStatus='checking';capabilityMessage='Checking secure staff access…';patchCards();
+    capabilityPromise=(async()=>{
+      try{
+        const response=await fetch(`${base}/api/event-staff/status`,{method:'GET',cache:'no-store'}),data=await responseData(response);
+        if(response.ok&&data.available===true){capabilityStatus='available';capabilityInfo=data;capabilityMessage='';return true;}
+        /*
+         * A successful, explicit unavailable response (or an older Worker
+         * without the route) proves there is no reachable staff authority to
+         * revoke. Rate limits and server failures are indeterminate and must
+         * fail closed for event deletion, restore, and identity changes.
+         */
+        if((response.ok&&data.available===false)||response.status===404){
+          capabilityStatus='unavailable';capabilityInfo=data;capabilityMessage=data?.message||'This sync service does not have Event Staff Access deployed yet.';return false;
+        }
+        capabilityStatus='offline';capabilityInfo=null;capabilityMessage='The staff access service could not confirm its state. Try again before changing protected event data.';return false;
+      }catch(_){capabilityStatus='offline';capabilityInfo=null;capabilityMessage='The staff access service could not be reached. Court’s normal event tools still work.';return false;}
+      finally{capabilityPromise=null;patchCards();}
+    })();
+    return capabilityPromise;
+  }
+  async function reconcileStaffData(eventId=''){
+    await Sync.pull({force:true,staffConflict:true,requireSuccess:true});
+    if(!eventId)return null;
+    const safeRevision=Sync.eventStaffRevision(eventId),state=stateFor(eventId);
+    state.revision=safeRevision;
+    state.observedRevision=Math.max(Number(state.observedRevision)||0,safeRevision);
+    if(state.observedRevision>safeRevision)throw new Error('Court could not reconcile the latest event staff revision. Try again before changing this event.');
+    const current=evById(eventId);
+    if(!current)throw new Error('The event changed during synchronization. Reload Court before trying again.');
+    return current;
+  }
+  function safeLog(value){
+    const out={};if(!value||typeof value!=='object'||Array.isArray(value))return out;
+    Object.entries(value).forEach(([key,count])=>{const n=Number(count);if(Object.prototype.hasOwnProperty.call(EV_MAP,key)&&Number.isFinite(n))out[key]=n;});
+    return out;
+  }
+  function gameLogProjection(value){
+    const out={};if(!value||typeof value!=='object'||Array.isArray(value))return out;
+    Object.entries(value).forEach(([playerId,counts])=>{const safe=safeLog(counts);if(playerId&&Object.keys(safe).length)out[String(playerId)]=safe;});
+    return out;
+  }
+  function gameProjection(game){
+    const record={
+      id:String(game.id),date:Number(game.date)||0,teamA:uniqueIds(game.teamA),teamB:uniqueIds(game.teamB),
+      unkA:unkCount(game,'A'),unkB:unkCount(game,'B'),scoreA:Number(game.scoreA)||0,scoreB:Number(game.scoreB)||0,
+      winner:game.winner==='A'||game.winner==='B'?game.winner:null,log:gameLogProjection(game.log),
+      ratingVersion:normalizedRatingVersion(game.ratingVersion),detailed:game.detailed===true,
+      eventFamilies:game.eventFamilies&&typeof game.eventFamilies==='object'&&!Array.isArray(game.eventFamilies)?structuredClone(game.eventFamilies):{},
+      evId:String(game.evId),evA:game.evA==null?null:String(game.evA),evB:game.evB==null?null:String(game.evB),
+      evMatchId:game.evMatchId==null?null:String(game.evMatchId),matchId:game.matchId==null?null:String(game.matchId),
+      evEntryIdsA:uniqueIds(game.evEntryIdsA),evEntryIdsB:uniqueIds(game.evEntryIdsB),
+      eventFormat:game.eventFormat==='rotatingGroups'?'rotatingGroups':'fixedTeams',label:cleanText(game.label,180)
+    };
+    return record;
+  }
+  function samePlayerIds(left,right){
+    const a=uniqueIds(left).sort(),b=uniqueIds(right).sort();return a.length===b.length&&a.every((id,index)=>id===b[index]);
+  }
+  function referencedRosterForGameSide(ev,game,format,side){
+    const refs=format==='rotatingGroups'
+      ?uniqueIds(side==='A'?game.evEntryIdsA:game.evEntryIdsB)
+      :uniqueIds([side==='A'?game.evA:game.evB]);
+    if(!refs.length)return null;
+    const entries=format==='rotatingGroups'?rotatingEntries(ev):(ev.teams||[]);
+    return uniqueIds(refs.flatMap(id=>entries.find(entry=>String(entry.id)===id)?.players||[]));
+  }
+  function historicalGameIds(ev,eventGames,format){
+    return eventGames.filter(game=>{
+      const currentA=referencedRosterForGameSide(ev,game,format,'A'),currentB=referencedRosterForGameSide(ev,game,format,'B');
+      return (currentA!==null&&!samePlayerIds(game.teamA,currentA))||(currentB!==null&&!samePlayerIds(game.teamB,currentB));
+    }).map(game=>game.id);
+  }
+  function checkInProjection(ev,registrationId){
+    const row=registrationId&&normalizeEventDayRegistrationState(ev.registrationCheckIn).entries[registrationId];if(!row)return null;
+    return {
+      teamStatus:row.teamStatus,activePlayerIds:uniqueIds(row.activePlayerIds),substitutePlayerIds:uniqueIds(row.substitutePlayerIds),
+      playerStatuses:{...row.playerStatuses},replacements:(row.replacements||[]).map(item=>({playerId:String(item.playerId),addedAt:Number(item.addedAt)||0})),
+      updatedAt:Number(row.updatedAt)||null
+    };
+  }
+  function entryProjection(ev,entry,kind){
+    const registrationId=cleanText(entry?.registrationSource?.registrationId,160),checkIn=checkInProjection(ev,registrationId);
+    return {
+      id:String(entry.id),name:cleanText(entry.name,120),kind,pool:cleanText(entry.pool,24),
+      players:uniqueIds(entry.players),substitutePlayerIds:uniqueIds(entry.substitutePlayerIds),
+      registrationId:registrationId||null,...(checkIn?{checkIn}:{})
+    };
+  }
+  function stableFixedMatchId(ev,match){
+    if(match?.id)return String(match.id);
+    const revision=scheduleState(ev.sched||{},'fixed:'+ev.id).revision;
+    const eventKey=String(ev.id).replace(/[^A-Za-z0-9._~-]/g,'_').slice(0,48),pair=entryCombinationKey(match.a,match.b);
+    return `fixed:${eventKey}:v${revision}:${hash32(pair).toString(36)}`;
+  }
+  function existingGamesForMatch(ev,match,id){
+    const exact=games.filter(game=>game.evId===ev.id&&game.evMatchId===id);if(exact.length)return exact;
+    if(match.a&&match.b)return games.filter(game=>game.evId===ev.id&&!game.evMatchId&&playoffGamePairMatches(game,match.a,match.b));
+    return [];
+  }
+  function fixedMatchProjection(ev,match){
+    const id=stableFixedMatchId(ev,match),teamA=evTeamById(ev,match.a),teamB=evTeamById(ev,match.b),linked=existingGamesForMatch(ev,match,id);
+    return {
+      id,eventId:String(ev.id),kind:'scheduled',phase:isMakeupScheduleMatch(match)?'makeup':'pool',format:'fixedTeams',status:linked.length?'complete':'pending',
+      gameRecordMatchId:match?.id?String(match.id):null,
+      teamAId:String(match.a),teamBId:String(match.b),teamAPlayerIds:uniqueIds(teamA?.players),teamBPlayerIds:uniqueIds(teamB?.players),
+      sideAEntryIds:[String(match.a)],sideBEntryIds:[String(match.b)],sideAPlayerIds:uniqueIds(teamA?.players),sideBPlayerIds:uniqueIds(teamB?.players),
+      court:Number(match.court)+1,scheduledAt:Number(match.est)||null,slot:Number.isInteger(Number(match.slot))?Number(match.slot):null,
+      courtLabel:courtLabel(ev.sched||evSchedDefaults(),Number(match.court)||0),sideAName:cleanText(teamA?.name||'Team A',120),sideBName:cleanText(teamB?.name||'Team B',120),
+      label:cleanText(match.label||(match.pool?`Pool ${match.pool}`:'Scheduled match'),180),gameIds:linked.map(game=>String(game.id)),
+      gameMeta:gameSaveMeta(false),allowedScoreModes:['set','bo3']
+    };
+  }
+  function rotationMatchProjection(ev,match,timeline){
+    const valid=validateRotationMatch(ev,match),linked=games.filter(game=>game.evId===ev.id&&game.evMatchId===match.id);
+    const scheduledAt=Number(match.timeOffsetMinutes)>=0
+      ?eventScheduleTimestamp(ev,rotationSettings(ev).start||'10:00',Number(match.timeOffsetMinutes))
+      :timeline?.roundEst?.[match.round]||timeline?.makeupEst?.[positiveInt(match.makeupBlock,1)]||null;
+    return {
+      id:String(match.id),eventId:String(ev.id),kind:'scheduled',phase:isMakeupScheduleMatch(match)?'makeup':'pool',format:'rotatingGroups',status:linked.length?'complete':'pending',
+      teamAId:null,teamBId:null,teamAPlayerIds:valid.valid?uniqueIds(valid.A):[],teamBPlayerIds:valid.valid?uniqueIds(valid.B):[],
+      sideAEntryIds:uniqueIds(match.sideAEntryIds),sideBEntryIds:uniqueIds(match.sideBEntryIds),
+      sideAPlayerIds:valid.valid?uniqueIds(valid.A):[],sideBPlayerIds:valid.valid?uniqueIds(valid.B):[],
+      court:positiveInt(match.court,1),scheduledAt:Number(scheduledAt)||null,slot:Number.isInteger(Number(match.round))?Number(match.round)-1:null,
+      courtLabel:`Court ${positiveInt(match.court,1)}`,
+      sideAName:cleanText(uniqueIds(match.sideAEntryIds).map(id=>entryById(ev,id)?.name).filter(Boolean).join(' + ')||'Side A',120),
+      sideBName:cleanText(uniqueIds(match.sideBEntryIds).map(id=>entryById(ev,id)?.name).filter(Boolean).join(' + ')||'Side B',120),
+      label:cleanText(match.label||rotationMatchLabel(match),180),gameIds:linked.map(game=>String(game.id)),
+      gameMeta:gameSaveMeta(false),allowedScoreModes:['set','bo3']
+    };
+  }
+  function playoffMatchProjections(ev,timeline){
+    const result=[];
+    (ev.brackets||[]).forEach(bracket=>{
+      const state=bracketState(ev,bracket);if(!state)return;
+      state.rounds.forEach((round,roundIndex)=>round.forEach((match,matchIndex)=>{
+        const status=getPlayoffMatchState(ev,bracket,state,roundIndex,matchIndex),teamA=evTeamById(ev,match.a),teamB=evTeamById(ev,match.b),id=playoffMatchId(bracket,roundIndex,matchIndex);
+        result.push({
+          id,eventId:String(ev.id),kind:'playoff',phase:'playoff',format:'fixedTeams',bracketId:String(bracket.id),bracketName:cleanText(bracket.name,120),
+          roundIndex,matchIndex,status:status?.key||'waiting',teamAId:match.a?String(match.a):null,teamBId:match.b?String(match.b):null,
+          teamAPlayerIds:uniqueIds(teamA?.players),teamBPlayerIds:uniqueIds(teamB?.players),
+          sideAEntryIds:match.a?[String(match.a)]:[],sideBEntryIds:match.b?[String(match.b)]:[],
+          sideAPlayerIds:uniqueIds(teamA?.players),sideBPlayerIds:uniqueIds(teamB?.players),
+          court:null,scheduledAt:Number(timeline?.playoff?.[roundIndex]?.est)||null,
+          courtLabel:'Court TBD',sideAName:cleanText(teamA?.name||'TBD',120),sideBName:cleanText(teamB?.name||'TBD',120),
+          label:bracketMatchLabel(bracket,state.size,roundIndex,matchIndex,round.length),gameIds:(status?.games||[]).map(game=>String(game.id)),
+          upstreamComplete:status?.key!=='waiting'&&status?.key!=='invalidated',gameMeta:gameSaveMeta(false),allowedScoreModes:['set','bo3']
+        });
+      }));
+    });
+    return result;
+  }
+  function snapshot(ev){
+    const format=eventFormat(ev),eventGames=games.filter(game=>game.evId===ev.id).map(gameProjection),participantIds=collectEventPlayerIds(ev);
+    eventGames.forEach(game=>{game.teamA.forEach(id=>participantIds.add(id));game.teamB.forEach(id=>participantIds.add(id));});
+    const participants=[...participantIds].map(id=>pById(id)).filter(Boolean).map(player=>({id:String(player.id),name:cleanText(player.name,100),active:player.active!==false}));
+    const entries=(format==='rotatingGroups'?rotatingEntries(ev):ev.teams||[]).map(entry=>entryProjection(ev,entry,format==='rotatingGroups'?'entry':'team'));
+    const teams=(ev.teams||[]).map(team=>entryProjection(ev,team,'team'));
+    let schedule=null,matches=[];
+    if(format==='rotatingGroups'){
+      const timeline=rotationTimeline(ev);matches=rotationSchedule(ev).map(match=>rotationMatchProjection(ev,match,timeline));schedule=timeline;
+    }else{
+      schedule=buildSchedule(ev);matches=(schedule?.allMatches||[]).map(match=>fixedMatchProjection(ev,match));
+    }
+    matches.push(...playoffMatchProjections(ev,schedule));
+    const scheduled=matches.filter(match=>match.phase!=='playoff'&&Number.isInteger(match.slot)),courtCount=format==='rotatingGroups'?positiveInt(rotationSettings(ev).courts,1):sanitizeCourtCount(ev.sched?.courts,1);
+    const slots=[...new Map(scheduled.map(match=>[match.slot,{slot:match.slot,scheduledAt:match.scheduledAt}])).values()];
+    scheduled.forEach(match=>{
+      const ownIds=new Set([...match.sideAEntryIds,...match.sideBEntryIds,...match.sideAPlayerIds,...match.sideBPlayerIds]);
+      match.validPlacements=slots.flatMap(slot=>Array.from({length:courtCount},(_,index)=>({slot:slot.slot,court:index+1,scheduledAt:slot.scheduledAt}))).filter(placement=>{
+        return !scheduled.some(other=>other.id!==match.id&&other.slot===placement.slot&&(
+          other.court===placement.court||[...other.sideAEntryIds,...other.sideBEntryIds,...other.sideAPlayerIds,...other.sideBPlayerIds].some(id=>ownIds.has(id))
+        ));
+      }).slice(0,256);
+    });
+    const registration=eventRegistration(ev),safeEvent={
+      id:String(ev.id),name:cleanText(ev.name,120),eventDate:normalizeEventDate(ev.eventDate),venue:eventVenue(ev),format,done:ev.done===true,
+      lifecycle:eventLifecycleState(ev),entries,teams,
+      brackets:(ev.brackets||[]).map(bracket=>({id:String(bracket.id),name:cleanText(bracket.name,120),created:Number(bracket.created)||0,seeds:uniqueIds(bracket.seeds)})),
+      registration:{enabled:registration.enabled,status:getEffectiveEventRegistrationStatus(registration),mode:registration.mode},
+      registrationCheckIn:normalizeEventDayRegistrationState(ev.registrationCheckIn),
+      sched:{start:format==='rotatingGroups'?rotationSettings(ev).start||null:ev.sched?.start||null,courts:format==='rotatingGroups'?positiveInt(rotationSettings(ev).courts,1):sanitizeCourtCount(ev.sched?.courts,1),courtStyle:ev.sched?.courtStyle||'num'},
+      rotation:format==='rotatingGroups'?(()=>{const settings=rotationSettings(ev);return {entrySize:settings.entrySize,teamSize:settings.teamSize,winPoints:settings.winPoints,tiePoints:settings.tiePoints,lossPoints:settings.lossPoints,fairnessPolicy:scheduleFairnessPolicy(settings.fairnessPolicy),tiebreakers:Array.isArray(settings.tiebreakers)?settings.tiebreakers.slice():[]};})():null,
+      gameMeta:gameSaveMeta(false)
+    };
+    return {event:safeEvent,games:eventGames,participants,matches,historicalGameIds:historicalGameIds(ev,eventGames,format),gameMeta:gameSaveMeta(false)};
+  }
+  function snapshotSignature(ev){return JSON.stringify(snapshot(ev));}
+  function applyEnvelope(eventId,result,{safeRevision=false}={}){
+    if(!result)return stateFor(eventId);const state=stateFor(eventId);noteRevision(eventId,result,{safe:safeRevision});
+    if(Array.isArray(result.grants))state.grants=result.grants;
+    if(Array.isArray(result.activity))state.activity=result.activity;
+    state.loading=false;state.error='';state.conflict='';state.fetchedAt=Date.now();states.set(eventId,state);patchCard(eventId);return state;
+  }
+  async function putSnapshot(ev,{force=false,deleted=false,resetAccess=false,trustedReplacement=false}={}){
+    if(!ev)return null;const eventId=String(ev.id),state=stateFor(eventId);
+    const trustedReset=trustedReplacement||resetAccessIds.has(eventId);
+    let current=ev;
+    if(!trustedReset&&(Number(state.observedRevision)||0)>Sync.eventStaffRevision(eventId))current=await reconcileStaffData(eventId);
+    const projected=snapshot(current),signature=JSON.stringify(projected);
+    if(!force&&!deleted&&!resetAccess&&snapshotSignatures.get(eventId)===signature)return {ok:true,eventId,revision:state.revision,unchanged:true};
+    const revision=trustedReset?(Number(state.observedRevision)||0):(Sync.eventStaffRevision(eventId)||state.revision),body={...projected};
+    if(revision>0)body.expectedRevision=revision;
+    if(deleted)body.deleted=true;
+    if(resetAccess||resetAccessIds.has(eventId))body.resetAccess=true;
+    let result;
+    try{result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/snapshot`,{method:'PUT',body,eventId,handleRevisionConflict:false});}
+    catch(error){
+      if(error.status===409&&error.code==='event_access_reset_required'){
+        const current=Number(error.data?.currentRevision);if(Number.isInteger(current)&&current>0)body.expectedRevision=current;body.resetAccess=true;
+        result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/snapshot`,{method:'PUT',body,eventId});
+      }else{
+        if(error.status===409&&error.code==='revision_conflict')await handleConflict(eventId,error.data||{});
+        throw error;
+      }
+    }
+    applyEnvelope(eventId,result,{safeRevision:true});
+    if(!deleted){snapshotSignatures.set(eventId,signature);resetAccessIds.delete(eventId);}
+    else{clearTimeout(snapshotTimers.get(eventId));snapshotTimers.delete(eventId);snapshotSignatures.delete(eventId);states.delete(eventId);}
+    return result;
+  }
+  async function loadGrants(ev,{allowMissing=false}={}){
+    const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(ev.id)}/grants`,{eventId:ev.id,allow404:allowMissing});
+    if(result)applyEnvelope(ev.id,result);return result;
+  }
+  async function ensureSnapshot(ev){
+    let current=ev;const existing=await loadGrants(current,{allowMissing:true});
+    if(!resetAccessIds.has(String(current.id))&&(Number(stateFor(current.id).observedRevision)||0)>Sync.eventStaffRevision(current.id))current=await reconcileStaffData(current.id);
+    if(existing){const signature=snapshotSignature(current);if(snapshotSignatures.get(current.id)!==signature)return putSnapshot(current,{force:true});return existing;}
+    await putSnapshot(current,{force:true,resetAccess:resetAccessIds.has(current.id)});
+    return loadGrants(current);
+  }
+  async function loadAudit(ev){
+    const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(ev.id)}/audit`,{eventId:ev.id});
+    applyEnvelope(ev.id,result);return result;
+  }
+  function roleRows(){
+    const configured=Array.isArray(capabilityInfo?.roles)?capabilityInfo.roles:[];
+    return Object.values(EVENT_STAFF_ROLE_FALLBACK).map(fallback=>{
+      const row=configured.find(item=>item?.id===fallback.id)||{};return {...fallback,...row,summary:fallback.summary};
+    });
+  }
+  function grantState(grant,now=Date.now()){
+    if(grant?.revokedAt)return {key:'revoked',label:'Revoked',tone:''};
+    if(Number(grant?.expiresAt)<=now)return {key:'expired',label:'Expired',tone:''};
+    return {key:'active',label:'Active',tone:'good'};
+  }
+  function formatTimestamp(value,fallback='Never'){
+    const timestamp=Number(value);return Number.isFinite(timestamp)&&timestamp>0?new Date(timestamp).toLocaleString([],{dateStyle:'medium',timeStyle:'short'}):fallback;
+  }
+  function activeGrantCount(eventId){
+    return (stateFor(eventId).grants||[]).filter(grant=>grantState(grant).key==='active').length;
+  }
+  function cardHtml(ev){
+    if(Sync.configured()&&capabilityStatus==='unconfigured')capabilityStatus='idle';
+    if(capabilityStatus==='idle')setTimeout(()=>capability(),0);
+    const state=stateFor(ev.id),configured=Sync.configured(),syncActive=configured&&Sync.cfg.on,available=capabilityStatus==='available'&&syncActive,checking=capabilityStatus==='idle'||capabilityStatus==='checking';
+    const active=activeGrantCount(ev.id),copy=!configured?'Set up device sync to create restricted event staff links.'
+      :!syncActive?'Resume and finish adopting normal device sync before managing event staff access.'
+      :checking?'Checking whether the configured sync service supports secure staff access…'
+      :!available?(capabilityMessage||'Event Staff Access is unavailable on this sync service.')
+      :state.error||state.reviewNotice||`${active?`${active} active staff grant${active===1?'':'s'}. `:''}Staff see only this event in a restricted Tournament Desk.`;
+    const action=!syncActive
+      ?`<button type="button" class="btn ghost block" disabled>Staff access unavailable</button>`
+      :available
+      ?`<button type="button" class="btn primary block" onclick="openEventStaffAccess('${esc(ev.id)}')">${state.grants?'Manage staff access':'Set up staff access'}</button>`
+      :configured&&!checking
+        ?`<button type="button" class="btn ghost block" onclick="retryEventStaffCapability()">Retry compatibility check</button>`
+        :`<button type="button" class="btn ghost block" disabled>Staff access unavailable</button>`;
+    return `<section id="event-staff" class="card" data-event-view="overview" data-event-staff-card="${esc(ev.id)}" style="margin-top:12px">
+      <div class="row spread" style="gap:10px"><div><div class="stat-title" style="margin:0">Event Staff Access</div><div class="tiny faint" style="margin-top:4px">Temporary, role-based access for this event only</div></div>${available&&active?`<span class="pill good">${active} active</span>`:''}</div>
+      <p class="small soft" style="margin:10px 0">${esc(copy)}</p>
+      ${action}
+    </section>`;
+  }
+  function patchCard(eventId){
+    const node=document.querySelector(`[data-event-staff-card="${CSS.escape(String(eventId))}"]`),ev=evById(eventId);
+    if(node&&ev)node.outerHTML=cardHtml(ev);
+  }
+  function patchCards(){document.querySelectorAll('[data-event-staff-card]').forEach(node=>patchCard(node.dataset.eventStaffCard));}
+  function grantRowsHtml(ev,state){
+    if(!state.grants?.length)return `<div class="stat-empty"><b>No staff links yet</b>Create a named, expiring grant when someone needs help running this event.</div>`;
+    return state.grants.map(grant=>{
+      const status=grantState(grant),role=EVENT_STAFF_ROLE_FALLBACK[grant.role]?.label||grant.role||'Staff',active=status.key==='active';
+      return `<div class="ev-team" data-event-staff-grant="${esc(grant.id)}" style="display:block">
+        <div class="row spread" style="gap:8px"><span><b>${esc(grant.staffLabel||'Staff')}</b><span class="tiny faint" style="display:block">${esc(role)}${grant.hasPin||grant.pinRequired?' · PIN required':''}</span></span><span class="pill ${status.tone}">${status.label}</span></div>
+        <div class="tiny faint" style="margin-top:7px">Expires ${esc(formatTimestamp(grant.expiresAt,'Unknown'))} · Last used ${esc(formatTimestamp(grant.lastUsedAt))}</div>
+        ${active?`<div class="row" style="gap:7px;margin-top:9px"><button type="button" class="btn sm ghost" onclick="rotateEventStaffGrant('${esc(ev.id)}','${esc(grant.id)}')">Rotate link</button><button type="button" class="btn sm danger" onclick="revokeEventStaffGrant('${esc(ev.id)}','${esc(grant.id)}')">Revoke</button></div>`:''}
+      </div>`;
+    }).join('');
+  }
+  function scoreReviewHtml(state){
+    if(!state.reviewNotice)return '';
+    const rows=(state.scoreReviews||[]).map(row=>{
+      const attempted=row?.attempted,current=row?.current;
+      const attemptedScore=attempted?`${attempted.scoreA}–${attempted.scoreB}`:'not available';
+      const currentScore=current?`${current.scoreA}–${current.scoreB}`:'no current result';
+      const label=current?.label||attempted?.label||`Match ${current?.matchId||attempted?.matchId||''}`.trim();
+      return `<div class="tiny" style="margin-top:5px"><b>${esc(label||'Event match')}</b> · Attempted locally ${esc(attemptedScore)} · Current staff result ${esc(currentScore)}</div>`;
+    }).join('');
+    return `<div class="unkline" role="alert" data-event-staff-score-review><b>Score review needed.</b> ${esc(state.reviewNotice)}${rows}</div>`;
+  }
+  function renderManager(ev){
+    const state=stateFor(ev.id);managerEventId=ev.id;
+    openSheet(`<h3>Event Staff Access · ${esc(ev.name)}</h3>
+      <p class="small muted">Create restricted links for this event. Staff never receive your sync code or access to Court’s full player, history, settings, backup, or registration-administration areas.</p>
+      ${state.conflict?`<div class="unkline" role="alert">${esc(state.conflict)}</div>`:''}
+      ${scoreReviewHtml(state)}
+      <button type="button" class="btn primary block" onclick="openEventStaffGrantForm('${esc(ev.id)}')">${icons.plus} Create staff link</button>
+      <div class="pool-title">Staff grants</div>${grantRowsHtml(ev,state)}
+      <div class="row" style="gap:8px;margin-top:12px"><button type="button" class="btn ghost" style="flex:1" onclick="openEventStaffAudit('${esc(ev.id)}')">Activity log</button><button type="button" class="btn danger" style="flex:1" onclick="revokeAllEventStaff('${esc(ev.id)}')">Revoke all access</button></div>
+      ${sheetCloseBtn('Done')}`,{focus:'button'});
+  }
+  async function openManager(eventId){
+    const ev=evById(eventId);if(!ev)return;managerEventId=eventId;
+    openSheet(`<h3>Event Staff Access · ${esc(ev.name)}</h3><p class="small muted">Loading secure event access…</p>${sheetCloseBtn()}`);
+    if(!Sync.cfg.on){openSheet(`<h3>Event Staff Access unavailable</h3><p class="small muted">Resume and finish adopting normal device sync before creating or changing staff access.</p>${sheetCloseBtn()}`);return;}
+    if(!(await capability())){openSheet(`<h3>Event Staff Access unavailable</h3><p class="small muted">${esc(capabilityMessage||'Deploy the compatible sync Worker and database migration before creating staff links.')}</p>${sheetCloseBtn()}`);return;}
+    const state=stateFor(eventId);state.loading=true;state.error='';
+    try{await ensureSnapshot(ev);const current=evById(eventId);if(!current)throw new Error('The event changed during synchronization.');await loadGrants(current);renderManager(current);}
+    catch(error){state.loading=false;state.error=error.message;openSheet(`<h3>Event Staff Access · ${esc(ev.name)}</h3><div class="unkline" role="alert">${esc(error.message)}</div><button type="button" class="btn block ghost" onclick="openEventStaffAccess('${esc(ev.id)}')">Retry</button>${sheetCloseBtn()}`);}
+  }
+  function localDateTimeValue(timestamp){
+    const d=new Date(timestamp),pad=value=>String(value).padStart(2,'0');if(!Number.isFinite(d.getTime()))return '';
+    return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  }
+  function explicitEventEnd(ev){
+    try{
+      const timeline=eventFormat(ev)==='rotatingGroups'?rotationTimeline(ev):buildSchedule(ev);
+      const values=[timeline?.awards,timeline?.eventEnd,timeline?.poolsEnd].map(Number).filter(Number.isFinite);if(values.length)return Math.max(...values);
+    }catch(_){}
+    return null;
+  }
+  function defaultExpiration(ev,now=Date.now()){
+    const explicitDate=normalizeEventDate(ev?.eventDate);if(!explicitDate)return null;
+    const end=explicitEventEnd(ev);let candidate=end?end+24*60*60*1000:null;
+    if(!candidate){const parts=localDateParts(explicitDate),eventDateNoon=new Date(parts.year,parts.month-1,parts.day,12,0,0,0).getTime();candidate=eventDateNoon+24*60*60*1000;}
+    const max=now+Math.min(30,Number(capabilityInfo?.maxGrantDays)||30)*86400000;
+    return candidate>now&&candidate<=max?candidate:null;
+  }
+  function grantFormHtml(ev){
+    const expiry=defaultExpiration(ev),roles=roleRows(),selected='scorekeeper',maxDays=Math.min(30,Number(capabilityInfo?.maxGrantDays)||30),max=Date.now()+maxDays*86400000;
+    return `<h3>Create staff link · ${esc(ev.name)}</h3>
+      <div class="field"><label for="eventStaffLabel">Staff name</label><input id="eventStaffLabel" maxlength="80" autocomplete="off" placeholder="e.g. Court 2 scorekeeper"></div>
+      <div class="field"><label for="eventStaffRole">Permission role</label><select id="eventStaffRole" onchange="eventStaffRoleChanged(this.value)">${roles.map(role=>`<option value="${role.id}" ${role.id===selected?'selected':''}>${esc(role.label)}</option>`).join('')}</select></div>
+      <div class="unkline" id="eventStaffRoleSummary">${esc(EVENT_STAFF_ROLE_FALLBACK[selected].summary)}</div>
+      <div class="field"><label for="eventStaffExpiry">Expiration</label><select id="eventStaffExpiry" onchange="eventStaffExpiryChanged(this.value)">
+        ${expiry?`<option value="event" selected>24 hours after the planned event ends · ${esc(formatTimestamp(expiry,''))}</option>`:'<option value="" selected>Choose an expiration</option>'}
+        <option value="24h">24 hours from now</option><option value="3d">3 days from now</option><option value="7d">7 days from now</option><option value="custom">Custom date and time</option>
+      </select></div>
+      <div class="field" id="eventStaffCustomExpiryField" hidden><label for="eventStaffCustomExpiry">Custom expiration · maximum ${maxDays} days</label><input id="eventStaffCustomExpiry" type="datetime-local" min="${localDateTimeValue(Date.now()+60000)}" max="${localDateTimeValue(max)}"></div>
+      <div class="field"><label for="eventStaffPin">Optional PIN</label><input id="eventStaffPin" type="password" inputmode="numeric" autocomplete="new-password" minlength="4" maxlength="12" pattern="[0-9]{4,12}" placeholder="4–12 digits"></div>
+      <div class="unkline">Anyone with this link and, when set, its PIN can use the selected permissions until it expires or you revoke it. Court shows the raw link only once.</div>
+      <button type="button" class="btn primary block" onclick="createEventStaffGrant('${esc(ev.id)}')">Create secure link</button>${sheetCloseBtn()}`;
+  }
+  function expiryFromForm(ev,now=Date.now()){
+    const choice=$('#eventStaffExpiry')?.value||'',maxDays=Math.min(30,Number(capabilityInfo?.maxGrantDays)||30),max=now+maxDays*86400000;
+    let value=null;
+    if(choice==='event')value=defaultExpiration(ev,now);
+    else if(choice==='24h')value=now+86400000;
+    else if(choice==='3d')value=now+3*86400000;
+    else if(choice==='7d')value=now+7*86400000;
+    else if(choice==='custom')value=registrationTimestampFromInput($('#eventStaffCustomExpiry')?.value);
+    if(!Number.isFinite(value)||value<=now+60000)throw new Error('Choose an expiration at least a minute from now.');
+    if(value>max)throw new Error(`Staff links cannot last more than ${maxDays} days.`);
+    return Math.round(value);
+  }
+  function inviteUrl(result){
+    if(typeof result?.inviteUrl!=='string'||!result.inviteUrl)return '';
+    try{return new URL(result.inviteUrl,apiBase()).toString();}catch(_){return '';}
+  }
+  function showInvite(ev,result,verb='created'){
+    const url=inviteUrl(result);if(!url)throw new Error('The service created the grant but did not return a valid one-time invite URL.');
+    const grant=result.grant||{},role=EVENT_STAFF_ROLE_FALLBACK[grant.role]?.label||'Event staff';
+    openSheet(`<div data-event-staff-invite><h3>Staff link ${esc(verb)}</h3>
+      <div class="unkline"><b>Copy it now.</b> Court will not store or show this raw link again. Rotating the grant is required if it must be shared later.</div>
+      <div class="field"><label for="eventStaffInviteUrl">${esc(grant.staffLabel||'Staff')} · ${esc(role)}</label><input id="eventStaffInviteUrl" readonly value="${esc(url)}" onclick="this.select()"></div>
+      <div class="row" style="gap:8px"><button type="button" class="btn primary" style="flex:1" onclick="copyEventStaffInvite(this)">Copy full link</button><button type="button" class="btn ghost" style="flex:1" onclick="shareEventStaffInvite(this)">Share</button></div>
+      <button type="button" class="btn ghost block" style="margin-top:8px" onclick="openEventStaffAccess('${esc(ev.id)}')">Back to staff access</button>${sheetCloseBtn('Done')}</div>`,{focus:'#eventStaffInviteUrl'});
+  }
+  function openGrantForm(eventId){const ev=evById(eventId);if(ev)openSheet(grantFormHtml(ev),{focus:'#eventStaffLabel'});}
+  function roleChanged(role){
+    const node=$('#eventStaffRoleSummary'),row=EVENT_STAFF_ROLE_FALLBACK[role];if(node&&row)node.textContent=row.summary;
+  }
+  function expiryChanged(value){const field=$('#eventStaffCustomExpiryField');if(field)field.hidden=value!=='custom';if(value==='custom')$('#eventStaffCustomExpiry')?.focus();}
+  async function createGrant(eventId){
+    const ev=evById(eventId);if(!ev)return;
+    if(!Sync.cfg.on){toast('Resume and finish adopting device sync before creating staff access.');return;}
+    const staffLabel=cleanText($('#eventStaffLabel')?.value,80),role=$('#eventStaffRole')?.value,pin=String($('#eventStaffPin')?.value||'').trim();
+    if(!staffLabel){toast('Enter a staff name');$('#eventStaffLabel')?.focus();return;}
+    if(!EVENT_STAFF_ROLE_FALLBACK[role]){toast('Choose a permission role');return;}
+    if(pin&&!/^\d{4,12}$/.test(pin)){toast('PIN must be 4–12 digits');$('#eventStaffPin')?.focus();return;}
+    let expiresAt;try{expiresAt=expiryFromForm(ev);}catch(error){toast(error.message);return;}
+    const button=document.querySelector('[onclick^="createEventStaffGrant"]');if(button)button.disabled=true;
+    try{
+      await putSnapshot(ev,{force:true});
+      const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants`,{method:'POST',body:{staffLabel,role,expiresAt,...(pin?{pin}:{})},eventId});
+      await loadGrants(ev);showInvite(ev,result,'created');
+    }catch(error){toast(error.message);if(button)button.disabled=false;}
+  }
+  async function revokeGrant(eventId,grantId){
+    const ev=evById(eventId),grant=stateFor(eventId).grants?.find(item=>item.id===grantId);if(!ev||!grant)return;
+    if(!(await askConfirm(`Revoke ${grant.staffLabel||'this staff link'}? Any open Tournament Desk session for it will stop working.`,'Revoke link')))return;
+    try{await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants/${encodeURIComponent(grantId)}/revoke`,{method:'POST',body:{reason:'owner_revoked'},eventId});await loadGrants(ev);renderManager(ev);toast('Staff link revoked');}
+    catch(error){toast(error.message);}
+  }
+  async function rotateGrant(eventId,grantId){
+    const ev=evById(eventId),grant=stateFor(eventId).grants?.find(item=>item.id===grantId);if(!ev||!grant)return;
+    if(!(await askConfirm(`Rotate ${grant.staffLabel||'this staff link'}? The old link and its open sessions will stop working immediately.`,'Rotate link',false)))return;
+    try{
+      const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants/${encodeURIComponent(grantId)}/rotate`,{method:'POST',body:{reason:'owner_rotated'},eventId});
+      await loadGrants(ev);showInvite(ev,result,'rotated');
+    }catch(error){toast(error.message);}
+  }
+  async function revokeAllRequest(ev,reason){
+    const revision=Sync.eventStaffRevision(ev.id),body={reason};if(revision>0)body.expectedRevision=revision;
+    const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(ev.id)}/revoke-all`,{method:'POST',body,eventId:ev.id});
+    applyEnvelope(ev.id,result,{safeRevision:revision>0});return result;
+  }
+  async function revokeAll(eventId,{confirm=true,reason='owner_emergency'}={}){
+    const ev=evById(eventId);if(!ev)return false;
+    if(confirm&&!(await askConfirm(`Revoke all staff access for "${ev.name}"? Every staff link and open Tournament Desk session will stop working immediately.`,'Revoke all access')))return false;
+    try{await revokeAllRequest(ev,reason);await loadGrants(ev);if(confirm){renderManager(ev);toast('All event staff access revoked');}return true;}
+    catch(error){if(confirm)toast(error.message);throw error;}
+  }
+  function auditValue(value){
+    if(value==null)return '';try{const text=JSON.stringify(value);return text.length>180?text.slice(0,177)+'…':text;}catch(_){return '';}
+  }
+  function auditRowsHtml(activity){
+    if(!activity?.length)return '<div class="stat-empty">No staff activity has been recorded for this event.</div>';
+    return activity.map(item=>`<div class="ev-team" style="display:block">
+      <div class="row spread" style="gap:8px"><b>${esc(item.staffLabel||'Owner')}</b><span class="tiny faint">${esc(formatTimestamp(item.timestamp,''))}</span></div>
+      <div class="small" style="margin-top:5px">${esc(String(item.action||'activity').replace(/[._]/g,' '))}${item.targetId?` · ${esc(item.targetId)}`:''}</div>
+      ${item.previous!=null||item.next!=null?`<div class="tiny faint" style="margin-top:4px">${item.previous!=null?`Before: ${esc(auditValue(item.previous))}`:''}${item.previous!=null&&item.next!=null?' · ':''}${item.next!=null?`After: ${esc(auditValue(item.next))}`:''}</div>`:''}
+      <div class="tiny faint" style="margin-top:4px">${item.revision?`Revision ${item.revision} · `:''}${esc(item.source||'owner')}</div>
+    </div>`).join('');
+  }
+  async function openAudit(eventId){
+    const ev=evById(eventId);if(!ev)return;openSheet(`<h3>Staff activity · ${esc(ev.name)}</h3><p class="small muted">Loading bounded event activity…</p>${sheetCloseBtn()}`);
+    try{const result=await loadAudit(ev);openSheet(`<h3>Staff activity · ${esc(ev.name)}</h3><p class="small muted">Grant changes and delegated event actions. Tokens, PINs, sync secrets, and unrelated event data are never logged.</p>${auditRowsHtml(result.activity)}<button type="button" class="btn ghost block" style="margin-top:12px" onclick="openEventStaffAccess('${esc(ev.id)}')">Back to staff access</button>${sheetCloseBtn('Done')}`);}
+    catch(error){toast(error.message);}
+  }
+  async function copyInvite(button){
+    const value=button?.closest('[data-event-staff-invite]')?.querySelector('#eventStaffInviteUrl')?.value||'';if(!value)return;
+    let copied=false;try{await navigator.clipboard.writeText(value);copied=true;}catch(_){}if(!copied)copied=copyTextFallback(value);toast(copied?'Full staff link copied':'Could not copy link');
+  }
+  async function shareInvite(button){
+    const value=button?.closest('[data-event-staff-invite]')?.querySelector('#eventStaffInviteUrl')?.value||'';if(!value)return;
+    if(navigator.share){try{await navigator.share({title:'Court event staff access',url:value});return;}catch(error){if(error?.name==='AbortError')return;}}
+    await copyInvite(button);
+  }
+  function knownAccess(){
+    return Object.keys(Sync.eventStaffRevisions()).length>0||[...states.values()].some(state=>(state.grants||[]).some(grant=>grantState(grant).key==='active'));
+  }
+  async function revokeOwnerScope(reason,{reconcile=false}={}){
+    const wasAvailable=capabilityStatus==='available',available=await capability({force:true});
+    if(!available){
+      if(capabilityStatus==='offline'||wasAvailable||knownAccess())throw new Error('Court could not invalidate existing event staff access. Check the connection and try again.');
+      return false;
+    }
+    if(reconcile)await reconcileStaffData();
+    await request('/api/event-staff/owner/revoke-all',{method:'POST',body:{reason}});
+    if(reconcile)await reconcileStaffData();
+    snapshotTimers.forEach(clearTimeout);snapshotTimers.clear();Sync.clearEventStaffRevisions();states.clear();snapshotSignatures.clear();return true;
+  }
+  async function beforeIdentityChange(next){
+    const nextBase=normalizedWorkerBaseUrl(next?.url),same=nextBase===apiBase()&&String(next?.code||'')===Sync.cfg.code;if(same)return true;
+    await revokeOwnerScope('owner_identity_changed',{reconcile:true});return true;
+  }
+  async function beforeRestore(source){
+    /*
+     * Freeze and reconcile the old staff scope before replacement. The incoming
+     * backup still wins, but prepareReplacement can now tombstone staff-created
+     * games it intentionally omits instead of letting a later root overlay
+     * reintroduce them.
+     */
+    await revokeOwnerScope('backup_restore',{reconcile:true});
+    (Array.isArray(source?.events)?source.events:[]).forEach(event=>{if(event?.id)resetAccessIds.add(String(event.id));});
+    return true;
+  }
+  async function afterRestore(eventList){
+    if(capabilityStatus!=='available')return;
+    for(const ev of Array.isArray(eventList)?eventList:[]){
+      try{
+        /*
+         * Restore deliberately cleared the locally remembered revisions after
+         * the owner-wide epoch bump. Re-read each reused event row so the
+         * reset snapshot still carries an explicit compare-and-swap revision;
+         * a missing row remains a normal revision-zero create.
+         */
+        await loadGrants(ev,{allowMissing:true});
+        await putSnapshot(ev,{force:true,resetAccess:true,trustedReplacement:true});
+      }
+      catch(error){stateFor(ev.id).error='Staff access remains revoked; reconnect before issuing a new link.';}
+    }
+  }
+  async function beforeEventDelete(ev){
+    const wasAvailable=capabilityStatus==='available',available=await capability({force:true});
+    if(!available){
+      if(capabilityStatus==='offline'||wasAvailable||Sync.eventStaffRevision(ev.id)>0||activeGrantCount(ev.id)>0)throw new Error('Staff access could not be revoked, so the event was not deleted.');
+      return true;
+    }
+    let current=await reconcileStaffData(ev.id);
+    if(!Sync.eventStaffRevision(current.id)){await ensureSnapshot(current);current=evById(current.id);if(!current)throw new Error('The event changed during synchronization.');}
+    await revokeAllRequest(current,'event_deleted');
+    current=evById(current.id);if(!current)throw new Error('The event changed during synchronization.');
+    await putSnapshot(current,{force:true,deleted:true});return current;
+  }
+  function managedEventIds(){
+    return [...new Set([...Object.keys(Sync.eventStaffRevisions()),...resetAccessIds,...[...states.entries()].filter(([,state])=>state.grants!==null).map(([eventId])=>eventId)])];
+  }
+  function touchAllManaged(){
+    if(!Sync.configured()||!Sync.cfg.on||Sync.replacementActive())return;
+    const eventIds=managedEventIds();if(!eventIds.length)return;
+    if(capabilityStatus!=='available'){
+      capability().then(available=>{if(available)touchAllManaged();}).catch(()=>{});
+      return;
+    }
+    eventIds.forEach(eventId=>{
+      const ev=evById(eventId);if(!ev)return;clearTimeout(snapshotTimers.get(eventId));
+      snapshotTimers.set(eventId,setTimeout(()=>{snapshotTimers.delete(eventId);putSnapshot(ev).catch(error=>{stateFor(eventId).error=error.message;patchCard(eventId);});},1200));
+    });
+  }
+  async function flushManaged(){
+    if(!Sync.configured())return;
+    const eventIds=managedEventIds();if(!eventIds.length)return;
+    if(capabilityStatus!=='available'&&!(await capability({force:true}))){
+      throw new Error('Court could not confirm Event Staff Access before syncing this managed event. Check the connection and try again.');
+    }
+    for(const eventId of eventIds){
+      clearTimeout(snapshotTimers.get(eventId));snapshotTimers.delete(eventId);
+      const ev=evById(eventId);if(!ev)continue;
+      try{await putSnapshot(ev);}
+      catch(error){stateFor(eventId).error=error.message;patchCard(eventId);throw error;}
+    }
+  }
+  function pauseManagedWrites(){
+    snapshotTimers.forEach(clearTimeout);snapshotTimers.clear();
+  }
+  function noteSyncApplied(revisions){
+    Object.keys(revisions&&typeof revisions==='object'?revisions:{}).forEach(eventId=>{
+      const safeRevision=Sync.eventStaffRevision(eventId),state=stateFor(eventId);state.revision=safeRevision;state.observedRevision=safeRevision;
+      const ev=evById(eventId);if(ev&&snapshotSignatures.get(eventId)!==snapshotSignature(ev))snapshotSignatures.delete(eventId);
+    });
+  }
+  function noteAuthoritativeGameReplacement(eventId,notice){
+    const state=stateFor(eventId),count=Math.max(1,Number(notice?.count)||0);
+    state.reviewNotice=`A newer staff revision replaced ${count} unuploaded local result${count===1?'':'s'}. Court kept only the current staff result so ratings were not counted twice. Review the score before entering another correction.`;
+    state.scoreReviews=Array.isArray(notice?.scores)?notice.scores.slice(0,4):[];
+    patchCard(eventId);
+    toast('Newer staff score kept · review the current result');
+  }
+  function noteConflict(value){
+    const body=value&&typeof value==='object'?value:{},revisions=body.eventStaffRevisions||body.currentRevisions||(body.eventId&&body.currentRevision?{[body.eventId]:body.currentRevision}:{});
+    Object.entries(revisions&&typeof revisions==='object'&&!Array.isArray(revisions)?revisions:{}).forEach(([eventId,revision])=>noteRevision(eventId,{currentRevision:revision}));
+    const eventIds=[...new Set([body.eventId,...(Array.isArray(body.conflicts)?body.conflicts.map(item=>item?.eventId):[])].filter(Boolean).map(String))];
+    eventIds.forEach(eventId=>{const state=stateFor(eventId);state.conflict='This event changed through another owner or staff device. Court is loading the current server version.';state.error=state.conflict;patchCard(eventId);});
+  }
+  function resetIdentity(){
+    capabilityKey='';capabilityStatus='idle';capabilityInfo=null;capabilityMessage='';capabilityPromise=null;managerEventId=null;
+    states.clear();snapshotSignatures.clear();resetAccessIds.clear();snapshotTimers.forEach(clearTimeout);snapshotTimers.clear();
+  }
+  return {
+    capability,state:eventId=>stateFor(eventId),cardHtml,snapshot,putSnapshot,openManager,openGrantForm,roleChanged,expiryChanged,createGrant,
+    revokeGrant,rotateGrant,revokeAll,openAudit,copyInvite,shareInvite,beforeIdentityChange,beforeRestore,afterRestore,beforeEventDelete,
+    touchAllManaged,flushManaged,pauseManagedWrites,noteSyncApplied,noteAuthoritativeGameReplacement,noteConflict,resetIdentity,apiBase,retryCapability:()=>capability({force:true}),get capabilityStatus(){return capabilityStatus;},get capabilityInfo(){return capabilityInfo;}
+  };
+})();
+window.EventStaff=EventStaff;
+window.openEventStaffAccess=eventId=>EventStaff.openManager(eventId);
+window.openEventStaffGrantForm=eventId=>EventStaff.openGrantForm(eventId);
+window.eventStaffRoleChanged=role=>EventStaff.roleChanged(role);
+window.eventStaffExpiryChanged=value=>EventStaff.expiryChanged(value);
+window.createEventStaffGrant=eventId=>EventStaff.createGrant(eventId);
+window.revokeEventStaffGrant=(eventId,grantId)=>EventStaff.revokeGrant(eventId,grantId);
+window.rotateEventStaffGrant=(eventId,grantId)=>EventStaff.rotateGrant(eventId,grantId);
+window.revokeAllEventStaff=eventId=>EventStaff.revokeAll(eventId);
+window.openEventStaffAudit=eventId=>EventStaff.openAudit(eventId);
+window.copyEventStaffInvite=button=>EventStaff.copyInvite(button);
+window.shareEventStaffInvite=button=>EventStaff.shareInvite(button);
+window.retryEventStaffCapability=()=>EventStaff.retryCapability();
 
 const PlayerPhotos=(()=>{
   const cache=new Map(),pending=new Map();
@@ -12683,7 +13519,7 @@ window.applySelectedRegistrationImports=async()=>{
   }catch(error){state.error=error.message;}finally{state.applying=false;renderRegistrationImportReview();render();}
 };
 function eventDayStatusLabel(status){
-  return ({not_checked_in:'Not checked in',partially_arrived:'Partially arrived',checked_in:'Checked in',needs_review:'Needs review',no_show:'Withdrawn / no-show',
+  return ({not_checked_in:'Not checked in',partially_arrived:'Partially arrived',checked_in:'Checked in',needs_review:'Needs review',no_show:'No-show',withdrawn:'Withdrawn',
     not_present:'Not present',present:'Present',substitute_present:'Substitute present',unknown_replacement:'Replacement',excused:'Excused / unavailable'})[status]||'Not present';
 }
 function eventDayCheckInEntry(ev,entry){
@@ -12696,7 +13532,7 @@ function eventDayCheckInEntry(ev,entry){
   ev.registrationCheckIn.entries[registrationId]=current;return current;
 }
 function eventDayCheckInSummary(ev){
-  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource),states=imported.map(entry=>eventDayCheckInEntry(ev,entry)),arrived=states.filter(row=>['checked_in','partially_arrived'].includes(row.teamStatus)).length,present=states.reduce((sum,row)=>sum+Object.values(row.playerStatuses).filter(status=>['present','substitute_present','unknown_replacement'].includes(status)).length,0),attention=states.filter(row=>['needs_review','partially_arrived','no_show'].includes(row.teamStatus)).length;
+  const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource),states=imported.map(entry=>eventDayCheckInEntry(ev,entry)),arrived=states.filter(row=>['checked_in','partially_arrived'].includes(row.teamStatus)).length,present=states.reduce((sum,row)=>sum+Object.values(row.playerStatuses).filter(status=>['present','substitute_present','unknown_replacement'].includes(status)).length,0),attention=states.filter(row=>['needs_review','partially_arrived','no_show','withdrawn'].includes(row.teamStatus)).length;
   return {teams:imported.length,arrived,present,attention};
 }
 function eventDayPlayerOptions(selected,isSubstitute=false){
@@ -12729,13 +13565,13 @@ window.setEventDayTeamStatus=async(evId,registrationId,status)=>{
   const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_TEAM_STATUSES.includes(status))return;
   const row=eventDayCheckInEntry(ev,entry);row.teamStatus=status;row.updatedAt=Date.now();
   if(status==='checked_in')row.activePlayerIds.forEach(id=>row.playerStatuses[id]='present');
-  if(status==='no_show')Object.keys(row.playerStatuses).forEach(id=>row.playerStatuses[id]='not_present');
+  if(['no_show','withdrawn'].includes(status))Object.keys(row.playerStatuses).forEach(id=>row.playerStatuses[id]='not_present');
   await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
 };
 window.setEventDayPlayerStatus=async(evId,registrationId,playerId,status)=>{
   const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_PLAYER_STATUSES.includes(status))return;
   const row=eventDayCheckInEntry(ev,entry);row.playerStatuses[playerId]=status;const activePresent=row.activePlayerIds.filter(id=>row.playerStatuses[id]==='present').length;
-  row.teamStatus=activePresent===row.activePlayerIds.length&&activePresent?'checked_in':activePresent?'partially_arrived':row.teamStatus==='no_show'?'no_show':'not_checked_in';row.updatedAt=Date.now();
+  row.teamStatus=activePresent===row.activePlayerIds.length&&activePresent?'checked_in':activePresent?'partially_arrived':['no_show','withdrawn'].includes(row.teamStatus)?row.teamStatus:'not_checked_in';row.updatedAt=Date.now();
   await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
 };
 window.promoteEventDaySubstitute=async(evId,registrationId,playerId)=>{
@@ -13066,8 +13902,8 @@ window.applyAppUpdate=()=>AppUpdates.applyUpdate();
 window.dismissAppUpdate=()=>AppUpdates.dismiss();
 
 (function(){
-  const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();return r;};
-  const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();return r;};
+  const _commit=commit;commit=async function(){const r=await _commit.apply(this,arguments);Sync.touch();EventStaff.touchAllManaged();return r;};
+  const _saveEvents=saveEvents;saveEvents=async function(){const r=await _saveEvents.apply(this,arguments);Sync.touch();EventStaff.touchAllManaged();return r;};
   const _saveAttendanceSessions=saveAttendanceSessions;saveAttendanceSessions=async function(){const r=await _saveAttendanceSessions.apply(this,arguments);Sync.touch();return r;};
   const _saveSavedCrews=saveSavedCrews;saveSavedCrews=async function(){const r=await _saveSavedCrews.apply(this,arguments);Sync.touch();return r;};
   const _saveSettings=saveSettings;saveSettings=async function(){const r=await _saveSettings.apply(this,arguments);Sync.touch();return r;};

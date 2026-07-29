@@ -51,10 +51,15 @@ async function stubWorker(page, rooms, options = {}) {
       return;
     }
     const request = route.request();
-    const code = new URL(request.url()).searchParams.get('room');
+    const url = new URL(request.url());
+    const code = url.searchParams.get('room');
     const headers = { 'access-control-allow-origin': '*', 'content-type': 'application/json' };
     if (request.method() === 'OPTIONS') {
       await route.fulfill({ status: 204, headers: { ...headers, 'access-control-allow-methods': 'GET,POST,OPTIONS' }, body: '' });
+      return;
+    }
+    if (url.pathname.endsWith('/api/event-staff/status')) {
+      await route.fulfill({ status: 404, headers, body: JSON.stringify({ error: 'not_found' }) });
       return;
     }
     if (request.method() === 'GET') {
