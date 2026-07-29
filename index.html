@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260729.1">
+<meta name="court-build" content="20260729.2">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1380,9 +1380,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.40.0',
-  build: '20260729.1',
-  releaseNotes: 'Event owners can now issue secure, temporary, role-based access to a focused Tournament Desk for one event.'
+  version: '0.40.1',
+  build: '20260729.2',
+  releaseNotes: 'Tournament Desk scores now stay on the current event revision after owner sync, avoiding false first-attempt conflicts.'
 });
 
 function appVersionLabel(){
@@ -11821,7 +11821,7 @@ const Sync=(()=>{
       :mergeAttendanceSessionsById(attendanceSessions,remote.attendanceSessions,true);
     settings={...DEFAULT_SETTINGS,...(remote.settings||{})};
     migrateEvents();migratePlayers();
-    window.EventStaff?.noteSyncApplied?.(remote.eventStaffRevisions);
+    window.EventStaff?.noteSyncApplied?.(remote.eventStaffRevisions,[...authoritativeEventIds]);
     gameReplacementNotices.forEach(notice=>window.EventStaff?.noteAuthoritativeGameReplacement?.(notice.eventId,notice));
   }
   function bindVis(){
@@ -12629,10 +12629,20 @@ const EventStaff=(()=>{
   function pauseManagedWrites(){
     snapshotTimers.forEach(clearTimeout);snapshotTimers.clear();
   }
-  function noteSyncApplied(revisions){
+  function noteSyncApplied(revisions,authoritativeEventIds=[]){
+    const authoritative=new Set((Array.isArray(authoritativeEventIds)?authoritativeEventIds:[]).map(String));
     Object.keys(revisions&&typeof revisions==='object'?revisions:{}).forEach(eventId=>{
       const safeRevision=Sync.eventStaffRevision(eventId),state=stateFor(eventId);state.revision=safeRevision;state.observedRevision=safeRevision;
-      const ev=evById(eventId);if(ev&&snapshotSignatures.get(eventId)!==snapshotSignature(ev))snapshotSignatures.delete(eventId);
+      const ev=evById(eventId);if(!ev)return;const signature=snapshotSignature(ev);
+      /*
+       * A changed D1 revision makes the root overlay authoritative for this
+       * event. Remember that exact local projection so the save calls which
+       * finish the pull do not echo it back as a second owner revision. For a
+       * same-revision merge, keep detecting local owner edits that still need
+       * to be written to the staff snapshot.
+       */
+      if(authoritative.has(String(eventId)))snapshotSignatures.set(eventId,signature);
+      else if(snapshotSignatures.get(eventId)!==signature)snapshotSignatures.delete(eventId);
     });
   }
   function noteAuthoritativeGameReplacement(eventId,notice){

@@ -909,7 +909,7 @@ test('a remembered staffed event refreshes its bounded snapshot after reload wit
   expect(state.snapshots.at(-1).expectedRevision).toBeGreaterThanOrEqual(rememberedRevision);
 });
 
-test('a newer grant-list revision is root-reconciled before any owner snapshot can overwrite a staff score', async ({ page }) => {
+test('a newer grant-list revision is root-reconciled without echoing the staff score as an owner snapshot', async ({ page }) => {
   const state = workerState();
   await seedOwner(page);
   await stubWorker(page, state);
@@ -934,10 +934,8 @@ test('a newer grant-list revision is root-reconciled before any owner snapshot c
   await openStaffManager(page);
 
   await expect.poll(() => page.evaluate(() => games.some(row => row.id === 'staff-score'))).toBe(true);
-  await expect.poll(() => state.snapshots.length).toBeGreaterThan(0);
-  expect(state.snapshots[0].expectedRevision).toBe(reconciledRevision);
-  expect(state.snapshots[0].games.some(row => row.id === 'staff-score')).toBe(true);
-  expect(await page.evaluate(() => Sync.eventStaffRevision('event-one'))).toBeGreaterThan(reconciledRevision);
+  expect(state.snapshots).toHaveLength(0);
+  expect(await page.evaluate(() => Sync.eventStaffRevision('event-one'))).toBe(reconciledRevision);
 });
 
 test('a newer staff revision replaces a competing owner game ID for the same match without double-counting ratings', async ({ page }) => {
@@ -1008,6 +1006,48 @@ test('a newer staff revision replaces a competing owner game ID for the same mat
   await page.evaluate(() => EventStaff.openManager('event-one'));
   await expect(page.locator('[data-event-staff-score-review]')).toContainText('Attempted locally 21–12');
   await expect(page.locator('[data-event-staff-score-review]')).toContainText('Current staff result 14–21');
+});
+
+test('an authoritative staff score pull is not echoed back as a second owner revision', async ({ page }) => {
+  const state = workerState({
+    revision: 1,
+    rootTs: 100,
+    rootData: ownerRootData({ games: [], revision: 1 }),
+    staffSnapshot: { games: [] },
+  });
+  await seedOwner(page, { games: [] });
+  await stubWorker(page, state);
+  await page.goto('/');
+  await expect.poll(() => page.evaluate(() => Sync.pull({ force: true }))).toBe(true);
+  await page.waitForTimeout(1400);
+  state.snapshots.length = 0;
+
+  const staffScore = game('staff-first-attempt-score', {
+    date: 220,
+    scoreA: 25,
+    scoreB: 22,
+    winner: 'A',
+  });
+  state.revision = 2;
+  state.rootTs = 200;
+  state.staffSnapshot = { games: [staffScore] };
+
+  await expect.poll(() => page.evaluate(() => Sync.pull({ force: true }))).toBe(true);
+  await page.waitForTimeout(1400);
+
+  expect(await page.evaluate(() => games.some(row => row.id === 'staff-first-attempt-score'))).toBe(true);
+  expect(await page.evaluate(() => Sync.eventStaffRevision('event-one'))).toBe(2);
+  expect(state.snapshots).toHaveLength(0);
+
+  await page.evaluate(async () => {
+    evById('event-one').name = 'Owner Cup renamed';
+    await saveEvents();
+  });
+  await expect.poll(() => state.snapshots.length).toBe(1);
+  expect(state.snapshots[0]).toMatchObject({
+    expectedRevision: 2,
+    event: { id: 'event-one', name: 'Owner Cup renamed' },
+  });
 });
 
 test('a same-revision managed root pull preserves an unsynced owner game until its snapshot CAS', async ({ page }) => {
