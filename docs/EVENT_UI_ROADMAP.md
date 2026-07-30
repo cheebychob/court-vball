@@ -88,6 +88,16 @@ scroll surface, EUX-05/EUX-13 standings presentation, and all current roadmap
 statuses; this cross-cutting scheduling feature does not mark another roadmap
 item complete.
 
+Related delivery: `feat/bracket-auto-split` lets an event run several playoff
+brackets. It removes the rotating-event gate that allowed only one bracket,
+adds a "Split into brackets" sheet that turns the automatic seed order into
+balanced Gold/Silver/Bronze tiers in one tap, and changes fixed-team automatic
+seeding to cross-pool order (every pool winner, then every runner-up) with the
+overall-standings order still selectable. Brackets stay single elimination and
+keep storing only `{id, name, created, seeds}`; all bracket state remains
+derived on render. Like the delivery above, this is cross-cutting and does not
+mark another roadmap item complete.
+
 ## Roadmap summary
 
 | Done | ID     | Work item                                           | Branch                                     | Depends on     | Status  |
