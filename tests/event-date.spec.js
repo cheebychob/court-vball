@@ -38,9 +38,16 @@ test('event creation defaults locally, selected and edited dates persist, and ba
 
   let state = await page.evaluate(() => ({
     memory: evts[0].eventDate,
-    stored: JSON.parse(localStorage.getItem('vb:events'))[0].eventDate
+    stored: JSON.parse(localStorage.getItem('vb:events'))[0].eventDate,
+    memoryCheckInEnabled: evts[0].eventDayCheckInEnabled,
+    storedCheckInEnabled: JSON.parse(localStorage.getItem('vb:events'))[0].eventDayCheckInEnabled,
   }));
-  expect(state).toEqual({ memory: '2026-07-18', stored: '2026-07-18' });
+  expect(state).toEqual({
+    memory: '2026-07-18',
+    stored: '2026-07-18',
+    memoryCheckInEnabled: false,
+    storedCheckInEnabled: false,
+  });
   await expect(page.locator('main .screen-head')).toContainText('July 18, 2026');
 
   await page.getByRole('button', { name: 'Event details', exact: true }).click();
@@ -82,18 +89,30 @@ test('legacy event-date migration uses local created dates, falls back safely, i
     const migratedOnce = JSON.parse(JSON.stringify(evts));
     migrateEvents();
     const migratedTwice = JSON.parse(JSON.stringify(evts));
-    const withoutDates = migratedOnce.map(event => { const copy = { ...event }; delete copy.eventDate; return copy; });
-    const rawWithoutDates = JSON.parse(localStorage.getItem('vb:events')).map(event => { const copy = { ...event }; delete copy.eventDate; return copy; });
+    const withoutNormalizedFields = migratedOnce.map(event => {
+      const copy = { ...event };
+      delete copy.eventDate;
+      delete copy.eventDayCheckInEnabled;
+      return copy;
+    });
+    const rawWithoutNormalizedFields = JSON.parse(localStorage.getItem('vb:events')).map(event => {
+      const copy = { ...event };
+      delete copy.eventDate;
+      delete copy.eventDayCheckInEnabled;
+      return copy;
+    });
     return {
       dates: migratedOnce.map(event => event.eventDate),
+      checkInEnabled: migratedOnce.map(event => event.eventDayCheckInEnabled),
       expectedCreated: localDateFromTimestamp(migratedOnce[0].created),
       today: todayLocalDate(),
       idempotent: JSON.stringify(migratedOnce) === JSON.stringify(migratedTwice),
-      unrelatedSame: JSON.stringify(withoutDates) === JSON.stringify(rawWithoutDates)
+      unrelatedSame: JSON.stringify(withoutNormalizedFields) === JSON.stringify(rawWithoutNormalizedFields)
     };
   });
 
   expect(result.dates).toEqual([result.expectedCreated, result.expectedCreated, result.today, '2026-08-02']);
+  expect(result.checkInEnabled).toEqual([false, false, false, false]);
   expect(result.idempotent).toBe(true);
   expect(result.unrelatedSame).toBe(true);
 });

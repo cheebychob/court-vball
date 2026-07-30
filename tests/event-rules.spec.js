@@ -175,6 +175,7 @@ test('duplication copies editable rules into a new draft without publication ide
   expect(duplicated.id).toBe('copy');
   expect(duplicated.name).toBe('Summer Sand 4s Copy');
   expect(duplicated.schedulePublications).toBeUndefined();
+  expect(duplicated.eventDayCheckInEnabled).toBe(false);
   expect(duplicated.rules).toMatchObject({ publishedRevisionId: null, revisions: [], draft: { basedOnRevisionId: null } });
   expect(JSON.stringify(duplicated.rules.draft.document)).toContain('Stop for lightning');
 });

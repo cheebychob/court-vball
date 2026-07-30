@@ -39,6 +39,34 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value));
 }
 
+function publishedRules() {
+  return {
+    revisionId: 'rules-current',
+    number: 3,
+    publishedAt: Date.now() - 5000,
+    quickRules: [
+      { key: 'scoringFormat', label: 'Scoring format', value: 'Best of 3 sets' },
+      { key: 'timeouts', label: 'Timeouts', value: 'One per set' },
+    ],
+    content: [
+      { tag: 'h2', children: [{ text: 'Match conduct' }] },
+      {
+        tag: 'p',
+        children: [
+          { text: 'Call your own touches. See ' },
+          { tag: 'a', href: 'https://example.test/rules', children: [{ text: 'full guidance' }] },
+          { text: '.' },
+        ],
+      },
+      {
+        tag: 'aside',
+        callout: 'warning',
+        children: [{ tag: 'strong', children: [{ text: 'Court safety comes first.' }] }],
+      },
+    ],
+  };
+}
+
 function deskState(role = 'tournamentOperator', overrides = {}) {
   const now = Date.now();
   const permissions = role === 'viewOnly'
@@ -64,6 +92,7 @@ function deskState(role = 'tournamentOperator', overrides = {}) {
       eventDate: '2026-08-15',
       venue: 'Lakefront Fieldhouse',
       done: false,
+      eventDayCheckInEnabled: true,
       teams: [
         {
           id: 'team-a',
@@ -420,14 +449,16 @@ test('View Only renders event-safe data with no mutation, contacts, activity, ra
   await openDesk(page, { role: 'viewOnly', initialState: viewState });
 
   await expect(page.locator('#staff-meta')).toContainText('View Only');
-  await expect(page.getByRole('navigation', { name: 'Tournament Desk sections' }).getByRole('button')).toHaveCount(5);
+  await expect(page.getByRole('navigation', { name: 'Tournament Desk sections' }).getByRole('button')).toHaveCount(4);
   await expect(page.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Activity' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Event Information' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Rules' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: /Enter score|Correct score|Move match/ })).toHaveCount(0);
 
   await page.getByRole('button', { name: 'Schedule' }).click();
   await expect(page.getByRole('button', { name: /Enter score|Correct score|Move match/ })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Event Information' }).click();
+  await page.getByRole('button', { name: 'Standings' }).click();
   await expect(page.locator('#content')).not.toContainText('captain.private@example.com');
   await expect(page.locator('#content')).not.toContainText('Private registration note');
   await expect(page.locator('#content')).not.toContainText('setEntryCheckIn');
@@ -435,6 +466,137 @@ test('View Only renders event-safe data with no mutation, contacts, activity, ra
   expect(await page.locator('a').count()).toBe(0);
   await expect(page.getByRole('button', { name: /Players|Ratings|Backups|Settings|Sync|Public links/i })).toHaveCount(0);
   expect(await page.locator('body').innerText()).not.toMatch(/\b\d{2,4}\s*(rating|elo)\b/i);
+});
+
+test('Check-In requires an enabled event, Tournament Operator role, and the frozen permission', async ({ page }) => {
+  const disabled = deskState('tournamentOperator');
+  disabled.event.eventDayCheckInEnabled = false;
+  // A stale or preserved payload must not make the hidden tool reappear.
+  disabled.event.registrationCheckIn = {
+    entries: {
+      'registration-a': {
+        teamStatus: 'checked_in',
+        activePlayerIds: ['player-a1', 'player-a2'],
+        substitutePlayerIds: [],
+        playerStatuses: { 'player-a1': 'present' },
+        updatedAt: Date.now() - 1000,
+      },
+    },
+    updatedAt: Date.now() - 1000,
+  };
+  await openDesk(page, { initialState: disabled });
+
+  await expect(page.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
+  await expect(page.locator('#event-name')).toHaveText('Lakefront Invitational');
+  await expect(page.locator('#event-meta')).toContainText('Lakefront Fieldhouse');
+
+  const enabledPage = await page.context().newPage();
+  await openDesk(enabledPage, { initialState: deskState('tournamentOperator') });
+  await expect(enabledPage.getByRole('button', { name: 'Check-In' })).toBeVisible();
+  await enabledPage.close();
+
+  const noFrozenPermission = deskState('tournamentOperator');
+  noFrozenPermission.grant.permissions = noFrozenPermission.grant.permissions
+    .filter(permission => permission !== 'setEntryCheckIn');
+  const permissionPage = await page.context().newPage();
+  await openDesk(permissionPage, { initialState: noFrozenPermission });
+  await expect(permissionPage.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
+  await permissionPage.close();
+
+  const scorekeeper = deskState('scorekeeper');
+  scorekeeper.grant.permissions.push('setEntryCheckIn');
+  const scorekeeperPage = await page.context().newPage();
+  await openDesk(scorekeeperPage, { role: 'scorekeeper', initialState: scorekeeper });
+  await expect(scorekeeperPage.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
+  await scorekeeperPage.close();
+});
+
+test('current published rules render safely for View Only and Scorekeeper without owner controls', async ({ page }) => {
+  const viewState = deskState('viewOnly');
+  viewState.event.publishedRules = publishedRules();
+  viewState.event.publishedRules.content.push(
+    { tag: 'script', children: [{ text: 'draft-secret-script' }] },
+    { tag: 'a', href: 'javascript:alert(1)', children: [{ text: 'unsafe link' }] },
+  );
+  await openDesk(page, { role: 'viewOnly', initialState: viewState });
+
+  await page.getByRole('button', { name: 'Rules' }).click();
+  await expect(page.locator('#content')).toContainText('Quick Rules');
+  await expect(page.locator('#content')).toContainText('Best of 3 sets');
+  await expect(page.locator('#content')).toContainText('Match conduct');
+  await expect(page.locator('#content aside[data-callout="warning"]')).toContainText('Court safety comes first.');
+  await expect(page.locator('#content script')).toHaveCount(0);
+  await expect(page.locator('#content')).not.toContainText('draft-secret-script');
+  await expect(page.locator('#content a[href^="javascript:"]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /Edit|Publish|Unpublish|Delete|Restore/i })).toHaveCount(0);
+
+  const scorekeeperState = deskState('scorekeeper');
+  scorekeeperState.event.publishedRules = publishedRules();
+  const scorekeeperPage = await page.context().newPage();
+  await openDesk(scorekeeperPage, { role: 'scorekeeper', initialState: scorekeeperState });
+  await scorekeeperPage.getByRole('button', { name: 'Rules' }).click();
+  await expect(scorekeeperPage.locator('#content')).toContainText('One per set');
+  await expect(scorekeeperPage.getByRole('button', { name: /Edit|Publish|Unpublish|Delete|Restore/i })).toHaveCount(0);
+  await scorekeeperPage.close();
+});
+
+test('draft-only and unpublished rules stay out of the Desk navigation', async ({ page }) => {
+  const state = deskState('viewOnly');
+  state.event.rules = {
+    draft: {
+      document: {
+        blocks: [{ html: '<h2>Private draft rules</h2>' }],
+      },
+    },
+    publishedRevisionId: null,
+    revisions: [{ id: 'old-publication', document: { blocks: [{ html: '<p>Old rules</p>' }] } }],
+  };
+  await openDesk(page, { role: 'viewOnly', initialState: state });
+
+  await expect(page.getByRole('button', { name: 'Rules' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Event Information' })).toHaveCount(0);
+  await expect(page.locator('body')).not.toContainText(/Private draft rules|Old rules/);
+});
+
+test('Refresh falls back to Current Matches when active Check-In or Rules navigation disappears', async ({ page }) => {
+  const state = deskState('tournamentOperator');
+  await openDesk(page, {
+    initialState: state,
+    onState: async ({ mock }) => {
+      mock.state.event.eventDayCheckInEnabled = false;
+      delete mock.state.event.registrationCheckIn;
+      return { json: { ok: true, state: clone(mock.state) } };
+    },
+  });
+  await page.getByRole('button', { name: 'Check-In' }).click();
+  await expect(page.locator('[data-panel="checkin"]')).toBeVisible();
+
+  await page.getByRole('button', { name: 'Refresh' }).click();
+
+  await expect(page.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Current Matches' })).toHaveClass(/on/);
+  await expect(page.locator('[data-panel="matches"]')).toBeVisible();
+
+  const rulesState = deskState('viewOnly');
+  rulesState.event.publishedRules = publishedRules();
+  const rulesPage = await page.context().newPage();
+  await openDesk(rulesPage, {
+    role: 'viewOnly',
+    initialState: rulesState,
+    onState: async ({ mock }) => {
+      delete mock.state.event.publishedRules;
+      return { json: { ok: true, state: clone(mock.state) } };
+    },
+  });
+  await rulesPage.getByRole('button', { name: 'Rules' }).click();
+  await expect(rulesPage.locator('[data-panel="rules"]')).toBeVisible();
+
+  await rulesPage.getByRole('button', { name: 'Refresh' }).click();
+
+  await expect(rulesPage.getByRole('button', { name: 'Rules' })).toHaveCount(0);
+  await expect(rulesPage.getByRole('button', { name: 'Current Matches' })).toHaveClass(/on/);
+  await expect(rulesPage.locator('[data-panel="matches"]')).toBeVisible();
+  await rulesPage.close();
 });
 
 test('Scorekeeper can score scheduled matches but is not offered a playoff correction the Worker will reject', async ({ page }) => {
@@ -553,11 +715,16 @@ test('Tournament Operator gets check-in contacts and activity in a mobile, singl
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       nestedScrollers,
       scrollingElement: document.scrollingElement?.tagName,
+      undersizedTabs: [...document.querySelectorAll('#tabs button')].filter(node => {
+        const rect = node.getBoundingClientRect();
+        return rect.width > 0 && rect.height > 0 && (rect.height < 44 || rect.width < 44);
+      }).length,
     };
   });
   expect(layout.horizontalOverflow).toBeLessThanOrEqual(0);
   expect(layout.nestedScrollers).toEqual([]);
   expect(['HTML', 'BODY']).toContain(layout.scrollingElement);
+  expect(layout.undersizedTabs).toBe(0);
 
   await tabs.getByRole('button', { name: 'Current Matches' }).click();
   const scoreTrigger = page.getByRole('button', { name: 'Enter score' }).first();

@@ -79,6 +79,13 @@ const EVENT_STAFF_ATTENDANCE_STATUSES = new Set([
 const EVENT_STAFF_PLAYER_ATTENDANCE_STATUSES = new Set([
   "not_present", "present", "substitute_present", "unknown_replacement", "excused",
 ]);
+const EVENT_STAFF_RULE_TAGS = new Set([
+  "h2", "h3", "p", "strong", "em", "ul", "ol", "li", "a", "br", "hr",
+  "aside", "table", "tbody", "thead", "tr", "th", "td",
+]);
+const EVENT_STAFF_RULE_CALLOUT_TYPES = new Set([
+  "important", "format-exception", "weather", "penalty", "updated-rule",
+]);
 const EVENT_STAFF_GAME_EVENT_KEYS = new Set([
   "ace", "sin", "serr", "goodPass", "pget", "perr",
   "kill", "kerr", "dig", "block", "assist", "fault",
@@ -5068,6 +5075,121 @@ function safeEventStaffCheckIn(value) {
   };
 }
 
+function eventStaffGrantPermissions(grant) {
+  const allowed = EVENT_STAFF_ROLE_PERMISSIONS[grant?.role] || [];
+  const stored = parseEventStaffJson(grant?.permissions_json, null);
+  const source = Array.isArray(stored) ? stored : allowed;
+  return [...new Set(source.filter(permission =>
+    typeof permission === "string" && allowed.includes(permission)
+  ))];
+}
+
+function eventStaffCheckInHasMeaningfulData(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  if (Number(value.updatedAt) > 0) return true;
+  return Object.values(
+    value.entries && typeof value.entries === "object" && !Array.isArray(value.entries)
+      ? value.entries
+      : {},
+  ).some(row =>
+    row && typeof row === "object" && !Array.isArray(row) && (
+      Number(row.updatedAt) > 0
+      || (typeof row.teamStatus === "string" && row.teamStatus !== "not_checked_in")
+      || (Array.isArray(row.replacements) && row.replacements.length > 0)
+      || Object.values(
+        row.playerStatuses && typeof row.playerStatuses === "object"
+          && !Array.isArray(row.playerStatuses)
+          ? row.playerStatuses
+          : {},
+      ).some(status => status !== "not_present")
+    )
+  );
+}
+
+function eventStaffEventDayCheckInEnabled(event) {
+  return typeof event?.eventDayCheckInEnabled === "boolean"
+    ? event.eventDayCheckInEnabled
+    : eventStaffCheckInHasMeaningfulData(event?.registrationCheckIn);
+}
+
+function safeEventStaffRuleHref(value) {
+  const href = typeof value === "string" ? value.trim().slice(0, 1000) : "";
+  if (!href) return "";
+  if (href.startsWith("#")) return href;
+  try {
+    const url = new URL(href, "https://court.invalid/");
+    return ["http:", "https:", "mailto:", "tel:"].includes(url.protocol) ? href : "";
+  } catch {
+    return "";
+  }
+}
+
+/*
+ * Rules arrive as the structural projection produced from Court's canonical
+ * sanitizer. The Worker validates that structure and the Desk creates DOM
+ * nodes from it; neither boundary reparses or returns rich-text HTML.
+ */
+function safeEventStaffRuleNode(value, budget, depth = 0) {
+  if (!value || typeof value !== "object" || Array.isArray(value) || depth > 12) return null;
+  if (Object.prototype.hasOwnProperty.call(value, "text")) {
+    if (typeof value.text !== "string" || budget.count >= 1000) return null;
+    budget.count += 1;
+    return value.text ? { text: value.text.slice(0, 4000) } : null;
+  }
+  const tag = typeof value.tag === "string" ? value.tag.toLowerCase() : "";
+  if (!EVENT_STAFF_RULE_TAGS.has(tag) || budget.count >= 1000) return null;
+  budget.count += 1;
+  const out = { tag };
+  if (!["br", "hr"].includes(tag)) {
+    out.children = (Array.isArray(value.children) ? value.children : [])
+      .slice(0, 256)
+      .map(child => safeEventStaffRuleNode(child, budget, depth + 1))
+      .filter(Boolean);
+  }
+  if (tag === "a") {
+    const href = safeEventStaffRuleHref(value.href);
+    if (href) out.href = href;
+  }
+  if (tag === "aside") {
+    out.callout = EVENT_STAFF_RULE_CALLOUT_TYPES.has(value.callout)
+      ? value.callout
+      : "important";
+  }
+  if (["th", "td"].includes(tag)) {
+    const colspan = eventStaffInteger(value.colspan, 1, 8);
+    if (colspan && colspan > 1) out.colspan = colspan;
+  }
+  return out;
+}
+
+function safeEventStaffPublishedRules(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const revisionId = cleanEventStaffText(value.revisionId, 160);
+  if (!revisionId || !PLAYER_ID_PATTERN.test(revisionId)) return null;
+  const quickRules = (Array.isArray(value.quickRules) ? value.quickRules : [])
+    .slice(0, 40)
+    .map(row => {
+      if (!row || typeof row !== "object" || Array.isArray(row)) return null;
+      const key = cleanEventStaffText(row.key, 80);
+      const label = cleanEventStaffText(row.label, 120);
+      if (!key || !label) return null;
+      return { key, label, value: cleanEventStaffText(row.value, 500) };
+    })
+    .filter(Boolean);
+  const budget = { count: 0 };
+  const content = (Array.isArray(value.content) ? value.content : [])
+    .slice(0, 256)
+    .map(node => safeEventStaffRuleNode(node, budget))
+    .filter(Boolean);
+  return {
+    revisionId,
+    number: eventStaffInteger(value.number, 1, 1_000_000) || 1,
+    publishedAt: Number(value.publishedAt) || 0,
+    quickRules,
+    content,
+  };
+}
+
 function safeEventStaffEntry(value, includeCheckIn = false) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const id = cleanEventStaffText(value.id, 120), name = cleanEventStaffText(value.name, 120);
@@ -5298,17 +5420,23 @@ function eventStaffStoredMatch(value, eventId) {
   return safe;
 }
 
-function safeEventStaffEvent(value, role) {
+function safeEventStaffEvent(value, role, permissions = []) {
   const event = value && typeof value === "object" && !Array.isArray(value) ? value : {};
-  const includeCheckIn = role === "tournamentOperator";
+  const checkInEnabled = eventStaffEventDayCheckInEnabled(event);
+  const includeCheckIn = role === "tournamentOperator"
+    && permissions.includes("setEntryCheckIn")
+    && checkInEnabled;
   const out = {
     id: cleanEventStaffText(event.id, 120),
     name: cleanEventStaffText(event.name, 160) || "Event",
     format: event.format === "rotatingGroups" ? "rotatingGroups" : "fixedTeams",
     done: event.done === true,
+    eventDayCheckInEnabled: checkInEnabled,
     teams: (Array.isArray(event.teams) ? event.teams : []).map(value => safeEventStaffEntry(value, includeCheckIn)).filter(Boolean),
     entries: (Array.isArray(event.entries || event.pairs) ? event.entries || event.pairs : []).map(value => safeEventStaffEntry(value, includeCheckIn)).filter(Boolean),
   };
+  const publishedRules = safeEventStaffPublishedRules(event.publishedRules);
+  if (publishedRules) out.publishedRules = publishedRules;
   for (const key of ["eventDate", "venue", "location"]) {
     if (typeof event[key] === "string") out[key] = event[key].slice(0, 240);
   }
@@ -5328,7 +5456,7 @@ function safeEventStaffEvent(value, role) {
       created: Number(bracket?.created) || 0,
     })).filter(bracket => PLAYER_ID_PATTERN.test(bracket.id));
   }
-  if (role === "tournamentOperator") {
+  if (includeCheckIn) {
     const source = event.registrationCheckIn && typeof event.registrationCheckIn === "object"
       ? event.registrationCheckIn
       : {};
@@ -5357,7 +5485,7 @@ function eventStaffGrantSummary(row, now = Date.now()) {
     id: row.id,
     staffLabel: row.staff_label,
     role: row.role,
-    permissions: [...(EVENT_STAFF_ROLE_PERMISSIONS[row.role] || [])],
+    permissions: eventStaffGrantPermissions(row),
     createdAt: Number(row.created_at),
     expiresAt,
     revokedAt,
@@ -5632,7 +5760,7 @@ async function eventStaffActivity(db, row, { owner = false } = {}) {
 }
 
 async function eventStaffScopedState(db, row, grant) {
-  const role = grant.role, permissions = [...(EVENT_STAFF_ROLE_PERMISSIONS[role] || [])];
+  const role = grant.role, permissions = eventStaffGrantPermissions(grant);
   const eventGames = (row.games || []).filter(game => game?.evId === row.eventId);
   const matches = eventStaffSafeMatches(
     { ...row, games: eventGames },
@@ -5661,7 +5789,7 @@ async function eventStaffScopedState(db, row, grant) {
       permissions,
       expiresAt: Number(grant.expires_at),
     },
-    event: safeEventStaffEvent(row.event, role),
+    event: safeEventStaffEvent(row.event, role, permissions),
     games: eventGames.map(safeEventStaffGame).filter(Boolean),
     participants: row.participants
       .map(safeEventStaffParticipant)
@@ -5673,8 +5801,10 @@ async function eventStaffScopedState(db, row, grant) {
       : eventStaffFixedStandings(row.event, eventGames),
     bracket: matches.filter(match => match.phase === "playoff"),
   };
-  if (role === "tournamentOperator") {
+  if (role === "tournamentOperator" && permissions.includes("viewRegistrationContact")) {
     state.contacts = await eventStaffRegistrationContacts(db, row);
+  }
+  if (role === "tournamentOperator" && permissions.includes("viewActivity")) {
     state.activity = await eventStaffActivity(db, row);
   }
   return state;
@@ -5843,6 +5973,16 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   }
   if (new TextEncoder().encode(JSON.stringify(event)).byteLength > EVENT_STAFF_MAX_EVENT_BYTES) {
     return eventStaffError(request, 413, "event_too_large", "The event projection is too large.");
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(event, "eventDayCheckInEnabled")
+    && typeof event.eventDayCheckInEnabled !== "boolean"
+  ) {
+    return eventStaffError(request, 400, "invalid_event_check_in_setting", "The event check-in setting is invalid.");
+  }
+  const publishedRules = safeEventStaffPublishedRules(event.publishedRules);
+  if (event.publishedRules != null && !publishedRules) {
+    return eventStaffError(request, 400, "invalid_published_rules", "The published rules projection is invalid.");
   }
   const storedParticipants = participants.map(safeEventStaffParticipant);
   const storedMatches = matches.map(value => eventStaffStoredMatch(value, eventId));
@@ -6083,6 +6223,10 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   delete eventCopy.teams;
   delete eventCopy.entries;
   delete eventCopy.pairs;
+  delete eventCopy.rules;
+  delete eventCopy.publishedRules;
+  eventCopy.eventDayCheckInEnabled = eventStaffEventDayCheckInEnabled(event);
+  if (publishedRules) eventCopy.publishedRules = publishedRules;
   if (event.format === "rotatingGroups") {
     eventCopy.entries = structuredClone(eventCollections);
   } else {
@@ -7516,6 +7660,16 @@ function eventStaffEntryCollection(event) {
 
 function eventStaffCheckInPlan(row, operation) {
   const event = structuredClone(row.event || {});
+  if (!eventStaffEventDayCheckInEnabled(event)) {
+    return {
+      error: [
+        409,
+        "event_day_check_in_disabled",
+        "The organizer has disabled event-day check-in for this event.",
+      ],
+    };
+  }
+  event.eventDayCheckInEnabled = true;
   const entry = eventStaffEntryCollection(event).find(value => value && value.id === operation.targetId);
   if (!entry) return { error: [404, "entry_not_found", "The event entry is no longer available."] };
   const allowed = operation.action === "setEntryCheckIn"
@@ -7787,7 +7941,7 @@ async function applyEventStaffOperation(request, env) {
     return eventStaffError(request, 403, "event_scope_mismatch", "This grant cannot operate that event.");
   }
   const requiredPermission = EVENT_STAFF_OPERATION_PERMISSIONS[operation.action];
-  if (!(EVENT_STAFF_ROLE_PERMISSIONS[auth.grant.role] || []).includes(requiredPermission)) {
+  if (!eventStaffGrantPermissions(auth.grant).includes(requiredPermission)) {
     return eventStaffError(request, 403, "permission_denied", "This event staff role cannot perform that action.");
   }
   const requestHash = await sha256(stableEventStaffJson({
@@ -8408,7 +8562,7 @@ function eventStaffDeskPage() {
     :root{color-scheme:light;--ink:#172033;--muted:#647187;--line:#d9e0eb;--paper:#fff;--wash:#f3f6fa;--navy:#17243b;--gold:#efc461;--ok:#237447;--warn:#9a6111;--bad:#a63737;font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
     *{box-sizing:border-box}html{background:var(--wash)}body{margin:0;color:var(--ink);background:var(--wash);line-height:1.4}button,input,select{font:inherit}button{min-height:44px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);font-weight:750;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #2679ad;outline-offset:2px}button.primary{border-color:#244b72;background:#244b72;color:#fff}button.danger{border-color:#d8adad;color:var(--bad)}button.link{border:0;background:transparent;color:#245f8c}.shell{width:min(760px,100%);min-height:100vh;margin:0 auto;background:#f8fafd;padding-bottom:calc(86px + env(safe-area-inset-bottom))}
     header{padding:calc(18px + env(safe-area-inset-top)) 18px 18px;background:var(--navy);color:#fff}header h1{margin:4px 0 2px;font-size:clamp(24px,7vw,34px);overflow-wrap:anywhere}.restricted{display:inline-flex;padding:5px 8px;border:1px solid #f0ca71aa;border-radius:999px;color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}.head-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.head-row button{flex:none;border-color:#ffffff55;background:#ffffff0e;color:#fff}.meta{margin-top:8px;color:#d5deeb;font-size:13px}.status-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pill{padding:5px 8px;border-radius:999px;background:#ffffff16;color:#e7edf6;font-size:11px}.pill.online{background:#dff4e8;color:#185b35}.pill.offline{background:#fff0d2;color:#744708}.pill.pending{background:#fff0d2;color:#744708}
-    nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}nav button{min-width:0;padding:8px;font-size:12px}nav button.on{border-color:#244b72;background:#e9f1f8;color:#163f63}main{padding:14px}.panel{display:none}.panel.on{display:block}.panel h2{margin:3px 0 12px;font-size:21px}.card{margin:0 0 11px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 2px 8px #1823390a}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.eyebrow{color:var(--muted);font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.teams{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:10px 0;font-size:16px;font-weight:850}.teams span:nth-child(2){color:var(--muted);font-size:11px}.teams span:last-child{text-align:right}.score{font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}.actions button{flex:1 1 130px;padding:9px}.muted{color:var(--muted)}.small{font-size:12px}.empty{padding:26px 14px;text-align:center;color:var(--muted)}.notice{margin:12px 14px 0;padding:11px 13px;border-radius:11px;background:#eaf3fa;color:#234f70;font-size:13px}.notice.warn{background:#fff1d6;color:#70440a}.notice.bad{background:#fde8e8;color:#812d2d}.notice.ok{background:#e3f4e9;color:#1c653b}.queue{margin:12px 14px 0;padding:12px;border:1px solid #e2c37e;border-radius:12px;background:#fff7e4}.queue button{margin-top:8px;margin-right:6px;padding:8px 11px}.entry-row,.schedule-row,.standing-row,.activity-row{display:grid;gap:5px;margin-bottom:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}.standing-row{grid-template-columns:32px minmax(0,1fr) auto;align-items:center}.entry-row select{width:100%;min-height:44px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff}.contact{margin-top:8px;padding:9px;border-radius:9px;background:var(--wash);overflow-wrap:anywhere}
+    nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}nav button{min-width:0;padding:8px;font-size:12px}nav button.on{border-color:#244b72;background:#e9f1f8;color:#163f63}main{padding:14px}.panel{display:none}.panel.on{display:block}.panel h2{margin:3px 0 12px;font-size:21px}.card{margin:0 0 11px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 2px 8px #1823390a}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.eyebrow{color:var(--muted);font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.teams{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:10px 0;font-size:16px;font-weight:850}.teams span:nth-child(2){color:var(--muted);font-size:11px}.teams span:last-child{text-align:right}.score{font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}.actions button{flex:1 1 130px;padding:9px}.muted{color:var(--muted)}.small{font-size:12px}.empty{padding:26px 14px;text-align:center;color:var(--muted)}.notice{margin:12px 14px 0;padding:11px 13px;border-radius:11px;background:#eaf3fa;color:#234f70;font-size:13px}.notice.warn{background:#fff1d6;color:#70440a}.notice.bad{background:#fde8e8;color:#812d2d}.notice.ok{background:#e3f4e9;color:#1c653b}.queue{margin:12px 14px 0;padding:12px;border:1px solid #e2c37e;border-radius:12px;background:#fff7e4}.queue button{margin-top:8px;margin-right:6px;padding:8px 11px}.entry-row,.schedule-row,.standing-row,.activity-row{display:grid;gap:5px;margin-bottom:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}.standing-row{grid-template-columns:32px minmax(0,1fr) auto;align-items:center}.entry-row select{width:100%;min-height:44px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff}.contact{margin-top:8px;padding:9px;border-radius:9px;background:var(--wash);overflow-wrap:anywhere}.quick-rules{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;margin:10px 0 16px}.quick-rule{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fff}.quick-rule span:last-child{text-align:right;overflow-wrap:anywhere}.rules-body{padding:14px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-wrap:anywhere}.rules-body h2,.rules-body h3{margin:18px 0 8px}.rules-body h2:first-child,.rules-body h3:first-child{margin-top:0}.rules-body p,.rules-body ul,.rules-body ol{margin:8px 0}.rules-body aside{margin:12px 0;padding:11px 12px;border-left:4px solid var(--gold);border-radius:8px;background:#fff4d9}.rules-body table{width:100%;table-layout:fixed;border-collapse:collapse}.rules-body th,.rules-body td{padding:7px;border:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.rules-body a{color:#245f8c;text-decoration:underline}
     dialog{width:min(520px,calc(100% - 24px));max-height:calc(100vh - 32px);padding:0;border:0;border-radius:16px;box-shadow:0 22px 70px #10182766}dialog::backdrop{background:#10182799}.dialog-body{padding:18px;overflow:auto}.dialog-body h2{margin:0 0 6px}.field{margin-top:13px}.field label{display:block;margin-bottom:5px;font-size:12px;font-weight:800}.field input,.field select{width:100%;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.set-row{display:grid;grid-template-columns:42px 1fr 1fr;align-items:center;gap:8px;margin-top:8px}.set-row input{width:100%;min-width:0;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.dialog-actions{display:flex;gap:8px;margin-top:16px}.dialog-actions button{flex:1}.access{width:min(500px,calc(100% - 28px));margin:calc(36px + env(safe-area-inset-top)) auto;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 12px 35px #17243b1a}.access h1{margin:6px 0}.access input{width:100%;min-height:48px;margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:11px}.access button{width:100%}.access .restricted{color:#77510e;border-color:#d4ad55}.hidden{display:none!important}@media(min-width:620px){nav{grid-template-columns:repeat(4,minmax(0,1fr))}main{padding:18px}.card{padding:16px}}
   </style>
 </head>
@@ -8476,8 +8630,8 @@ function eventStaffDeskPage() {
     async function redeem(){if(!linkToken){showAccess("Open the staff link supplied by the organizer.");return}var button=document.getElementById("redeem");button.disabled=true;document.getElementById("access-message").textContent="Checking access…";try{var result=await api("/api/event-staff/redeem",{method:"POST",body:{token:linkToken,pin:document.getElementById("staff-pin").value}});session={token:result.sessionToken,expiresAt:result.sessionExpiresAt,queueScope:result.queueScope};queueScope=result.queueScope;saveSession();linkToken="";document.getElementById("staff-pin").value="";access.classList.add("hidden");desk.classList.remove("hidden");setState(result.state);await processQueue()}catch(error){document.getElementById("access-message").textContent=error.status===429?"Too many attempts. Wait before trying again.":"The staff link or PIN could not be accepted."}finally{button.disabled=false}}
     async function refresh(){if(!session)return false;try{var result=await api("/api/event-staff/state");desk.classList.remove("hidden");access.classList.add("hidden");setState(result.state);queueBlocked=false;queueIssue=null;await processQueue();return true}catch(error){if(error.status===401){await clearScope();session=null;state=null;saveSession();showAccess(error.body&&error.body.error==="access_revoked"?"This staff access was revoked.":"This staff access expired.")}else{var cached=(await storeAll("cache")).find(function(row){return row.key==="cache:"+queueScope});if(cached&&cached.state){state=cached.state;lastSuccess=Number(cached.updatedAt)||0;desk.classList.remove("hidden");access.classList.add("hidden");render();showNotice("Offline · showing the last synchronized event state. Writes will remain pending.","warn")}else showAccess("The Tournament Desk is unavailable while offline.")}return false}}
     async function manualRefresh(){var button=document.getElementById("refresh");if(!session||button.disabled)return;button.disabled=true;button.textContent="Refreshing…";showNotice("Refreshing event…");try{if(await refresh())showNotice("Event refreshed.","ok")}finally{button.disabled=false;button.textContent="Refresh"}}
-    function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"],["info","Event Information"]];if(can("setEntryCheckIn"))list.splice(1,0,["checkin","Check-In"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
-    function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="activity")renderActivity(panel);else renderInfo(panel);setConnection();renderQueue()}
+    function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"]];if(state.grant.role==="tournamentOperator"&&state.event.eventDayCheckInEnabled===true&&can("setEntryCheckIn"))list.splice(1,0,["checkin","Check-In"]);if(state.event.publishedRules)list.push(["rules","Rules"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
+    function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="rules")renderRules(panel);else renderActivity(panel);setConnection();renderQueue()}
     function heading(panel,title){panel.append(el("h2",{},title))}
     function matchCard(match,actions){var card=el("article",{class:"card"}),head=el("div",{class:"card-head"});head.append(el("div",{},[el("div",{class:"eyebrow"},[match.courtLabel||"Court TBD"," · ",formatTime(match.scheduledAt)]),el("div",{class:"small muted"},match.label||"Scheduled match")]),el("strong",{class:match.result?"score":""},match.result?match.result.scoreLabel:(match.status||"Pending")));card.append(head,el("div",{class:"teams"},[el("span",{},match.sideAName||"Side A"),el("span",{},"VS"),el("span",{},match.sideBName||"Side B")]));if(actions){var row=el("div",{class:"actions"});if(can("recordEventScore")&&!match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var score=el("button",{type:"button",class:"primary","data-match-action":"score","data-match-id":match.id},"Enter score");score.addEventListener("click",function(){openScore(match,score)});row.append(score)}var correctionAllowed=state.grant.role==="tournamentOperator"||match.staffScoreCorrectable===true;if(can("correctEventScore")&&correctionAllowed&&match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var correct=el("button",{type:"button","data-match-action":"score","data-match-id":match.id},"Correct score");correct.addEventListener("click",function(){openScore(match,correct)});row.append(correct)}if(can("moveScheduledMatch")&&!match.result&&match.phase!=="playoff"&&Array.isArray(match.validPlacements)&&match.validPlacements.length){var move=el("button",{type:"button","data-match-action":"move","data-match-id":match.id},"Move match");move.addEventListener("click",function(){openMove(match,move)});row.append(move)}if(row.childNodes.length)card.append(row)}return card}
     function renderMatches(panel){heading(panel,"Current Matches");var list=(state.matches||[]).slice().sort(function(a,b){return Number(a.scheduledAt||9e15)-Number(b.scheduledAt||9e15)});var current=list.filter(function(match){return !match.result||match.status==="inProgress"});(current.length?current:list.slice(0,20)).forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No scheduled matches are available."))}
@@ -8486,8 +8640,10 @@ function eventStaffDeskPage() {
     function renderBracket(panel){heading(panel,"Bracket");(state.bracket||[]).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.bracket||[]).length)panel.append(el("div",{class:"empty"},"No bracket is available."))}
     function entryContact(entry){var contacts=state.contacts||[];return contacts.find(function(item){return item.registrationId===entry.registrationId})}
     function renderCheckIn(panel){heading(panel,"Check-In");var entries=state.event.format==="rotatingGroups"?state.event.entries:state.event.teams;(entries||[]).forEach(function(entry){var box=el("article",{class:"entry-row"}),status=entry.checkIn&&entry.checkIn.teamStatus||"not_checked_in";box.append(el("b",{},entry.name),el("span",{class:"small muted"},status.replace(/_/g," ")));var select=el("select",{"aria-label":"Attendance status for "+entry.name});[["not_checked_in","Not checked in"],["checked_in","Checked in"],["partially_arrived","Partially arrived"],["needs_review","Needs review"],["no_show","No-show"],["withdrawn","Withdrawn"]].forEach(function(option){var node=el("option",{value:option[0]},option[1]);if(option[0]===status)node.selected=true;select.append(node)});select.addEventListener("change",async function(){var selected=select.value;select.disabled=true;var queued=await queueOperation("setEntryAttendanceStatus",entry.id,{status:selected});if(!queued){select.value=status;showNotice("Attendance not queued because local storage is unavailable.","bad")}select.disabled=false});box.append(select);var contact=entryContact(entry);if(contact&&contact.contact)box.append(el("div",{class:"contact small"},[el("b",{},"Event contact"),el("div",{},contact.contact.name),el("div",{},contact.contact.email),el("div",{},contact.contact.phone)]));panel.append(box)});if(!(entries||[]).length)panel.append(el("div",{class:"empty"},"No accepted entries are available for check-in."))}
+    function safeRuleHref(value){var href=text(value).trim();if(!href)return "";if(href.charAt(0)==="#")return href;try{var parsed=new URL(href,location.href);return ["http:","https:","mailto:","tel:"].indexOf(parsed.protocol)>=0?href:""}catch(error){return ""}}
+    function appendRuleNode(parent,value){if(!value||typeof value!=="object")return;if(Object.prototype.hasOwnProperty.call(value,"text")){parent.append(document.createTextNode(text(value.text)));return}var allowed=["h2","h3","p","strong","em","ul","ol","li","a","br","hr","aside","table","tbody","thead","tr","th","td"],tag=text(value.tag).toLowerCase();if(allowed.indexOf(tag)<0)return;var attrs={},href=tag==="a"?safeRuleHref(value.href):"";if(href){attrs.href=href;attrs.target="_blank";attrs.rel="noopener noreferrer"}if(tag==="aside")attrs["data-callout"]=value.callout||"important";if((tag==="th"||tag==="td")&&Number(value.colspan)>1)attrs.colspan=String(value.colspan);var node=el(tag,attrs);(value.children||[]).forEach(function(child){appendRuleNode(node,child)});parent.append(node)}
+    function renderRules(panel){heading(panel,"Rules");var rules=state.event.publishedRules;if(!rules)return;panel.append(el("p",{class:"small muted"},"Current published revision "+rules.number+" · "+new Date(rules.publishedAt).toLocaleString()));if((rules.quickRules||[]).length){panel.append(el("h3",{},"Quick Rules"));var quick=el("div",{class:"quick-rules"});rules.quickRules.forEach(function(row){quick.append(el("div",{class:"quick-rule"},[el("b",{},row.label),el("span",{},row.value||"Not decided")]))});panel.append(quick)}var body=el("article",{class:"rules-body"});(rules.content||[]).forEach(function(node){appendRuleNode(body,node)});if(!body.childNodes.length)body.append(el("div",{class:"empty"},"The current published rules document is blank."));panel.append(body)}
     function renderActivity(panel){heading(panel,"Activity");(state.activity||[]).forEach(function(item){panel.append(el("div",{class:"activity-row"},[el("b",{},item.staffLabel+" · "+item.action),el("span",{class:"small muted"},new Date(item.timestamp).toLocaleString()),el("span",{class:"small"},item.targetId||"Event")]))});if(!(state.activity||[]).length)panel.append(el("div",{class:"empty"},"No staff activity yet."))}
-    function renderInfo(panel){heading(panel,"Event Information");var event=state.event;panel.append(el("article",{class:"card"},[el("b",{},event.name),el("p",{class:"muted"},[event.eventDate,event.venue||event.location].filter(Boolean).join(" · ")||"No date or location provided."),el("p",{class:"small"},"This Desk is restricted to this event. Player, rating, sync, backup, setup, and public-link controls are not available.")]));var entries=event.format==="rotatingGroups"?event.entries:event.teams;(entries||[]).forEach(function(entry){panel.append(el("div",{class:"entry-row"},[el("b",{},entry.name),el("span",{class:"small muted"},(entry.players||[]).map(function(id){var player=(state.participants||[]).find(function(item){return item.id===id});return player?player.name:"Historical participant"}).join(" · "))]))})}
     function scoreRows(){var holder=document.getElementById("score-sets"),mode=document.getElementById("score-mode").value,existing=scorePrefill&&scorePrefill.sets||scoreMatch&&scoreMatch.result&&scoreMatch.result.sets||[];holder.replaceChildren();var count=mode==="bo3"?3:1;for(var i=0;i<count;i+=1){var row=el("div",{class:"set-row"},[el("span",{class:"small"},"Set "+(i+1)),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side A set "+(i+1)}),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side B set "+(i+1)})]);if(existing[i]){row.children[1].value=existing[i][0];row.children[2].value=existing[i][1]}holder.append(row)}if(!scorePrefill)loadDraft()}
     async function loadDraft(){if(!scoreMatch||!queueScope||scorePrefill)return;var all=await storeAll("drafts"),draft=all.find(function(row){return row.key==="draft:"+queueScope+":"+scoreMatch.id});if(!draft)return;var mode=draft.mode==="bo3"?"bo3":"set";if(document.getElementById("score-mode").value!==mode){document.getElementById("score-mode").value=mode;scorePrefill=draft;scoreRows();scorePrefill=null}else{var rows=document.querySelectorAll("#score-sets .set-row");(draft.sets||[]).forEach(function(pair,index){if(rows[index]){rows[index].children[1].value=pair[0];rows[index].children[2].value=pair[1]}})}document.getElementById("score-reason").value=draft.reason||""}
     async function persistScoreDraft(){if(!scoreMatch||!queueScope)return false;var sets=[];document.querySelectorAll("#score-sets .set-row").forEach(function(row){sets.push([row.children[1].value,row.children[2].value])});var saved=await storePut("drafts",{key:"draft:"+queueScope+":"+scoreMatch.id,scope:queueScope,matchId:scoreMatch.id,mode:document.getElementById("score-mode").value,sets:sets,reason:document.getElementById("score-reason").value,updatedAt:Date.now()});if(!saved)showNotice("Score draft not saved because local storage is unavailable. Keep this dialog open and try again.","bad");return saved}

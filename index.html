@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260729.3">
+<meta name="court-build" content="20260729.4">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1380,9 +1380,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.40.2',
-  build: '20260729.3',
-  releaseNotes: 'Optional-PIN Event Staff links now create reliably on Cloudflare and return a safe request ID if creation fails.'
+  version: '0.41.0',
+  build: '20260729.4',
+  releaseNotes: 'Tournament Desk now shows Check-In only when enabled and displays only the current published event rules.'
 });
 
 function appVersionLabel(){
@@ -5049,6 +5049,16 @@ function normalizeEventDayRegistrationState(value){
   }
   return {schemaVersion:1,entries,updatedAt:registrationTimestamp(source.updatedAt)||null};
 }
+function eventDayCheckInHasMeaningfulData(value){
+  const state=normalizeEventDayRegistrationState(value);
+  if(state.updatedAt)return true;
+  return Object.values(state.entries).some(row=>
+    !!row.updatedAt
+    || row.teamStatus!=='not_checked_in'
+    || row.replacements.length>0
+    || Object.values(row.playerStatuses).some(status=>status!=='not_present')
+  );
+}
 function normalizeEventRegistrationIntegration(ev){
   const normalizeEntry=entry=>{
     if(!entry||typeof entry!=='object')return;
@@ -5058,6 +5068,9 @@ function normalizeEventRegistrationIntegration(ev){
   };
   (ev?.teams||[]).forEach(normalizeEntry);(ev?.entries||ev?.pairs||[]).forEach(normalizeEntry);
   if(ev&&Object.prototype.hasOwnProperty.call(ev,'registrationCheckIn'))ev.registrationCheckIn=normalizeEventDayRegistrationState(ev.registrationCheckIn);
+  if(ev)ev.eventDayCheckInEnabled=typeof ev.eventDayCheckInEnabled==='boolean'
+    ?ev.eventDayCheckInEnabled
+    :eventDayCheckInHasMeaningfulData(ev.registrationCheckIn);
   return ev;
 }
 function getRegistrationImportCompatibility(ev,registrationConfig=eventRegistration(ev)){
@@ -5382,6 +5395,7 @@ function duplicateEventData(source,{id=uid(),name=`${source?.name||'Event'} Copy
   const copy=JSON.parse(JSON.stringify(source||{})),teamIds=new Map(),entryIds=new Map(),bracketIds=new Map(),matchIds=new Map(),newId=prefix=>`${prefix}-${uid()}`;
   copy.id=id;copy.name=name;copy.created=Number(now)||Date.now();copy.eventDate=normalizeEventDate(eventDate)||todayLocalDate(now);copy.done=false;delete copy.schedulePublications;
   delete copy.registrationCheckIn;
+  copy.eventDayCheckInEnabled=false;
   copy.registration={...deriveRegistrationDefaultsFromEvent(copy),enabled:false,status:'closed',publicToken:null,publicUrl:null,updatedAt:null};
   (copy.teams||[]).forEach(team=>{const next=newId('team');teamIds.set(team.id,next);team.id=next;delete team.registrationSource;});
   const entries=copy.entries||copy.pairs||[];entries.forEach(entry=>{const next=newId('entry');entryIds.set(entry.id,next);entry.id=next;delete entry.registrationSource;});
@@ -8690,7 +8704,7 @@ window.createNewEvent=async()=>{
   const name=($('#evName').value||'').trim(); if(!name){ toast('Give the event a name'); return; }
   const eventDate=normalizeEventDate($('#evDate')?.value);if(!eventDate){toast('Choose a valid event date');return;}
   const format=window._newEventFormat==='rotatingGroups'?'rotatingGroups':'fixedTeams';
-  const ev={id:uid(), name, eventDate, created:Date.now(), done:false, format, teams:[],rules:createEmptyRulesModel()};
+  const ev={id:uid(), name, eventDate, created:Date.now(), done:false, format, teams:[],rules:createEmptyRulesModel(),eventDayCheckInEnabled:false};
   const venue=String($('#evVenue')?.value||'').trim();if(venue)ev.venue=venue;
   if(format==='rotatingGroups'){const entrySize=Number($('#newEntrySize')?.value),teamSize=Number($('#newTeamSize')?.value),v=validateRotationConfig(entrySize,teamSize);if(!v.valid){toast(v.error);return;}ev.entries=[];ev.rotation={...DEFAULT_ROTATION,entrySize,teamSize};ev.rotationSchedule=[];}
   ev.registration=deriveRegistrationDefaultsFromEvent(ev);
@@ -12171,6 +12185,24 @@ const EventStaff=(()=>{
       updatedAt:Number(row.updatedAt)||null
     };
   }
+  function publishedRuleNodeProjection(node){
+    if(node.nodeType===Node.TEXT_NODE)return node.textContent?{text:node.textContent}:null;
+    if(node.nodeType!==Node.ELEMENT_NODE)return null;
+    const tag=node.tagName.toLowerCase(),out={tag,children:[...node.childNodes].map(publishedRuleNodeProjection).filter(Boolean)};
+    if(tag==='a'&&node.getAttribute('href'))out.href=node.getAttribute('href');
+    if(tag==='aside'&&node.getAttribute('data-callout'))out.callout=node.getAttribute('data-callout');
+    if(['th','td'].includes(tag)&&node.getAttribute('colspan'))out.colspan=Number(node.getAttribute('colspan'))||1;
+    return out;
+  }
+  function publishedRulesProjection(ev){
+    const revision=publishedRulesRevision(ev);if(!revision)return null;
+    const document=new DOMParser().parseFromString(`<div id="event-staff-rules">${rulesDocumentToHtml(revision.document)}</div>`,'text/html'),root=document.getElementById('event-staff-rules'),quick=deriveRulesQuickRules(ev,revision.quickRules);
+    return {
+      revisionId:String(revision.id),number:positiveInt(revision.number,1),publishedAt:Number(revision.publishedAt)||0,
+      quickRules:QUICK_RULE_DEFS.map(([key,label])=>({key,label,value:cleanText(quick[key]?.value,500)})),
+      content:root?[...root.childNodes].map(publishedRuleNodeProjection).filter(Boolean):[]
+    };
+  }
   function entryProjection(ev,entry,kind){
     const registrationId=cleanText(entry?.registrationSource?.registrationId,160),checkIn=checkInProjection(ev,registrationId);
     return {
@@ -12243,6 +12275,7 @@ const EventStaff=(()=>{
     return result;
   }
   function snapshot(ev){
+    normalizeEventRegistrationIntegration(ev);
     const format=eventFormat(ev),eventGames=games.filter(game=>game.evId===ev.id).map(gameProjection),participantIds=collectEventPlayerIds(ev);
     eventGames.forEach(game=>{game.teamA.forEach(id=>participantIds.add(id));game.teamB.forEach(id=>participantIds.add(id));});
     const participants=[...participantIds].map(id=>pById(id)).filter(Boolean).map(player=>({id:String(player.id),name:cleanText(player.name,100),active:player.active!==false}));
@@ -12265,12 +12298,14 @@ const EventStaff=(()=>{
         ));
       }).slice(0,256);
     });
-    const registration=eventRegistration(ev),safeEvent={
+    const registration=eventRegistration(ev),publishedRules=publishedRulesProjection(ev),safeEvent={
       id:String(ev.id),name:cleanText(ev.name,120),eventDate:normalizeEventDate(ev.eventDate),venue:eventVenue(ev),format,done:ev.done===true,
       lifecycle:eventLifecycleState(ev),entries,teams,
       brackets:(ev.brackets||[]).map(bracket=>({id:String(bracket.id),name:cleanText(bracket.name,120),created:Number(bracket.created)||0,seeds:uniqueIds(bracket.seeds)})),
       registration:{enabled:registration.enabled,status:getEffectiveEventRegistrationStatus(registration),mode:registration.mode},
+      eventDayCheckInEnabled:ev.eventDayCheckInEnabled===true,
       registrationCheckIn:normalizeEventDayRegistrationState(ev.registrationCheckIn),
+      ...(publishedRules?{publishedRules}:{}),
       sched:{start:format==='rotatingGroups'?rotationSettings(ev).start||null:ev.sched?.start||null,courts:format==='rotatingGroups'?positiveInt(rotationSettings(ev).courts,1):sanitizeCourtCount(ev.sched?.courts,1),courtStyle:ev.sched?.courtStyle||'num'},
       rotation:format==='rotatingGroups'?(()=>{const settings=rotationSettings(ev);return {entrySize:settings.entrySize,teamSize:settings.teamSize,winPoints:settings.winPoints,tiePoints:settings.tiePoints,lossPoints:settings.lossPoints,fairnessPolicy:scheduleFairnessPolicy(settings.fairnessPolicy),tiebreakers:Array.isArray(settings.tiebreakers)?settings.tiebreakers.slice():[]};})():null,
       gameMeta:gameSaveMeta(false)
@@ -13301,8 +13336,15 @@ function registrationSummaryFingerprint(ev){
     state?.summary||null,state?.importSummary||null,state?.error||'',!state?.summary&&!!state?.loading,
     config.effectiveStatus||config.status,config.opensAt,config.closesAt,local.enabled,local.mode,
     registrationPublicUrl(ev),eventImportEntries(ev).filter(entry=>entry.registrationSource).length,
-    eventIsComplete(ev)
+    ev.eventDayCheckInEnabled===true,eventIsComplete(ev)
   ]));
+}
+function eventDayCheckInSettingHtml(ev,id='eventDayCheckInEnabled'){
+  return courtCheckboxHtml({
+    id,label:'Enable event-day check-in',checked:ev.eventDayCheckInEnabled===true,
+    help:'Tracks event-day arrival separately from registration. Turning it off hides staff check-in but preserves its history.',
+    onchange:`setEventDayCheckInEnabled('${ev.id}',this.checked)`
+  });
 }
 /* A completed event keeps a read-only registration record only when it actually
    used registration; otherwise the section and its destination disappear. */
@@ -13321,6 +13363,7 @@ function registrationSummaryHtml(ev,complete=eventIsComplete(ev)){
     ${enabled?`<div class="registration-capacity-grid"><div><b class="num">${accepted??unloaded}</b><span>accepted entries</span></div><div><b class="num">${acceptedActive??unloaded}</b><span>accepted active players</span></div><div><b class="num">${pending??unloaded}</b><span>pending review</span></div><div><b class="num">${remaining??unloaded}</b><span>active spots remaining</span></div></div>
       <div class="tiny faint">${esc(registrationFormatTime(config.opensAt))} → ${esc(registrationFormatTime(config.closesAt))}${!summary?' · Loading server counts…':state?.loading?' · Refreshing…':''}</div>${url?`<span class="registration-link" title="${esc(url)}">${esc(url)}</span>`:''}`:compact?'':`<p class="small soft">Collect long-lived team or individual intent separately from event-day player check-in.</p>`}
     ${enabled||imported?`<div class="registration-integration-summary"><div><b>${accepted??unloaded}</b><span>accepted</span></div><div><b>${imported}</b><span>imported</span></div><div><b>${toReview??unloaded}</b><span>to review</span></div></div>`:''}
+    <div class="field">${eventDayCheckInSettingHtml(ev,'eventDayCheckInEnabledSummary')}</div>
     <div class="registration-actions" style="margin-top:10px">${complete?'':`<button class="btn ghost" onclick="openRegistrationSettings('${esc(ev.id)}')">${enabled?'Registration settings':'Set up registration'}</button>`}${enabled?`<button class="btn primary" onclick="openRegistrationDashboard('${esc(ev.id)}')">Manage registrations</button><button class="btn ghost" onclick="openRegistrationImportReview('${esc(ev.id)}')">Review import</button>`:''}${localImported||imported?`<button class="btn ghost" onclick="openEventDayCheckIn('${esc(ev.id)}')">Event-day check-in</button>`:''}</div>
     <div class="tiny" data-registration-summary-error style="min-height:${state?.error?'18px':'0'};margin-top:7px;color:var(--coral)">${esc(state?.error||'')}</div>
   </section>`;
@@ -13560,6 +13603,8 @@ function eventDayPlayerOptions(selected,isSubstitute=false){
   return options.map(status=>`<option value="${status}" ${selected===status?'selected':''}>${esc(eventDayStatusLabel(status))}</option>`).join('');
 }
 function eventDayCheckInHtml(ev){
+  const enabled=ev.eventDayCheckInEnabled===true,setting=`<div class="field">${eventDayCheckInSettingHtml(ev,'eventDayCheckInEnabledSheet')}</div>`;
+  if(!enabled)return `<div data-event-day-check-in><h3>Event-day check-in · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Arrival is separate from registration and from the event’s scheduled roster.</p>${setting}<div class="stat-empty">Event-day check-in is off. Existing arrival history remains saved and no registrations, entries, players, games, or attendance records are removed.</div>${sheetCloseBtn('Done')}</div>`;
   const imported=eventImportEntries(ev).filter(entry=>entry.registrationSource),summary=eventDayCheckInSummary(ev);
   const teams=imported.map(entry=>{
     const registrationId=entry.registrationSource.registrationId,row=eventDayCheckInEntry(ev,entry),playersHtml=(ids,isSubstitute)=>ids.map(id=>{
@@ -13572,41 +13617,47 @@ function eventDayCheckInHtml(ev){
       <div class="row" style="gap:7px;margin-top:9px">${row.substitutePlayerIds.map(id=>`<button class="btn sm ghost" onclick="promoteEventDaySubstitute('${esc(ev.id)}','${esc(registrationId)}','${esc(id)}')">Promote ${esc(pById(id)?.name||'substitute')}</button>`).join('')}<button class="btn sm ghost" onclick="openEventDayReplacementPicker('${esc(ev.id)}','${esc(registrationId)}')">Add replacement</button></div>
     </div>`;
   }).join('');
-  return `<div data-event-day-check-in><h3>Event-day check-in · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Arrival is separate from registration and from the event’s scheduled roster. Changes here never rewrite the D1 registration, ratings, saved games, or original import snapshot.</p>
+  return `<div data-event-day-check-in><h3>Event-day check-in · ${esc(ev.name)}</h3><p class="small muted" style="margin:-8px 0 12px">Arrival is separate from registration and from the event’s scheduled roster. Changes here never rewrite the D1 registration, ratings, saved games, or original import snapshot.</p>${setting}
     <div class="registration-capacity-grid"><div><b class="num">${summary.teams}</b><span>imported teams</span></div><div><b class="num">${summary.arrived}</b><span>teams arrived</span></div><div><b class="num">${summary.present}</b><span>players present</span></div><div><b class="num">${summary.attention}</b><span>need attention</span></div></div>
     ${teams||'<div class="stat-empty">Import accepted registrations before opening event-day check-in.</div>'}${sheetCloseBtn('Done')}</div>`;
 }
 window.openEventDayCheckIn=evId=>{const ev=evById(evId);if(!ev)return;EventRegistration.setModalOpen(false);normalizeEventRegistrationIntegration(ev);openSheet(eventDayCheckInHtml(ev),{focus:'[data-event-day-check-in] select, [data-event-day-check-in] button'});};
+window.setEventDayCheckInEnabled=async(evId,enabled)=>{
+  const ev=evById(evId);if(!ev)return;
+  normalizeEventRegistrationIntegration(ev);ev.eventDayCheckInEnabled=enabled===true;await saveEvents();
+  if(document.querySelector('[data-event-day-check-in]'))openEventDayCheckIn(evId);else render();
+  toast(ev.eventDayCheckInEnabled?'Event-day check-in enabled':'Event-day check-in disabled · history preserved');
+};
 async function saveEventDayCheckIn(ev){
   ev.registrationCheckIn=normalizeEventDayRegistrationState({...ev.registrationCheckIn,updatedAt:Date.now()});await saveEvents();
 }
 window.setEventDayTeamStatus=async(evId,registrationId,status)=>{
-  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_TEAM_STATUSES.includes(status))return;
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||ev.eventDayCheckInEnabled!==true||!entry||!EVENT_DAY_TEAM_STATUSES.includes(status))return;
   const row=eventDayCheckInEntry(ev,entry);row.teamStatus=status;row.updatedAt=Date.now();
   if(status==='checked_in')row.activePlayerIds.forEach(id=>row.playerStatuses[id]='present');
   if(['no_show','withdrawn'].includes(status))Object.keys(row.playerStatuses).forEach(id=>row.playerStatuses[id]='not_present');
   await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
 };
 window.setEventDayPlayerStatus=async(evId,registrationId,playerId,status)=>{
-  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry||!EVENT_DAY_PLAYER_STATUSES.includes(status))return;
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||ev.eventDayCheckInEnabled!==true||!entry||!EVENT_DAY_PLAYER_STATUSES.includes(status))return;
   const row=eventDayCheckInEntry(ev,entry);row.playerStatuses[playerId]=status;const activePresent=row.activePlayerIds.filter(id=>row.playerStatuses[id]==='present').length;
   row.teamStatus=activePresent===row.activePlayerIds.length&&activePresent?'checked_in':activePresent?'partially_arrived':['no_show','withdrawn'].includes(row.teamStatus)?row.teamStatus:'not_checked_in';row.updatedAt=Date.now();
   await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);
 };
 window.promoteEventDaySubstitute=async(evId,registrationId,playerId)=>{
-  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry)return;
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||ev.eventDayCheckInEnabled!==true||!entry)return;
   const row=eventDayCheckInEntry(ev,entry);if(!row.substitutePlayerIds.includes(playerId))return;
   row.substitutePlayerIds=row.substitutePlayerIds.filter(id=>id!==playerId);row.activePlayerIds.push(playerId);row.playerStatuses[playerId]='substitute_present';row.teamStatus='needs_review';row.updatedAt=Date.now();
   await saveEventDayCheckIn(ev);openEventDayCheckIn(evId);toast('Substitute promoted for event day only');
 };
 window.openEventDayReplacementPicker=(evId,registrationId)=>{
-  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||!entry)return;
+  const ev=evById(evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===registrationId);if(!ev||ev.eventDayCheckInEnabled!==true||!entry)return;
   const row=eventDayCheckInEntry(ev,entry),used=new Set([...row.activePlayerIds,...row.substitutePlayerIds]),available=players.filter(player=>!isArchived(player)&&!used.has(player.id)).sort((a,b)=>a.name.localeCompare(b.name));
   window._eventDayReplacement={evId,registrationId};
   openSheet(`<h3>Add event-day replacement</h3><p class="small muted">This adds a separate arrival-only roster record. It does not edit the accepted registration or imported event entry.</p><div class="check-in-match-list">${available.slice(0,100).map(player=>`<button type="button" onclick="addEventDayReplacement('${esc(player.id)}')">${esc(player.name)}${player.pickupEligible===false?' · event-only':''}</button>`).join('')||'<div class="stat-empty">No other local players are available.</div>'}</div><button class="btn ghost block" onclick="createEventDayReplacement()">Create event-only replacement</button><button class="btn ghost block" style="margin-top:8px" onclick="openEventDayCheckIn('${esc(evId)}')">Back</button>`,{focus:'.check-in-match-list button, .sheet button'});
 };
 async function recordEventDayReplacement(playerId){
-  const pending=window._eventDayReplacement,ev=pending&&evById(pending.evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===pending.registrationId),player=pById(playerId);if(!ev||!entry||!player)return false;
+  const pending=window._eventDayReplacement,ev=pending&&evById(pending.evId),entry=ev&&eventImportEntries(ev).find(row=>row.registrationSource?.registrationId===pending.registrationId),player=pById(playerId);if(!ev||ev.eventDayCheckInEnabled!==true||!entry||!player)return false;
   const row=eventDayCheckInEntry(ev,entry);if(row.activePlayerIds.includes(playerId)||row.substitutePlayerIds.includes(playerId))return;
   row.activePlayerIds.push(playerId);row.replacements.push({playerId,addedAt:Date.now()});row.playerStatuses[playerId]='unknown_replacement';row.teamStatus='needs_review';row.updatedAt=Date.now();
   await saveEventDayCheckIn(ev);window._eventDayReplacement=null;return true;
