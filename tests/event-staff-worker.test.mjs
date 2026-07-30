@@ -125,6 +125,7 @@ function fixedSnapshot(eventId = 'event-1', overrides = {}) {
       ],
       sched: { start: '09:00', courts: 2, courtStyle: 'num' },
       brackets: [],
+      eventDayCheckInEnabled: false,
       registrationCheckIn: { entries: {}, updatedAt: null },
     },
     games: [],
@@ -191,6 +192,7 @@ function rotatingSnapshot(eventId = 'rotation-event', overrides = {}) {
         tiebreakers: ['wins', 'pointDiff'],
       },
       brackets: [],
+      eventDayCheckInEnabled: false,
       registrationCheckIn: { entries: {}, updatedAt: null },
     },
     games: [],
@@ -284,6 +286,7 @@ function bracketSnapshot(eventId = 'bracket-event') {
         seeds: teams.map(team => team.id),
         created: Date.now(),
       }],
+      eventDayCheckInEnabled: false,
       registrationCheckIn: { entries: {}, updatedAt: null },
     },
     games: [],
@@ -1233,6 +1236,168 @@ test('link redemption requires the optional PIN, stores only a session hash, and
   assert.ok(Number(listed.grants[0].lastUsedAt) > 0);
 });
 
+test('staff state projects only enabled check-in and sanitized current rules through frozen grant permissions', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = fixedSnapshot('contextual-event');
+  const checkIn = {
+    teamStatus: 'checked_in',
+    activePlayerIds: ['player-a', 'player-b'],
+    substitutePlayerIds: [],
+    playerStatuses: { 'player-a': 'present', 'player-b': 'present' },
+    updatedAt: Date.now() - 1000,
+  };
+  snapshot.event.eventDayCheckInEnabled = false;
+  snapshot.event.teams[0].registrationId = 'registration-a';
+  snapshot.event.teams[0].checkIn = structuredClone(checkIn);
+  snapshot.event.registrationCheckIn = {
+    entries: { 'registration-a': structuredClone(checkIn) },
+    updatedAt: checkIn.updatedAt,
+  };
+  snapshot.event.rules = {
+    draft: {
+      document: {
+        blocks: [{ html: '<h2>Private draft instructions</h2>' }],
+      },
+    },
+  };
+  snapshot.event.publishedRules = {
+    revisionId: 'rules-current',
+    number: 2,
+    publishedAt: Date.now() - 5000,
+    quickRules: [
+      { key: 'scoringFormat', label: 'Scoring format', value: 'Best of 3 sets' },
+    ],
+    content: [
+      { tag: 'h2', children: [{ text: 'Current published rules' }] },
+      {
+        tag: 'p',
+        children: [
+          { text: 'Respect line calls. ' },
+          { tag: 'a', href: 'javascript:alert(1)', children: [{ text: 'Unsafe target' }] },
+        ],
+      },
+      { tag: 'script', children: [{ text: 'published-script-secret' }] },
+      {
+        tag: 'aside',
+        callout: 'warning',
+        children: [{ tag: 'strong', children: [{ text: 'Court safety first.' }] }],
+      },
+    ],
+  };
+  const seeded = await seedSnapshot(bindings, 'contextual-event', snapshot);
+  assert.equal(seeded.response.status, 201, JSON.stringify(seeded.body));
+
+  const stored = storedEventStaffState(bindings, 'contextual-event');
+  const storedJson = JSON.stringify(stored.event);
+  assert.equal(stored.event.eventDayCheckInEnabled, false);
+  assert.equal(stored.event.registrationCheckIn.entries['registration-a'].teamStatus, 'checked_in');
+  assert.doesNotMatch(storedJson, /Private draft instructions|published-script-secret|javascript:/);
+  assert.match(storedJson, /Current published rules/);
+
+  const grants = {};
+  for (const role of ['viewOnly', 'scorekeeper', 'tournamentOperator']) {
+    const created = await createGrant(bindings, 'contextual-event', {
+      role,
+      staffLabel: `${role} desk`,
+    });
+    assert.equal(created.response.status, 201, JSON.stringify(created.body));
+    grants[role] = created;
+  }
+  const sessions = {};
+  for (const [role, created] of Object.entries(grants)) {
+    const accepted = await redeem(bindings, inviteToken(created.body));
+    assert.equal(accepted.response.status, 200, `${role}: ${JSON.stringify(accepted.body)}`);
+    sessions[role] = accepted.body.sessionToken;
+    const event = accepted.body.state.event;
+    assert.equal(event.eventDayCheckInEnabled, false);
+    assert.equal(Object.hasOwn(event, 'registrationCheckIn'), false);
+    assert.equal(Object.hasOwn(event.teams[0], 'checkIn'), false);
+    assert.equal(event.publishedRules.revisionId, 'rules-current');
+    assert.equal(event.publishedRules.quickRules[0].value, 'Best of 3 sets');
+    const projected = JSON.stringify(event.publishedRules);
+    assert.match(projected, /Current published rules|Court safety first/);
+    assert.doesNotMatch(projected, /published-script-secret|javascript:/);
+  }
+
+  const rejectedCheckIn = await operate(bindings, sessions.tournamentOperator, {
+    eventId: 'contextual-event',
+    action: 'setEntryCheckIn',
+    targetId: 'team-a',
+    expectedRevision: 1,
+    idempotencyKey: 'disabled-checkin-0001',
+    payload: { checkedIn: false },
+  });
+  assert.equal(rejectedCheckIn.response.status, 409);
+  assert.equal(rejectedCheckIn.body.error, 'event_day_check_in_disabled');
+  assert.equal(storedEventStaffState(bindings, 'contextual-event').event.registrationCheckIn
+    .entries['registration-a'].teamStatus, 'checked_in');
+
+  const enabled = structuredClone(snapshot);
+  enabled.expectedRevision = 1;
+  enabled.event.eventDayCheckInEnabled = true;
+  const enabledSeed = await seedSnapshot(bindings, 'contextual-event', enabled);
+  assert.equal(enabledSeed.response.status, 200, JSON.stringify(enabledSeed.body));
+
+  const operatorRefresh = await worker.fetch(
+    request('/api/event-staff/state', staffInit(sessions.tournamentOperator)),
+    bindings,
+  );
+  const operatorState = await operatorRefresh.json();
+  assert.equal(operatorRefresh.status, 200);
+  assert.equal(operatorState.state.event.eventDayCheckInEnabled, true);
+  assert.equal(operatorState.state.event.registrationCheckIn.entries['registration-a'].teamStatus, 'checked_in');
+  assert.equal(operatorState.state.event.teams[0].checkIn.teamStatus, 'checked_in');
+
+  const operatorGrantId = grants.tournamentOperator.body.grant.id;
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    UPDATE event_staff_grants
+    SET permissions_json = ?
+    WHERE id = ?
+  `).run(JSON.stringify(['viewEvent', 'viewEntries', 'viewSchedule']), operatorGrantId);
+  const frozenRefresh = await worker.fetch(
+    request('/api/event-staff/state', staffInit(sessions.tournamentOperator)),
+    bindings,
+  );
+  const frozenState = await frozenRefresh.json();
+  assert.equal(frozenRefresh.status, 200);
+  assert.equal(frozenState.state.grant.permissions.includes('setEntryCheckIn'), false);
+  assert.equal(Object.hasOwn(frozenState.state.event, 'registrationCheckIn'), false);
+  assert.equal(Object.hasOwn(frozenState.state.event.teams[0], 'checkIn'), false);
+
+  const frozenWrite = await operate(bindings, sessions.tournamentOperator, {
+    eventId: 'contextual-event',
+    action: 'setEntryCheckIn',
+    targetId: 'team-a',
+    expectedRevision: 2,
+    idempotencyKey: 'frozen-checkin-0001',
+    payload: { checkedIn: false },
+  });
+  assert.equal(frozenWrite.response.status, 403);
+  assert.equal(frozenWrite.body.error, 'permission_denied');
+
+  const rotating = rotatingSnapshot('contextual-rotating');
+  rotating.event.publishedRules = {
+    revisionId: 'rotating-rules-current',
+    number: 1,
+    publishedAt: Date.now(),
+    quickRules: [{ key: 'teamFormat', label: 'Team format', value: 'Rotating groups' }],
+    content: [{ tag: 'h2', children: [{ text: 'Rotating event rules' }] }],
+  };
+  const rotatingSeed = await seedSnapshot(bindings, 'contextual-rotating', rotating);
+  assert.equal(rotatingSeed.response.status, 201, JSON.stringify(rotatingSeed.body));
+  const rotatingGrant = await createGrant(bindings, 'contextual-rotating', { role: 'viewOnly' });
+  const rotatingAccepted = await redeem(bindings, inviteToken(rotatingGrant.body));
+  assert.equal(rotatingAccepted.response.status, 200);
+  assert.equal(rotatingAccepted.body.state.event.format, 'rotatingGroups');
+  assert.equal(rotatingAccepted.body.state.event.eventDayCheckInEnabled, false);
+  assert.equal(Object.hasOwn(rotatingAccepted.body.state.event, 'registrationCheckIn'), false);
+  assert.match(
+    JSON.stringify(rotatingAccepted.body.state.event.publishedRules),
+    /Rotating event rules|Rotating groups/,
+  );
+});
+
 test('only invalid redemptions consume the bounded token and address attempt budget', async t => {
   const bindings = env();
   t.after(() => bindings.EVENT_REGISTRATION_DB.close());
@@ -2092,6 +2257,7 @@ test('operator check-in, no-show/withdrawal, and valid schedule moves preserve r
   const bindings = env();
   t.after(() => bindings.EVENT_REGISTRATION_DB.close());
   const snapshot = fixedSnapshot();
+  snapshot.event.eventDayCheckInEnabled = true;
   const checkIn = {
     teamStatus: 'not_checked_in',
     activePlayerIds: ['player-a', 'player-b'],

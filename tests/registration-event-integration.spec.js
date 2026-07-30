@@ -160,6 +160,37 @@ test('compatibility and preview validation are format-aware, identity-based, and
     const local = { ...fixed, teams: [{ id: 'team-ready', name: 'Ready', players: ['p1', 'p2'], substitutePlayerIds: ['p3'], registrationSource: source }], registrationCheckIn: { entries: { 'reg-ready': { teamStatus: 'checked_in', activePlayerIds: ['p1', 'p2'], substitutePlayerIds: ['p3'], playerStatuses: { p1: 'present' }, replacements: [], updatedAt: 20 } }, updatedAt: 20 } };
     const olderDevice = { ...fixed, teams: [{ id: 'team-ready', name: 'Ready', players: ['p1', 'p2'] }] };
     const merged = mergeEventRecords(local, olderDevice, true);
+    const legacy = normalizeEventRegistrationIntegration({
+      id: 'legacy',
+      format: 'fixedTeams',
+      teams: [{ id: 'legacy-team', players: ['p1'] }],
+    });
+    const meaningfulLegacy = normalizeEventRegistrationIntegration({
+      id: 'meaningful-legacy',
+      format: 'fixedTeams',
+      teams: [],
+      registrationCheckIn: {
+        entries: {
+          'legacy-registration': {
+            teamStatus: 'checked_in',
+            activePlayerIds: ['p1'],
+            substitutePlayerIds: [],
+            playerStatuses: { p1: 'present' },
+            replacements: [],
+            updatedAt: 20,
+          },
+        },
+        updatedAt: 20,
+      },
+    });
+    const configuredRegistration = normalizeEventRegistrationIntegration({
+      ...structuredClone(fixed),
+      registration: { ...DEFAULT_EVENT_REGISTRATION, enabled: true, mode: 'team' },
+    });
+    const explicitlyDisabledHistory = normalizeEventRegistrationIntegration({
+      ...structuredClone(meaningfulLegacy),
+      eventDayCheckInEnabled: false,
+    });
     return {
       pair, individual: getRegistrationImportCompatibility(rotatingIndividual, { eventFormat: 'rotatingGroups', mode: 'individual' }),
       groups: getRegistrationImportCompatibility(rotatingGroups, { eventFormat: 'rotatingGroups', mode: 'team' }),
@@ -169,7 +200,10 @@ test('compatibility and preview validation are format-aware, identity-based, and
       mergedSource: merged.teams[0].registrationSource,
       mergedSubstitutes: merged.teams[0].substitutePlayerIds,
       mergedCheckIn: merged.registrationCheckIn.entries['reg-ready'],
-      legacy: normalizeEventRegistrationIntegration({ id: 'legacy', format: 'fixedTeams', teams: [{ id: 'legacy-team', players: ['p1'] }] }),
+      legacy,
+      meaningfulLegacy,
+      configuredRegistration,
+      explicitlyDisabledHistory,
     };
   });
   expect(result.pair).toMatchObject({ supported: true, importUnit: 'pair' });
@@ -184,6 +218,10 @@ test('compatibility and preview validation are format-aware, identity-based, and
   expect(result.mergedSubstitutes).toEqual(['p3']);
   expect(result.mergedCheckIn).toMatchObject({ teamStatus: 'checked_in', activePlayerIds: ['p1', 'p2'] });
   expect(result.legacy.teams[0]).toMatchObject({ players: ['p1'], substitutePlayerIds: [] });
+  expect(result.legacy.eventDayCheckInEnabled).toBe(false);
+  expect(result.meaningfulLegacy.eventDayCheckInEnabled).toBe(true);
+  expect(result.configuredRegistration.eventDayCheckInEnabled).toBe(false);
+  expect(result.explicitlyDisabledHistory.eventDayCheckInEnabled).toBe(false);
 });
 
 test('organizer import is idempotent, preserves stable IDs and substitutes, and updates only after review', async ({ page }) => {
@@ -216,9 +254,17 @@ test('organizer import is idempotent, preserves stable IDs and substitutes, and 
       count: ev.teams.length, id: entry.id, name: entry.name, players: entry.players,
       substitutes: entry.substitutePlayerIds, source: entry.registrationSource,
       ratings: players.map(row => row.rating), games: games.length,
+      eventDayCheckInEnabled: ev.eventDayCheckInEnabled,
     };
   });
-  expect(first).toMatchObject({ count: 1, name: 'Net Results', players: ['p1', 'p2'], substitutes: ['p3'], games: 0 });
+  expect(first).toMatchObject({
+    count: 1,
+    name: 'Net Results',
+    players: ['p1', 'p2'],
+    substitutes: ['p3'],
+    games: 0,
+    eventDayCheckInEnabled: false,
+  });
   expect(first.source).toMatchObject({ registrationId: 'A'.repeat(22), sourceRevision: 1 });
   expect(JSON.stringify(first)).not.toContain('riley@example.com');
   expect(first.ratings).toEqual([50, 50, 50, 50]);
@@ -447,12 +493,27 @@ test('event-day arrival, substitute promotion, and existing or event-only replac
     }],
   });
   await seed(page, [imported]);
+  await page.addInitScript(() => {
+    localStorage.setItem('vb:attendanceSessions', JSON.stringify([{
+      id: 'attendance-safe',
+      date: '2026-08-14',
+      playerIds: ['p1', 'p2'],
+      createdAt: 10,
+      updatedAt: 10,
+      source: 'team-builder',
+    }]));
+  });
   await mockWorker(page, { preview: preview(), previewGets: 0, marks: [] });
   await page.setViewportSize({ width: 375, height: 667 });
   await page.goto('/');
   await openEvent(page);
   await page.getByRole('button', { name: 'Event-day check-in' }).click();
-  await expect(page.locator('[data-event-day-check-in]')).toBeVisible();
+  const checkInSheet = page.locator('[data-event-day-check-in]');
+  await expect(checkInSheet).toBeVisible();
+  await expect(checkInSheet).toContainText('Arrival is separate from registration');
+  await expect(checkInSheet).toContainText('Existing arrival history remains saved');
+  await checkInSheet.getByLabel('Enable event-day check-in').check();
+  await expect(checkInSheet.getByLabel('Enable event-day check-in')).toBeChecked();
   await page.getByLabel('Arrival status for Net Results').selectOption('checked_in');
   await page.getByRole('button', { name: 'Promote Casey' }).click();
   await page.getByRole('button', { name: 'Add replacement' }).click();
@@ -482,6 +543,28 @@ test('event-day arrival, substitute promotion, and existing or event-only replac
     expect.objectContaining({ playerId: state.eventGuest.id }),
   ]);
   expect(state.overflow).toBeLessThanOrEqual(0);
-  const restored = await page.evaluate(() => JSON.parse(localStorage.getItem('vb:events'))[0].registrationCheckIn.entries['A'.repeat(22)]);
-  expect(restored.activePlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', state.eventGuest.id]);
+  await checkInSheet.getByLabel('Enable event-day check-in').uncheck();
+  await expect(checkInSheet).toContainText('Existing arrival history remains saved');
+  const restored = await page.evaluate(() => {
+    const saved = JSON.parse(localStorage.getItem('vb:events'))[0];
+    return {
+      enabled: saved.eventDayCheckInEnabled,
+      checkIn: saved.registrationCheckIn.entries['A'.repeat(22)],
+      team: saved.teams[0],
+      games: JSON.parse(localStorage.getItem('vb:games')),
+      attendance: JSON.parse(localStorage.getItem('vb:attendanceSessions') || '[]'),
+    };
+  });
+  expect(restored.enabled).toBe(false);
+  expect(restored.checkIn.activePlayerIds).toEqual(['p1', 'p2', 'p3', 'p4', state.eventGuest.id]);
+  expect(restored.team).toMatchObject({ players: ['p1', 'p2'], substitutePlayerIds: ['p3'] });
+  expect(restored.games).toEqual([]);
+  expect(restored.attendance).toEqual([{
+    id: 'attendance-safe',
+    date: '2026-08-14',
+    playerIds: ['p1', 'p2'],
+    createdAt: 10,
+    updatedAt: 10,
+    source: 'team-builder',
+  }]);
 });

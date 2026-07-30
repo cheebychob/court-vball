@@ -709,10 +709,58 @@ test('an event without a date requires an explicit staff-link expiration', async
 
 test('the owner snapshot is event-bounded and strips ratings, contacts, admin tokens, photos, settings, and unrelated records', async ({ page }) => {
   const state = workerState();
+  const publishedRulesModel = {
+    schemaVersion: 1,
+    draft: {
+      document: {
+        schemaVersion: 1,
+        blocks: [{ id: 'draft-block', type: 'paragraph', html: '<p>Owner-only draft wording</p>' }],
+      },
+      quickRules: {},
+      builder: { sections: {} },
+      updatedAt: 200,
+      basedOnRevisionId: 'published-rules-one',
+      reviewFields: [],
+    },
+    draftDeletedAt: null,
+    publishedRevisionId: 'published-rules-one',
+    revisions: [{
+      id: 'published-rules-one',
+      number: 1,
+      document: {
+        schemaVersion: 1,
+        blocks: [{
+          id: 'published-block',
+          type: 'heading',
+          html: '<h2>Current court rules</h2><p>Respect line calls. <a href="javascript:alert(1)">Unsafe target</a></p><script>published-script-secret</script>',
+        }],
+      },
+      quickRules: {
+        tipRule: { state: 'custom', value: 'No open-hand tips', source: 'rules' },
+      },
+      publishedAt: 100,
+      changeSummary: '',
+      afterStart: false,
+      settingsSnapshot: {},
+      schemaVersion: 1,
+    }],
+    settingsAcknowledgements: {},
+    unpublishedAt: null,
+    publicationUpdatedAt: 100,
+    conflicts: [],
+    updatedAt: 200,
+  };
   await seedOwner(page, {
     games: [
       game(),
       game('other-game', { evId: 'event-other', evA: 'event-other-team-a', evB: 'event-other-team-b' }),
+    ],
+    events: [
+      event('event-one', {
+        eventDayCheckInEnabled: false,
+        rules: publishedRulesModel,
+      }),
+      event('event-other'),
     ],
   });
   await stubWorker(page, state);
@@ -724,6 +772,18 @@ test('the owner snapshot is event-bounded and strips ratings, contacts, admin to
   expect(snapshot.participants.map(row => row.id).sort()).toEqual(['p1', 'p2']);
   expect(Object.keys(snapshot.participants[0]).sort()).toEqual(['active', 'id', 'name']);
   expect(Object.keys(snapshot.event.registration).sort()).toEqual(['enabled', 'mode', 'status']);
+  expect(snapshot.event.eventDayCheckInEnabled).toBe(false);
+  expect(snapshot.event.publishedRules).toMatchObject({
+    revisionId: 'published-rules-one',
+    number: 1,
+    publishedAt: 100,
+  });
+  expect(snapshot.event.publishedRules.quickRules).toContainEqual(
+    expect.objectContaining({ key: 'tipRule', value: 'No open-hand tips' }),
+  );
+  expect(snapshot.event.publishedRules.content).toContainEqual(
+    expect.objectContaining({ tag: 'h2' }),
+  );
 
   const serialized = JSON.stringify(snapshot);
   for (const forbidden of [
@@ -737,7 +797,11 @@ test('the owner snapshot is event-bounded and strips ratings, contacts, admin to
     'private-photo',
     'settings-secret',
     'owner-room-secret',
+    'Owner-only draft wording',
+    'published-script-secret',
+    'javascript:',
   ]) expect(serialized, `snapshot excludes ${forbidden}`).not.toContain(forbidden);
+  expect(serialized).toContain('Current court rules');
   expect(serialized).not.toMatch(/"seedRating"|"rating"|"history"|"lifetime"|"photo"|"organizerContact"|"schedulePublications"/);
 
   const projectedFairnessPolicy = await page.evaluate(() => {
