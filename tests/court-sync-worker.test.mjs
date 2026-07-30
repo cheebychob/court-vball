@@ -6,9 +6,12 @@ import test from 'node:test';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
 
-const source = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const structureCoreSource = await readFile(new URL('../event-structure-core.js', import.meta.url), 'utf8');
+const rawWorkerSource = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const source = rawWorkerSource;
+const workerModuleSource = `${structureCoreSource}\n${rawWorkerSource.replace('import "../event-structure-core.js";', '')}`;
 const appSource = await readFile(new URL('../index.html', import.meta.url), 'utf8');
-const worker = (await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`)).default;
+const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerModuleSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
 
 class MemoryKV {

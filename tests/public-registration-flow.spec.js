@@ -6,8 +6,11 @@ const WORKER = 'https://court-registration-mobile.example';
 let PUBLIC_PAGE_HTML = '';
 
 test.beforeAll(async () => {
-  const workerSource = await readFile(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8');
-  const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
+  const coreSource = await readFile(`${process.cwd()}/event-structure-core.js`, 'utf8');
+  const workerSource = (await readFile(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8'))
+    .replace('import "../event-structure-core.js";', '');
+  const moduleSource = `${coreSource}\n${workerSource}`;
+  const worker = (await import(`data:text/javascript;base64,${Buffer.from(moduleSource).toString('base64')}`)).default;
   const publicPageResponse = await worker.fetch(new Request(`https://court-sync.example/register/${TOKEN}`), {});
   PUBLIC_PAGE_HTML = await publicPageResponse.text();
 });

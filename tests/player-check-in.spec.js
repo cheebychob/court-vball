@@ -5,11 +5,13 @@ import { readFileSync } from 'node:fs';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
 
-const workerSource = readFileSync(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8');
+const coreSource = readFileSync(`${process.cwd()}/event-structure-core.js`, 'utf8');
+const workerSource = readFileSync(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8')
+  .replace('import "../event-structure-core.js";', '');
 let worker;
 test.beforeAll(async () => {
   const loadModule = new Function('url', 'return import(url)');
-  worker = (await loadModule(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
+  worker = (await loadModule(`data:text/javascript;base64,${Buffer.from(`${coreSource}\n${workerSource}`).toString('base64')}`)).default;
 });
 const APP_WORKER = 'https://checkin.test';
 const REAL_WORKER = 'https://court-sync.example';
