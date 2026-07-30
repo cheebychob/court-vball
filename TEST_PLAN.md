@@ -51,6 +51,21 @@ Regression areas that should stay covered:
 - Event metadata does not affect rating replay.
 - Event standings, best-of-3 grouping, brackets, round robin scheduling, and guest teams stay covered by self-test.
 - Hide ratings mode does not leak numeric rating deltas.
+- Rotating pool generation is deterministic, never composes a generated
+  cross-pool match, scopes teammate/opponent audits per pool, and rejects an
+  undersized pool precisely.
+- Fixed and rotating standard/makeup matches use only dedicated or shared
+  eligible courts, with no participant or physical-court double booking.
+- Pool capacity/fairness previews are group-specific; `No pool` is a distinct
+  visible scheduling group.
+- Rotating standings restart ranks per pool and playoff ordering takes all pool
+  winners before runners-up.
+- Backup/restore and older backups preserve the all-courts-shared compatibility
+  default.
+- Started-round regeneration preserves matches/results and constrains only
+  future generated matches; rating replay remains unchanged.
+- Public/export/EventStaff projections carry safe pool/court metadata, and
+  View Only/Scorekeeper grants cannot mutate it.
 
 Next test focus:
 
@@ -110,3 +125,27 @@ Use a disposable sync room and the non-production Worker binding described in `d
 11. Reload or use a second organizer device while a session is open and confirm authenticated recovery.
 12. Repeat at 390×844 and 375×667; confirm the check-in sheet, QR, review controls, sticky attendance footer, and safe areas do not overlap.
 13. On a real iPhone, test the installed organizer app plus Safari and Add to Home Screen player flows. Do not treat desktop emulation as this real-device check.
+
+## Event pools and court assignments manual checklist
+
+Run the focused automated scenarios in
+`tests/event-pools-court-assignments.spec.js`, then inspect the organizer,
+participant, public, and Tournament Desk views at a narrow phone viewport.
+
+1. Fixed Teams: create 16 teams in four pools of four on eight courts. Reserve
+   Courts 1–2 for A, 3–4 for B, 5–6 for C, 7 for D, and leave 8 shared.
+   Confirm every match is eligible and unused legal capacity is informational,
+   not an error.
+2. Rotating Groups: use entry size 2, team size 4, 24 entries in three pools of
+   eight, six courts, and two dedicated courts per pool. Confirm two matches per
+   pool per round, no cross-pool composition, separate standings, pool/court
+   participant schedules, and pool-finish playoff order.
+3. Uneven pools: use 8/7/5 entries with mixed dedicated/shared courts. Confirm
+   pool-specific fairness/byes/makeup copy and that deterministic shared-court
+   allocation does not merge or starve a pool.
+4. Started event: save a Round 1 result, change assignments, and regenerate.
+   Confirm Round 1/result/rating replay are unchanged, future matches use the
+   new eligible courts, and any old violation is a protected legacy exception.
+5. At 390×844, toggle All courts shared/Assign courts by pool, change and reset
+   assignments by touch and keyboard, and confirm usable tap targets, wrapping,
+   no horizontal overflow, and no nested scrolling.

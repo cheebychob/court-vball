@@ -62,6 +62,99 @@
   const rememberAcross = (history, sideA, sideB) => {
     sideA.forEach(left => sideB.forEach(right => rememberPair(history, left, right)));
   };
+  const NO_POOL_GROUP = "__NO_POOL__", SHARED_POOL_COURT = "*";
+  const poolKey = value => text(value).trim() || NO_POOL_GROUP;
+  const schedulingGroups = entries => {
+    const labeled = entries.some(entry => text(entry?.pool).trim());
+    if (!labeled) return [{ pool: "", key: NO_POOL_GROUP, entries: entries.slice() }];
+    const values = new Map();
+    entries.forEach(entry => {
+      const pool = text(entry?.pool).trim(), key = poolKey(pool);
+      if (!values.has(key)) values.set(key, { pool, key, entries: [] });
+      values.get(key).entries.push(entry);
+    });
+    return [...values.values()].sort((left, right) =>
+      left.pool === "" ? 1 : right.pool === "" ? -1 : left.pool.localeCompare(right.pool));
+  };
+  const poolCourtAssignments = (settings, groups) => {
+    const source = settings?.poolCourtAssignments;
+    const enabled = source?.enabled === true && groups.length > 1;
+    const validOwners = new Set(groups.map(group => group.key));
+    const courts = {};
+    for (let court = 1; court <= settings.courts; court += 1) {
+      const raw = source?.courts?.[String(court)];
+      courts[String(court)] = enabled && (raw === SHARED_POOL_COURT || validOwners.has(poolKey(raw)))
+        ? (raw === SHARED_POOL_COURT ? raw : poolKey(raw))
+        : SHARED_POOL_COURT;
+    }
+    return { enabled, courts };
+  };
+  const eligibleCourts = (settings, groups, pool) => {
+    const assignments = poolCourtAssignments(settings, groups), key = poolKey(pool);
+    return Array.from({ length: settings.courts }, (_, index) => index + 1)
+      .filter(court => !assignments.enabled
+        || assignments.courts[String(court)] === SHARED_POOL_COURT
+        || assignments.courts[String(court)] === key);
+  };
+  function allocatePoolCourts(entries, settings, perMatch, rounds, seed) {
+    const groups = schedulingGroups(entries), assignments = poolCourtAssignments(settings, groups);
+    for (const group of groups) {
+      if (group.entries.length < perMatch) {
+        return { error: ["pool_too_small", `${group.pool ? `Pool ${group.pool}` : "No pool"} has ${group.entries.length} entries. This format needs at least ${perMatch} entries in a pool to form one match.`] };
+      }
+      if (!eligibleCourts(settings, groups, group.pool).length) {
+        return { error: ["pool_has_no_court", `${group.pool ? `Pool ${group.pool}` : "No pool"} has no eligible court.`] };
+      }
+    }
+    const progress = new Map(groups.map(group => [group.key, 0])), byGroup = new Map(groups.map(group => [group.key, {}]));
+    for (let round = 1; round <= rounds; round += 1) {
+      const demand = new Map(groups.map(group => [group.key, Math.floor(group.entries.length / perMatch)]));
+      const used = new Map(groups.map(group => [group.key, []])), shared = [];
+      for (let court = 1; court <= settings.courts; court += 1) {
+        const owner = assignments.courts[String(court)];
+        if (!assignments.enabled || owner === SHARED_POOL_COURT) shared.push(court);
+        else if (used.has(owner) && used.get(owner).length < demand.get(owner)) used.get(owner).push(court);
+      }
+      shared.forEach(court => {
+        const choices = groups.filter(group => used.get(group.key).length < demand.get(group.key))
+          .sort((left, right) =>
+            (progress.get(left.key) + used.get(left.key).length) / Math.max(1, left.entries.length)
+            - (progress.get(right.key) + used.get(right.key).length) / Math.max(1, right.entries.length)
+            || hash32(`${seed}:round:${round}:court:${court}:${left.key}`)
+            - hash32(`${seed}:round:${round}:court:${court}:${right.key}`));
+        if (choices[0]) used.get(choices[0].key).push(court);
+      });
+      groups.forEach(group => {
+        byGroup.get(group.key)[round] = used.get(group.key).slice().sort((a, b) => a - b);
+        progress.set(group.key, progress.get(group.key) + used.get(group.key).length);
+      });
+    }
+    return { groups, assignments, byGroup };
+  }
+  function placePoolMakeups(matches, entries, settings, seed) {
+    const groups = schedulingGroups(entries), blocks = [];
+    matches.slice().sort((left, right) =>
+      Number(left.makeupIndex) - Number(right.makeupIndex)
+      || hash32(`${seed}:${poolKey(left.pool)}:${left.id}`) - hash32(`${seed}:${poolKey(right.pool)}:${right.id}`))
+      .forEach(match => {
+        const playing = [...match.sideAEntryIds, ...match.sideBEntryIds], courts = eligibleCourts(settings, groups, match.pool);
+        let placed = false;
+        for (let blockIndex = 0; blockIndex <= blocks.length && !placed; blockIndex += 1) {
+          const block = blocks[blockIndex] || (blocks[blockIndex] = []);
+          const usedEntries = new Set(block.flatMap(value => [...value.sideAEntryIds, ...value.sideBEntryIds]));
+          const usedCourts = new Set(block.map(value => value.court));
+          const court = courts.find(value => !usedCourts.has(value));
+          if (court && playing.every(id => !usedEntries.has(id))) {
+            match.court = court;
+            match.makeupBlock = blockIndex + 1;
+            match.round = settings.rounds + blockIndex + 1;
+            block.push(match);
+            placed = true;
+          }
+        }
+      });
+    return blocks.flat();
+  }
 
   function validateFixedInput(input) {
     const entries = Array.isArray(input?.entries) ? input.entries : [];
@@ -169,8 +262,10 @@
     const eventId = text(input.eventId) || "event";
     const revision = integer(settings.revision, 1, 1_000_000) || 1;
     const seed = text(settings.seed) || `${eventId}:${revision}`;
-    const candidates = fixedCandidates(entries);
-    if (!candidates.length) return { error: ["invalid_pools", "Each scheduled pool needs at least two active teams."], matches: [] };
+    const groups = schedulingGroups(entries), candidates = fixedCandidates(entries);
+    if (!candidates.length || groups.some(group => group.entries.length < 2)) return { error: ["invalid_pools", "Each scheduled pool needs at least two active teams."], matches: [] };
+    const noCourt = groups.find(group => !eligibleCourts(settings, groups, group.pool).length);
+    if (noCourt) return { error: ["pool_has_no_court", `${noCourt.pool ? `Pool ${noCourt.pool}` : "No pool"} has no eligible court.`], matches: [] };
     const counts = new Map(ids.map(id => [id, 0]));
     const sideCounts = new Map(ids.map(id => [id, { A: 0, B: 0 }]));
     const courtCounts = new Map(ids.map(id => [id, Array.from({ length: settings.courts }, () => 0)]));
@@ -214,8 +309,9 @@
         const legal = candidates.filter(candidate =>
           !used.has(candidate.a)
           && !used.has(candidate.b)
-          && !usedPairs.has(candidate.key));
-        if (!legal.length) break;
+          && !usedPairs.has(candidate.key)
+          && eligibleCourts(settings, groups, candidate.pool).includes(court + 1));
+        if (!legal.length) continue;
         legal.sort((left, right) => compareKeys([
           Math.max(counts.get(left.a), counts.get(left.b)),
           counts.get(left.a) + counts.get(left.b),
@@ -261,11 +357,26 @@
         };
       }
       makeupTarget = plan.target;
-      const blocks = assignMakeupBlocks(plan.pairs, settings.courts);
-      let makeupIndex = 0;
-      blocks.forEach((block, blockIndex) => block.forEach((pair, court) => {
-        makeupIndex += 1;
+      const blocks = [];
+      plan.pairs.forEach(pair => {
         const candidate = candidates.find(value => value.key === pairKey(pair[0], pair[1]));
+        const courts = eligibleCourts(settings, groups, candidate?.pool || "");
+        let placed = false;
+        for (let blockIndex = 0; blockIndex <= blocks.length && !placed; blockIndex += 1) {
+          const block = blocks[blockIndex] || (blocks[blockIndex] = []);
+          const usedEntries = new Set(block.flatMap(item => item.pair));
+          const usedCourts = new Set(block.map(item => item.court));
+          const court = courts.find(value => !usedCourts.has(value));
+          if (court && pair.every(id => !usedEntries.has(id))) {
+            block.push({ pair, court: court - 1, candidate });
+            placed = true;
+          }
+        }
+      });
+      let makeupIndex = 0;
+      blocks.forEach((block, blockIndex) => block.forEach(item => {
+        makeupIndex += 1;
+        const { pair, court, candidate } = item;
         matches.push({
           id: `${eventId}-v${revision}-makeup-${makeupIndex}`,
           a: pair[0],
@@ -510,7 +621,10 @@
         counts.get(left) - counts.get(right)
         || byes.get(right) - byes.get(left)
         || hash32(`${seed}:round:${round}:${left}`) - hash32(`${seed}:round:${round}:${right}`));
-      const matchCount = Math.min(settings.courts, Math.floor(ids.length / perMatch));
+      const configuredCourts = Array.isArray(input.courtsByRound?.[round])
+        ? uniqueStrings(input.courtsByRound[round].map(String)).map(Number).filter(court => integer(court, 1, settings.courts) != null)
+        : Array.from({ length: settings.courts }, (_, index) => index + 1);
+      const matchCount = Math.min(configuredCourts.length, Math.floor(ids.length / perMatch));
       const playing = ordered.slice(0, matchCount * perMatch);
       const sitting = ordered.slice(matchCount * perMatch);
       const remaining = playing.slice(), groups = [];
@@ -540,7 +654,7 @@
           sideBEntryIds: sides.sideB,
         };
       }).filter(Boolean);
-      const availableCourts = Array.from({ length: settings.courts }, (_, index) => index + 1);
+      const availableCourts = configuredCourts.slice();
       rawMatches.forEach((raw, index) => {
         const court = availableCourts.slice().sort((left, right) => {
           const leftLoad = [...raw.sideAEntryIds, ...raw.sideBEntryIds]
@@ -564,6 +678,7 @@
           id: `${eventId}-v${revision}-r${round}-c${court}`,
           round,
           court,
+          pool: text(input.pool).trim(),
           sideAEntryIds,
           sideBEntryIds,
           scheduleBlock: "standard",
@@ -609,6 +724,7 @@
           id: `${eventId}-v${revision}-makeup-${makeupIndex}`,
           round: settings.rounds + blockIndex + 1,
           court: courtIndex + 1,
+          pool: text(input.pool).trim(),
           sideAEntryIds: sides.sideA,
           sideBEntryIds: sides.sideB,
           scheduleBlock: "makeup",
@@ -633,9 +749,72 @@
     };
   }
 
+  function generatePooledRotatingSchedule(input, checked) {
+    const seed = `${text(checked.settings.seed) || text(input.eventId) || "event"}:${checked.settings.revision || 1}`;
+    const allocation = allocatePoolCourts(checked.entries, checked.settings, checked.perMatch, checked.settings.rounds, seed);
+    if (allocation.error) return { error: allocation.error, matches: [] };
+    const byEntry = new Map(checked.entries.map(entry => [entry.id, entry]));
+    const actualPool = match => {
+      const pools = new Set([...uniqueStrings(match?.sideAEntryIds), ...uniqueStrings(match?.sideBEntryIds)]
+        .map(id => text(byEntry.get(id)?.pool).trim()));
+      return pools.size === 1 ? [...pools][0] : null;
+    };
+    const locked = Array.isArray(input.lockedMatches) ? input.lockedMatches : [];
+    const preserved = Array.isArray(input.preservedMatches) ? input.preservedMatches : [];
+    const protectedIds = new Set([...locked, ...preserved].map(match => match?.id).filter(Boolean));
+    const standard = locked.filter(match => actualPool(match) == null).map(match => ({ ...match, protectedLegacyException: true }));
+    const protectedExtras = preserved.filter(match => actualPool(match) == null).map(match => ({ ...match, protectedLegacyException: true }));
+    const generatedMakeups = [], poolAudits = [], initialSeeds = {};
+    for (const group of allocation.groups) {
+      const result = generateRotatingSchedule({
+        ...input,
+        _poolScoped: true,
+        entries: group.entries,
+        settings: checked.settings,
+        pool: group.pool,
+        courtsByRound: allocation.byGroup.get(group.key),
+        lockedMatches: locked.filter(match => actualPool(match) === group.pool),
+        preservedMatches: preserved.filter(match => actualPool(match) === group.pool),
+      });
+      if (result.error) return result;
+      result.matches.forEach(match => {
+        const normalized = { ...match, pool: group.pool };
+        if (normalized.scheduleBlock === "standard") standard.push(normalized);
+        else if (protectedIds.has(normalized.id)) protectedExtras.push(normalized);
+        else generatedMakeups.push(normalized);
+      });
+      Object.assign(initialSeeds, result.initialSeeds || {});
+      poolAudits.push({ pool: group.pool, ...(result.audit || {}) });
+    }
+    let makeupIndex = 0;
+    const placedMakeups = placePoolMakeups(generatedMakeups, checked.entries, checked.settings, seed)
+      .map(match => ({ ...match, id: `${text(input.eventId) || "event"}-v${checked.settings.revision || 1}-makeup-${++makeupIndex}` }));
+    const matches = standard.concat(protectedExtras, placedMakeups)
+      .sort((left, right) => Number(left.round) - Number(right.round)
+        || Number(left.court) - Number(right.court)
+        || text(left.id).localeCompare(text(right.id)));
+    const audit = rotatingAudit(checked.ids, matches, checked.settings.rounds);
+    for (const key of ["repeatedTeammates", "repeatedOpponents", "exactMatchupRepeats", "unavoidableOpponentRepeats", "avoidableOpponentRepeats"]) {
+      audit[key] = poolAudits.reduce((sum, row) => sum + (Number(row[key]) || 0), 0);
+    }
+    audit.poolAudits = poolAudits;
+    if (audit.avoidableOpponentRepeats > 0) {
+      return {
+        matches,
+        initialSeeds,
+        audit,
+        error: ["avoidable_opponent_repeat", `Court could not build these rotating rounds without ${audit.avoidableOpponentRepeats} avoidable opposing-entry repeat${audit.avoidableOpponentRepeats === 1 ? "" : "s"}.`],
+      };
+    }
+    return { matches, initialSeeds, audit };
+  }
+
   function generateRotatingSchedule(input) {
     const checked = validateRotatingInput(input);
     if (checked.error) return { error: checked.error, matches: [] };
+    if (!input?._poolScoped && checked.entries.some(entry => text(entry?.pool).trim())) {
+      return generatePooledRotatingSchedule(input, checked);
+    }
     const candidates = [];
     for (let index = 0; index < 32; index += 1) {
       const result = generateRotatingCandidate(input, checked, index);

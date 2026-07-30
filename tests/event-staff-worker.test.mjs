@@ -3375,6 +3375,101 @@ test('schedule configuration and fixed/rotating generation are validated, atomic
   }
 });
 
+test('pool court assignments round-trip through staff state, constrain generated placements, and remain operator-only', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+
+  const fixed = fixedSnapshot();
+  fixed.matches = [];
+  fixed.event.teams[0].pool = 'A';
+  fixed.event.teams[1].pool = 'A';
+  fixed.event.teams.push(
+    { id: 'team-c', name: 'Charlie', pool: 'B', players: ['player-e', 'player-f'] },
+    { id: 'team-d', name: 'Delta', pool: 'B', players: ['player-g', 'player-h'] },
+  );
+  fixed.participants.push(
+    { id: 'player-e', name: 'Emery', active: true },
+    { id: 'player-f', name: 'Frankie', active: true },
+    { id: 'player-g', name: 'Gray', active: true },
+    { id: 'player-h', name: 'Harper', active: true },
+  );
+  assert.equal((await seedSnapshot(bindings, 'event-1', fixed)).response.status, 201);
+
+  for (const role of ['viewOnly', 'scorekeeper']) {
+    const grant = await createGrant(bindings, 'event-1', {
+      role,
+      staffLabel: `${role} pool court denial`,
+    });
+    const session = await redeem(bindings, inviteToken(grant.body));
+    const denied = await operate(bindings, session.body.sessionToken, {
+      eventId: 'event-1',
+      action: 'setEventScheduleSettings',
+      targetId: 'event-1',
+      expectedRevision: 1,
+      idempotencyKey: `${role}-pool-courts-denied`,
+      payload: {
+        settings: {
+          rounds: 2,
+          courts: 3,
+          start: '09:00',
+          setMin: 25,
+          poolCourtAssignments: { enabled: true, courts: { 1: 'A', 2: 'B', 3: '*' } },
+        },
+      },
+    });
+    assert.equal(denied.response.status, 403);
+    assert.equal(denied.body.error, 'permission_denied');
+  }
+
+  const operatorGrant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Pool court operator',
+  });
+  const operator = await redeem(bindings, inviteToken(operatorGrant.body));
+  const configured = await operate(bindings, operator.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'setEventScheduleSettings',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'operator-pool-courts-configured',
+    payload: {
+      settings: {
+        rounds: 2,
+        courts: 3,
+        start: '09:00',
+        setMin: 25,
+        fairnessPolicy: 'allowDifference',
+        poolCourtAssignments: {
+          enabled: true,
+          courts: { 1: 'A', 2: 'B', 3: '*', 4: 'A', 999: 'B' },
+        },
+      },
+    },
+  });
+  assert.equal(configured.response.status, 200, JSON.stringify(configured.body));
+  assert.deepEqual(configured.body.state.event.sched.poolCourtAssignments, {
+    enabled: true,
+    courts: { 1: 'A', 2: 'B', 3: '*' },
+  });
+
+  const generated = await operate(bindings, operator.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'generateEventSchedule',
+    targetId: 'event-1',
+    expectedRevision: 2,
+    idempotencyKey: 'operator-pool-courts-generated',
+    payload: { reason: 'verify staff pool court generation' },
+  });
+  assert.equal(generated.response.status, 200, JSON.stringify(generated.body));
+  const matches = generated.body.state.matches.filter(match => match.phase !== 'playoff');
+  assert.deepEqual([...new Set(matches.map(match => match.pool))].sort(), ['A', 'B']);
+  assert.ok(matches.every(match =>
+    match.pool === 'A' ? [1, 3].includes(match.court) : [2, 3].includes(match.court)));
+  assert.ok(matches.every(match => match.validPlacements.length > 0));
+  assert.ok(matches.every(match => match.validPlacements.every(placement =>
+    match.pool === 'A' ? [1, 3].includes(placement.court) : [2, 3].includes(placement.court))));
+});
+
 test('schedule regeneration preserves completed match identity and rejects stale competing operators', async t => {
   const bindings = env();
   t.after(() => bindings.EVENT_REGISTRATION_DB.close());

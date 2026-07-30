@@ -45,6 +45,28 @@ App behavior verified against current index.html:
 - Made the fixed-teams schedule plan stable while games are logged. The candidate packer runs only on the full matchup set; the pending view is a filtered copy of the frozen plan, so logging, editing, or deleting a result never moves a remaining match to a different court or reorders it — only time estimates re-anchor and emptied rounds compress in time. A slot left partially empty by a played match keeps its surviving matches on their planned courts (an idle court in a round is correct, not something to optimize away).
 - Added preview-first fixed-team pool seeding with deterministic shuffle, rating-based snake, manual-rank snake, and fresh random modes. The optional event-root `poolSeedMode` field records the last applied mode; missing or undefined means `shuffle`, so existing events need no migration and retain their prior behavior.
 - Added court-side score reporting: players submit scores from the published schedule into an organizer review queue, in one of three per-event modes (`off` by default, `open` trust mode, or `code` with a printable five-character card per court). Reports are held in a new `SCORE_REPORTS` KV namespace and never become games without explicit organizer acceptance. Accepting reuses the same record builder as the manual sheets, so a reviewed result and a typed result are byte-identical. See `docs/SCORE_REPORTING.md`.
+- Generalized event pools across Fixed Teams and Rotating Groups, including rotating pool management/seeding, per-pool fairness and standings, pool-rank playoff ordering, and optional shared/dedicated court eligibility. Generated standard and makeup matches remain pool-scoped and use real eligible courts; started rounds, saved games, and ratings remain immutable. Public, export, score-report, backup/sync, and Tournament Desk projections preserve the new fields. See `docs/EVENT_POOLS_AND_COURTS.md`.
+
+## Event pool and court-assignment boundary
+
+Participant pool labels remain event metadata (`teams[].pool` or
+`entries[].pool`). Optional one-based court ownership lives in
+`sched.poolCourtAssignments` or `rotation.poolCourtAssignments`; omitted or
+disabled settings mean every court is shared, preserving older events and
+backups.
+
+Scheduling now enforces pool composition and court eligibility before applying
+the existing quality optimization. Pool edits and regeneration never rewrite
+saved games. Every match through the last started round is locked, and played
+or custom matches that conflict with new rules remain visible as protected
+legacy exceptions. Rating calculation and historical replay do not consume the
+new fields.
+
+`event-structure-core.js` carries the dependency-free equivalent used by the
+Cloudflare Tournament Desk. The Worker sanitizes the fields, constrains
+generated/movable placements, and retains the existing role boundary:
+Tournament Operator can manage entries and schedules; View Only and
+Scorekeeper cannot.
 
 ## Score reporting boundary
 
