@@ -23,7 +23,10 @@ Current behavior:
 - Tied games can be saved but do not affect ratings, records, or games played.
 - Court Level labels use Rec, C, B, BB, A, and AA/Open.
 - Hide ratings / stealth mode and player insight/stat cards exist.
-- Event/tournament support exists with fixed teams, pools, standings, brackets, guest teams, and court/schedule projections.
+- Event/tournament support exists with fixed teams and rotating groups, shared
+  pool management/seeding, grouped standings, brackets, guest teams, and
+  optional shared/dedicated pool court assignments. See
+  `docs/EVENT_POOLS_AND_COURTS.md`.
 - Event games carry metadata such as `evId`, `evA`, `evB`, `label`, and `matchId`; rating replay ignores those fields.
 
 Priorities:

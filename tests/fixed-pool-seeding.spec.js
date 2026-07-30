@@ -175,7 +175,7 @@ test('confirmation recomputes from live teams and preserves saved games and rati
   await page.getByRole('button', { name: 'Snake', exact: true }).click();
   await page.getByRole('button', { name: 'Confirm pool assignments', exact: true }).click();
   const dialog = page.getByRole('alertdialog');
-  await expect(dialog).toContainText('Saved games and player ratings will not be deleted or recalculated differently.');
+  await expect(dialog).toContainText('saved games and player ratings will not be deleted or recalculated differently.');
   await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
   expect(await page.evaluate(() => Object.fromEntries(evts[0].teams.map(team => [team.id, team.pool])))).toEqual(before.pools);
 

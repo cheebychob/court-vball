@@ -81,6 +81,13 @@ participant management from rankings, replaces the mobile standings statistic
 grid with compact ranked rows, stabilizes selection and refresh interactions,
 and adds status-aware organizer review actions.
 
+Related delivery: `feature/event-pools-court-assignments` adds Rotating Groups
+pool management and progressive pool-court assignment controls to the existing
+Entries and schedule-settings surfaces. It preserves EUX-04's single mobile
+scroll surface, EUX-05/EUX-13 standings presentation, and all current roadmap
+statuses; this cross-cutting scheduling feature does not mark another roadmap
+item complete.
+
 ## Roadmap summary
 
 | Done | ID     | Work item                                           | Branch                                     | Depends on     | Status  |

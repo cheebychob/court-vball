@@ -1415,7 +1415,8 @@ test('the live-state document is one read, carries no names or scores, and refle
   assert.equal(bindings.SCORE_REPORTS.lists.length, 0, 'a polled route must never enumerate the namespace');
   assert.deepEqual(Object.keys(body).sort(), ['matches', 'mode', 'ok', 'status', 'updatedAt']);
   assert.equal(body.matches['m-1'], 'pending');
-  const serialized = JSON.stringify(body);
+  const { updatedAt: _updatedAt, ...privacyBody } = body;
+  const serialized = JSON.stringify(privacyBody);
   assert.doesNotMatch(serialized, /Team A1|Team B1|25|20|Court 1/);
 
   await worker.fetch(request(`/api/score-reports/sessions/${sessionId}/config`, {

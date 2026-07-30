@@ -115,7 +115,7 @@ test('Entries manages participants while Standings ranks them and the selected t
   await expect(entries).toBeVisible();
   await expect(standings).toBeHidden();
   await expect(entries.getByRole('button', { name: /Add entry/ })).toBeVisible();
-  await expect(entries).toContainText('Manage participant names, rosters, registration links, substitutes, and seed information.');
+  await expect(entries).toContainText('Manage participant names, rosters, registration links, substitutes, seed information, and pools.');
   await expect(entries.locator('[data-event-entry-management="e-josh"]')).toContainText('Active: Josh Sventek · Substitutes: Sam Substitute');
   await expect(entries.locator('[data-event-entry-management="e-josh"]')).toContainText('Registration linked');
   await expect(entries.locator('[data-event-entry-management="e-josh"]').getByRole('button', { name: 'Edit', exact: true })).toBeVisible();

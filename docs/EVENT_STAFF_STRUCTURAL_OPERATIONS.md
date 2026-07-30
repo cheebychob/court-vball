@@ -54,7 +54,7 @@ presets are unchanged.
 | `moveEventParticipant` | `manageEventEntries` | Atomically transfers one participant between fixed entries or swaps two participants between rotating entries | Both registration sources and completed game snapshots remain unchanged; affected games require impact confirmation |
 | `reorderEventEntries` | `manageEventEntries` | Pre-generation seed/order values | Rejected after schedule/bracket generation or play |
 | `removeEventEntry` | `manageEventEntries` | Deletes an unplayed, unreferenced entry; otherwise preserves it as withdrawn | Completed games and rating history remain attached to the retained entry |
-| `setEventScheduleSettings` | `configureEventSchedule` | Rounds, courts, start time, duration, court style, fairness, makeup, and rotation settings | Existing matches remain until an explicit generate/regenerate/clear operation |
+| `setEventScheduleSettings` | `configureEventSchedule` | Rounds, courts, start time, duration, court style, fairness, makeup, rotation settings, and optional pool-court assignments | Existing matches remain until an explicit generate/regenerate/clear operation; movable placements are immediately revalidated against pool eligibility |
 | `generateEventSchedule` | `generateEventSchedule` | Canonical event settings and scheduled matches | Rejected when a schedule or results already exist |
 | `regenerateRemainingSchedule` | `generateEventSchedule` | Unplayed future matches and schedule revision | Played matches are immutable; removed match/game IDs are not reused |
 | `clearEventSchedule` | `generateEventSchedule` | Entirely unplayed scheduled matches | Rejected when any event result exists |

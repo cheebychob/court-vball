@@ -5012,6 +5012,10 @@ function cleanEventStaffText(value, maximum = 120) {
   return value.trim().replace(/\s+/g, " ").slice(0, maximum);
 }
 
+function cleanEventStaffPoolLabel(value) {
+  return cleanEventStaffText(value, 24).toUpperCase().replace(/[^A-Z0-9]/g, "");
+}
+
 function cleanEventStaffReason(value) {
   return cleanEventStaffText(value, EVENT_STAFF_REASON_MAX);
 }
@@ -5269,7 +5273,7 @@ function safeEventStaffEntry(value, includeCheckIn = false) {
     players: eventStaffSafeIdList(value.players || value.playerIds),
     substitutePlayerIds: eventStaffSafeIdList(value.substitutePlayerIds),
     status: EVENT_STAFF_ENTRY_STATUSES.has(value.status) ? value.status : "active",
-    ...(typeof value.pool === "string" ? { pool: value.pool.slice(0, 24) } : {}),
+    ...(typeof value.pool === "string" ? { pool: cleanEventStaffPoolLabel(value.pool) } : {}),
     ...(Number.isFinite(Number(value.manualSeed)) ? { manualSeed: Number(value.manualSeed) } : {}),
   };
   const registrationSource = safeEventStaffRegistrationSource(value.registrationSource);
@@ -5284,6 +5288,21 @@ function safeEventStaffEntry(value, includeCheckIn = false) {
     if (checkIn) safe.checkIn = checkIn;
   }
   return safe;
+}
+
+function safeEventStaffPoolCourtAssignments(value, courtCount, entries) {
+  const count = eventStaffInteger(courtCount, 1, 100) || 1;
+  const groups = new Set((entries || []).map(entry => cleanEventStaffPoolLabel(entry?.pool) || "__NO_POOL__"));
+  const enabled = value?.enabled === true && groups.size > 1;
+  const courts = {};
+  for (let court = 1; court <= count; court += 1) {
+    const rawOwner = value?.courts?.[String(court)];
+    const owner = rawOwner === "__NO_POOL__" ? rawOwner : cleanEventStaffPoolLabel(rawOwner);
+    courts[String(court)] = enabled && (rawOwner === "*" || groups.has(owner))
+      ? (rawOwner === "*" ? "*" : owner)
+      : "*";
+  }
+  return { enabled, courts };
 }
 
 function safeEventStaffMatch(value) {
@@ -5301,6 +5320,8 @@ function safeEventStaffMatch(value) {
       : value.phase === "makeup" ? "makeup" : "standard",
     status: ["pending", "ready", "inProgress", "complete", "completed", "final", "invalidated"].includes(value.status) ? value.status : "pending",
     label: cleanEventStaffText(value.label || value.roundLabel, 120),
+    pool: value.pool === "Cross-pool" ? "Cross-pool" : cleanEventStaffPoolLabel(value.pool),
+    crossPool: value.crossPool === true,
     courtLabel: cleanEventStaffText(value.courtLabel, 60),
     sideAName: cleanEventStaffText(value.sideAName, 120),
     sideBName: cleanEventStaffText(value.sideBName, 120),
@@ -5535,6 +5556,11 @@ function safeEventStaffEvent(value, role, permissions = []) {
       revision: Number.isInteger(Number(schedule.revision)) ? Number(schedule.revision) : 1,
       seed: cleanEventStaffText(schedule.seed, 120),
     };
+    out.sched.poolCourtAssignments = safeEventStaffPoolCourtAssignments(
+      schedule.poolCourtAssignments,
+      out.sched.courts,
+      out.format === "rotatingGroups" ? out.entries : out.teams,
+    );
     out.scheduleSettings = structuredClone(out.sched);
   }
   const rotation = event.rotation || event.pairSettings;
@@ -5559,6 +5585,11 @@ function safeEventStaffEvent(value, role, permissions = []) {
         ? rotation.tiebreakers.filter(value => typeof value === "string").slice(0, 12)
         : [],
     };
+    out.rotation.poolCourtAssignments = safeEventStaffPoolCourtAssignments(
+      rotation.poolCourtAssignments,
+      out.rotation.courts,
+      out.entries,
+    );
   }
   if (Array.isArray(event.brackets)) {
     out.brackets = event.brackets.map(bracket => ({
@@ -5628,6 +5659,7 @@ function eventStaffFixedStandings(event, games) {
   const rows = (Array.isArray(event?.teams) ? event.teams : []).map((team, seedOrder) => ({
     id: team.id,
     name: cleanEventStaffText(team.name, 120),
+    pool: cleanEventStaffPoolLabel(team.pool),
     seedOrder,
     wins: 0,
     losses: 0,
@@ -5691,6 +5723,7 @@ function eventStaffRotatingStandings(event, games, matches = []) {
   const rows = source.map(entry => ({
     id: entry.id,
     name: cleanEventStaffText(entry.name, 120),
+    pool: cleanEventStaffPoolLabel(entry.pool),
     wins: 0, losses: 0, ties: 0, standingsPoints: 0,
     pointsFor: 0, pointsAgainst: 0, matchesPlayed: 0,
   }));
@@ -8078,7 +8111,7 @@ function eventStaffEntryPlan(row, operation) {
       substitutePlayerIds: operation.payload.guest === true
         ? []
         : eventStaffSafeIdList(operation.payload.substitutePlayerIds),
-      pool: cleanEventStaffText(operation.payload.pool, 24),
+      pool: cleanEventStaffPoolLabel(operation.payload.pool),
       status: EVENT_STAFF_ENTRY_STATUSES.has(operation.payload.status)
         ? operation.payload.status
         : "active",
@@ -8206,7 +8239,7 @@ function eventStaffEntryPlan(row, operation) {
       next.substitutePlayerIds = eventStaffSafeIdList(operation.payload.substitutePlayerIds);
     }
     if (Object.prototype.hasOwnProperty.call(operation.payload, "pool")) {
-      next.pool = cleanEventStaffText(operation.payload.pool, 24);
+      next.pool = cleanEventStaffPoolLabel(operation.payload.pool);
     }
     if (Object.prototype.hasOwnProperty.call(operation.payload, "manualSeed")) {
       const seed = eventStaffInteger(operation.payload.manualSeed, 1, 10_000);
@@ -8341,7 +8374,7 @@ function eventStaffScheduleSettings(event, payload) {
     "rounds", "standardRounds", "courts", "start", "setMin", "durationMinutes",
     "matchMin", "breakMin", "courtStyle", "fairnessPolicy", "opponentPolicy",
     "makeupPolicy", "entrySize", "teamSize", "seed", "revision",
-    "tiebreakers", "winPoints", "tiePoints", "lossPoints",
+    "tiebreakers", "winPoints", "tiePoints", "lossPoints", "poolCourtAssignments",
   ];
   if (unexpectedFields(source, allowed).length) {
     return { error: ["invalid_schedule_settings", "The schedule settings contain unsupported fields."] };
@@ -8387,6 +8420,11 @@ function eventStaffScheduleSettings(event, payload) {
     makeupPolicy: cleanEventStaffText(source.makeupPolicy ?? current.makeupPolicy, 60)
       || (fairnessPolicy === "equalGames" ? "balance" : "none"),
   };
+  base.poolCourtAssignments = safeEventStaffPoolCourtAssignments(
+    source.poolCourtAssignments ?? current.poolCourtAssignments,
+    courts,
+    event.format === "rotatingGroups" ? event.entries : event.teams,
+  );
   if (rotating) {
     base.entrySize = eventStaffInteger(source.entrySize ?? current.entrySize ?? 1, 1, 20);
     base.teamSize = eventStaffInteger(source.teamSize ?? current.teamSize ?? 2, 1, 20);
@@ -8430,6 +8468,61 @@ function eventStaffCourtLabel(settings, court) {
   return `Court ${court}`;
 }
 
+function eventStaffAttachValidPlacements(event, settings, matches) {
+  const courtCount = eventStaffInteger(settings?.courts, 1, 100) || 1;
+  const entries = eventStaffEntryCollection(event);
+  const assignments = safeEventStaffPoolCourtAssignments(
+    settings?.poolCourtAssignments,
+    courtCount,
+    entries,
+  );
+  const scheduled = matches.filter(match =>
+    match?.phase !== "playoff" && Number.isInteger(Number(match?.slot)));
+  const slots = [...new Map(scheduled.map(match => {
+    const slot = Number(match.slot);
+    return [slot, {
+      slot,
+      scheduledAt: Number(match.scheduledAt)
+        || eventStaffScheduleTimestamp(event, settings, slot),
+    }];
+  })).values()];
+  const participantIds = match => new Set([
+    ...eventStaffSafeIdList(match?.sideAEntryIds),
+    ...eventStaffSafeIdList(match?.sideBEntryIds),
+    ...eventStaffSafeIdList(match?.sideAPlayerIds),
+    ...eventStaffSafeIdList(match?.sideBPlayerIds),
+  ]);
+  const eligibleCourts = match => Array.from({ length: courtCount }, (_, index) => index + 1)
+    .filter(court => {
+      if (!assignments.enabled) return true;
+      const owner = assignments.courts[String(court)];
+      if (match?.crossPool === true || match?.pool === "Cross-pool") return owner === "*";
+      const group = cleanEventStaffPoolLabel(match?.pool) || "__NO_POOL__";
+      return owner === "*" || owner === group;
+    });
+  scheduled.forEach(match => {
+    const ownIds = participantIds(match);
+    const eligible = new Set(eligibleCourts(match));
+    match.validPlacements = slots.flatMap(slot =>
+      Array.from({ length: courtCount }, (_, index) => ({
+        slot: slot.slot,
+        court: index + 1,
+        scheduledAt: slot.scheduledAt,
+      })))
+      .filter(placement => eligible.has(placement.court)
+        && !scheduled.some(other => {
+          if (other.id === match.id || Number(other.slot) !== placement.slot) return false;
+          if (Number(other.court) === placement.court) return true;
+          for (const id of participantIds(other)) {
+            if (ownIds.has(id)) return true;
+          }
+          return false;
+        }))
+      .slice(0, 256);
+  });
+  return matches;
+}
+
 function eventStaffMatchProjection(row, settings, entryA, entryB, slot, court, revision, index, phase = "pool") {
   const rotating = row.event.format === "rotatingGroups";
   const sideA = Array.isArray(entryA) ? entryA : [entryA];
@@ -8460,6 +8553,9 @@ function eventStaffMatchProjection(row, settings, entryA, entryB, slot, court, r
     courtLabel: eventStaffCourtLabel(settings, court),
     sideAName: sideA.map(value => value.name).join(" + "),
     sideBName: sideB.map(value => value.name).join(" + "),
+    pool: sideA.length && sideA.concat(sideB).every(value => cleanEventStaffPoolLabel(value?.pool) === cleanEventStaffPoolLabel(sideA[0]?.pool))
+      ? cleanEventStaffPoolLabel(sideA[0]?.pool)
+      : "",
     label: phase === "makeup" ? "Balances games played" : `Round ${slot + 1}`,
     gameIds: [],
     gameMeta: eventStaffGameMeta(row.event?.staffGameMeta || row.event?.gameMeta),
@@ -8505,6 +8601,7 @@ function eventStaffFixedSchedule(row, settings, revision, lockedMatches = []) {
     projected.id = match.id;
     projected.round = Number(match.round) || Number(match.slot) + 1;
     projected.scheduleBlock = match.scheduleBlock || "standard";
+    projected.pool = cleanEventStaffPoolLabel(match.pool);
     if (match.label) projected.label = match.label;
     return projected;
   });
@@ -8544,6 +8641,7 @@ function eventStaffRotatingSchedule(row, settings, revision, lockedMatches = [])
     projected.round = Number(match.round) || projected.round;
     projected.slot = projected.round - 1;
     projected.scheduleBlock = match.scheduleBlock || "standard";
+    projected.pool = cleanEventStaffPoolLabel(match.pool);
     if (match.label) projected.label = match.label;
     return projected;
   });
@@ -8562,7 +8660,11 @@ function eventStaffSchedulePlan(row, operation) {
     return {
       event,
       games: structuredClone(row.games || []),
-      matches: structuredClone(row.matches || []),
+      matches: eventStaffAttachValidPlacements(
+        event,
+        checked.value,
+        structuredClone(row.matches || []),
+      ),
       deletedGameIds: { ...(row.deletedGameIds || {}) },
       previous,
       next: checked.value,
@@ -8616,6 +8718,11 @@ function eventStaffSchedulePlan(row, operation) {
     !playedIds.has(value.id)
     && (operation.action !== "regenerateRemainingSchedule" || Number(value.slot) > lastPlayedSlot));
   const playoff = (row.matches || []).filter(value => value?.phase === "playoff").map(value => structuredClone(value));
+  const nextMatches = eventStaffAttachValidPlacements(
+    event,
+    settings,
+    [...preserved, ...generatedMatches, ...playoff],
+  );
   const impact = eventStaffImpact(row, {
     games: played.flatMap(value => eventStaffMatchGames(row, value)),
     matches: scheduled,
@@ -8625,7 +8732,7 @@ function eventStaffSchedulePlan(row, operation) {
   return {
     event,
     games: structuredClone(row.games || []),
-    matches: [...preserved, ...generatedMatches, ...playoff],
+    matches: nextMatches,
     deletedGameIds: { ...(row.deletedGameIds || {}) },
     previous: scheduled.map(value => value.id),
     next: { matchIds: generatedMatches.map(value => value.id), settings, impact },
@@ -9968,7 +10075,7 @@ function eventStaffDeskPage() {
   <dialog id="entry-dialog" aria-labelledby="entry-title"><form method="dialog" class="dialog-body">
     <h2 id="entry-title">Event entry</h2><p class="muted">Changes apply only to this event. Registration records and global player profiles are never edited.</p>
     <div class="field"><label for="entry-name">Entry name</label><input id="entry-name" maxlength="120"></div>
-    <div class="form-grid"><div class="field"><label for="entry-status">Status</label><select id="entry-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="withdrawn">Withdrawn</option><option value="unavailable">Unavailable</option></select></div><div class="field"><label for="entry-pool">Pool</label><input id="entry-pool" maxlength="24"></div></div>
+    <div class="form-grid"><div class="field"><label for="entry-status">Status</label><select id="entry-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="withdrawn">Withdrawn</option><option value="unavailable">Unavailable</option></select></div><div class="field"><label for="entry-pool">Pool</label><input id="entry-pool" maxlength="24"></div><div class="field"><label for="entry-seed">Manual seed</label><input id="entry-seed" type="number" min="1" max="10000"></div></div>
     <div class="field"><label for="participant-search">Find event participant</label><div class="roster-pick"><input id="participant-search" maxlength="100" autocomplete="off"><button id="participant-search-button" type="button">Search</button></div></div>
     <div id="participant-results" class="small"></div><div id="entry-roster"></div>
     <div class="dialog-actions"><button id="entry-cancel" type="button">Cancel</button><button id="entry-save" class="primary" type="button">Save online</button></div>
@@ -10011,17 +10118,20 @@ function eventStaffDeskPage() {
     function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"]];if(state.grant.role==="tournamentOperator"&&can("manageEventEntries"))list.splice(1,0,["entries","Entries"]);if(state.grant.role==="tournamentOperator"&&state.event.eventDayCheckInEnabled===true&&can("setEntryCheckIn"))list.splice(list.findIndex(function(item){return item[0]==="schedule"}),0,["checkin","Check-In"]);if(state.event.publishedRules)list.push(["rules","Rules"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
     function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="entries")renderEntries(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="rules")renderRules(panel);else renderActivity(panel);setConnection();renderQueue()}
     function heading(panel,title){panel.append(el("h2",{},title))}
-    function matchCard(match,actions){var card=el("article",{class:"card"}),head=el("div",{class:"card-head"});head.append(el("div",{},[el("div",{class:"eyebrow"},[match.courtLabel||"Court TBD"," · ",formatTime(match.scheduledAt)]),el("div",{class:"small muted"},match.label||"Scheduled match")]),el("strong",{class:match.result?"score":""},match.result?match.result.scoreLabel:(match.status||"Pending")));card.append(head,el("div",{class:"teams"},[el("span",{},match.sideAName||"Side A"),el("span",{},"VS"),el("span",{},match.sideBName||"Side B")]));if(actions){var row=el("div",{class:"actions"});if(can("recordEventScore")&&!match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var score=el("button",{type:"button",class:"primary","data-match-action":"score","data-match-id":match.id},"Enter score");score.addEventListener("click",function(){openScore(match,score)});row.append(score)}var correctionAllowed=state.grant.role==="tournamentOperator"||match.staffScoreCorrectable===true;if(can("correctEventScore")&&correctionAllowed&&match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var correct=el("button",{type:"button","data-match-action":"score","data-match-id":match.id},"Correct score");correct.addEventListener("click",function(){openScore(match,correct)});row.append(correct)}if(can("moveScheduledMatch")&&!match.result&&match.phase!=="playoff"&&Array.isArray(match.validPlacements)&&match.validPlacements.length){var move=el("button",{type:"button","data-match-action":"move","data-match-id":match.id},"Move match");move.addEventListener("click",function(){openMove(match,move)});row.append(move)}if(row.childNodes.length)card.append(row)}return card}
+    function matchCard(match,actions){var card=el("article",{class:"card"}),head=el("div",{class:"card-head"});head.append(el("div",{},[el("div",{class:"eyebrow"},[match.courtLabel||"Court TBD"," · ",formatTime(match.scheduledAt),match.pool?" · "+(match.pool==="Cross-pool"?"Cross-pool":"Pool "+match.pool):""]),el("div",{class:"small muted"},match.label||"Scheduled match")]),el("strong",{class:match.result?"score":""},match.result?match.result.scoreLabel:(match.status||"Pending")));card.append(head,el("div",{class:"teams"},[el("span",{},match.sideAName||"Side A"),el("span",{},"VS"),el("span",{},match.sideBName||"Side B")]));if(actions){var row=el("div",{class:"actions"});if(can("recordEventScore")&&!match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var score=el("button",{type:"button",class:"primary","data-match-action":"score","data-match-id":match.id},"Enter score");score.addEventListener("click",function(){openScore(match,score)});row.append(score)}var correctionAllowed=state.grant.role==="tournamentOperator"||match.staffScoreCorrectable===true;if(can("correctEventScore")&&correctionAllowed&&match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var correct=el("button",{type:"button","data-match-action":"score","data-match-id":match.id},"Correct score");correct.addEventListener("click",function(){openScore(match,correct)});row.append(correct)}if(can("moveScheduledMatch")&&!match.result&&match.phase!=="playoff"&&Array.isArray(match.validPlacements)&&match.validPlacements.length){var move=el("button",{type:"button","data-match-action":"move","data-match-id":match.id},"Move match");move.addEventListener("click",function(){openMove(match,move)});row.append(move)}if(row.childNodes.length)card.append(row)}return card}
     function renderMatches(panel){heading(panel,"Current Matches");var list=(state.matches||[]).slice().sort(function(a,b){return Number(a.scheduledAt||9e15)-Number(b.scheduledAt||9e15)});var current=list.filter(function(match){return !match.result||match.status==="inProgress"});(current.length?current:list.slice(0,20)).forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No scheduled matches are available."))}
     function eventEntries(){return state.event.format==="rotatingGroups"?state.event.entries||[]:state.event.teams||[]}
     function bracketEntries(){return state.event.teams||[]}
     function bracketSeedCandidates(){return bracketEntries().filter(function(value){return (value.status||"active")==="active"}).slice().sort(function(a,b){return Number(a.manualSeed||1e6)-Number(b.manualSeed||1e6)||a.name.localeCompare(b.name)})}
     function renderBracketSeedControls(bracket,row){var seeds=(bracket.seeds||[]).slice(),list=el("div",{class:"seed-list"});seeds.forEach(function(id,index){var seed=bracketEntries().find(function(value){return value.id===id}),line=el("div",{class:"roster-pick"}),actions=el("div",{class:"compact-actions"}),up=el("button",{type:"button","aria-label":"Move "+(seed&&seed.name||id)+" seed up"},"↑"),down=el("button",{type:"button","aria-label":"Move "+(seed&&seed.name||id)+" seed down"},"↓"),remove=el("button",{type:"button",class:"danger","aria-label":"Remove "+(seed&&seed.name||id)+" from bracket"},"Remove");up.disabled=index===0;down.disabled=index===seeds.length-1;remove.disabled=seeds.length<=2;up.addEventListener("click",function(){var next=seeds.slice(),swap=next[index-1];next[index-1]=next[index];next[index]=swap;submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:next,reason:"operator_reordered_bracket_seeds"})});down.addEventListener("click",function(){var next=seeds.slice(),swap=next[index+1];next[index+1]=next[index];next[index]=swap;submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:next,reason:"operator_reordered_bracket_seeds"})});remove.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:seeds.filter(function(value){return value!==id}),reason:"operator_removed_bracket_seed"})});actions.append(up,down,remove);line.append(el("span",{},(index+1)+". "+(seed&&seed.name||id)),actions);list.append(line)});row.append(list)}
     function participantName(id){var row=(state.participants||[]).find(function(value){return value.id===id});return row?row.name:id}
-    function renderEntries(panel){heading(panel,"Entries");var entries=eventEntries();var manage=el("section",{class:"management"},[el("h3",{},"Event-only entry administration"),el("p",{class:"small muted"},"Participant assignments affect this event only. Original registrations and global player profiles remain unchanged.")]);var add=el("button",{type:"button",class:"primary"},"Add entry");add.addEventListener("click",function(){openEntry(null)});manage.append(add);panel.append(manage);entries.forEach(function(entry,index){var box=el("article",{class:"entry-row"}),roster=(entry.players||[]).map(participantName).join(", ")||"Guest / no tracked participants";box.append(el("div",{class:"card-head"},[el("b",{},entry.name),el("span",{class:"small muted"},entry.status||"active")]),el("span",{class:"small"},roster));if((entry.substitutePlayerIds||[]).length)box.append(el("span",{class:"small muted"},"Substitutes: "+entry.substitutePlayerIds.map(participantName).join(", ")));if(entry.registrationSource||entry.registrationId)box.append(el("span",{class:"small muted"},"Registration source retained · staff edits do not change the original submission."));var actions=el("div",{class:"compact-actions"}),edit=el("button",{type:"button"},"Edit"),remove=el("button",{type:"button",class:"danger"},"Remove");edit.addEventListener("click",function(){openEntry(entry)});remove.addEventListener("click",function(){submitStructural("removeEventEntry",entry.id,{reason:"operator_removed_entry"})});actions.append(edit,remove);if(entries.length>1){var up=el("button",{type:"button"},"Seed up"),down=el("button",{type:"button"},"Seed down");up.disabled=index===0;down.disabled=index===entries.length-1;up.addEventListener("click",function(){reorderEntry(index,-1)});down.addEventListener("click",function(){reorderEntry(index,1)});actions.append(up,down)}box.append(actions);panel.append(box)});if(!entries.length)panel.append(el("div",{class:"empty"},"No entries are assigned to this event."))}
-    function scheduleField(grid,id,label,type,value){var field=el("div",{class:"field"}),input=el("input",{id:id,type:type||"text",value:value==null?"":value});field.append(el("label",{for:id},label),input);grid.append(field);return input}
+    function renderEntries(panel){heading(panel,"Entries");var entries=eventEntries();var manage=el("section",{class:"management"},[el("h3",{},"Event-only entry administration"),el("p",{class:"small muted"},"Participant assignments, pool labels, and manual seeds affect this event only. Original registrations and global player profiles remain unchanged.")]);var add=el("button",{type:"button",class:"primary"},"Add entry");add.addEventListener("click",function(){openEntry(null)});manage.append(add);panel.append(manage);entries.forEach(function(entry,index){var box=el("article",{class:"entry-row"}),roster=(entry.players||[]).map(participantName).join(", ")||"Guest / no tracked participants";box.append(el("div",{class:"card-head"},[el("b",{},entry.name),el("span",{class:"small muted"},entry.status||"active")]),el("span",{class:"small muted"},(entry.pool?"Pool "+entry.pool:"No pool")+" · Seed "+(entry.manualSeed||index+1)),el("span",{class:"small"},roster));if((entry.substitutePlayerIds||[]).length)box.append(el("span",{class:"small muted"},"Substitutes: "+entry.substitutePlayerIds.map(participantName).join(", ")));if(entry.registrationSource||entry.registrationId)box.append(el("span",{class:"small muted"},"Registration source retained · staff edits do not change the original submission."));var actions=el("div",{class:"compact-actions"}),edit=el("button",{type:"button"},"Edit"),remove=el("button",{type:"button",class:"danger"},"Remove");edit.addEventListener("click",function(){openEntry(entry)});remove.addEventListener("click",function(){submitStructural("removeEventEntry",entry.id,{reason:"operator_removed_entry"})});actions.append(edit,remove);if(entries.length>1){var up=el("button",{type:"button"},"Seed up"),down=el("button",{type:"button"},"Seed down");up.disabled=index===0;down.disabled=index===entries.length-1;up.addEventListener("click",function(){reorderEntry(index,-1)});down.addEventListener("click",function(){reorderEntry(index,1)});actions.append(up,down)}box.append(actions);panel.append(box)});if(!entries.length)panel.append(el("div",{class:"empty"},"No entries are assigned to this event."))}
+    function deskPoolGroups(){var groups={},labeled=false;eventEntries().forEach(function(entry){var pool=text(entry.pool).trim(),key=pool||"__NO_POOL__";if(pool)labeled=true;if(!groups[key])groups[key]={key:key,label:pool?"Pool "+pool:"No pool"}});return labeled?Object.keys(groups).map(function(key){return groups[key]}):[]}
+    function schedulePoolCourtAssignments(){var mode=document.getElementById("schedule-pool-mode"),courts={};document.querySelectorAll("[data-schedule-pool-court]").forEach(function(select){courts[select.getAttribute("data-schedule-pool-court")]=select.value});return {enabled:!!mode&&mode.value==="assigned",courts:courts}}
+    function appendPoolCourtSettings(grid,settings){var groups=deskPoolGroups();if(groups.length<2)return;var source=settings.poolCourtAssignments||{enabled:false,courts:{}},field=el("div",{class:"field wide"}),mode=el("select",{id:"schedule-pool-mode"},[el("option",{value:"shared"},"All courts shared"),el("option",{value:"assigned"},"Assign courts by pool")]),rows=el("div",{id:"schedule-pool-court-rows"});mode.value=source.enabled?"assigned":"shared";function draw(){rows.replaceChildren();rows.hidden=mode.value!=="assigned";if(rows.hidden)return;var count=Math.max(1,Math.min(100,Number(document.getElementById("schedule-courts").value)||Number(settings.courts)||1));for(var court=1;court<=count;court+=1){var wrap=el("div",{class:"roster-pick"}),select=el("select",{"data-schedule-pool-court":String(court),"aria-label":"Court "+court+" pool assignment"},[el("option",{value:"*"},"Shared")]);groups.forEach(function(group){select.append(el("option",{value:group.key},group.label))});select.value=source.courts&&source.courts[String(court)]||"*";wrap.append(el("span",{},"Court "+court),select);rows.append(wrap)}}mode.addEventListener("change",draw);field.append(el("label",{for:"schedule-pool-mode"},"Pool court assignments · optional"),mode,el("p",{class:"small muted"},"Shared courts may serve every pool. Reserved courts may serve only the selected pool."),rows);grid.append(field);draw()}
+    function scheduleField(grid,id,label,type,value){var field=el("div",{class:"field"}),input=el("input",{id:id,type:type||"text",value:value==null?"":value});field.append(el("label",{for:id},label),input);grid.append(field);if(id==="schedule-courts"){var settings=state.event.format==="rotatingGroups"?state.event.rotation||{}:state.event.sched||state.event.scheduleSettings||{};appendPoolCourtSettings(grid,settings);input.addEventListener("change",function(){var current=schedulePoolCourtAssignments(),row=document.getElementById("schedule-pool-court-rows");if(row){settings=Object.assign({},settings,{courts:Number(input.value),poolCourtAssignments:current});var container=row.closest(".field");if(container)container.remove();appendPoolCourtSettings(grid,settings)}})}return input}
     function renderSchedule(panel){heading(panel,"Schedule");var list=(state.matches||[]).filter(function(match){return match.phase!=="playoff"}).sort(function(a,b){return Number(a.scheduledAt)-Number(b.scheduledAt)});if(can("configureEventSchedule")||can("generateEventSchedule")){var settings=state.event.format==="rotatingGroups"?state.event.rotation||{}:state.event.sched||state.event.scheduleSettings||{},manage=el("section",{class:"management"}),grid=el("div",{class:"form-grid"});manage.append(el("h3",{},"Schedule administration"),el("p",{class:"small muted"},"Structural changes save online only. Score entry keeps its existing offline queue."));scheduleField(grid,"schedule-rounds","Rounds","number",settings.rounds||settings.standardRounds||1);scheduleField(grid,"schedule-courts","Courts","number",settings.courts||1);scheduleField(grid,"schedule-start","Start time","time",settings.start||"10:00");scheduleField(grid,"schedule-duration","Match duration (minutes)","number",settings.setMin||25);var styleField=el("div",{class:"field"}),style=el("select",{id:"schedule-style"},[el("option",{value:"num"},"Numbered courts"),el("option",{value:"letter"},"Lettered courts")]);style.value=settings.courtStyle==="letter"?"letter":"num";styleField.append(el("label",{for:"schedule-style"},"Court labels"),style);grid.append(styleField);var fairnessField=el("div",{class:"field"}),fairness=el("select",{id:"schedule-fairness"},[el("option",{value:"allowDifference"},"Keep requested rounds"),el("option",{value:"equalGames"},"Balance games with makeup matches")]);fairness.value=settings.fairnessPolicy==="equalGames"?"equalGames":"allowDifference";fairnessField.append(el("label",{for:"schedule-fairness"},"Fairness policy"),fairness);grid.append(fairnessField);manage.append(grid);var actions=el("div",{class:"compact-actions"});if(can("configureEventSchedule")){var save=el("button",{type:"button"},"Save settings");save.addEventListener("click",saveScheduleSettings);actions.append(save)}if(can("generateEventSchedule")){var generate=el("button",{type:"button",class:"primary"},"Generate schedule"),regenerate=el("button",{type:"button"},"Regenerate remaining"),clear=el("button",{type:"button",class:"danger"},"Clear unplayed schedule");generate.addEventListener("click",function(){submitStructural("generateEventSchedule",state.event.id,{reason:"operator_generated_schedule"})});regenerate.addEventListener("click",function(){submitStructural("regenerateRemainingSchedule",state.event.id,{reason:"operator_regenerated_schedule"})});clear.addEventListener("click",function(){submitStructural("clearEventSchedule",state.event.id,{reason:"operator_cleared_schedule"})});actions.append(generate,regenerate,clear)}manage.append(actions);if(state.event.hasPublicSchedulePublication)manage.append(el("div",{class:"static-warning"},"Public schedules are static snapshots. Ask the organizer to republish after structural changes."));panel.append(manage)}list.forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No schedule is available."))}
-    function renderStandings(panel){heading(panel,"Standings");(state.standings||[]).forEach(function(row,index){panel.append(el("div",{class:"standing-row"},[el("strong",{},index+1),el("span",{},[el("b",{},row.name),el("span",{class:"small muted"},(row.wins||0)+" wins · "+(row.losses||0)+" losses"+(row.ties?" · "+row.ties+" ties":""))]),el("strong",{},row.standingsPoints!=null?row.standingsPoints:(row.pointDifferential>0?"+":"")+Number(row.pointDifferential||0))]))});if(!(state.standings||[]).length)panel.append(el("div",{class:"empty"},"Standings will appear after results are saved."))}
+    function renderStandings(panel){heading(panel,"Standings");var rows=state.standings||[],pooled=rows.some(function(row){return row.pool});if(pooled){var pools=[];rows.forEach(function(row){var key=row.pool||"__NO_POOL__",group=pools.find(function(value){return value.key===key});if(!group){group={key:key,label:row.pool?"Pool "+row.pool:"No pool",rows:[]};pools.push(group)}group.rows.push(row)});pools.forEach(function(group){panel.append(el("h3",{},group.label));group.rows.forEach(function(row,index){appendStanding(row,index+1)})})}else rows.forEach(function(row,index){appendStanding(row,index+1)});function appendStanding(row,rank){panel.append(el("div",{class:"standing-row"},[el("strong",{},rank),el("span",{},[el("b",{},row.name),el("span",{class:"small muted"},(row.wins||0)+" wins · "+(row.losses||0)+" losses"+(row.ties?" · "+row.ties+" ties":""))]),el("strong",{},row.standingsPoints!=null?row.standingsPoints:(row.pointDifferential>0?"+":"")+Number(row.pointDifferential||0))]))}if(!rows.length)panel.append(el("div",{class:"empty"},"Standings will appear after results are saved."))}
     function renderBracket(panel){heading(panel,"Bracket");if(can("manageEventBrackets")){var eligible=bracketSeedCandidates(),manage=el("section",{class:"management"}),name=el("input",{id:"new-bracket-name",maxlength:"120",placeholder:"Division name"}),top=el("input",{id:"new-bracket-top",type:"number",min:"2",max:String(Math.max(2,eligible.length)),value:String(Math.max(2,eligible.length))}),mode=el("select",{id:"new-bracket-seed-mode"},[el("option",{value:"standings"},"Current standings"),el("option",{value:"manual"},"Selected manual order"),el("option",{value:"balanced"},"Existing balanced seed order")]),grid=el("div",{class:"form-grid"}),choices=el("div",{class:"entry-row"});grid.append(el("div",{class:"field"},[el("label",{for:"new-bracket-name"},"Division name"),name]),el("div",{class:"field"},[el("label",{for:"new-bracket-top"},"Top entries"),top]),el("div",{class:"field wide"},[el("label",{for:"new-bracket-seed-mode"},"Seed source"),mode]));choices.append(el("b",{},"Eligible playoff teams"),el("span",{class:"small muted"},"Selections apply to manual or balanced seeding."));eligible.forEach(function(entry){var label=el("label",{class:"roster-pick"}),pick=el("input",{type:"checkbox","data-bracket-entry":entry.id,checked:""});label.append(pick,el("span",{},entry.name));choices.append(label)});var create=el("button",{type:"button",class:"primary"},"Create bracket division");create.disabled=eligible.length<2;create.addEventListener("click",createBracket);manage.append(el("h3",{},"Bracket administration"),el("p",{class:"small muted"},state.event.format==="rotatingGroups"&&!eligible.length?"The organizer must first build fixed playoff teams from the rotating standings. Entry pool results remain separate from playoff results.":"Create multiple divisions, choose eligible teams, reseed before play, or reset one division after reviewing affected games."),grid,choices,create);(state.event.brackets||[]).forEach(function(bracket){var row=el("div",{class:"entry-row"}),rename=el("input",{"aria-label":"Name for "+bracket.name,value:bracket.name,maxlength:"120"}),actions=el("div",{class:"compact-actions"}),save=el("button",{type:"button"},"Save division name"),standings=el("button",{type:"button"},"Reseed from standings"),reset=el("button",{type:"button",class:"danger"},"Reset division"),remove=el("button",{type:"button",class:"danger"},"Remove division");save.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:rename.value,reason:"operator_renamed_bracket"})});standings.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:rename.value,seedMode:"standings",reason:"operator_reseeded_bracket_from_standings"})});reset.addEventListener("click",function(){submitStructural("resetEventBracket",bracket.id,{reason:"operator_reset_bracket"})});remove.addEventListener("click",function(){submitStructural("removeEventBracket",bracket.id,{reason:"operator_removed_bracket"})});actions.append(save,standings,reset,remove);row.append(el("b",{},bracket.name),el("span",{class:"small muted"},bracket.seeds.length+" seeded entries"),rename);renderBracketSeedControls(bracket,row);row.append(actions);manage.append(row)});if(state.event.hasPublicSchedulePublication)manage.append(el("div",{class:"static-warning"},"Public brackets are static snapshots. Ask the organizer to republish after changes."));panel.append(manage)}(state.bracket||[]).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.bracket||[]).length)panel.append(el("div",{class:"empty"},"No bracket is available."))}
     function entryContact(entry){var contacts=state.contacts||[];return contacts.find(function(item){return item.registrationId===entry.registrationId})}
     function renderCheckIn(panel){heading(panel,"Check-In");var entries=state.event.format==="rotatingGroups"?state.event.entries:state.event.teams;(entries||[]).forEach(function(entry){var box=el("article",{class:"entry-row"}),status=entry.checkIn&&entry.checkIn.teamStatus||"not_checked_in";box.append(el("b",{},entry.name),el("span",{class:"small muted"},status.replace(/_/g," ")));var select=el("select",{"aria-label":"Attendance status for "+entry.name});[["not_checked_in","Not checked in"],["checked_in","Checked in"],["partially_arrived","Partially arrived"],["needs_review","Needs review"],["no_show","No-show"],["withdrawn","Withdrawn"]].forEach(function(option){var node=el("option",{value:option[0]},option[1]);if(option[0]===status)node.selected=true;select.append(node)});select.addEventListener("change",async function(){var selected=select.value;select.disabled=true;var queued=await queueOperation("setEntryAttendanceStatus",entry.id,{status:selected});if(!queued){select.value=status;showNotice("Attendance not queued because local storage is unavailable.","bad")}select.disabled=false});box.append(select);var contact=entryContact(entry);if(contact&&contact.contact)box.append(el("div",{class:"contact small"},[el("b",{},"Event contact"),el("div",{},contact.contact.name),el("div",{},contact.contact.email),el("div",{},contact.contact.phone)]));panel.append(box)});if(!(entries||[]).length)panel.append(el("div",{class:"empty"},"No accepted entries are available for check-in."))}
@@ -10030,11 +10140,11 @@ function eventStaffDeskPage() {
     function renderRules(panel){heading(panel,"Rules");var rules=state.event.publishedRules;if(!rules)return;panel.append(el("p",{class:"small muted"},"Current published revision "+rules.number+" · "+new Date(rules.publishedAt).toLocaleString()));if((rules.quickRules||[]).length){panel.append(el("h3",{},"Quick Rules"));var quick=el("div",{class:"quick-rules"});rules.quickRules.forEach(function(row){quick.append(el("div",{class:"quick-rule"},[el("b",{},row.label),el("span",{},row.value||"Not decided")]))});panel.append(quick)}var body=el("article",{class:"rules-body"});(rules.content||[]).forEach(function(node){appendRuleNode(body,node)});if(!body.childNodes.length)body.append(el("div",{class:"empty"},"The current published rules document is blank."));panel.append(body)}
     function renderActivity(panel){heading(panel,"Activity");(state.activity||[]).forEach(function(item){panel.append(el("div",{class:"activity-row"},[el("b",{},item.staffLabel+" · "+item.action),el("span",{class:"small muted"},new Date(item.timestamp).toLocaleString()),el("span",{class:"small"},item.targetId||"Event")]))});if(!(state.activity||[]).length)panel.append(el("div",{class:"empty"},"No staff activity yet."))}
     function renderEntryRoster(){var holder=document.getElementById("entry-roster");if(!holder||!entryDraft)return;holder.replaceChildren();var ids=entryDraft.players.concat(entryDraft.substitutePlayerIds);if(!ids.length){holder.append(el("p",{class:"small muted"},"No tracked participants. In fixed-team events this keeps Court’s existing guest-side rating behavior."));return}ids.forEach(function(id){var row=el("div",{class:"roster-pick"}),label=el("span",{},entryDraft.names[id]||participantName(id)),role=el("select",{"aria-label":"Event role for "+(entryDraft.names[id]||participantName(id))},[el("option",{value:"active"},"Active participant"),el("option",{value:"substitute"},"Substitute"),el("option",{value:"remove"},"Remove from entry")]);role.value=entryDraft.substitutePlayerIds.indexOf(id)>=0?"substitute":"active";role.addEventListener("change",function(){entryDraft.players=entryDraft.players.filter(function(value){return value!==id});entryDraft.substitutePlayerIds=entryDraft.substitutePlayerIds.filter(function(value){return value!==id});if(role.value==="active")entryDraft.players.push(id);else if(role.value==="substitute")entryDraft.substitutePlayerIds.push(id);renderEntryRoster()});row.append(label,role);holder.append(row)})}
-    function openEntry(entry){entryDraft={id:entry&&entry.id||null,players:(entry&&entry.players||[]).slice(),substitutePlayerIds:(entry&&entry.substitutePlayerIds||[]).slice(),names:{}};entryDraft.players.concat(entryDraft.substitutePlayerIds).forEach(function(id){entryDraft.names[id]=participantName(id)});document.getElementById("entry-title").textContent=entry?"Edit event entry":"Add event entry";document.getElementById("entry-name").value=entry&&entry.name||"";document.getElementById("entry-status").value=entry&&entry.status||"active";document.getElementById("entry-pool").value=entry&&entry.pool||"";document.getElementById("participant-search").value="";document.getElementById("participant-results").replaceChildren();renderEntryRoster();document.getElementById("entry-dialog").showModal();setTimeout(function(){document.getElementById("entry-name").focus()},0)}
+    function openEntry(entry){entryDraft={id:entry&&entry.id||null,players:(entry&&entry.players||[]).slice(),substitutePlayerIds:(entry&&entry.substitutePlayerIds||[]).slice(),names:{}};entryDraft.players.concat(entryDraft.substitutePlayerIds).forEach(function(id){entryDraft.names[id]=participantName(id)});document.getElementById("entry-title").textContent=entry?"Edit event entry":"Add event entry";document.getElementById("entry-name").value=entry&&entry.name||"";document.getElementById("entry-status").value=entry&&entry.status||"active";document.getElementById("entry-pool").value=entry&&entry.pool||"";document.getElementById("entry-seed").value=entry&&entry.manualSeed||eventEntries().length+1;document.getElementById("participant-search").value="";document.getElementById("participant-results").replaceChildren();renderEntryRoster();document.getElementById("entry-dialog").showModal();setTimeout(function(){document.getElementById("entry-name").focus()},0)}
     async function searchEntryParticipants(){if(!entryDraft)return;var query=document.getElementById("participant-search").value.trim(),holder=document.getElementById("participant-results");holder.replaceChildren();if(query.length<2){holder.append(el("p",{class:"muted"},"Enter at least two characters."));return}if(!navigator.onLine||serviceUnavailable){holder.append(el("p",{class:"muted"},"Participant search is available online only."));return}try{var result=await api("/api/event-staff/participants?q="+encodeURIComponent(query));(result.participants||[]).forEach(function(participant){var assigned=eventEntries().find(function(entry){return (entry.players||[]).concat(entry.substitutePlayerIds||[]).indexOf(participant.id)>=0}),isCurrent=assigned&&assigned.id===entryDraft.id,canMove=assigned&&entryDraft.id&&!isCurrent&&state.event.format!=="rotatingGroups",label=isCurrent?"Already in this entry":canMove?"Move "+participant.displayName+" from "+assigned.name:assigned?"Assigned to "+assigned.name:"Add "+participant.displayName,add=el("button",{type:"button",class:"link"},label);add.disabled=Boolean(isCurrent||assigned&&!canMove);add.addEventListener("click",async function(){if(canMove){document.getElementById("entry-dialog").close();await submitStructural("moveEventParticipant",entryDraft.id,{participantId:participant.id,fromEntryId:assigned.id,reason:"operator_moved_event_participant"});entryDraft=null;return}if(entryDraft.players.indexOf(participant.id)<0&&entryDraft.substitutePlayerIds.indexOf(participant.id)<0)entryDraft.players.push(participant.id);entryDraft.names[participant.id]=participant.displayName;renderEntryRoster()});holder.append(add)});if(!(result.participants||[]).length)holder.append(el("p",{class:"muted"},"No matching event participants."))}catch(error){holder.append(el("p",{class:"muted"},error.message))}}
-    async function saveEntry(){if(!entryDraft)return;var name=document.getElementById("entry-name").value.trim();if(!name){showNotice("Enter an entry name.","bad");return}var payload={name:name,status:document.getElementById("entry-status").value,pool:document.getElementById("entry-pool").value,players:entryDraft.players.slice(),substitutePlayerIds:entryDraft.substitutePlayerIds.slice(),reason:entryDraft.id?"operator_updated_entry":"operator_added_entry"},action=entryDraft.id?"updateEventEntry":"addEventEntry",target=entryDraft.id||state.event.id;document.getElementById("entry-dialog").close();await submitStructural(action,target,payload)}
+    async function saveEntry(){if(!entryDraft)return;var name=document.getElementById("entry-name").value.trim();if(!name){showNotice("Enter an entry name.","bad");return}var payload={name:name,status:document.getElementById("entry-status").value,pool:document.getElementById("entry-pool").value,manualSeed:Number(document.getElementById("entry-seed").value),players:entryDraft.players.slice(),substitutePlayerIds:entryDraft.substitutePlayerIds.slice(),reason:entryDraft.id?"operator_updated_entry":"operator_added_entry"},action=entryDraft.id?"updateEventEntry":"addEventEntry",target=entryDraft.id||state.event.id;document.getElementById("entry-dialog").close();await submitStructural(action,target,payload)}
     function reorderEntry(index,delta){var ids=eventEntries().map(function(value){return value.id}),other=index+delta;if(other<0||other>=ids.length)return;var swap=ids[index];ids[index]=ids[other];ids[other]=swap;submitStructural("reorderEventEntries",state.event.id,{entryIds:ids,reason:"operator_reseeded_entries"})}
-    function saveScheduleSettings(){submitStructural("setEventScheduleSettings",state.event.id,{settings:{rounds:Number(document.getElementById("schedule-rounds").value),courts:Number(document.getElementById("schedule-courts").value),start:document.getElementById("schedule-start").value,setMin:Number(document.getElementById("schedule-duration").value),courtStyle:document.getElementById("schedule-style").value,fairnessPolicy:document.getElementById("schedule-fairness").value},reason:"operator_configured_schedule"})}
+    function saveScheduleSettings(){submitStructural("setEventScheduleSettings",state.event.id,{settings:{rounds:Number(document.getElementById("schedule-rounds").value),courts:Number(document.getElementById("schedule-courts").value),start:document.getElementById("schedule-start").value,setMin:Number(document.getElementById("schedule-duration").value),courtStyle:document.getElementById("schedule-style").value,fairnessPolicy:document.getElementById("schedule-fairness").value,poolCourtAssignments:schedulePoolCourtAssignments()},reason:"operator_configured_schedule"})}
     function createBracket(){var entries=bracketSeedCandidates(),mode=document.getElementById("new-bracket-seed-mode").value,selected=entries.filter(function(value){var input=document.querySelector('[data-bracket-entry="'+CSS.escape(value.id)+'"]');return input&&input.checked});if(entries.length<2){showNotice("Build at least two eligible playoff teams in the organizer app before creating a bracket.","warn");return}if(mode!=="standings"&&selected.length<2){showNotice("Choose at least two eligible playoff teams.","bad");return}var source=mode==="standings"?entries:selected,top=Math.max(2,Math.min(source.length,Number(document.getElementById("new-bracket-top").value)||source.length)),payload={name:document.getElementById("new-bracket-name").value||"Playoffs",seedMode:mode,topCount:top,reason:"operator_created_bracket"};if(mode!=="standings")payload.seeds=source.slice(0,top).map(function(value){return value.id});submitStructural("createEventBracket",state.event.id,payload)}
     function impactRows(impact){var rows=[];if((impact.completedGameIds||[]).length)rows.push("Completed games: "+impact.completedGameIds.join(", "));if((impact.unplayedMatchIds||[]).length)rows.push("Unplayed matches: "+impact.unplayedMatchIds.join(", "));if((impact.removedEntryIds||[]).length)rows.push("Entries: "+impact.removedEntryIds.join(", "));if((impact.removedParticipantIds||[]).length)rows.push("Participants: "+impact.removedParticipantIds.join(", "));rows.push("Standings: "+(impact.standingsAffected?"affected":"unchanged"));rows.push("Bracket: "+(impact.bracketAffected?"affected":"unchanged"));rows.push("Rating history: "+(impact.ratingHistory||"unchanged"));rows.push("Preservation: "+(impact.preservation||"existing history preserved"));if(impact.publicSnapshotStale)rows.push("Public publication: static snapshot will require organizer republish");return rows}
     function showImpact(operation,impact){structuralPending=operation;var holder=document.getElementById("impact-body"),list=el("ul",{class:"impact-list"});impactRows(impact||{}).forEach(function(row){list.append(el("li",{},row))});holder.replaceChildren(list);document.getElementById("impact-dialog").showModal()}
