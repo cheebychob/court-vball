@@ -8,7 +8,10 @@ if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
 if (!globalThis.atob) globalThis.atob = value => Buffer.from(value, 'base64').toString('binary');
 
-const workerSource = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const structureCoreSource = await readFile(new URL('../event-structure-core.js', import.meta.url), 'utf8');
+const rawWorkerSource = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const workerSource = rawWorkerSource;
+const workerModuleSource = `${structureCoreSource}\n${rawWorkerSource.replace('import "../event-structure-core.js";', '')}`;
 const migrations = await Promise.all([
   '0001_event_registration_foundation.sql',
   '0002_team_registration_portal.sql',
@@ -17,7 +20,7 @@ const migrations = await Promise.all([
   '0005_event_staff_access.sql',
   '0006_event_staff_pin_kdf_version.sql',
 ].map(name => readFile(new URL(`../cloudflare/migrations/${name}`, import.meta.url), 'utf8')));
-const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
+const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerModuleSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
 
 class MemoryKV {
@@ -382,7 +385,7 @@ function syncEnvelope(data, ts = 100) {
   return JSON.stringify({ ts, data: JSON.stringify(data) });
 }
 
-test('event-staff capability is schema-gated, private-origin scoped, and backward compatible', async t => {
+test('event-staff capability reports API and permission schema v2 while remaining schema-gated and private-origin scoped', async t => {
   const readyEnv = env();
   t.after(() => readyEnv.EVENT_REGISTRATION_DB.close());
   const ready = await worker.fetch(request('/api/event-staff/status', { headers: { Origin: ORIGIN } }), readyEnv);
@@ -393,9 +396,9 @@ test('event-staff capability is schema-gated, private-origin scoped, and backwar
     roles: readyBody.roles.map(role => role.id),
   }, {
     available: true,
-    apiVersion: 1,
+    apiVersion: 2,
     schemaVersion: 2,
-    permissionSchemaVersion: 1,
+    permissionSchemaVersion: 2,
     maxActiveGrantsPerEvent: 10,
     maxGrantDays: 30,
     roles: ['viewOnly', 'scorekeeper', 'tournamentOperator'],
@@ -823,7 +826,7 @@ test('atomic D1 grant/audit failures return a request ID without a usable partia
   assert.doesNotMatch(logs[0], /012345|owner-a|X-Court-Room|rejected SQL/i);
 });
 
-test('owner snapshots reject cross-event references and only expose explicit event projections', async t => {
+test('owner snapshots reject cross-event references and retain only the bounded participant directory projection', async t => {
   const bindings = env();
   t.after(() => bindings.EVENT_REGISTRATION_DB.close());
 
@@ -855,8 +858,11 @@ test('owner snapshots reject cross-event references and only expose explicit eve
     active: true,
   });
   const unlinkedParticipant = await seedSnapshot(bindings, 'outsider-event', outsider);
-  assert.equal(unlinkedParticipant.response.status, 400);
-  assert.equal(unlinkedParticipant.body.error, 'unlinked_participant');
+  assert.equal(unlinkedParticipant.response.status, 201);
+  assert.deepEqual(
+    storedEventStaffState(bindings, 'outsider-event').participants.find(row => row.id === 'outsider-player'),
+    { id: 'outsider-player', name: 'Outside Person' },
+  );
 
   const unknownEntry = fixedSnapshot('unknown-entry-event');
   unknownEntry.matches[0].teamAId = 'another-team';
@@ -2895,4 +2901,754 @@ test('staff reads are event-scoped and registration contacts are operator-only',
       assert.equal(serialized.includes('Event-specific note'), false);
     }
   }
+});
+
+test('permission schema v2 is frozen per grant, legacy operators do not expand, and malformed snapshots fail closed', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+
+  const current = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Current operator',
+  });
+  assert.equal(current.response.status, 201);
+  assert.equal(current.body.grant.permissionSchemaVersion, 2);
+  for (const permission of [
+    'manageEventEntries', 'configureEventSchedule',
+    'generateEventSchedule', 'manageEventBrackets',
+  ]) assert.equal(current.body.grant.permissions.includes(permission), true);
+
+  const legacyPermissions = [
+    'viewEvent', 'viewEntries', 'viewSchedule', 'viewMatches',
+    'viewStandings', 'viewBracket', 'viewResults',
+    'recordEventScore', 'correctEventScore', 'completeScheduledMatch',
+    'setEntryCheckIn', 'setEntryAttendanceStatus',
+    'viewRegistrationContact', 'moveScheduledMatch',
+    'completeBracketMatch', 'viewActivity',
+  ];
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    UPDATE event_staff_grants
+    SET permission_schema_version = 1, permissions_json = ?
+    WHERE id = ?
+  `).run(JSON.stringify(legacyPermissions), current.body.grant.id);
+  const legacySession = await redeem(bindings, inviteToken(current.body));
+  assert.equal(legacySession.response.status, 200);
+  assert.equal(legacySession.body.state.grant.permissionSchemaVersion, 1);
+  assert.equal(legacySession.body.state.grant.permissions.includes('manageEventEntries'), false);
+  const denied = await operate(bindings, legacySession.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'addEventEntry',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'legacy-entry-denied-01',
+    payload: { name: 'No expansion', players: [] },
+  });
+  assert.equal(denied.response.status, 403);
+  assert.equal(denied.body.error, 'permission_denied');
+
+  const unconfirmed = await worker.fetch(request(
+    `/api/event-staff/owner/events/event-1/grants/${current.body.grant.id}/rotate`,
+    ownerInit({ method: 'POST', body: { reason: 'test rotation' } }),
+  ), bindings);
+  assert.equal(unconfirmed.status, 409);
+  assert.equal((await unconfirmed.json()).error, 'permission_expansion_confirmation_required');
+  const confirmed = await worker.fetch(request(
+    `/api/event-staff/owner/events/event-1/grants/${current.body.grant.id}/rotate`,
+    ownerInit({
+      method: 'POST',
+      body: { reason: 'test rotation', confirmPermissionExpansion: true },
+    }),
+  ), bindings);
+  const confirmedBody = await confirmed.json();
+  assert.equal(confirmed.status, 201, JSON.stringify(confirmedBody));
+  assert.equal(confirmedBody.grant.permissionSchemaVersion, 2);
+  assert.equal(confirmedBody.grant.permissions.includes('manageEventBrackets'), true);
+
+  const malformed = await createGrant(bindings, 'event-1', {
+    role: 'viewOnly',
+    staffLabel: 'Malformed grant',
+  });
+  const malformedSession = await redeem(bindings, inviteToken(malformed.body));
+  assert.equal(malformedSession.response.status, 200);
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    UPDATE event_staff_grants SET permissions_json = ? WHERE id = ?
+  `).run(JSON.stringify(['viewEvent', 'unknownPermission']), malformed.body.grant.id);
+  const failedClosed = await worker.fetch(
+    request('/api/event-staff/state', staffInit(malformedSession.body.sessionToken)),
+    bindings,
+  );
+  assert.equal(failedClosed.status, 403);
+  assert.equal((await failedClosed.json()).error, 'permission_set_unsupported');
+});
+
+test('operator entry administration is event-scoped, directory-limited, online-only, revisioned, and idempotent', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = fixedSnapshot();
+  snapshot.participants.push({ id: 'player-e', name: 'Emery', active: true });
+  assert.equal((await seedSnapshot(bindings, 'event-1', snapshot)).response.status, 201);
+  const grant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Entry operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+  assert.equal(session.response.status, 200);
+  assert.equal(session.body.state.participants.some(row => row.id === 'player-e'), false);
+
+  const search = await worker.fetch(
+    request('/api/event-staff/participants?q=emer', staffInit(session.body.sessionToken)),
+    bindings,
+  );
+  const searchBody = await search.json();
+  assert.equal(search.status, 200);
+  assert.deepEqual(searchBody.participants, [{ id: 'player-e', displayName: 'Emery' }]);
+  assert.equal(Object.keys(searchBody.participants[0]).sort().join(','), 'displayName,id');
+
+  const operation = {
+    eventId: 'event-1',
+    action: 'addEventEntry',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'entry-add-emery-0001',
+    payload: { name: 'Emery Guest Pair', players: ['player-e'], substitutePlayerIds: [] },
+  };
+  const added = await operate(bindings, session.body.sessionToken, operation);
+  assert.equal(added.response.status, 200, JSON.stringify(added.body));
+  assert.equal(added.body.state.event.teams.some(row =>
+    row.name === 'Emery Guest Pair' && row.players[0] === 'player-e'), true);
+  const replay = await operate(bindings, session.body.sessionToken, operation);
+  assert.equal(replay.response.status, 200);
+  assert.equal(replay.body.idempotentReplay, true);
+  assert.equal(storedEventStaffState(bindings).revision, 2);
+
+  const duplicate = await operate(bindings, session.body.sessionToken, {
+    ...operation,
+    expectedRevision: 2,
+    idempotencyKey: 'entry-add-duplicate-01',
+    payload: { name: 'Duplicate', players: ['player-a'] },
+  });
+  assert.equal(duplicate.response.status, 400);
+  assert.equal(duplicate.body.error, 'duplicate_event_participant');
+
+  const replayedOffline = await operate(bindings, session.body.sessionToken, {
+    ...operation,
+    expectedRevision: 2,
+    idempotencyKey: 'entry-offline-replay-01',
+    replayed: true,
+  });
+  assert.equal(replayedOffline.response.status, 400);
+  assert.equal(replayedOffline.body.error, 'structural_operation_online_only');
+  assert.equal(bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    SELECT COUNT(*) AS count FROM event_staff_audit
+    WHERE event_id = 'event-1' AND action_type = 'addEventEntry'
+  `).get().count, 1);
+});
+
+test('fixed entry edits support guests and atomic moves while preserving played snapshots and registration sources', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = fixedSnapshot();
+  snapshot.participants.push({ id: 'player-e', name: 'Emery', active: true });
+  snapshot.event.teams[0].registrationSource = {
+    schemaVersion: 1,
+    registrationId: 'registration-a',
+    sourceRevision: 4,
+    importedAt: 100,
+    lastSyncedAt: 200,
+    sourceSnapshot: {
+      name: 'Original Alpha',
+      activePlayerIds: ['player-a', 'player-b'],
+      substitutePlayerIds: [],
+      status: 'accepted',
+    },
+  };
+  snapshot.games = [{
+    id: 'fixed-history-one',
+    evId: 'event-1',
+    evA: 'team-a',
+    evB: 'team-b',
+    evEntryIdsA: [],
+    evEntryIdsB: [],
+    teamA: ['player-a', 'player-b'],
+    teamB: ['player-c', 'player-d'],
+    scoreA: 25,
+    scoreB: 20,
+    winner: 'A',
+    date: 1000,
+  }];
+  snapshot.matches[0].gameIds = ['fixed-history-one'];
+  const initialSnapshot = structuredClone(snapshot);
+  delete initialSnapshot.event.teams[0].registrationSource;
+  assert.equal((await seedSnapshot(bindings, 'event-1', initialSnapshot)).response.status, 201);
+  const ownerScope = bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT owner_scope FROM event_staff_events WHERE event_id = ?'
+  ).get('event-1').owner_scope;
+  const registrationNow = Date.now();
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    INSERT INTO event_registration_configs (
+      event_id, owner_scope, event_name, event_date, event_format, enabled, event_available,
+      mode, status, allow_substitutes, require_organizer_approval, allow_waitlist,
+      public_token_hash, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'fixedTeams', 1, 1, 'team', 'open', 1, 0, 1, ?, ?, ?)
+  `).run(
+    'event-1',
+    ownerScope,
+    'Summer Staff Cup',
+    '2026-08-15',
+    'd'.repeat(64),
+    registrationNow,
+    registrationNow,
+  );
+  bindings.EVENT_REGISTRATION_DB.database.prepare(`
+    INSERT INTO event_registrations (
+      id, event_id, registration_type, display_name, status, active_player_count,
+      substitute_count, contact_json, created_at, updated_at
+    ) VALUES (?, ?, 'team', ?, 'accepted', 2, 0, ?, ?, ?)
+  `).run(
+    'registration-a',
+    'event-1',
+    'Original Alpha',
+    JSON.stringify({ name: 'Original Captain', email: 'original@example.com' }),
+    registrationNow,
+    registrationNow,
+  );
+  snapshot.expectedRevision = 1;
+  assert.equal((await seedSnapshot(bindings, 'event-1', snapshot)).response.status, 200);
+  const registrationBefore = bindings.EVENT_REGISTRATION_DB.database.prepare(
+    'SELECT * FROM event_registrations WHERE id = ?'
+  ).get('registration-a');
+  const gamesBefore = structuredClone(storedEventStaffState(bindings).games);
+  const grant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Entry history operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+
+  const move = {
+    eventId: 'event-1',
+    action: 'moveEventParticipant',
+    targetId: 'team-b',
+    expectedRevision: 2,
+    idempotencyKey: 'fixed-move-preview-01',
+    payload: {
+      participantId: 'player-a',
+      fromEntryId: 'team-a',
+      reason: 'event-only reassignment',
+    },
+  };
+  const preview = await operate(bindings, session.body.sessionToken, move);
+  assert.equal(preview.response.status, 409);
+  assert.equal(preview.body.error, 'impact_review_required');
+  assert.deepEqual(preview.body.impact.completedGameIds, ['fixed-history-one']);
+  assert.deepEqual(storedEventStaffState(bindings).event.teams[0].players, ['player-a', 'player-b']);
+
+  const confirmed = await operate(bindings, session.body.sessionToken, {
+    ...move,
+    idempotencyKey: 'fixed-move-confirm-01',
+    payload: { ...move.payload, confirmImpact: true },
+  });
+  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.body));
+  const alpha = confirmed.body.state.event.teams.find(row => row.id === 'team-a');
+  const bravo = confirmed.body.state.event.teams.find(row => row.id === 'team-b');
+  assert.deepEqual(alpha.players, ['player-b']);
+  assert.deepEqual(bravo.players, ['player-c', 'player-d', 'player-a']);
+  assert.deepEqual(alpha.registrationSource, snapshot.event.teams[0].registrationSource);
+  assert.deepEqual(storedEventStaffState(bindings).games, gamesBefore);
+
+  const status = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'updateEventEntry',
+    targetId: 'team-a',
+    expectedRevision: 3,
+    idempotencyKey: 'fixed-inactive-confirm-01',
+    payload: {
+      name: 'Alpha event-only',
+      status: 'inactive',
+      confirmImpact: true,
+      reason: 'inactive after play',
+    },
+  });
+  assert.equal(status.response.status, 200, JSON.stringify(status.body));
+  const inactive = status.body.state.event.teams.find(row => row.id === 'team-a');
+  assert.equal(inactive.status, 'inactive');
+  assert.equal(inactive.name, 'Alpha event-only');
+  assert.deepEqual(inactive.registrationSource, snapshot.event.teams[0].registrationSource);
+
+  const added = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'addEventEntry',
+    targetId: 'event-1',
+    expectedRevision: 4,
+    idempotencyKey: 'fixed-guest-add-0001',
+    payload: { name: 'Walk-up guest', guest: true, players: [], substitutePlayerIds: [] },
+  });
+  assert.equal(added.response.status, 200, JSON.stringify(added.body));
+  const guest = added.body.state.event.teams.find(row => row.name === 'Walk-up guest');
+  assert.deepEqual(guest.players, []);
+  const removed = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'removeEventEntry',
+    targetId: guest.id,
+    expectedRevision: 5,
+    idempotencyKey: 'fixed-guest-remove-01',
+    payload: { reason: 'guest did not arrive' },
+  });
+  assert.equal(removed.response.status, 200, JSON.stringify(removed.body));
+  assert.equal(removed.body.state.event.teams.some(row => row.id === guest.id), false);
+  assert.equal(removed.body.state.games.some(row => row.id === 'fixed-history-one'), true);
+  assert.deepEqual(
+    bindings.EVENT_REGISTRATION_DB.database.prepare(
+      'SELECT * FROM event_registrations WHERE id = ?'
+    ).get('registration-a'),
+    registrationBefore,
+  );
+});
+
+test('rotating entry lifecycle enforces exact sizes and supports atomic participant swaps', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = rotatingSnapshot();
+  snapshot.matches = [];
+  snapshot.participants.push({ id: 'player-e', name: 'Emery', active: true });
+  assert.equal((await seedSnapshot(bindings, 'rotation-event', snapshot)).response.status, 201);
+  const grant = await createGrant(bindings, 'rotation-event', {
+    role: 'tournamentOperator',
+    staffLabel: 'Rotation entry operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+
+  const invalidGuest = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'addEventEntry',
+    targetId: 'rotation-event',
+    expectedRevision: 1,
+    idempotencyKey: 'rotation-guest-denied-1',
+    payload: { name: 'Guest', guest: true },
+  });
+  assert.equal(invalidGuest.response.status, 400);
+  assert.equal(invalidGuest.body.error, 'guest_not_supported');
+
+  const added = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'addEventEntry',
+    targetId: 'rotation-event',
+    expectedRevision: 1,
+    idempotencyKey: 'rotation-entry-add-001',
+    payload: { name: 'Emery', players: ['player-e'] },
+  });
+  assert.equal(added.response.status, 200, JSON.stringify(added.body));
+  const entry = added.body.state.event.entries.find(row => row.name === 'Emery');
+
+  const edited = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'updateEventEntry',
+    targetId: entry.id,
+    expectedRevision: 2,
+    idempotencyKey: 'rotation-entry-edit-01',
+    payload: { name: 'Emery event entry', manualSeed: 2 },
+  });
+  assert.equal(edited.response.status, 200, JSON.stringify(edited.body));
+
+  const noSwap = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'moveEventParticipant',
+    targetId: 'entry-b',
+    expectedRevision: 3,
+    idempotencyKey: 'rotation-move-noswap-1',
+    payload: { participantId: 'player-a', fromEntryId: 'entry-a' },
+  });
+  assert.equal(noSwap.response.status, 400);
+  assert.equal(noSwap.body.error, 'rotating_swap_required');
+
+  const swapped = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'moveEventParticipant',
+    targetId: 'entry-b',
+    expectedRevision: 3,
+    idempotencyKey: 'rotation-move-swap-001',
+    payload: {
+      participantId: 'player-a',
+      fromEntryId: 'entry-a',
+      swapParticipantId: 'player-b',
+    },
+  });
+  assert.equal(swapped.response.status, 200, JSON.stringify(swapped.body));
+  assert.deepEqual(swapped.body.state.event.entries.find(row => row.id === 'entry-a').players, ['player-b']);
+  assert.deepEqual(swapped.body.state.event.entries.find(row => row.id === 'entry-b').players, ['player-a']);
+
+  const removed = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'removeEventEntry',
+    targetId: entry.id,
+    expectedRevision: 4,
+    idempotencyKey: 'rotation-entry-remove-1',
+    payload: { reason: 'entry withdrew before scheduling' },
+  });
+  assert.equal(removed.response.status, 200, JSON.stringify(removed.body));
+  assert.equal(removed.body.state.event.entries.some(row => row.id === entry.id), false);
+});
+
+test('schedule configuration and fixed/rotating generation are validated, atomic, and clear only while unplayed', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const fixed = fixedSnapshot();
+  fixed.matches = [];
+  assert.equal((await seedSnapshot(bindings, 'event-1', fixed)).response.status, 201);
+  const rotating = rotatingSnapshot('rotation-event');
+  rotating.matches = [];
+  assert.equal((await seedSnapshot(bindings, 'rotation-event', rotating)).response.status, 201);
+
+  for (const eventId of ['event-1', 'rotation-event']) {
+    const grant = await createGrant(bindings, eventId, {
+      role: 'tournamentOperator',
+      staffLabel: `${eventId} schedule operator`,
+    });
+    const session = await redeem(bindings, inviteToken(grant.body));
+    const rotatingEvent = eventId === 'rotation-event';
+    const settings = await operate(bindings, session.body.sessionToken, {
+      eventId,
+      action: 'setEventScheduleSettings',
+      targetId: eventId,
+      expectedRevision: 1,
+      idempotencyKey: `schedule-settings-${eventId}`,
+      payload: {
+        settings: {
+          rounds: 2,
+          courts: 1,
+          start: '09:30',
+          setMin: 25,
+          fairnessPolicy: 'allowDifference',
+          ...(rotatingEvent ? { entrySize: 1, teamSize: 2 } : {}),
+        },
+      },
+    });
+    assert.equal(settings.response.status, 200, JSON.stringify(settings.body));
+    assert.equal(settings.body.state.matches.length, 0);
+    const generated = await operate(bindings, session.body.sessionToken, {
+      eventId,
+      action: 'generateEventSchedule',
+      targetId: eventId,
+      expectedRevision: 2,
+      idempotencyKey: `schedule-generate-${eventId}`,
+      payload: { reason: 'focused generation test' },
+    });
+    assert.equal(generated.response.status, 200, JSON.stringify(generated.body));
+    const matches = generated.body.state.matches.filter(row => row.phase !== 'playoff');
+    assert.ok(matches.length >= 1);
+    assert.ok(matches.every(row => new Set([
+      ...row.sideAPlayerIds,
+      ...row.sideBPlayerIds,
+    ]).size === row.sideAPlayerIds.length + row.sideBPlayerIds.length));
+    const slots = new Map();
+    matches.forEach(match => {
+      const seen = slots.get(match.slot) || new Set();
+      [...match.sideAEntryIds, ...match.sideBEntryIds].forEach(id => {
+        assert.equal(seen.has(id), false, `${id} repeated in one schedule slot`);
+        seen.add(id);
+      });
+      slots.set(match.slot, seen);
+    });
+    if (rotatingEvent) {
+      const teammatePairs = matches.map(match => [
+        ...match.sideAEntryIds,
+        ...match.sideBEntryIds,
+      ].reduce((pairs, id, index, ids) => {
+        const sameSide = index < match.sideAEntryIds.length
+          ? match.sideAEntryIds
+          : match.sideBEntryIds;
+        sameSide.filter(other => other > id).forEach(other => pairs.push([id, other].sort().join('|')));
+        return pairs;
+      }, []).sort().join(','));
+      assert.equal(new Set(teammatePairs).size, matches.length, 'rotating rounds vary teammate assignments');
+    }
+    const cleared = await operate(bindings, session.body.sessionToken, {
+      eventId,
+      action: 'clearEventSchedule',
+      targetId: eventId,
+      expectedRevision: 3,
+      idempotencyKey: `schedule-clear-${eventId}`,
+      payload: { reason: 'focused clear test' },
+    });
+    assert.equal(cleared.response.status, 200);
+    assert.equal(cleared.body.state.matches.filter(row => row.phase !== 'playoff').length, 0);
+  }
+});
+
+test('schedule regeneration preserves completed match identity and rejects stale competing operators', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = fixedSnapshot();
+  snapshot.matches = [];
+  snapshot.participants.push(
+    { id: 'player-e', name: 'Emery', active: true },
+    { id: 'player-f', name: 'Frankie', active: true },
+    { id: 'player-g', name: 'Gray', active: true },
+    { id: 'player-h', name: 'Harper', active: true },
+  );
+  snapshot.event.teams.push(
+    { id: 'team-c', name: 'Charlie', players: ['player-e', 'player-f'] },
+    { id: 'team-d', name: 'Delta', players: ['player-g', 'player-h'] },
+  );
+  assert.equal((await seedSnapshot(bindings, 'event-1', snapshot)).response.status, 201);
+  const grant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Schedule preservation operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+  const configured = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'setEventScheduleSettings',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'preserve-settings-one',
+    payload: {
+      settings: {
+        rounds: 3,
+        courts: 2,
+        start: '08:30',
+        setMin: 25,
+        fairnessPolicy: 'equalGames',
+      },
+    },
+  });
+  assert.equal(configured.response.status, 200, JSON.stringify(configured.body));
+  const generated = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'generateEventSchedule',
+    targetId: 'event-1',
+    expectedRevision: 2,
+    idempotencyKey: 'preserve-generate-one',
+    payload: { reason: 'initial schedule' },
+  });
+  assert.equal(generated.response.status, 200, JSON.stringify(generated.body));
+  const originalMatches = generated.body.state.matches.filter(row => row.phase !== 'playoff');
+  assert.equal(originalMatches.length, 6);
+  const completed = originalMatches[0];
+  const scored = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'recordEventScore',
+    targetId: completed.id,
+    expectedRevision: 3,
+    idempotencyKey: 'preserve-score-one-01',
+    payload: { mode: 'set', sets: [[25, 19]], winner: 'A' },
+  });
+  assert.equal(scored.response.status, 200, JSON.stringify(scored.body));
+  const completedBefore = storedEventStaffState(bindings).matches.find(row => row.id === completed.id);
+  const gameBefore = structuredClone(storedEventStaffState(bindings).games);
+
+  const stale = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'setEventScheduleSettings',
+    targetId: 'event-1',
+    expectedRevision: 3,
+    idempotencyKey: 'competing-schedule-stale',
+    payload: { settings: { rounds: 4, courts: 1, start: '09:00', setMin: 30 } },
+  });
+  assert.equal(stale.response.status, 409);
+  assert.equal(stale.body.error, 'revision_conflict');
+  assert.equal(stale.body.currentRevision, 4);
+
+  const changed = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'setEventScheduleSettings',
+    targetId: 'event-1',
+    expectedRevision: 4,
+    idempotencyKey: 'preserve-settings-two',
+    payload: { settings: { rounds: 4, courts: 1, start: '09:00', setMin: 30 } },
+  });
+  assert.equal(changed.response.status, 200, JSON.stringify(changed.body));
+  const regenerated = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'regenerateRemainingSchedule',
+    targetId: 'event-1',
+    expectedRevision: 5,
+    idempotencyKey: 'preserve-regenerate-1',
+    payload: { reason: 'one court unavailable' },
+  });
+  assert.equal(regenerated.response.status, 200, JSON.stringify(regenerated.body));
+  const storedAfter = storedEventStaffState(bindings);
+  assert.deepEqual(storedAfter.games, gameBefore);
+  assert.deepEqual(storedAfter.matches.find(row => row.id === completed.id), completedBefore);
+  assert.equal(
+    storedAfter.matches.filter(row => row.phase !== 'playoff' && row.id !== completed.id)
+      .every(row => !originalMatches.slice(1).some(original => original.id === row.id)),
+    true,
+  );
+  assert.equal(new Set(storedAfter.matches.map(row => row.id)).size, storedAfter.matches.length);
+});
+
+test('bracket reset requires an exact-game impact review and tombstones confirmed result removal', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = fixedSnapshot();
+  snapshot.matches = [];
+  assert.equal((await seedSnapshot(bindings)).response.status, 201);
+  const grant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Bracket operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+  const created = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'createEventBracket',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'bracket-create-focused-1',
+    payload: { name: 'Gold', seeds: ['team-a', 'team-b'], seedMode: 'manual', topCount: 2 },
+  });
+  assert.equal(created.response.status, 200, JSON.stringify(created.body));
+  const bracketId = created.body.targetId;
+  const bracketMatch = created.body.state.matches.find(row => row.bracketId === bracketId);
+  assert.ok(bracketMatch);
+  const scored = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'completeBracketMatch',
+    targetId: bracketMatch.id,
+    expectedRevision: 2,
+    idempotencyKey: 'bracket-score-focused-01',
+    payload: { mode: 'set', sets: [[25, 20]], winner: 'A' },
+  });
+  assert.equal(scored.response.status, 200, JSON.stringify(scored.body));
+  const gameId = scored.body.state.matches.find(row => row.id === bracketMatch.id).gameIds[0];
+  const renamed = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'updateEventBracket',
+    targetId: bracketId,
+    expectedRevision: 3,
+    idempotencyKey: 'bracket-rename-focused1',
+    payload: { name: 'Gold Championship', seeds: ['team-a', 'team-b'] },
+  });
+  assert.equal(renamed.response.status, 200, JSON.stringify(renamed.body));
+  assert.equal(renamed.body.state.games.some(row => row.id === gameId), true);
+  assert.equal(renamed.body.state.matches.find(row => row.id === bracketMatch.id).bracketName, 'Gold Championship');
+
+  const preview = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'resetEventBracket',
+    targetId: bracketId,
+    expectedRevision: 4,
+    idempotencyKey: 'bracket-reset-preview-1',
+    payload: { reason: 'focused reset test' },
+  });
+  assert.equal(preview.response.status, 409);
+  assert.equal(preview.body.error, 'impact_review_required');
+  assert.deepEqual(preview.body.impact.completedGameIds, [gameId]);
+  assert.equal(storedEventStaffState(bindings).games.some(row => row.id === gameId), true);
+
+  const confirmed = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'resetEventBracket',
+    targetId: bracketId,
+    expectedRevision: 4,
+    idempotencyKey: 'bracket-reset-confirm-1',
+    payload: { reason: 'focused reset test', confirmImpact: true },
+  });
+  assert.equal(confirmed.response.status, 200, JSON.stringify(confirmed.body));
+  assert.equal(confirmed.body.state.games.some(row => row.id === gameId), false);
+  assert.equal(confirmed.body.state.deletedGameIds[gameId] > 0, true);
+  assert.equal(confirmed.body.state.matches.find(row => row.bracketId === bracketId).gameIds.length, 0);
+});
+
+test('bracket creation supports standings/manual top-N and multiple divisions while rejecting duplicate seeds', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const fixed = fixedSnapshot();
+  fixed.matches = [];
+  fixed.participants.push(
+    { id: 'player-e', name: 'Emery', active: true },
+    { id: 'player-f', name: 'Frankie', active: true },
+    { id: 'player-g', name: 'Gray', active: true },
+    { id: 'player-h', name: 'Harper', active: true },
+  );
+  fixed.event.teams.push(
+    { id: 'team-c', name: 'Charlie', players: ['player-e', 'player-f'], manualSeed: 3 },
+    { id: 'team-d', name: 'Delta', players: ['player-g', 'player-h'], manualSeed: 4 },
+  );
+  assert.equal((await seedSnapshot(bindings, 'event-1', fixed)).response.status, 201);
+  const grant = await createGrant(bindings, 'event-1', {
+    role: 'tournamentOperator',
+    staffLabel: 'Division operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+
+  const gold = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'createEventBracket',
+    targetId: 'event-1',
+    expectedRevision: 1,
+    idempotencyKey: 'bracket-standings-top2',
+    payload: { name: 'Gold', seedMode: 'standings', topCount: 2 },
+  });
+  assert.equal(gold.response.status, 200, JSON.stringify(gold.body));
+  const goldBracket = gold.body.state.event.brackets.find(row => row.id === gold.body.targetId);
+  assert.deepEqual(goldBracket.seeds, ['team-a', 'team-b']);
+
+  const silver = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'createEventBracket',
+    targetId: 'event-1',
+    expectedRevision: 2,
+    idempotencyKey: 'bracket-manual-silver1',
+    payload: {
+      name: 'Silver',
+      seedMode: 'manual',
+      topCount: 2,
+      seeds: ['team-c', 'team-d'],
+    },
+  });
+  assert.equal(silver.response.status, 200, JSON.stringify(silver.body));
+  assert.equal(silver.body.state.event.brackets.length, 2);
+  assert.equal(silver.body.state.matches.some(row => row.bracketId === gold.body.targetId), true);
+  assert.equal(silver.body.state.matches.some(row => row.bracketId === silver.body.targetId), true);
+  assert.equal(new Set(silver.body.state.matches.map(row => row.id)).size, silver.body.state.matches.length);
+
+  const duplicate = await operate(bindings, session.body.sessionToken, {
+    eventId: 'event-1',
+    action: 'createEventBracket',
+    targetId: 'event-1',
+    expectedRevision: 3,
+    idempotencyKey: 'bracket-duplicate-seed',
+    payload: {
+      name: 'Invalid',
+      seedMode: 'manual',
+      topCount: 2,
+      seeds: ['team-a', 'team-a'],
+    },
+  });
+  assert.equal(duplicate.response.status, 400);
+  assert.equal(duplicate.body.error, 'duplicate_bracket_seed');
+  assert.equal(storedEventStaffState(bindings).revision, 3);
+});
+
+test('rotating events create playoff brackets only from canonical fixed playoff teams', async t => {
+  const bindings = env();
+  t.after(() => bindings.EVENT_REGISTRATION_DB.close());
+  const snapshot = rotatingSnapshot();
+  snapshot.matches = [];
+  snapshot.event.teams = [
+    { id: 'playoff-red', name: 'Red playoff team', players: ['player-a', 'player-b'], manualSeed: 1 },
+    { id: 'playoff-blue', name: 'Blue playoff team', players: ['player-c', 'player-d'], manualSeed: 2 },
+  ];
+  assert.equal((await seedSnapshot(bindings, 'rotation-event', snapshot)).response.status, 201);
+  const grant = await createGrant(bindings, 'rotation-event', {
+    role: 'tournamentOperator',
+    staffLabel: 'Rotation bracket operator',
+  });
+  const session = await redeem(bindings, inviteToken(grant.body));
+  const created = await operate(bindings, session.body.sessionToken, {
+    eventId: 'rotation-event',
+    action: 'createEventBracket',
+    targetId: 'rotation-event',
+    expectedRevision: 1,
+    idempotencyKey: 'rotation-bracket-fixed1',
+    payload: { name: 'Rotating playoffs', seedMode: 'standings', topCount: 2 },
+  });
+  assert.equal(created.response.status, 200, JSON.stringify(created.body));
+  const bracket = created.body.state.event.brackets.find(row => row.id === created.body.targetId);
+  assert.deepEqual(bracket.seeds, ['playoff-red', 'playoff-blue']);
+  const match = created.body.state.matches.find(row => row.bracketId === bracket.id);
+  assert.equal(match.format, 'fixedTeams');
+  assert.deepEqual([match.teamAId, match.teamBId], ['playoff-red', 'playoff-blue']);
+  assert.equal(bracket.seeds.some(id => id.startsWith('entry-')), false);
 });

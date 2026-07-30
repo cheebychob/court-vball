@@ -1,3 +1,5 @@
+import "../event-structure-core.js";
+
 const LEGACY_CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
@@ -38,9 +40,9 @@ const REGISTRATION_TITLE_MAX = 120;
 const REGISTRATION_DESCRIPTION_MAX = 2000;
 const REGISTRATION_DISPLAY_NAME_MAX = 100;
 const REGISTRATION_MEMBER_NAME_MAX = 100;
-const EVENT_STAFF_API_VERSION = 1;
+const EVENT_STAFF_API_VERSION = 2;
 const EVENT_STAFF_SCHEMA_VERSION = 2;
-const EVENT_STAFF_PERMISSION_SCHEMA_VERSION = 1;
+const EVENT_STAFF_PERMISSION_SCHEMA_VERSION = 2;
 const EVENT_STAFF_MAX_SNAPSHOT_BODY_BYTES = 2 * 1024 * 1024;
 const EVENT_STAFF_MAX_OPERATION_BODY_BYTES = 64 * 1024;
 const EVENT_STAFF_MAX_EVENT_BYTES = 512 * 1024;
@@ -71,6 +73,19 @@ const EVENT_STAFF_OPERATION_PERMISSIONS = Object.freeze({
   setEntryCheckIn: "setEntryCheckIn",
   setEntryAttendanceStatus: "setEntryAttendanceStatus",
   moveScheduledMatch: "moveScheduledMatch",
+  addEventEntry: "manageEventEntries",
+  updateEventEntry: "manageEventEntries",
+  moveEventParticipant: "manageEventEntries",
+  reorderEventEntries: "manageEventEntries",
+  removeEventEntry: "manageEventEntries",
+  setEventScheduleSettings: "configureEventSchedule",
+  generateEventSchedule: "generateEventSchedule",
+  regenerateRemainingSchedule: "generateEventSchedule",
+  clearEventSchedule: "generateEventSchedule",
+  createEventBracket: "manageEventBrackets",
+  updateEventBracket: "manageEventBrackets",
+  resetEventBracket: "manageEventBrackets",
+  removeEventBracket: "manageEventBrackets",
 });
 const EVENT_STAFF_ATTENDANCE_STATUSES = new Set([
   "not_checked_in", "partially_arrived", "checked_in", "needs_review",
@@ -90,7 +105,7 @@ const EVENT_STAFF_GAME_EVENT_KEYS = new Set([
   "ace", "sin", "serr", "goodPass", "pget", "perr",
   "kill", "kerr", "dig", "block", "assist", "fault",
 ]);
-const EVENT_STAFF_ROLE_PERMISSIONS = Object.freeze({
+const EVENT_STAFF_ROLE_PERMISSIONS_V1 = Object.freeze({
   viewOnly: Object.freeze([
     "viewEvent", "viewEntries", "viewSchedule", "viewMatches",
     "viewStandings", "viewBracket", "viewResults",
@@ -109,6 +124,20 @@ const EVENT_STAFF_ROLE_PERMISSIONS = Object.freeze({
     "completeBracketMatch", "viewActivity",
   ]),
 });
+const EVENT_STAFF_ROLE_PERMISSIONS_V2 = Object.freeze({
+  viewOnly: EVENT_STAFF_ROLE_PERMISSIONS_V1.viewOnly,
+  scorekeeper: EVENT_STAFF_ROLE_PERMISSIONS_V1.scorekeeper,
+  tournamentOperator: Object.freeze([
+    ...EVENT_STAFF_ROLE_PERMISSIONS_V1.tournamentOperator,
+    "manageEventEntries", "configureEventSchedule",
+    "generateEventSchedule", "manageEventBrackets",
+  ]),
+});
+const EVENT_STAFF_PERMISSION_PRESETS = Object.freeze({
+  1: EVENT_STAFF_ROLE_PERMISSIONS_V1,
+  2: EVENT_STAFF_ROLE_PERMISSIONS_V2,
+});
+const EVENT_STAFF_ROLE_PERMISSIONS = EVENT_STAFF_ROLE_PERMISSIONS_V2;
 const EVENT_STAFF_TABLES = Object.freeze([
   "event_staff_events",
   "event_staff_grants",
@@ -5075,13 +5104,21 @@ function safeEventStaffCheckIn(value) {
   };
 }
 
+function eventStaffPermissionPreset(version, role) {
+  return EVENT_STAFF_PERMISSION_PRESETS[Number(version)]?.[role] || null;
+}
+
 function eventStaffGrantPermissions(grant) {
-  const allowed = EVENT_STAFF_ROLE_PERMISSIONS[grant?.role] || [];
+  const preset = eventStaffPermissionPreset(grant?.permission_schema_version, grant?.role);
   const stored = parseEventStaffJson(grant?.permissions_json, null);
-  const source = Array.isArray(stored) ? stored : allowed;
-  return [...new Set(source.filter(permission =>
-    typeof permission === "string" && allowed.includes(permission)
-  ))];
+  if (
+    !preset
+    || !Array.isArray(stored)
+    || stored.length > preset.length
+    || new Set(stored).size !== stored.length
+    || stored.some(permission => typeof permission !== "string" || !preset.includes(permission))
+  ) return null;
+  return [...stored];
 }
 
 function eventStaffCheckInHasMeaningfulData(value) {
@@ -5190,6 +5227,38 @@ function safeEventStaffPublishedRules(value) {
   };
 }
 
+const EVENT_STAFF_ENTRY_STATUSES = new Set(["active", "inactive", "withdrawn", "unavailable"]);
+
+function safeEventStaffRegistrationSource(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const registrationId = cleanEventStaffText(value.registrationId, 160);
+  const sourceRevision = eventStaffInteger(value.sourceRevision, 1, 2_000_000_000);
+  const importedAt = Number(value.importedAt), lastSyncedAt = Number(value.lastSyncedAt);
+  const snapshot = value.sourceSnapshot;
+  if (
+    !PLAYER_ID_PATTERN.test(registrationId)
+    || sourceRevision == null
+    || !Number.isFinite(importedAt)
+    || !Number.isFinite(lastSyncedAt)
+    || !snapshot
+    || typeof snapshot !== "object"
+    || Array.isArray(snapshot)
+  ) return null;
+  return {
+    schemaVersion: 1,
+    registrationId,
+    sourceRevision,
+    importedAt,
+    lastSyncedAt,
+    sourceSnapshot: {
+      name: cleanEventStaffText(snapshot.name, 120),
+      activePlayerIds: eventStaffSafeIdList(snapshot.activePlayerIds),
+      substitutePlayerIds: eventStaffSafeIdList(snapshot.substitutePlayerIds),
+      status: cleanEventStaffText(snapshot.status, 40) || "accepted",
+    },
+  };
+}
+
 function safeEventStaffEntry(value, includeCheckIn = false) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const id = cleanEventStaffText(value.id, 120), name = cleanEventStaffText(value.name, 120);
@@ -5199,9 +5268,15 @@ function safeEventStaffEntry(value, includeCheckIn = false) {
     name,
     players: eventStaffSafeIdList(value.players || value.playerIds),
     substitutePlayerIds: eventStaffSafeIdList(value.substitutePlayerIds),
+    status: EVENT_STAFF_ENTRY_STATUSES.has(value.status) ? value.status : "active",
     ...(typeof value.pool === "string" ? { pool: value.pool.slice(0, 24) } : {}),
     ...(Number.isFinite(Number(value.manualSeed)) ? { manualSeed: Number(value.manualSeed) } : {}),
   };
+  const registrationSource = safeEventStaffRegistrationSource(value.registrationSource);
+  if (registrationSource) {
+    safe.registrationSource = registrationSource;
+    safe.registrationId = registrationSource.registrationId;
+  }
   if (includeCheckIn) {
     const registrationId = cleanEventStaffText(value.registrationId, 160);
     if (registrationId && PLAYER_ID_PATTERN.test(registrationId)) safe.registrationId = registrationId;
@@ -5221,6 +5296,9 @@ function safeEventStaffMatch(value) {
     phase: ["pool", "makeup", "playoff"].includes(value.phase)
       ? value.phase
       : value.kind === "playoff" ? "playoff" : "pool",
+    scheduleBlock: ["standard", "makeup", "custom"].includes(value.scheduleBlock)
+      ? value.scheduleBlock
+      : value.phase === "makeup" ? "makeup" : "standard",
     status: ["pending", "ready", "inProgress", "complete", "completed", "final", "invalidated"].includes(value.status) ? value.status : "pending",
     label: cleanEventStaffText(value.label || value.roundLabel, 120),
     courtLabel: cleanEventStaffText(value.courtLabel, 60),
@@ -5442,10 +5520,44 @@ function safeEventStaffEvent(value, role, permissions = []) {
   }
   const schedule = event.sched || event.schedule;
   if (schedule && typeof schedule === "object" && !Array.isArray(schedule)) {
-    out.scheduleSettings = {
+    out.sched = {
       start: typeof schedule.start === "string" ? schedule.start.slice(0, 16) : null,
       courts: Number.isInteger(Number(schedule.courts)) ? Number(schedule.courts) : null,
-      courtStyle: schedule.courtStyle === "letter" ? "letter" : "number",
+      courtStyle: schedule.courtStyle === "letter" ? "letter" : "num",
+      standardRounds: Number.isInteger(Number(schedule.standardRounds))
+        ? Number(schedule.standardRounds)
+        : Number.isInteger(Number(schedule.rounds)) ? Number(schedule.rounds) : null,
+      setMin: Number.isInteger(Number(schedule.setMin)) ? Number(schedule.setMin) : null,
+      matchMin: Number.isInteger(Number(schedule.matchMin)) ? Number(schedule.matchMin) : null,
+      breakMin: Number.isInteger(Number(schedule.breakMin)) ? Number(schedule.breakMin) : null,
+      fairnessPolicy: schedule.fairnessPolicy === "equalGames" ? "equalGames" : "allowDifference",
+      opponentPolicy: cleanEventStaffText(schedule.opponentPolicy, 60) || "unique-first",
+      revision: Number.isInteger(Number(schedule.revision)) ? Number(schedule.revision) : 1,
+      seed: cleanEventStaffText(schedule.seed, 120),
+    };
+    out.scheduleSettings = structuredClone(out.sched);
+  }
+  const rotation = event.rotation || event.pairSettings;
+  if (rotation && typeof rotation === "object" && !Array.isArray(rotation)) {
+    out.rotation = {
+      entrySize: eventStaffInteger(rotation.entrySize, 1, 20) || 1,
+      teamSize: eventStaffInteger(rotation.teamSize, 1, 20) || 2,
+      rounds: eventStaffInteger(rotation.rounds, 1, 100) || 1,
+      courts: eventStaffInteger(rotation.courts, 1, 100) || 1,
+      start: typeof rotation.start === "string" ? rotation.start.slice(0, 16) : "10:00",
+      setMin: eventStaffInteger(rotation.setMin, 5, 240) || 25,
+      matchMin: eventStaffInteger(rotation.matchMin, 5, 240) || 45,
+      breakMin: eventStaffInteger(rotation.breakMin, 0, 240) ?? 15,
+      winPoints: Number.isFinite(Number(rotation.winPoints)) ? Number(rotation.winPoints) : 1,
+      tiePoints: Number.isFinite(Number(rotation.tiePoints)) ? Number(rotation.tiePoints) : 0.5,
+      lossPoints: Number.isFinite(Number(rotation.lossPoints)) ? Number(rotation.lossPoints) : 0,
+      fairnessPolicy: rotation.fairnessPolicy === "equalGames" ? "equalGames" : "allowDifference",
+      opponentPolicy: cleanEventStaffText(rotation.opponentPolicy, 60) || "unique-first",
+      revision: Number.isInteger(Number(rotation.revision)) ? Number(rotation.revision) : 1,
+      seed: cleanEventStaffText(rotation.seed, 120),
+      tiebreakers: Array.isArray(rotation.tiebreakers)
+        ? rotation.tiebreakers.filter(value => typeof value === "string").slice(0, 12)
+        : [],
     };
   }
   if (Array.isArray(event.brackets)) {
@@ -5456,6 +5568,8 @@ function safeEventStaffEvent(value, role, permissions = []) {
       created: Number(bracket?.created) || 0,
     })).filter(bracket => PLAYER_ID_PATTERN.test(bracket.id));
   }
+  out.hasPublicSchedulePublication = event.hasPublicSchedulePublication === true;
+  out.scheduleGenerated = event.scheduleGenerated !== false;
   if (includeCheckIn) {
     const source = event.registrationCheckIn && typeof event.registrationCheckIn === "object"
       ? event.registrationCheckIn
@@ -5485,7 +5599,8 @@ function eventStaffGrantSummary(row, now = Date.now()) {
     id: row.id,
     staffLabel: row.staff_label,
     role: row.role,
-    permissions: eventStaffGrantPermissions(row),
+    permissionSchemaVersion: Number(row.permission_schema_version),
+    permissions: eventStaffGrantPermissions(row) || [],
     createdAt: Number(row.created_at),
     expiresAt,
     revokedAt,
@@ -5761,6 +5876,7 @@ async function eventStaffActivity(db, row, { owner = false } = {}) {
 
 async function eventStaffScopedState(db, row, grant) {
   const role = grant.role, permissions = eventStaffGrantPermissions(grant);
+  if (!permissions) throw new TypeError("Unsupported event staff permission snapshot.");
   const eventGames = (row.games || []).filter(game => game?.evId === row.eventId);
   const matches = eventStaffSafeMatches(
     { ...row, games: eventGames },
@@ -5786,6 +5902,7 @@ async function eventStaffScopedState(db, row, grant) {
       id: grant.id,
       staffLabel: grant.staff_label,
       role,
+      permissionSchemaVersion: Number(grant.permission_schema_version),
       permissions,
       expiresAt: Number(grant.expires_at),
     },
@@ -6018,8 +6135,17 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   if (!eventCollections.length) {
     return eventStaffError(request, 400, "invalid_event_entries", "The event has no canonical entry projection.");
   }
-  const entryIds = new Set(eventCollections.map(value => value.id));
-  const entriesById = new Map(eventCollections.map(value => [value.id, value]));
+  const playoffTeams = event.format === "rotatingGroups"
+    ? (validatedEventCollections.teams || [])
+    : [];
+  const structuralCollections = [...eventCollections, ...playoffTeams];
+  if (new Set(structuralCollections.map(value => value.id)).size !== structuralCollections.length) {
+    return eventStaffError(request, 400, "duplicate_event_entry_id", "Event and playoff entry identifiers must be unique.");
+  }
+  const entryIds = new Set(structuralCollections.map(value => value.id));
+  const primaryEntryIds = new Set(eventCollections.map(value => value.id));
+  const fixedTeamIds = new Set((validatedEventCollections.teams || []).map(value => value.id));
+  const entriesById = new Map(structuralCollections.map(value => [value.id, value]));
   const participantIds = new Set(storedParticipants.map(value => value.id));
   const gameIds = new Set(storedGames.map(value => value.id));
   const historicalGameIds = parsed.value.historicalGameIds == null
@@ -6055,11 +6181,14 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   const checkInWithinRoster = (checkIn, rosterIds) =>
     [...checkIn.activePlayerIds, ...checkIn.substitutePlayerIds, ...Object.keys(checkIn.playerStatuses)]
       .every(id => rosterIds.has(id));
-  for (const entry of eventCollections) {
+  for (const entry of structuralCollections) {
     const rosterIds = new Set([...entry.players, ...entry.substitutePlayerIds]);
     if ([...rosterIds].some(id => !participantIds.has(id))) {
       return eventStaffError(request, 400, "unlinked_entry_participant", "An event entry references a participant outside this event snapshot.");
     }
+  }
+  for (const entry of eventCollections) {
+    const rosterIds = new Set([...entry.players, ...entry.substitutePlayerIds]);
     const registrationId = entry.registrationId;
     if (!registrationId) {
       if (entry.checkIn) {
@@ -6094,10 +6223,39 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   if (Object.keys(checkInRows).some(registrationId => !entriesByRegistrationId.has(registrationId))) {
     return eventStaffError(request, 400, "cross_event_registration_check_in", "The event check-in projection contains an unrelated registration.");
   }
+  const importedRegistrationIds = eventCollections
+    .filter(entry => entry.registrationSource)
+    .map(entry => entry.registrationSource.registrationId);
+  if (importedRegistrationIds.length) {
+    const linkedRegistrations = await Promise.all(importedRegistrationIds.map(registrationId =>
+      d1First(db.prepare(`
+        SELECT registration.id
+        FROM event_registrations registration
+        JOIN event_registration_configs config
+          ON config.event_id = registration.event_id
+        WHERE registration.id = ? AND registration.event_id = ?
+          AND config.owner_scope = ?
+        LIMIT 1
+      `).bind(registrationId, eventId, auth.ownerScope))));
+    if (linkedRegistrations.some(value => !value)) {
+      return eventStaffError(
+        request,
+        400,
+        "cross_event_registration_link",
+        "An event entry references a registration outside this event.",
+      );
+    }
+  }
   const linkedParticipantIds = new Set();
-  eventCollections.forEach(entry => {
+  structuralCollections.forEach(entry => {
     [...entry.players, ...entry.substitutePlayerIds].forEach(id => linkedParticipantIds.add(id));
   });
+  for (const bracket of Array.isArray(event.brackets) ? event.brackets : []) {
+    const seeds = eventStaffExactIdArray(bracket?.seeds || [], EVENT_STAFF_MAX_PARTICIPANTS);
+    if (seeds == null || seeds.some(id => !fixedTeamIds.has(id))) {
+      return eventStaffError(request, 400, "unlinked_bracket_seed", "A bracket seed is not an eligible event playoff team.");
+    }
+  }
   for (const match of storedMatches) {
     for (const id of [
       ...match.sideAPlayerIds, ...match.sideBPlayerIds,
@@ -6152,10 +6310,10 @@ async function saveEventStaffSnapshot(request, env, eventId) {
     }
     if (game.eventFormat === "rotatingGroups") {
       const ids = [...game.evEntryIdsA, ...game.evEntryIdsB];
-      if (!ids.length || ids.some(id => !entryIds.has(id))) {
+      if (!ids.length || ids.some(id => !primaryEntryIds.has(id))) {
         return eventStaffError(request, 400, "unlinked_game_entry", "A game references an entry outside this event snapshot.");
       }
-    } else if (!game.evA || !game.evB || !entryIds.has(game.evA) || !entryIds.has(game.evB)) {
+    } else if (!game.evA || !game.evB || !fixedTeamIds.has(game.evA) || !fixedTeamIds.has(game.evB)) {
       return eventStaffError(request, 400, "unlinked_game_entry", "A game references an entry outside this event snapshot.");
     }
     const sidePlayers = side => {
@@ -6192,9 +6350,12 @@ async function saveEventStaffSnapshot(request, env, eventId) {
       return eventStaffError(request, 400, "game_participant_mismatch", "Saved game participants do not match their event entries.");
     }
   }
-  if (storedParticipants.some(value => !linkedParticipantIds.has(value.id))) {
-    return eventStaffError(request, 400, "unlinked_participant", "The participant projection contains a person outside this event.");
-  }
+  /*
+   * The bounded participant projection also serves as the Tournament
+   * Operator's restricted directory. Unlinked rows are accepted here, but are
+   * never returned by the normal state endpoint; the search endpoint exposes
+   * only id and displayName.
+   */
   const hasDeletedGameIds = Object.prototype.hasOwnProperty.call(parsed.value, "deletedGameIds");
   if (hasDeletedGameIds && (
     !parsed.value.deletedGameIds
@@ -6229,6 +6390,7 @@ async function saveEventStaffSnapshot(request, env, eventId) {
   if (publishedRules) eventCopy.publishedRules = publishedRules;
   if (event.format === "rotatingGroups") {
     eventCopy.entries = structuredClone(eventCollections);
+    eventCopy.teams = structuredClone(playoffTeams);
   } else {
     eventCopy.teams = structuredClone(eventCollections);
   }
@@ -6450,7 +6612,7 @@ async function listEventStaffGrants(request, env, eventId) {
 
 function validateEventStaffGrantInput(value, { partial = false } = {}) {
   const allowed = partial
-    ? ["expiresAt", "pin", "clearPin", "reason"]
+    ? ["expiresAt", "pin", "clearPin", "reason", "confirmPermissionExpansion"]
     : ["staffLabel", "role", "expiresAt", "pin"];
   if (!value || typeof value !== "object" || Array.isArray(value) || unexpectedFields(value, allowed).length) {
     return { error: ["invalid_fields", "The grant request contains unsupported fields."] };
@@ -6482,6 +6644,14 @@ function validateEventStaffGrantInput(value, { partial = false } = {}) {
   }
   result.clearPin = value.clearPin === true;
   result.reason = cleanEventStaffReason(value.reason);
+  if (
+    partial
+    && Object.prototype.hasOwnProperty.call(value, "confirmPermissionExpansion")
+    && typeof value.confirmPermissionExpansion !== "boolean"
+  ) {
+    return { error: ["invalid_confirmation", "Permission expansion confirmation must be true or false."] };
+  }
+  result.confirmPermissionExpansion = value.confirmPermissionExpansion === true;
   return { value: result };
 }
 
@@ -6669,6 +6839,35 @@ async function rotateEventStaffGrant(request, env, eventId, grantId) {
   const checked = validateEventStaffGrantInput(parsed.value, { partial: true });
   if (checked.error) return eventStaffError(request, 400, checked.error[0], checked.error[1]);
   const input = checked.value, now = Date.now();
+  const originalPermissions = eventStaffGrantPermissions(original);
+  if (!originalPermissions) {
+    return eventStaffError(
+      request,
+      409,
+      "permission_set_unsupported",
+      "The existing grant has an unsupported permission snapshot and cannot be rotated.",
+    );
+  }
+  const replacementPermissions = eventStaffPermissionPreset(
+    EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+    original.role,
+  );
+  const expandsTournamentOperator = original.role === "tournamentOperator"
+    && Number(original.permission_schema_version) < EVENT_STAFF_PERMISSION_SCHEMA_VERSION;
+  if (expandsTournamentOperator && !input.confirmPermissionExpansion) {
+    return eventStaffError(
+      request,
+      409,
+      "permission_expansion_confirmation_required",
+      "Rotating this Tournament Operator link adds event entry, schedule, and bracket administration.",
+      {
+        previousPermissionSchemaVersion: Number(original.permission_schema_version),
+        nextPermissionSchemaVersion: EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+        previousPermissions: originalPermissions,
+        nextPermissions: [...replacementPermissions],
+      },
+    );
+  }
   const expiresAt = input.expiresAt || (
     Number(original.expires_at) > now + 60_000
       ? Math.min(Number(original.expires_at), now + EVENT_STAFF_MAX_GRANT_MS)
@@ -6708,7 +6907,7 @@ async function rotateEventStaffGrant(request, env, eventId, grantId) {
     `).bind(
       newGrantId, await sha256(token), pin.salt, pin.hash, pin.iterations, pin.kdfVersion,
       original.staff_label, original.role, EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
-      stableEventStaffJson(EVENT_STAFF_ROLE_PERMISSIONS[original.role] || []),
+      stableEventStaffJson(replacementPermissions),
       now, expiresAt, auth.ownerScope, eventId,
       grantId, now, EVENT_STAFF_MAX_ACTIVE_GRANTS,
     ),
@@ -6728,8 +6927,22 @@ async function rotateEventStaffGrant(request, env, eventId, grantId) {
       grantId,
       guardGrantId: newGrantId,
       action: "grant.rotated",
-      previous: { grantId, status: eventStaffGrantSummary(original, now).status },
-      next: { grantId: newGrantId, staffLabel: original.staff_label, role: original.role, expiresAt, pinRequired: !!pin.hash, reason: input.reason || null },
+      previous: {
+        grantId,
+        status: eventStaffGrantSummary(original, now).status,
+        permissionSchemaVersion: Number(original.permission_schema_version),
+        permissions: originalPermissions,
+      },
+      next: {
+        grantId: newGrantId,
+        staffLabel: original.staff_label,
+        role: original.role,
+        expiresAt,
+        pinRequired: !!pin.hash,
+        permissionSchemaVersion: EVENT_STAFF_PERMISSION_SCHEMA_VERSION,
+        permissions: [...replacementPermissions],
+        reason: input.reason || null,
+      },
       revision: auth.event.revision,
       createdAt: now,
     }),
@@ -7036,6 +7249,15 @@ async function redeemEventStaffAccess(request, env) {
   if (!valid) {
     return eventStaffError(request, 401, "access_denied", "This staff link or PIN could not be accepted.");
   }
+  if (!eventStaffGrantPermissions(grant)) {
+    await releaseEventStaffAccessReservation(db, reservation);
+    return eventStaffError(
+      request,
+      403,
+      "permission_set_unsupported",
+      "This staff grant has an unsupported permission snapshot and cannot be used.",
+    );
+  }
   const sessionToken = randomToken(), sessionHash = await sha256(sessionToken);
   const expiresAt = Math.min(Number(grant.expires_at), now + EVENT_STAFF_SESSION_MS);
   await db.prepare(`
@@ -7114,7 +7336,8 @@ async function authorizeEventStaffSession(request, env, { touch = true } = {}) {
       session.created_at AS session_created_at, session.expires_at AS session_expires_at,
       session.last_used_at AS session_last_used_at, session.revoked_at AS session_revoked_at,
       grant.id AS id, grant.owner_scope, grant.event_id, grant.event_access_epoch,
-      grant.staff_label, grant.role, grant.permissions_json, grant.created_at,
+      grant.staff_label, grant.role, grant.permission_schema_version,
+      grant.permissions_json, grant.created_at,
       grant.expires_at, grant.revoked_at, grant.last_used_at,
       event.access_epoch AS current_access_epoch, event.revision AS current_revision,
       event.deleted_at AS event_deleted_at
@@ -7143,8 +7366,15 @@ async function authorizeEventStaffSession(request, env, { touch = true } = {}) {
     ) ? "access_revoked" : "access_expired";
     return { response: eventStaffError(request, 401, ended, "Event staff access has ended.") };
   }
-  if (!EVENT_STAFF_ROLE_PERMISSIONS[joined.role]) {
-    return { response: eventStaffError(request, 403, "role_unsupported", "This event staff role is not supported by this Worker.") };
+  if (!eventStaffGrantPermissions(joined)) {
+    return {
+      response: eventStaffError(
+        request,
+        403,
+        "permission_set_unsupported",
+        "This staff grant has an unsupported permission snapshot and cannot be used.",
+      ),
+    };
   }
   const event = await getEventStaffEvent(db, joined.owner_scope, joined.event_id);
   if (!event || event.deletedAt) {
@@ -7172,6 +7402,28 @@ async function getEventStaffState(request, env) {
     ok: true,
     state: await eventStaffScopedState(auth.db, auth.event, auth.grant),
   }, 200, request);
+}
+
+async function searchEventStaffParticipants(request, env) {
+  const auth = await authorizeEventStaffSession(request, env);
+  if (auth.response) return auth.response;
+  const permissions = eventStaffGrantPermissions(auth.grant);
+  if (!permissions?.includes("manageEventEntries")) {
+    return eventStaffError(request, 403, "permission_denied", "This grant cannot search the event participant directory.");
+  }
+  const query = cleanEventStaffText(new URL(request.url).searchParams.get("q"), 100).toLocaleLowerCase();
+  if (query.length < 2) {
+    return eventStaffJson({ ok: true, participants: [] }, 200, request);
+  }
+  const participants = (auth.event.participants || [])
+    .map(safeEventStaffParticipant)
+    .filter(value => value && value.active !== false && (
+      value.name.toLocaleLowerCase().includes(query)
+      || value.id.toLocaleLowerCase() === query
+    ))
+    .slice(0, 20)
+    .map(value => ({ id: value.id, displayName: value.name }));
+  return eventStaffJson({ ok: true, participants }, 200, request);
 }
 
 async function logoutEventStaffSession(request, env) {
@@ -7217,7 +7469,15 @@ function validateEventStaffOperation(value) {
   if (!PLAYER_ID_PATTERN.test(eventId)) {
     return { error: ["invalid_event", "The event operation has an invalid event identifier."] };
   }
-  if (!SCORE_MATCH_ID_PATTERN.test(targetId)) {
+  const targetOptionalActions = new Set([
+    "addEventEntry", "reorderEventEntries", "setEventScheduleSettings",
+    "generateEventSchedule", "regenerateRemainingSchedule",
+    "clearEventSchedule", "createEventBracket",
+  ]);
+  if (
+    (!targetId && !targetOptionalActions.has(value.action))
+    || (targetId && !SCORE_MATCH_ID_PATTERN.test(targetId))
+  ) {
     return { error: ["invalid_target", "The event operation has an invalid target identifier."] };
   }
   if (!EVENT_STAFF_OPERATION_PERMISSIONS[value.action]) {
@@ -7239,7 +7499,7 @@ function validateEventStaffOperation(value) {
     value: {
       eventId,
       action: value.action,
-      targetId,
+      targetId: targetId || eventId,
       expectedRevision,
       idempotencyKey,
       payload: structuredClone(value.payload),
@@ -7658,6 +7918,978 @@ function eventStaffEntryCollection(event) {
     : (Array.isArray(event.teams) ? event.teams : []);
 }
 
+function eventStaffStructuralWarnings(event) {
+  return event?.hasPublicSchedulePublication === true
+    ? [{
+        code: "public_snapshot_stale",
+        message: "A public schedule is a static snapshot. Ask the organizer to republish it.",
+      }]
+    : [];
+}
+
+function eventStaffStructureId(prefix, row) {
+  const used = new Set([
+    row.eventId,
+    ...eventStaffEntryCollection(row.event).map(value => value?.id),
+    ...(row.event?.brackets || []).map(value => value?.id),
+    ...(row.matches || []).map(value => value?.id),
+    ...(row.games || []).map(value => value?.id),
+    ...Object.keys(row.deletedGameIds || {}),
+  ].filter(Boolean));
+  let id;
+  do id = `${prefix}-${randomTokenBytes(12)}`; while (used.has(id));
+  return id;
+}
+
+function eventStaffParticipantDirectory(row) {
+  return new Map((row.participants || [])
+    .map(safeEventStaffParticipant)
+    .filter(Boolean)
+    .map(value => [value.id, value]));
+}
+
+function eventStaffEntryReferences(row, entryId) {
+  const matches = (row.matches || []).filter(match => [
+    ...eventStaffSafeIdList(match?.sideAEntryIds),
+    ...eventStaffSafeIdList(match?.sideBEntryIds),
+    match?.teamAId, match?.teamBId, match?.sideAId, match?.sideBId,
+    match?.a, match?.b,
+  ].includes(entryId));
+  const games = (row.games || []).filter(game => (
+    game?.evA === entryId || game?.evB === entryId
+    || eventStaffSafeIdList(game?.evEntryIdsA).includes(entryId)
+    || eventStaffSafeIdList(game?.evEntryIdsB).includes(entryId)
+  ));
+  const brackets = (row.event?.brackets || []).filter(bracket =>
+    eventStaffSafeIdList(bracket?.seeds).includes(entryId));
+  return { matches, games, brackets };
+}
+
+function eventStaffImpact(row, {
+  games = [],
+  matches = [],
+  removedEntryIds = [],
+  removedParticipantIds = [],
+  standings = false,
+  bracket = false,
+  preservation = "preserve",
+} = {}) {
+  const completedGameIds = [...new Set(games.map(value => value?.id).filter(Boolean))];
+  const unplayedMatchIds = [...new Set(matches
+    .filter(match => !eventStaffMatchGames(row, match).length)
+    .map(match => match?.id)
+    .filter(Boolean))];
+  return {
+    completedGameIds,
+    unplayedMatchIds,
+    standingsAffected: standings,
+    bracketAffected: bracket,
+    removedEntryIds: [...new Set(removedEntryIds)],
+    removedParticipantIds: [...new Set(removedParticipantIds)],
+    publicSnapshotStale: row.event?.hasPublicSchedulePublication === true,
+    ratingHistory: completedGameIds.length ? "deterministic replay required" : "unchanged",
+    preservation,
+  };
+}
+
+function eventStaffImpactRequired(operation, impact, message) {
+  if (!impact.completedGameIds.length || operation.payload.confirmImpact === true) return null;
+  return {
+    error: [
+      409,
+      "impact_review_required",
+      message,
+      { impact },
+    ],
+  };
+}
+
+function eventStaffValidateRoster(row, entry, { existingId = null } = {}) {
+  const directory = eventStaffParticipantDirectory(row);
+  const players = eventStaffSafeIdList(entry.players);
+  const substitutes = eventStaffSafeIdList(entry.substitutePlayerIds);
+  const rawCount = (Array.isArray(entry.players) ? entry.players.length : 0)
+    + (Array.isArray(entry.substitutePlayerIds) ? entry.substitutePlayerIds.length : 0);
+  if (players.length + substitutes.length !== rawCount) {
+    return ["duplicate_participant", "Participants and substitutes must be unique within an entry."];
+  }
+  const all = [...players, ...substitutes];
+  if (all.some(id => !directory.has(id))) {
+    return ["participant_not_available", "Choose participants from this event's restricted directory."];
+  }
+  const otherIds = new Set(eventStaffEntryCollection(row.event)
+    .filter(value => value?.id !== existingId)
+    .flatMap(value => [
+      ...eventStaffSafeIdList(value?.players),
+      ...eventStaffSafeIdList(value?.substitutePlayerIds),
+    ]));
+  if (all.some(id => otherIds.has(id))) {
+    return ["duplicate_event_participant", "A participant cannot be assigned to more than one event entry."];
+  }
+  if (row.event?.format === "rotatingGroups") {
+    const entrySize = eventStaffInteger(row.event?.rotation?.entrySize, 1, 20) || 1;
+    if (players.length !== entrySize) {
+      return ["invalid_entry_size", `A rotating entry must have exactly ${entrySize} active participant${entrySize === 1 ? "" : "s"}.`];
+    }
+  }
+  return null;
+}
+
+function eventStaffEntryPlan(row, operation) {
+  const event = structuredClone(row.event || {});
+  const collectionKey = event.format === "rotatingGroups" ? "entries" : "teams";
+  const entries = eventStaffEntryCollection(event).map(value => structuredClone(value));
+  const allowedByAction = {
+    addEventEntry: [
+      "name", "players", "substitutePlayerIds", "pool", "manualSeed",
+      "status", "reason", "guest",
+    ],
+    updateEventEntry: [
+      "name", "players", "substitutePlayerIds", "pool", "manualSeed",
+      "status", "reason", "confirmImpact",
+    ],
+    moveEventParticipant: [
+      "participantId", "fromEntryId", "swapParticipantId", "role",
+      "reason", "confirmImpact",
+    ],
+    removeEventEntry: ["reason", "confirmImpact"],
+  };
+  if (unexpectedFields(operation.payload, allowedByAction[operation.action] || []).length) {
+    return { error: [400, "invalid_entry_fields", "The entry operation contains unsupported fields."] };
+  }
+  if (operation.action === "addEventEntry") {
+    const name = cleanEventStaffText(operation.payload.name, 120);
+    if (!name) return { error: [400, "invalid_entry_name", "Enter an event entry name."] };
+    const requestedSeed = Object.prototype.hasOwnProperty.call(operation.payload, "manualSeed")
+      ? eventStaffInteger(operation.payload.manualSeed, 1, 10_000)
+      : entries.length + 1;
+    if (requestedSeed == null) {
+      return { error: [400, "invalid_seed", "Choose a positive entry seed."] };
+    }
+    if (operation.payload.guest === true && event.format === "rotatingGroups") {
+      return { error: [400, "guest_not_supported", "Rotating entries must use tracked participants."] };
+    }
+    const entry = {
+      id: eventStaffStructureId(event.format === "rotatingGroups" ? "entry" : "team", row),
+      name,
+      players: operation.payload.guest === true
+        ? []
+        : eventStaffSafeIdList(operation.payload.players),
+      substitutePlayerIds: operation.payload.guest === true
+        ? []
+        : eventStaffSafeIdList(operation.payload.substitutePlayerIds),
+      pool: cleanEventStaffText(operation.payload.pool, 24),
+      status: EVENT_STAFF_ENTRY_STATUSES.has(operation.payload.status)
+        ? operation.payload.status
+        : "active",
+      manualSeed: requestedSeed,
+      created: Date.now(),
+    };
+    const rosterError = eventStaffValidateRoster(row, entry);
+    if (rosterError) return { error: [400, rosterError[0], rosterError[1]] };
+    entries.push(entry);
+    event[collectionKey] = entries;
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: structuredClone(row.matches || []),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: null,
+      next: structuredClone(entry),
+      targetType: "eventEntry",
+      targetId: entry.id,
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  if (operation.action === "moveEventParticipant") {
+    const toIndex = entries.findIndex(value => value?.id === operation.targetId);
+    const fromEntryId = cleanEventStaffText(operation.payload.fromEntryId, 120);
+    const fromIndex = entries.findIndex(value => value?.id === fromEntryId);
+    const participantId = cleanEventStaffText(operation.payload.participantId, 120);
+    const swapParticipantId = cleanEventStaffText(operation.payload.swapParticipantId, 120);
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+      return { error: [400, "invalid_entry_move", "Choose two different event entries for this move."] };
+    }
+    if (!PLAYER_ID_PATTERN.test(participantId)) {
+      return { error: [400, "invalid_participant", "Choose a valid event participant to move."] };
+    }
+    const previousFrom = structuredClone(entries[fromIndex]);
+    const previousTo = structuredClone(entries[toIndex]);
+    const from = structuredClone(previousFrom);
+    const to = structuredClone(previousTo);
+    const fromPlayers = eventStaffSafeIdList(from.players);
+    const fromSubstitutes = eventStaffSafeIdList(from.substitutePlayerIds);
+    const toPlayers = eventStaffSafeIdList(to.players);
+    const toSubstitutes = eventStaffSafeIdList(to.substitutePlayerIds);
+    const participantWasActive = fromPlayers.includes(participantId);
+    const participantWasSubstitute = fromSubstitutes.includes(participantId);
+    if (!participantWasActive && !participantWasSubstitute) {
+      return { error: [409, "participant_assignment_changed", "That participant is no longer assigned to the source entry. Refresh and review the event."] };
+    }
+    if (toPlayers.includes(participantId) || toSubstitutes.includes(participantId)) {
+      return { error: [409, "duplicate_event_participant", "That participant is already assigned to the destination entry."] };
+    }
+    if (event.format === "rotatingGroups" && !swapParticipantId) {
+      return { error: [400, "rotating_swap_required", "Rotating entries must swap participants so both entries keep their required size."] };
+    }
+    const requestedRole = operation.payload.role == null
+      ? (participantWasSubstitute ? "substitute" : "active")
+      : operation.payload.role;
+    if (!["active", "substitute"].includes(requestedRole)) {
+      return { error: [400, "invalid_participant_role", "Choose an active or substitute event role."] };
+    }
+    from.players = fromPlayers.filter(id => id !== participantId);
+    from.substitutePlayerIds = fromSubstitutes.filter(id => id !== participantId);
+    if (swapParticipantId) {
+      if (!PLAYER_ID_PATTERN.test(swapParticipantId) || swapParticipantId === participantId) {
+        return { error: [400, "invalid_swap_participant", "Choose a different valid participant to swap."] };
+      }
+      const swapWasActive = toPlayers.includes(swapParticipantId);
+      const swapWasSubstitute = toSubstitutes.includes(swapParticipantId);
+      if (!swapWasActive && !swapWasSubstitute) {
+        return { error: [409, "participant_assignment_changed", "The swap participant is no longer assigned to the destination entry. Refresh and review the event."] };
+      }
+      to.players = toPlayers.filter(id => id !== swapParticipantId);
+      to.substitutePlayerIds = toSubstitutes.filter(id => id !== swapParticipantId);
+      if (swapWasSubstitute) from.substitutePlayerIds.push(swapParticipantId);
+      else from.players.push(swapParticipantId);
+    }
+    if (requestedRole === "substitute") to.substitutePlayerIds.push(participantId);
+    else to.players.push(participantId);
+    entries[fromIndex] = from;
+    entries[toIndex] = to;
+    event[collectionKey] = entries;
+    const movedRow = { ...row, event };
+    const fromError = eventStaffValidateRoster(movedRow, from, { existingId: from.id });
+    const toError = eventStaffValidateRoster(movedRow, to, { existingId: to.id });
+    const rosterError = fromError || toError;
+    if (rosterError) return { error: [400, rosterError[0], rosterError[1]] };
+    const fromReferences = eventStaffEntryReferences(row, from.id);
+    const toReferences = eventStaffEntryReferences(row, to.id);
+    const impact = eventStaffImpact(row, {
+      games: [...fromReferences.games, ...toReferences.games],
+      matches: [...fromReferences.matches, ...toReferences.matches],
+      standings: true,
+      bracket: fromReferences.brackets.length > 0 || toReferences.brackets.length > 0,
+      preservation: "completed game snapshots and both registration-source records are preserved",
+    });
+    const review = eventStaffImpactRequired(
+      operation,
+      impact,
+      "This participant move affects entries represented in completed games. Review the exact games before continuing.",
+    );
+    if (review) return review;
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: structuredClone(row.matches || []),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: { from: previousFrom, to: previousTo },
+      next: { from, to, participantId, swapParticipantId: swapParticipantId || null, impact },
+      targetType: "eventParticipantAssignment",
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  const index = entries.findIndex(value => value?.id === operation.targetId);
+  if (index < 0) return { error: [404, "entry_not_found", "The event entry was not found."] };
+  const current = entries[index], references = eventStaffEntryReferences(row, current.id);
+  if (operation.action === "updateEventEntry") {
+    const next = structuredClone(current);
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "name")) {
+      next.name = cleanEventStaffText(operation.payload.name, 120);
+      if (!next.name) return { error: [400, "invalid_entry_name", "Enter an event entry name."] };
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "players")) {
+      next.players = eventStaffSafeIdList(operation.payload.players);
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "substitutePlayerIds")) {
+      next.substitutePlayerIds = eventStaffSafeIdList(operation.payload.substitutePlayerIds);
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "pool")) {
+      next.pool = cleanEventStaffText(operation.payload.pool, 24);
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "manualSeed")) {
+      const seed = eventStaffInteger(operation.payload.manualSeed, 1, 10_000);
+      if (seed == null) return { error: [400, "invalid_seed", "Choose a positive entry seed."] };
+      next.manualSeed = seed;
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "status")) {
+      if (!EVENT_STAFF_ENTRY_STATUSES.has(operation.payload.status)) {
+        return { error: [400, "invalid_entry_status", "Choose a supported event entry status."] };
+      }
+      next.status = operation.payload.status;
+    }
+    const rosterError = eventStaffValidateRoster(row, next, { existingId: current.id });
+    if (rosterError) return { error: [400, rosterError[0], rosterError[1]] };
+    const removedParticipantIds = [
+      ...eventStaffSafeIdList(current.players),
+      ...eventStaffSafeIdList(current.substitutePlayerIds),
+    ].filter(id => ![
+      ...eventStaffSafeIdList(next.players),
+      ...eventStaffSafeIdList(next.substitutePlayerIds),
+    ].includes(id));
+    const impact = eventStaffImpact(row, {
+      games: references.games,
+      matches: references.matches,
+      removedParticipantIds,
+      standings: true,
+      bracket: references.brackets.length > 0,
+      preservation: "completed game snapshots and registration source metadata are preserved",
+    });
+    const review = eventStaffImpactRequired(
+      operation,
+      impact,
+      "This entry change affects participants or status represented in completed games. Review the exact games before continuing.",
+    );
+    if (review) return review;
+    entries[index] = next;
+    event[collectionKey] = entries;
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: structuredClone(row.matches || []),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: current,
+      next: { ...next, impact },
+      targetType: "eventEntry",
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  if (operation.action === "removeEventEntry") {
+    if (references.brackets.length) {
+      return { error: [409, "entry_seeded_in_bracket", "Remove this entry from its bracket division before removing it."] };
+    }
+    const impact = eventStaffImpact(row, {
+      games: references.games,
+      matches: references.matches,
+      removedEntryIds: [current.id],
+      removedParticipantIds: [
+        ...eventStaffSafeIdList(current.players),
+        ...eventStaffSafeIdList(current.substitutePlayerIds),
+      ],
+      standings: true,
+      preservation: references.games.length
+        ? "entry retained as withdrawn; completed game snapshots preserved"
+        : "unplayed match references detached",
+    });
+    const review = eventStaffImpactRequired(
+      operation,
+      impact,
+      "This entry appears in completed games. It will be retained as withdrawn so history is not orphaned.",
+    );
+    if (review) return review;
+    if (references.games.length) {
+      entries[index] = { ...current, status: "withdrawn" };
+    } else {
+      entries.splice(index, 1);
+    }
+    event[collectionKey] = entries;
+    const removedMatchIds = new Set(references.matches.map(value => value.id));
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: (row.matches || []).filter(value => !removedMatchIds.has(value?.id)).map(value => structuredClone(value)),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: current,
+      next: references.games.length ? { ...entries[index], impact } : { removed: true, impact },
+      targetType: "eventEntry",
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  return { error: [400, "unsupported_action", "This event entry action is not supported."] };
+}
+
+function eventStaffReorderEntriesPlan(row, operation) {
+  if (unexpectedFields(operation.payload, ["entryIds", "reason"]).length) {
+    return { error: [400, "invalid_entry_order_fields", "The entry-order operation contains unsupported fields."] };
+  }
+  if ((row.games || []).length || (row.matches || []).length || (row.event?.brackets || []).length) {
+    return { error: [409, "entry_order_locked", "Entries can only be reordered before schedule or bracket generation."] };
+  }
+  const event = structuredClone(row.event || {}), entries = eventStaffEntryCollection(event);
+  const requested = eventStaffSafeIdList(operation.payload.entryIds, EVENT_STAFF_MAX_PARTICIPANTS);
+  const currentIds = entries.map(value => value.id);
+  if (
+    requested.length !== currentIds.length
+    || requested.some(id => !currentIds.includes(id))
+  ) return { error: [400, "invalid_entry_order", "Entry order must include every current entry exactly once."] };
+  const byId = new Map(entries.map(value => [value.id, value]));
+  const nextEntries = requested.map((id, index) => ({ ...byId.get(id), manualSeed: index + 1 }));
+  if (event.format === "rotatingGroups") event.entries = nextEntries;
+  else event.teams = nextEntries;
+  return {
+    event,
+    games: structuredClone(row.games || []),
+    matches: structuredClone(row.matches || []),
+    deletedGameIds: { ...(row.deletedGameIds || {}) },
+    previous: currentIds,
+    next: requested,
+    targetType: "eventEntries",
+    warnings: eventStaffStructuralWarnings(event),
+  };
+}
+
+function eventStaffScheduleSettings(event, payload) {
+  if (
+    !payload?.settings
+    || typeof payload.settings !== "object"
+    || Array.isArray(payload.settings)
+    || unexpectedFields(payload, ["settings", "reason", "confirmImpact"]).length
+  ) return { error: ["invalid_schedule_fields", "The schedule operation requires a supported settings object."] };
+  const source = payload.settings;
+  const allowed = [
+    "rounds", "standardRounds", "courts", "start", "setMin", "durationMinutes",
+    "matchMin", "breakMin", "courtStyle", "fairnessPolicy", "opponentPolicy",
+    "makeupPolicy", "entrySize", "teamSize", "seed", "revision",
+    "tiebreakers", "winPoints", "tiePoints", "lossPoints",
+  ];
+  if (unexpectedFields(source, allowed).length) {
+    return { error: ["invalid_schedule_settings", "The schedule settings contain unsupported fields."] };
+  }
+  const rotating = event.format === "rotatingGroups";
+  const current = rotating ? event.rotation || {} : event.sched || {};
+  const rounds = eventStaffInteger(
+    source.rounds ?? source.standardRounds ?? current.rounds ?? current.standardRounds,
+    1,
+    100,
+  );
+  const courts = eventStaffInteger(source.courts ?? current.courts, 1, 100);
+  const setMin = eventStaffInteger(
+    source.setMin ?? source.durationMinutes ?? current.setMin,
+    5,
+    240,
+  );
+  const matchMin = eventStaffInteger(source.matchMin ?? current.matchMin ?? setMin, 5, 240);
+  const breakMin = eventStaffInteger(source.breakMin ?? current.breakMin ?? 15, 0, 240);
+  const start = String(source.start ?? current.start ?? "10:00");
+  if (rounds == null || courts == null || setMin == null || matchMin == null || breakMin == null) {
+    return { error: ["invalid_schedule_number", "Rounds, courts, and durations must be within supported bounds."] };
+  }
+  if (!/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(start)) {
+    return { error: ["invalid_schedule_start", "Start time must use 24-hour HH:MM format."] };
+  }
+  const fairnessPolicy = (source.fairnessPolicy ?? current.fairnessPolicy) === "equalGames"
+    ? "equalGames"
+    : "allowDifference";
+  const courtStyle = (source.courtStyle ?? current.courtStyle) === "letter" ? "letter" : "num";
+  const base = {
+    ...structuredClone(current),
+    rounds,
+    standardRounds: rounds,
+    courts,
+    start,
+    setMin,
+    matchMin,
+    breakMin,
+    courtStyle,
+    fairnessPolicy,
+    opponentPolicy: cleanEventStaffText(source.opponentPolicy ?? current.opponentPolicy, 60) || "unique-first",
+    makeupPolicy: cleanEventStaffText(source.makeupPolicy ?? current.makeupPolicy, 60)
+      || (fairnessPolicy === "equalGames" ? "balance" : "none"),
+  };
+  if (rotating) {
+    base.entrySize = eventStaffInteger(source.entrySize ?? current.entrySize ?? 1, 1, 20);
+    base.teamSize = eventStaffInteger(source.teamSize ?? current.teamSize ?? 2, 1, 20);
+    if (base.entrySize == null || base.teamSize == null || base.teamSize % base.entrySize !== 0) {
+      return { error: ["invalid_rotation_sizes", "Team size must be a whole multiple of rotating entry size."] };
+    }
+    for (const [key, fallback] of [["winPoints", 1], ["tiePoints", 0.5], ["lossPoints", 0]]) {
+      const number = Number(source[key] ?? current[key] ?? fallback);
+      if (!Number.isFinite(number) || number < -100 || number > 100) {
+        return { error: ["invalid_standings_points", "Rotating standings points are outside supported bounds."] };
+      }
+      base[key] = number;
+    }
+    base.tiebreakers = Array.isArray(source.tiebreakers ?? current.tiebreakers)
+      ? (source.tiebreakers ?? current.tiebreakers)
+        .filter(value => typeof value === "string")
+        .slice(0, 12)
+      : [];
+  }
+  return { value: base };
+}
+
+function eventStaffScheduleTimestamp(event, settings, slot) {
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(event?.eventDate || "")
+    ? event.eventDate
+    : new Date().toISOString().slice(0, 10);
+  const base = Date.parse(`${date}T${settings.start}:00`);
+  return Number.isFinite(base) ? base + slot * settings.setMin * 60_000 : Date.now();
+}
+
+function eventStaffCourtLabel(settings, court) {
+  if (settings.courtStyle === "letter") {
+    let value = court, label = "";
+    while (value > 0) {
+      value -= 1;
+      label = String.fromCharCode(65 + value % 26) + label;
+      value = Math.floor(value / 26);
+    }
+    return `Court ${label}`;
+  }
+  return `Court ${court}`;
+}
+
+function eventStaffMatchProjection(row, settings, entryA, entryB, slot, court, revision, index, phase = "pool") {
+  const rotating = row.event.format === "rotatingGroups";
+  const sideA = Array.isArray(entryA) ? entryA : [entryA];
+  const sideB = Array.isArray(entryB) ? entryB : [entryB];
+  const playersA = eventStaffSafeIdList(sideA.flatMap(value => value?.players || []));
+  const playersB = eventStaffSafeIdList(sideB.flatMap(value => value?.players || []));
+  const idsA = sideA.map(value => value.id), idsB = sideB.map(value => value.id);
+  return {
+    id: `schedule:${row.eventId}:v${revision}:s${slot + 1}:c${court}:m${index + 1}`,
+    eventId: row.eventId,
+    kind: "scheduled",
+    phase,
+    scheduleBlock: phase === "makeup" ? "makeup" : "standard",
+    format: rotating ? "rotatingGroups" : "fixedTeams",
+    status: "pending",
+    teamAId: rotating ? null : idsA[0],
+    teamBId: rotating ? null : idsB[0],
+    sideAEntryIds: idsA,
+    sideBEntryIds: idsB,
+    sideAPlayerIds: playersA,
+    sideBPlayerIds: playersB,
+    teamAPlayerIds: playersA,
+    teamBPlayerIds: playersB,
+    court,
+    slot,
+    round: slot + 1,
+    scheduledAt: eventStaffScheduleTimestamp(row.event, settings, slot),
+    courtLabel: eventStaffCourtLabel(settings, court),
+    sideAName: sideA.map(value => value.name).join(" + "),
+    sideBName: sideB.map(value => value.name).join(" + "),
+    label: phase === "makeup" ? "Balances games played" : `Round ${slot + 1}`,
+    gameIds: [],
+    gameMeta: eventStaffGameMeta(row.event?.staffGameMeta || row.event?.gameMeta),
+    allowedScoreModes: ["set", "bo3"],
+  };
+}
+
+function eventStaffFixedSchedule(row, settings, revision, lockedMatches = []) {
+  const entries = eventStaffEntryCollection(row.event)
+    .filter(value => (value?.status || "active") === "active");
+  const core = globalThis.CourtEventStructureCore;
+  const generated = core.generateFixedSchedule({
+    eventId: row.eventId,
+    entries,
+    settings,
+    includeMakeups: true,
+    lockedMatches: lockedMatches
+      .filter(match => (match.scheduleBlock || "standard") === "standard")
+      .map(match => ({
+        id: match.id,
+        a: match.teamAId || match.sideAId || match.a,
+        b: match.teamBId || match.sideBId || match.b,
+        slot: Number(match.slot) || 0,
+        court: Math.max(0, (Number(match.court) || 1) - 1),
+        status: match.status || "complete",
+      })),
+  });
+  if (generated.error) return { error: generated.error };
+  const byId = new Map(entries.map(value => [value.id, value]));
+  const matches = generated.matches.map((match, index) => {
+    const phase = match.scheduleBlock === "makeup" ? "makeup" : "pool";
+    const projected = eventStaffMatchProjection(
+      row,
+      settings,
+      byId.get(match.a),
+      byId.get(match.b),
+      Number(match.slot) || 0,
+      Math.max(0, Number(match.court) || 0) + 1,
+      revision,
+      index,
+      phase,
+    );
+    projected.id = match.id;
+    projected.round = Number(match.round) || Number(match.slot) + 1;
+    projected.scheduleBlock = match.scheduleBlock || "standard";
+    if (match.label) projected.label = match.label;
+    return projected;
+  });
+  return { value: matches, audit: generated.audit };
+}
+
+function eventStaffRotatingSchedule(row, settings, revision, lockedMatches = []) {
+  const entries = eventStaffEntryCollection(row.event)
+    .filter(value => (value?.status || "active") === "active");
+  const core = globalThis.CourtEventStructureCore;
+  const generated = core.generateRotatingSchedule({
+    eventId: row.eventId,
+    entries,
+    settings,
+    includeMakeups: true,
+    lockedMatches: lockedMatches.filter(match =>
+      (match.scheduleBlock || (match.phase === "makeup" ? "makeup" : "standard")) === "standard"),
+    preservedMatches: lockedMatches.filter(match =>
+      (match.scheduleBlock || (match.phase === "makeup" ? "makeup" : "standard")) !== "standard"),
+  });
+  if (generated.error) return { error: generated.error };
+  const byId = new Map(entries.map(value => [value.id, value]));
+  const matches = generated.matches.map((match, index) => {
+    const phase = match.scheduleBlock === "makeup" ? "makeup" : "pool";
+    const projected = eventStaffMatchProjection(
+      row,
+      settings,
+      match.sideAEntryIds.map(id => byId.get(id)),
+      match.sideBEntryIds.map(id => byId.get(id)),
+      Math.max(0, Number(match.round) - 1),
+      Math.max(1, Number(match.court) || 1),
+      revision,
+      index,
+      phase,
+    );
+    projected.id = match.id;
+    projected.round = Number(match.round) || projected.round;
+    projected.slot = projected.round - 1;
+    projected.scheduleBlock = match.scheduleBlock || "standard";
+    if (match.label) projected.label = match.label;
+    return projected;
+  });
+  return { value: matches, audit: generated.audit };
+}
+
+function eventStaffSchedulePlan(row, operation) {
+  const event = structuredClone(row.event || {});
+  if (operation.action === "setEventScheduleSettings") {
+    const checked = eventStaffScheduleSettings(event, operation.payload);
+    if (checked.error) return { error: [400, checked.error[0], checked.error[1]] };
+    const previous = event.format === "rotatingGroups" ? event.rotation || null : event.sched || null;
+    if (event.format === "rotatingGroups") event.rotation = checked.value;
+    else event.sched = checked.value;
+    event.scheduleGenerated = (row.matches || []).some(value => value?.phase !== "playoff");
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: structuredClone(row.matches || []),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous,
+      next: checked.value,
+      targetType: "eventScheduleSettings",
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  if (unexpectedFields(operation.payload, ["reason", "confirmImpact"]).length) {
+    return { error: [400, "invalid_schedule_action_fields", "The schedule action contains unsupported fields."] };
+  }
+  const scheduled = (row.matches || []).filter(value => value?.phase !== "playoff");
+  const played = scheduled.filter(value => eventStaffMatchGames(row, value).length);
+  if (operation.action === "clearEventSchedule") {
+    if (played.length) return { error: [409, "schedule_has_results", "A schedule with results cannot be cleared. Regenerate only the remaining matches."] };
+    event.scheduleGenerated = false;
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: (row.matches || []).filter(value => value?.phase === "playoff").map(value => structuredClone(value)),
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: scheduled.map(value => value.id),
+      next: [],
+      targetType: "eventSchedule",
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  if (operation.action === "generateEventSchedule" && scheduled.length) {
+    return { error: [409, "schedule_already_exists", "Clear an entirely unplayed schedule or regenerate only remaining matches."] };
+  }
+  if (operation.action === "generateEventSchedule" && (row.games || []).length) {
+    return { error: [409, "event_has_results", "A new full schedule cannot replace existing event results."] };
+  }
+  const currentSettings = event.format === "rotatingGroups" ? event.rotation : event.sched;
+  const checked = eventStaffScheduleSettings(event, { settings: currentSettings || {} });
+  if (checked.error) return { error: [400, checked.error[0], checked.error[1]] };
+  const revision = Math.max(1, Number(currentSettings?.revision) || 0) + 1;
+  const settings = { ...checked.value, revision, seed: randomTokenBytes(12) };
+  if (event.format === "rotatingGroups") event.rotation = settings;
+  else event.sched = settings;
+  event.scheduleGenerated = true;
+  const generated = event.format === "rotatingGroups"
+    ? eventStaffRotatingSchedule({ ...row, event }, settings, revision, played)
+    : eventStaffFixedSchedule({ ...row, event }, settings, revision, played);
+  if (generated.error) return { error: [400, generated.error[0], generated.error[1]] };
+  const preserved = operation.action === "regenerateRemainingSchedule" ? played.map(value => structuredClone(value)) : [];
+  const playedIds = new Set(preserved.map(value => value.id));
+  const lastPlayedSlot = preserved.length
+    ? Math.max(...preserved.map(value => Number(value.slot)).filter(Number.isFinite))
+    : -1;
+  const generatedMatches = generated.value.filter(value =>
+    !playedIds.has(value.id)
+    && (operation.action !== "regenerateRemainingSchedule" || Number(value.slot) > lastPlayedSlot));
+  const playoff = (row.matches || []).filter(value => value?.phase === "playoff").map(value => structuredClone(value));
+  const impact = eventStaffImpact(row, {
+    games: played.flatMap(value => eventStaffMatchGames(row, value)),
+    matches: scheduled,
+    standings: played.length > 0,
+    preservation: "played matches preserved; only unplayed future matches replaced",
+  });
+  return {
+    event,
+    games: structuredClone(row.games || []),
+    matches: [...preserved, ...generatedMatches, ...playoff],
+    deletedGameIds: { ...(row.deletedGameIds || {}) },
+    previous: scheduled.map(value => value.id),
+    next: { matchIds: generatedMatches.map(value => value.id), settings, impact },
+    targetType: "eventSchedule",
+    warnings: eventStaffStructuralWarnings(event),
+  };
+}
+
+function eventStaffBracketSeedOrder(size) {
+  return globalThis.CourtEventStructureCore.bracketSeedOrder(size);
+}
+
+function eventStaffBracketMatches(row, bracket) {
+  const teams = Array.isArray(row.event?.teams) ? row.event.teams : eventStaffEntryCollection(row.event);
+  const byId = new Map(teams.map(value => [value.id, value]));
+  let size = 2;
+  while (size < bracket.seeds.length) size *= 2;
+  const order = eventStaffBracketSeedOrder(size);
+  let sides = [];
+  for (let index = 0; index < order.length; index += 2) {
+    sides.push([bracket.seeds[order[index]] || null, bracket.seeds[order[index + 1]] || null]);
+  }
+  const matches = [], rounds = Math.log2(size);
+  for (let roundIndex = 0; roundIndex < rounds; roundIndex += 1) {
+    const count = size / (2 ** (roundIndex + 1));
+    for (let matchIndex = 0; matchIndex < count; matchIndex += 1) {
+      const pair = roundIndex === 0 ? sides[matchIndex] : [null, null];
+      const id = `playoff:${bracket.id}:r${roundIndex + 1}:m${matchIndex + 1}`;
+      const match = {
+        id,
+        eventId: row.eventId,
+        kind: "playoff",
+        phase: "playoff",
+        format: "fixedTeams",
+        bracketId: bracket.id,
+        bracketName: bracket.name,
+        roundIndex,
+        matchIndex,
+        status: pair[0] && pair[1] ? "ready" : "waiting",
+        upstreamComplete: roundIndex === 0,
+        gameIds: [],
+        scheduledAt: null,
+        court: null,
+        courtLabel: "Court TBD",
+        label: `${bracket.name} · ${roundIndex === rounds - 1 ? "Final" : `Round ${roundIndex + 1}`}${count > 1 ? ` ${matchIndex + 1}` : ""}`,
+        gameMeta: eventStaffGameMeta(row.event?.staffGameMeta || row.event?.gameMeta),
+        allowedScoreModes: ["set", "bo3"],
+      };
+      eventStaffSetBracketSide(match, "A", pair[0], { ...row.event, teams });
+      eventStaffSetBracketSide(match, "B", pair[1], { ...row.event, teams });
+      matches.push(match);
+    }
+  }
+  /*
+   * Advance first-round byes through the same feed function used after a
+   * canonical playoff result.
+   */
+  matches.filter(value => Number(value.roundIndex) === 0).forEach(value => {
+    if (!!value.teamAId === !!value.teamBId) return;
+    eventStaffRebuildBracketFeed(matches, value, value.teamAId || value.teamBId, { ...row.event, teams });
+  });
+  return matches;
+}
+
+function eventStaffBracketPlan(row, operation) {
+  const event = structuredClone(row.event || {});
+  const brackets = Array.isArray(event.brackets) ? event.brackets.map(value => structuredClone(value)) : [];
+  const allowed = ["name", "seeds", "seedMode", "topCount", "reason", "confirmImpact"];
+  if (unexpectedFields(operation.payload, allowed).length) {
+    return { error: [400, "invalid_bracket_fields", "The bracket operation contains unsupported fields."] };
+  }
+  if (operation.action === "createEventBracket") {
+    if (
+      operation.payload.seedMode != null
+      && !["standings", "balanced", "manual"].includes(operation.payload.seedMode)
+    ) {
+      return { error: [400, "invalid_bracket_seed_mode", "Choose standings, balanced, or manual bracket seeding."] };
+    }
+    const eligible = (Array.isArray(event.teams) ? event.teams : eventStaffEntryCollection(event))
+      .filter(value => (value?.status || "active") === "active");
+    const eligibleIds = new Set(eligible.map(value => value.id));
+    const rawSeeds = Array.isArray(operation.payload.seeds) ? operation.payload.seeds : [];
+    let seeds = eventStaffSafeIdList(operation.payload.seeds, EVENT_STAFF_MAX_PARTICIPANTS);
+    if (rawSeeds.length !== seeds.length) {
+      return { error: [400, "duplicate_bracket_seed", "Bracket seeds must be unique eligible entries."] };
+    }
+    if (!seeds.length && operation.payload.seedMode === "standings") {
+      /*
+       * Court brackets always use fixed event/playoff teams. In rotating
+       * events those teams have already been derived from the entry
+       * standings by the organizer's canonical playoff-team workflow.
+       */
+      seeds = eventStaffFixedStandings(event, row.games).map(value => value.id);
+    }
+    if (!seeds.length && ["balanced", "manual"].includes(operation.payload.seedMode)) {
+      seeds = eligible.slice().sort((left, right) =>
+        Number(left.manualSeed || 1_000_000) - Number(right.manualSeed || 1_000_000)
+        || String(left.name).localeCompare(String(right.name))).map(value => value.id);
+    }
+    const topCount = operation.payload.topCount == null
+      ? seeds.length
+      : eventStaffInteger(operation.payload.topCount, 2, eligible.length);
+    if (topCount == null) {
+      return { error: [400, "invalid_bracket_size", "Choose a bracket size within the eligible entry count."] };
+    }
+    seeds = seeds.slice(0, topCount);
+    if (seeds.length < 2 || seeds.some(id => !eligibleIds.has(id))) {
+      return { error: [400, "invalid_bracket_seeds", "Choose at least two unique eligible bracket entries."] };
+    }
+    const bracket = {
+      id: eventStaffStructureId("bracket", row),
+      name: cleanEventStaffText(operation.payload.name, 120) || `Division ${brackets.length + 1}`,
+      seeds,
+      created: Date.now(),
+    };
+    brackets.push(bracket);
+    event.brackets = brackets;
+    const bracketMatches = eventStaffBracketMatches({ ...row, event }, bracket);
+    return {
+      event,
+      games: structuredClone(row.games || []),
+      matches: [...(row.matches || []).map(value => structuredClone(value)), ...bracketMatches],
+      deletedGameIds: { ...(row.deletedGameIds || {}) },
+      previous: null,
+      next: bracket,
+      targetType: "eventBracket",
+      targetId: bracket.id,
+      warnings: eventStaffStructuralWarnings(event),
+    };
+  }
+  const index = brackets.findIndex(value => value?.id === operation.targetId);
+  if (index < 0) return { error: [404, "bracket_not_found", "The bracket division was not found."] };
+  const current = brackets[index];
+  const affectedMatches = (row.matches || []).filter(value => value?.bracketId === current.id);
+  const affectedGames = affectedMatches.flatMap(value => eventStaffMatchGames(row, value));
+  let preparedUpdate = null;
+  if (operation.action === "updateEventBracket") {
+    preparedUpdate = structuredClone(current);
+    if (
+      operation.payload.seedMode != null
+      && !["standings", "balanced", "manual"].includes(operation.payload.seedMode)
+    ) {
+      return { error: [400, "invalid_bracket_seed_mode", "Choose standings, balanced, or manual bracket seeding."] };
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "name")) {
+      preparedUpdate.name = cleanEventStaffText(operation.payload.name, 120);
+      if (!preparedUpdate.name) return { error: [400, "invalid_bracket_name", "Enter a bracket division name."] };
+    }
+    if (
+      !Object.prototype.hasOwnProperty.call(operation.payload, "seeds")
+      && operation.payload.seedMode === "standings"
+    ) {
+      const activeIds = new Set((Array.isArray(event.teams) ? event.teams : eventStaffEntryCollection(event))
+        .filter(value => (value?.status || "active") === "active")
+        .map(value => value.id));
+      preparedUpdate.seeds = eventStaffFixedStandings(event, row.games)
+        .map(value => value.id)
+        .filter(id => activeIds.has(id))
+        .slice(0, current.seeds.length);
+    }
+    if (
+      !Object.prototype.hasOwnProperty.call(operation.payload, "seeds")
+      && ["balanced", "manual"].includes(operation.payload.seedMode)
+    ) {
+      preparedUpdate.seeds = (Array.isArray(event.teams) ? event.teams : eventStaffEntryCollection(event))
+        .filter(value => (value?.status || "active") === "active")
+        .slice()
+        .sort((left, right) =>
+          Number(left.manualSeed || 1_000_000) - Number(right.manualSeed || 1_000_000)
+          || String(left.name).localeCompare(String(right.name)))
+        .map(value => value.id)
+        .slice(0, current.seeds.length);
+    }
+    if (Object.prototype.hasOwnProperty.call(operation.payload, "seeds")) {
+      const rawSeeds = Array.isArray(operation.payload.seeds) ? operation.payload.seeds : [];
+      const seeds = eventStaffSafeIdList(operation.payload.seeds, EVENT_STAFF_MAX_PARTICIPANTS);
+      const eligible = new Set((Array.isArray(event.teams) ? event.teams : eventStaffEntryCollection(event))
+        .filter(value => (value?.status || "active") === "active")
+        .map(value => value.id));
+      if (rawSeeds.length !== seeds.length) {
+        return { error: [400, "duplicate_bracket_seed", "Bracket seeds must be unique eligible entries."] };
+      }
+      if (seeds.length < 2 || seeds.some(id => !eligible.has(id))) {
+        return { error: [400, "invalid_bracket_seeds", "Choose at least two unique eligible bracket entries."] };
+      }
+      preparedUpdate.seeds = seeds;
+    }
+    if (operation.payload.seedMode && preparedUpdate.seeds.length < 2) {
+      return { error: [400, "invalid_bracket_seeds", "Choose at least two unique eligible bracket entries."] };
+    }
+    const seedsChanged = stableEventStaffJson(preparedUpdate.seeds) !== stableEventStaffJson(current.seeds);
+    if (!seedsChanged) {
+      brackets[index] = preparedUpdate;
+      event.brackets = brackets;
+      const matches = (row.matches || []).map(value => {
+        const match = structuredClone(value);
+        if (match?.bracketId !== current.id) return match;
+        match.bracketName = preparedUpdate.name;
+        const suffix = typeof match.label === "string" && match.label.includes(" · ")
+          ? match.label.slice(match.label.indexOf(" · ") + 3)
+          : match.label;
+        if (suffix) match.label = `${preparedUpdate.name} · ${suffix}`;
+        return match;
+      });
+      return {
+        event,
+        games: structuredClone(row.games || []),
+        matches,
+        deletedGameIds: { ...(row.deletedGameIds || {}) },
+        previous: current,
+        next: preparedUpdate,
+        targetType: "eventBracket",
+        warnings: eventStaffStructuralWarnings(event),
+      };
+    }
+  }
+  const impact = eventStaffImpact(row, {
+    games: affectedGames,
+    matches: affectedMatches,
+    bracket: true,
+    standings: false,
+    preservation: operation.action === "updateEventBracket"
+      ? "played bracket games require removal before reseeding"
+      : "affected bracket games tombstoned; deterministic replay required",
+  });
+  const review = eventStaffImpactRequired(
+    operation,
+    impact,
+    "This bracket operation removes completed playoff games. Review the exact games before continuing.",
+  );
+  if (review) return review;
+  let nextBracket = null;
+  if (operation.action === "updateEventBracket") {
+    nextBracket = preparedUpdate;
+    nextBracket.created = Date.now();
+    brackets[index] = nextBracket;
+  } else if (operation.action === "resetEventBracket") {
+    nextBracket = { ...current, created: Date.now() };
+    brackets[index] = nextBracket;
+  } else if (operation.action === "removeEventBracket") {
+    brackets.splice(index, 1);
+  } else {
+    return { error: [400, "unsupported_action", "This bracket action is not supported."] };
+  }
+  event.brackets = brackets;
+  const now = Date.now(), removedGameIds = new Set(affectedGames.map(value => value.id));
+  const deletedGameIds = { ...(row.deletedGameIds || {}) };
+  removedGameIds.forEach(id => { deletedGameIds[id] = now; });
+  const retainedMatches = (row.matches || [])
+    .filter(value => value?.bracketId !== current.id)
+    .map(value => structuredClone(value));
+  const rebuilt = nextBracket ? eventStaffBracketMatches({ ...row, event }, nextBracket) : [];
+  return {
+    event,
+    games: (row.games || []).filter(value => !removedGameIds.has(value?.id)).map(value => structuredClone(value)),
+    matches: [...retainedMatches, ...rebuilt],
+    deletedGameIds,
+    previous: current,
+    next: nextBracket ? { ...nextBracket, impact } : { removed: true, impact },
+    targetType: "eventBracket",
+    warnings: eventStaffStructuralWarnings(event),
+  };
+}
+
 function eventStaffCheckInPlan(row, operation) {
   const event = structuredClone(row.event || {});
   if (!eventStaffEventDayCheckInEnabled(event)) {
@@ -7839,6 +9071,32 @@ function eventStaffCorrectionAllowed(row, targetId) {
 }
 
 async function eventStaffOperationPlan(auth, operation) {
+  if (["addEventEntry", "updateEventEntry", "moveEventParticipant", "removeEventEntry"].includes(operation.action)) {
+    const plan = eventStaffEntryPlan(auth.event, operation);
+    if (!plan.error) plan.event.staffStructureRevision = Math.max(0, Number(auth.event.event?.staffStructureRevision) || 0) + 1;
+    return plan;
+  }
+  if (operation.action === "reorderEventEntries") {
+    const plan = eventStaffReorderEntriesPlan(auth.event, operation);
+    if (!plan.error) plan.event.staffStructureRevision = Math.max(0, Number(auth.event.event?.staffStructureRevision) || 0) + 1;
+    return plan;
+  }
+  if ([
+    "setEventScheduleSettings", "generateEventSchedule",
+    "regenerateRemainingSchedule", "clearEventSchedule",
+  ].includes(operation.action)) {
+    const plan = eventStaffSchedulePlan(auth.event, operation);
+    if (!plan.error) plan.event.staffStructureRevision = Math.max(0, Number(auth.event.event?.staffStructureRevision) || 0) + 1;
+    return plan;
+  }
+  if ([
+    "createEventBracket", "updateEventBracket",
+    "resetEventBracket", "removeEventBracket",
+  ].includes(operation.action)) {
+    const plan = eventStaffBracketPlan(auth.event, operation);
+    if (!plan.error) plan.event.staffStructureRevision = Math.max(0, Number(auth.event.event?.staffStructureRevision) || 0) + 1;
+    return plan;
+  }
   if (["recordEventScore", "correctEventScore", "completeBracketMatch"].includes(operation.action)) {
     const target = (auth.event.matches || []).find(match => match?.id === operation.targetId);
     if (
@@ -7941,8 +9199,23 @@ async function applyEventStaffOperation(request, env) {
     return eventStaffError(request, 403, "event_scope_mismatch", "This grant cannot operate that event.");
   }
   const requiredPermission = EVENT_STAFF_OPERATION_PERMISSIONS[operation.action];
-  if (!eventStaffGrantPermissions(auth.grant).includes(requiredPermission)) {
+  const permissions = eventStaffGrantPermissions(auth.grant);
+  if (!permissions || !permissions.includes(requiredPermission)) {
     return eventStaffError(request, 403, "permission_denied", "This event staff role cannot perform that action.");
+  }
+  const structural = [
+    "addEventEntry", "updateEventEntry", "moveEventParticipant", "reorderEventEntries", "removeEventEntry",
+    "setEventScheduleSettings", "generateEventSchedule", "regenerateRemainingSchedule",
+    "clearEventSchedule", "createEventBracket", "updateEventBracket",
+    "resetEventBracket", "removeEventBracket",
+  ].includes(operation.action);
+  if (structural && operation.replayed) {
+    return eventStaffError(
+      request,
+      400,
+      "structural_operation_online_only",
+      "Event entry, schedule, and bracket changes must be submitted online and cannot be replayed from an offline queue.",
+    );
   }
   const requestHash = await sha256(stableEventStaffJson({
     eventId: operation.eventId,
@@ -7982,6 +9255,7 @@ async function applyEventStaffOperation(request, env) {
     serverTimestamp: now,
     warnings: plan.warnings,
     operationReference,
+    ...(plan.targetId ? { targetId: plan.targetId } : {}),
   };
   const responseJson = stableEventStaffJson(storedResponse);
   const source = operation.replayed ? "queued" : "online";
@@ -8068,7 +9342,7 @@ async function applyEventStaffOperation(request, env) {
         AND changes() = 1
     `).bind(
       operationReference, auth.grant.staff_label, auth.grant.role, operation.action,
-      plan.targetType, operation.targetId,
+      plan.targetType, plan.targetId || operation.targetId,
       plan.previous == null ? null : stableEventStaffJson(plan.previous),
       plan.next == null ? null : stableEventStaffJson(plan.next),
       source, now,
@@ -8207,6 +9481,94 @@ function eventStaffApplyMovedMatch(ownerEvent, match) {
   ownerEvent.sched = { ...ownerEvent.sched, lockedMatches: locked };
 }
 
+function eventStaffApplyStructure(ownerEvent, row) {
+  const mergeEntries = (key, incoming) => {
+    const previous = new Map((Array.isArray(ownerEvent[key]) ? ownerEvent[key] : [])
+      .filter(Boolean)
+      .map(value => [value.id, value]));
+    ownerEvent[key] = incoming.map(value => ({
+      ...(previous.get(value.id) || {}),
+      ...structuredClone(value),
+      players: eventStaffSafeIdList(value.players),
+      substitutePlayerIds: eventStaffSafeIdList(value.substitutePlayerIds),
+    }));
+  };
+  if (row.event?.format === "rotatingGroups") {
+    mergeEntries("entries", eventStaffEntryCollection(row.event));
+    delete ownerEvent.pairs;
+  } else {
+    mergeEntries("teams", Array.isArray(row.event?.teams) ? row.event.teams : []);
+  }
+  ownerEvent.brackets = Array.isArray(row.event?.brackets)
+    ? structuredClone(row.event.brackets)
+    : [];
+  const scheduled = (row.matches || []).filter(match =>
+    match && match.phase !== "playoff" && match.kind !== "playoff");
+  if (row.event?.format === "rotatingGroups") {
+    ownerEvent.rotation = {
+      ...(ownerEvent.rotation && typeof ownerEvent.rotation === "object" ? ownerEvent.rotation : {}),
+      ...(row.event?.rotation && typeof row.event.rotation === "object"
+        ? structuredClone(row.event.rotation)
+        : {}),
+    };
+    ownerEvent.rotationSchedule = scheduled.map((match, index) => ({
+      id: match.id,
+      round: Number.isInteger(Number(match.round)) ? Number(match.round) : Number(match.slot) + 1,
+      court: Number.isInteger(Number(match.court)) ? Number(match.court) : 1,
+      sideAEntryIds: eventStaffSafeIdList(match.sideAEntryIds),
+      sideBEntryIds: eventStaffSafeIdList(match.sideBEntryIds),
+      scheduleBlock: match.scheduleBlock || (match.phase === "makeup" ? "makeup" : "standard"),
+      ...(match.phase === "makeup" ? { makeupIndex: index + 1 } : {}),
+      timeOffsetMinutes: Math.max(0, Number(match.slot) || 0)
+        * Math.max(5, Number(row.event?.rotation?.setMin) || 25),
+      status: match.status || "pending",
+      label: cleanEventStaffText(match.label, 180),
+    }));
+    delete ownerEvent.pairSchedule;
+  } else {
+    const settings = row.event?.sched && typeof row.event.sched === "object"
+      ? structuredClone(row.event.sched)
+      : {};
+    if (row.event?.scheduleGenerated === false && !scheduled.length) {
+      ownerEvent.eventStaffScheduleDraft = settings;
+      delete ownerEvent.sched;
+      ownerEvent.fixedScheduleExtras = [];
+      return;
+    }
+    delete ownerEvent.eventStaffScheduleDraft;
+    const standard = scheduled.filter(match =>
+      (match.scheduleBlock || (match.phase === "makeup" ? "makeup" : "standard")) === "standard");
+    const extras = scheduled.filter(match => !standard.includes(match));
+    settings.lockedMatches = standard.map(match => ({
+      id: match.id,
+      a: match.teamAId || match.sideAId || match.a,
+      b: match.teamBId || match.sideBId || match.b,
+      slot: Math.max(0, Number(match.slot) || 0),
+      round: Math.max(1, Number(match.round) || Number(match.slot) + 1),
+      court: Math.max(0, (Number(match.court) || 1) - 1),
+      est: Number(match.scheduledAt) || null,
+      scheduleBlock: "standard",
+      status: match.status || "pending",
+    })).filter(match => match.a && match.b);
+    ownerEvent.sched = {
+      ...(ownerEvent.sched && typeof ownerEvent.sched === "object" ? ownerEvent.sched : {}),
+      ...settings,
+    };
+    ownerEvent.fixedScheduleExtras = extras.map(match => ({
+      id: match.id,
+      a: match.teamAId || match.sideAId || match.a,
+      b: match.teamBId || match.sideBId || match.b,
+      slot: Math.max(0, Number(match.slot) || 0),
+      round: Math.max(1, Number(match.round) || Number(match.slot) + 1),
+      court: Math.max(0, (Number(match.court) || 1) - 1),
+      est: Number(match.scheduledAt) || null,
+      scheduleBlock: match.scheduleBlock || (match.phase === "makeup" ? "makeup" : "custom"),
+      status: match.status || "pending",
+      label: cleanEventStaffText(match.label, 180),
+    })).filter(match => match.a && match.b);
+  }
+}
+
 function eventStaffOverlayOwnerData(source, rows) {
   const data = source && typeof source === "object" && !Array.isArray(source)
     ? structuredClone(source)
@@ -8240,6 +9602,9 @@ function eventStaffOverlayOwnerData(source, rows) {
       const ownerEvent = structuredClone(events[eventIndex]);
       if (row.event?.registrationCheckIn && typeof row.event.registrationCheckIn === "object") {
         ownerEvent.registrationCheckIn = structuredClone(row.event.registrationCheckIn);
+      }
+      if (Number(row.event?.staffStructureRevision) > 0) {
+        eventStaffApplyStructure(ownerEvent, row);
       }
       (row.matches || []).forEach(match => eventStaffApplyMovedMatch(ownerEvent, match));
       events[eventIndex] = ownerEvent;
@@ -8563,7 +9928,7 @@ function eventStaffDeskPage() {
     *{box-sizing:border-box}html{background:var(--wash)}body{margin:0;color:var(--ink);background:var(--wash);line-height:1.4}button,input,select{font:inherit}button{min-height:44px;border:1px solid var(--line);border-radius:11px;background:#fff;color:var(--ink);font-weight:750;cursor:pointer}button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid #2679ad;outline-offset:2px}button.primary{border-color:#244b72;background:#244b72;color:#fff}button.danger{border-color:#d8adad;color:var(--bad)}button.link{border:0;background:transparent;color:#245f8c}.shell{width:min(760px,100%);min-height:100vh;margin:0 auto;background:#f8fafd;padding-bottom:calc(86px + env(safe-area-inset-bottom))}
     header{padding:calc(18px + env(safe-area-inset-top)) 18px 18px;background:var(--navy);color:#fff}header h1{margin:4px 0 2px;font-size:clamp(24px,7vw,34px);overflow-wrap:anywhere}.restricted{display:inline-flex;padding:5px 8px;border:1px solid #f0ca71aa;border-radius:999px;color:var(--gold);font-size:11px;font-weight:850;letter-spacing:.08em;text-transform:uppercase}.head-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}.head-actions{display:flex;flex-wrap:wrap;justify-content:flex-end;gap:8px}.head-row button{flex:none;border-color:#ffffff55;background:#ffffff0e;color:#fff}.meta{margin-top:8px;color:#d5deeb;font-size:13px}.status-row{display:flex;flex-wrap:wrap;gap:7px;margin-top:12px}.pill{padding:5px 8px;border-radius:999px;background:#ffffff16;color:#e7edf6;font-size:11px}.pill.online{background:#dff4e8;color:#185b35}.pill.offline{background:#fff0d2;color:#744708}.pill.pending{background:#fff0d2;color:#744708}
     nav{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:7px;padding:12px 14px;border-bottom:1px solid var(--line);background:#fff}nav button{min-width:0;padding:8px;font-size:12px}nav button.on{border-color:#244b72;background:#e9f1f8;color:#163f63}main{padding:14px}.panel{display:none}.panel.on{display:block}.panel h2{margin:3px 0 12px;font-size:21px}.card{margin:0 0 11px;padding:14px;border:1px solid var(--line);border-radius:14px;background:var(--paper);box-shadow:0 2px 8px #1823390a}.card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px}.eyebrow{color:var(--muted);font-size:11px;font-weight:850;letter-spacing:.06em;text-transform:uppercase}.teams{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:10px 0;font-size:16px;font-weight:850}.teams span:nth-child(2){color:var(--muted);font-size:11px}.teams span:last-child{text-align:right}.score{font-size:24px;font-weight:900;font-variant-numeric:tabular-nums}.actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:11px}.actions button{flex:1 1 130px;padding:9px}.muted{color:var(--muted)}.small{font-size:12px}.empty{padding:26px 14px;text-align:center;color:var(--muted)}.notice{margin:12px 14px 0;padding:11px 13px;border-radius:11px;background:#eaf3fa;color:#234f70;font-size:13px}.notice.warn{background:#fff1d6;color:#70440a}.notice.bad{background:#fde8e8;color:#812d2d}.notice.ok{background:#e3f4e9;color:#1c653b}.queue{margin:12px 14px 0;padding:12px;border:1px solid #e2c37e;border-radius:12px;background:#fff7e4}.queue button{margin-top:8px;margin-right:6px;padding:8px 11px}.entry-row,.schedule-row,.standing-row,.activity-row{display:grid;gap:5px;margin-bottom:9px;padding:12px;border:1px solid var(--line);border-radius:12px;background:#fff}.standing-row{grid-template-columns:32px minmax(0,1fr) auto;align-items:center}.entry-row select{width:100%;min-height:44px;margin-top:8px;padding:8px;border:1px solid var(--line);border-radius:10px;background:#fff}.contact{margin-top:8px;padding:9px;border-radius:9px;background:var(--wash);overflow-wrap:anywhere}.quick-rules{display:grid;grid-template-columns:minmax(0,1fr);gap:7px;margin:10px 0 16px}.quick-rule{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:11px;background:#fff}.quick-rule span:last-child{text-align:right;overflow-wrap:anywhere}.rules-body{padding:14px;border:1px solid var(--line);border-radius:14px;background:#fff;overflow-wrap:anywhere}.rules-body h2,.rules-body h3{margin:18px 0 8px}.rules-body h2:first-child,.rules-body h3:first-child{margin-top:0}.rules-body p,.rules-body ul,.rules-body ol{margin:8px 0}.rules-body aside{margin:12px 0;padding:11px 12px;border-left:4px solid var(--gold);border-radius:8px;background:#fff4d9}.rules-body table{width:100%;table-layout:fixed;border-collapse:collapse}.rules-body th,.rules-body td{padding:7px;border:1px solid var(--line);vertical-align:top;overflow-wrap:anywhere}.rules-body a{color:#245f8c;text-decoration:underline}
-    dialog{width:min(520px,calc(100% - 24px));max-height:calc(100vh - 32px);padding:0;border:0;border-radius:16px;box-shadow:0 22px 70px #10182766}dialog::backdrop{background:#10182799}.dialog-body{padding:18px;overflow:auto}.dialog-body h2{margin:0 0 6px}.field{margin-top:13px}.field label{display:block;margin-bottom:5px;font-size:12px;font-weight:800}.field input,.field select{width:100%;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.set-row{display:grid;grid-template-columns:42px 1fr 1fr;align-items:center;gap:8px;margin-top:8px}.set-row input{width:100%;min-width:0;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.dialog-actions{display:flex;gap:8px;margin-top:16px}.dialog-actions button{flex:1}.access{width:min(500px,calc(100% - 28px));margin:calc(36px + env(safe-area-inset-top)) auto;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 12px 35px #17243b1a}.access h1{margin:6px 0}.access input{width:100%;min-height:48px;margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:11px}.access button{width:100%}.access .restricted{color:#77510e;border-color:#d4ad55}.hidden{display:none!important}@media(min-width:620px){nav{grid-template-columns:repeat(4,minmax(0,1fr))}main{padding:18px}.card{padding:16px}}
+    dialog{width:min(520px,calc(100% - 24px));max-height:calc(100vh - 32px);padding:0;border:0;border-radius:16px;box-shadow:0 22px 70px #10182766}dialog::backdrop{background:#10182799}.dialog-body{padding:18px;overflow:auto}.dialog-body h2{margin:0 0 6px}.field{margin-top:13px}.field label{display:block;margin-bottom:5px;font-size:12px;font-weight:800}.field input,.field select{width:100%;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.set-row{display:grid;grid-template-columns:42px 1fr 1fr;align-items:center;gap:8px;margin-top:8px}.set-row input{width:100%;min-width:0;min-height:46px;padding:9px;border:1px solid var(--line);border-radius:10px;background:#fff}.dialog-actions{display:flex;gap:8px;margin-top:16px}.dialog-actions button{flex:1}.management{margin-bottom:12px;padding:13px;border:1px solid #b8cadb;border-radius:14px;background:#eef5fb}.management h3{margin:0 0 5px}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px}.form-grid .field{margin-top:8px}.form-grid .wide{grid-column:1/-1}.compact-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.compact-actions button{flex:1 1 120px;padding:8px}.roster-pick{display:grid;grid-template-columns:minmax(0,1fr) 140px;gap:7px;align-items:center;margin-top:7px}.roster-pick select{min-height:42px;padding:7px;border:1px solid var(--line);border-radius:9px;background:#fff}.impact-list{margin:12px 0;padding-left:20px}.impact-list li{margin:6px 0;overflow-wrap:anywhere}.static-warning{margin:10px 0;padding:10px;border:1px solid #e1bf72;border-radius:10px;background:#fff5dd;color:#70440a}.access{width:min(500px,calc(100% - 28px));margin:calc(36px + env(safe-area-inset-top)) auto;padding:20px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 12px 35px #17243b1a}.access h1{margin:6px 0}.access input{width:100%;min-height:48px;margin:12px 0;padding:10px;border:1px solid var(--line);border-radius:11px}.access button{width:100%}.access .restricted{color:#77510e;border-color:#d4ad55}.hidden{display:none!important}@media(max-width:430px){.form-grid{grid-template-columns:1fr}.form-grid .wide{grid-column:auto}.roster-pick{grid-template-columns:1fr}}@media(min-width:620px){nav{grid-template-columns:repeat(4,minmax(0,1fr))}main{padding:18px}.card{padding:16px}}
   </style>
 </head>
 <body>
@@ -8600,6 +9965,19 @@ function eventStaffDeskPage() {
     <div class="field"><label for="move-placement">Valid court and time</label><select id="move-placement"></select></div>
     <div class="dialog-actions"><button id="move-cancel" type="button">Cancel</button><button id="move-save" class="primary" type="button">Queue move</button></div>
   </form></dialog>
+  <dialog id="entry-dialog" aria-labelledby="entry-title"><form method="dialog" class="dialog-body">
+    <h2 id="entry-title">Event entry</h2><p class="muted">Changes apply only to this event. Registration records and global player profiles are never edited.</p>
+    <div class="field"><label for="entry-name">Entry name</label><input id="entry-name" maxlength="120"></div>
+    <div class="form-grid"><div class="field"><label for="entry-status">Status</label><select id="entry-status"><option value="active">Active</option><option value="inactive">Inactive</option><option value="withdrawn">Withdrawn</option><option value="unavailable">Unavailable</option></select></div><div class="field"><label for="entry-pool">Pool</label><input id="entry-pool" maxlength="24"></div></div>
+    <div class="field"><label for="participant-search">Find event participant</label><div class="roster-pick"><input id="participant-search" maxlength="100" autocomplete="off"><button id="participant-search-button" type="button">Search</button></div></div>
+    <div id="participant-results" class="small"></div><div id="entry-roster"></div>
+    <div class="dialog-actions"><button id="entry-cancel" type="button">Cancel</button><button id="entry-save" class="primary" type="button">Save online</button></div>
+  </form></dialog>
+  <dialog id="impact-dialog" aria-labelledby="impact-title"><form method="dialog" class="dialog-body">
+    <h2 id="impact-title">Review structural impact</h2><p class="muted">Nothing has changed yet. Confirm only after reviewing the exact affected history.</p>
+    <div id="impact-body"></div>
+    <div class="dialog-actions"><button id="impact-cancel" type="button">Cancel</button><button id="impact-confirm" class="danger" type="button">Confirm change</button></div>
+  </form></dialog>
   <script nonce="${nonce}">
   (function(){
     "use strict";
@@ -8607,7 +9985,7 @@ function eventStaffDeskPage() {
     var linkToken=fragment.get("token")||"";
     history.replaceState(null,"",location.pathname+location.search);
     var SESSION_KEY="court:event-staff:session:v1",DB_NAME="court-event-staff-v1";
-    var session=null,state=null,queueScope="",activeTab="matches",lastSuccess=0,busy=false,queueBlocked=false,queueIssue=null,queueSequence=0,drainRevision=null,serviceUnavailable=false,scoreMatch=null,scorePrefill=null,scoreReturnFocus=null,moveMatch=null,moveReturnFocus=null,dbPromise=null;
+    var session=null,state=null,queueScope="",activeTab="matches",lastSuccess=0,busy=false,queueBlocked=false,queueIssue=null,queueSequence=0,drainRevision=null,serviceUnavailable=false,scoreMatch=null,scorePrefill=null,scoreReturnFocus=null,moveMatch=null,moveReturnFocus=null,entryDraft=null,structuralPending=null,dbPromise=null;
     var access=document.getElementById("access"),desk=document.getElementById("desk"),notice=document.getElementById("notice"),queueBox=document.getElementById("queue-state");
     function text(value){return value==null?"":String(value)}
     function el(tag,attrs,children){var node=document.createElement(tag);Object.keys(attrs||{}).forEach(function(key){if(key==="class")node.className=attrs[key];else if(key==="hidden")node.hidden=!!attrs[key];else node.setAttribute(key,attrs[key])});(Array.isArray(children)?children:[children]).forEach(function(child){if(child==null)return;node.append(child.nodeType?child:document.createTextNode(text(child)))});return node}
@@ -8624,26 +10002,44 @@ function eventStaffDeskPage() {
     function saveSession(){if(session)sessionStorage.setItem(SESSION_KEY,JSON.stringify(session));else sessionStorage.removeItem(SESSION_KEY)}
     function loadSession(){try{var value=JSON.parse(sessionStorage.getItem(SESSION_KEY)||"null");if(value&&value.token&&value.expiresAt>Date.now())return value;sessionStorage.removeItem(SESSION_KEY);if(value&&typeof value.queueScope==="string"&&value.queueScope)clearScope(value.queueScope)}catch(error){sessionStorage.removeItem(SESSION_KEY)}return null}
     async function api(path,options){var headers={"Content-Type":"application/json"},response;if(session&&session.token)headers.Authorization="Bearer "+session.token;try{response=await fetch(path,{method:options&&options.method||"GET",headers:headers,body:options&&options.body?JSON.stringify(options.body):undefined,cache:"no-store",credentials:"same-origin"})}catch(error){serviceUnavailable=true;setConnection();throw error}serviceUnavailable=response.status>=500;setConnection();var body={};try{body=await response.json()}catch(error){}if(!response.ok){var failure=new Error(body.message||"Request failed");failure.status=response.status;failure.body=body;throw failure}return body}
-    function setConnection(){var online=navigator.onLine&&!serviceUnavailable;var node=document.getElementById("connection");node.textContent=!navigator.onLine?"Offline · writes pending":serviceUnavailable?"Service unavailable · writes pending":"Online";node.className="pill "+(online?"online":"offline");document.getElementById("last-sync").textContent=lastSuccess?"Last sync "+new Date(lastSuccess).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Not synchronized"}
+    function setConnection(){var online=navigator.onLine&&!serviceUnavailable;var node=document.getElementById("connection");node.textContent=!navigator.onLine?"Offline · scores can queue; structure unavailable":serviceUnavailable?"Service unavailable · scores can queue; structure unavailable":"Online";node.className="pill "+(online?"online":"offline");document.getElementById("last-sync").textContent=lastSuccess?"Last sync "+new Date(lastSuccess).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"}):"Not synchronized";document.querySelectorAll(".management button,#entry-save,#participant-search-button,#impact-confirm").forEach(function(button){if(!online){if(!button.disabled)button.dataset.offlineDisabled="true";button.disabled=true}else if(button.dataset.offlineDisabled==="true"){button.disabled=false;delete button.dataset.offlineDisabled}})}
     function showAccess(message){desk.classList.add("hidden");access.classList.remove("hidden");document.getElementById("access-message").textContent=message||"";document.getElementById("staff-pin").focus()}
     function setState(next){state=next;lastSuccess=Date.now();setConnection();if(queueScope)storePut("cache",{key:"cache:"+queueScope,scope:queueScope,state:state,updatedAt:lastSuccess});render()}
     async function redeem(){if(!linkToken){showAccess("Open the staff link supplied by the organizer.");return}var button=document.getElementById("redeem");button.disabled=true;document.getElementById("access-message").textContent="Checking access…";try{var result=await api("/api/event-staff/redeem",{method:"POST",body:{token:linkToken,pin:document.getElementById("staff-pin").value}});session={token:result.sessionToken,expiresAt:result.sessionExpiresAt,queueScope:result.queueScope};queueScope=result.queueScope;saveSession();linkToken="";document.getElementById("staff-pin").value="";access.classList.add("hidden");desk.classList.remove("hidden");setState(result.state);await processQueue()}catch(error){document.getElementById("access-message").textContent=error.status===429?"Too many attempts. Wait before trying again.":"The staff link or PIN could not be accepted."}finally{button.disabled=false}}
     async function refresh(){if(!session)return false;try{var result=await api("/api/event-staff/state");desk.classList.remove("hidden");access.classList.add("hidden");setState(result.state);queueBlocked=false;queueIssue=null;await processQueue();return true}catch(error){if(error.status===401){await clearScope();session=null;state=null;saveSession();showAccess(error.body&&error.body.error==="access_revoked"?"This staff access was revoked.":"This staff access expired.")}else{var cached=(await storeAll("cache")).find(function(row){return row.key==="cache:"+queueScope});if(cached&&cached.state){state=cached.state;lastSuccess=Number(cached.updatedAt)||0;desk.classList.remove("hidden");access.classList.add("hidden");render();showNotice("Offline · showing the last synchronized event state. Writes will remain pending.","warn")}else showAccess("The Tournament Desk is unavailable while offline.")}return false}}
     async function manualRefresh(){var button=document.getElementById("refresh");if(!session||button.disabled)return;button.disabled=true;button.textContent="Refreshing…";showNotice("Refreshing event…");try{if(await refresh())showNotice("Event refreshed.","ok")}finally{button.disabled=false;button.textContent="Refresh"}}
-    function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"]];if(state.grant.role==="tournamentOperator"&&state.event.eventDayCheckInEnabled===true&&can("setEntryCheckIn"))list.splice(1,0,["checkin","Check-In"]);if(state.event.publishedRules)list.push(["rules","Rules"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
-    function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="rules")renderRules(panel);else renderActivity(panel);setConnection();renderQueue()}
+    function sections(){var list=[["matches","Current Matches"],["schedule","Schedule"],["standings","Standings"],["bracket","Bracket"]];if(state.grant.role==="tournamentOperator"&&can("manageEventEntries"))list.splice(1,0,["entries","Entries"]);if(state.grant.role==="tournamentOperator"&&state.event.eventDayCheckInEnabled===true&&can("setEntryCheckIn"))list.splice(list.findIndex(function(item){return item[0]==="schedule"}),0,["checkin","Check-In"]);if(state.event.publishedRules)list.push(["rules","Rules"]);if(can("viewActivity"))list.push(["activity","Activity"]);return list}
+    function render(){if(!state)return;desk.classList.remove("hidden");access.classList.add("hidden");document.getElementById("event-name").textContent=state.event.name||"Tournament Desk";document.getElementById("event-meta").textContent=[state.event.eventDate,state.event.venue||state.event.location].filter(Boolean).join(" · ");document.getElementById("staff-meta").textContent=state.grant.staffLabel+" · "+roleLabel(state.grant.role);var tabs=document.getElementById("tabs"),content=document.getElementById("content");tabs.replaceChildren();content.replaceChildren();var available=sections();if(!available.some(function(item){return item[0]===activeTab}))activeTab="matches";available.forEach(function(item){var button=el("button",{type:"button",class:item[0]===activeTab?"on":""},item[1]);button.addEventListener("click",function(){activeTab=item[0];render()});tabs.append(button)});var panel=el("section",{class:"panel on","data-panel":activeTab});content.append(panel);if(activeTab==="matches")renderMatches(panel);else if(activeTab==="entries")renderEntries(panel);else if(activeTab==="checkin")renderCheckIn(panel);else if(activeTab==="schedule")renderSchedule(panel);else if(activeTab==="standings")renderStandings(panel);else if(activeTab==="bracket")renderBracket(panel);else if(activeTab==="rules")renderRules(panel);else renderActivity(panel);setConnection();renderQueue()}
     function heading(panel,title){panel.append(el("h2",{},title))}
     function matchCard(match,actions){var card=el("article",{class:"card"}),head=el("div",{class:"card-head"});head.append(el("div",{},[el("div",{class:"eyebrow"},[match.courtLabel||"Court TBD"," · ",formatTime(match.scheduledAt)]),el("div",{class:"small muted"},match.label||"Scheduled match")]),el("strong",{class:match.result?"score":""},match.result?match.result.scoreLabel:(match.status||"Pending")));card.append(head,el("div",{class:"teams"},[el("span",{},match.sideAName||"Side A"),el("span",{},"VS"),el("span",{},match.sideBName||"Side B")]));if(actions){var row=el("div",{class:"actions"});if(can("recordEventScore")&&!match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var score=el("button",{type:"button",class:"primary","data-match-action":"score","data-match-id":match.id},"Enter score");score.addEventListener("click",function(){openScore(match,score)});row.append(score)}var correctionAllowed=state.grant.role==="tournamentOperator"||match.staffScoreCorrectable===true;if(can("correctEventScore")&&correctionAllowed&&match.result&&(match.phase!=="playoff"||can("completeBracketMatch"))){var correct=el("button",{type:"button","data-match-action":"score","data-match-id":match.id},"Correct score");correct.addEventListener("click",function(){openScore(match,correct)});row.append(correct)}if(can("moveScheduledMatch")&&!match.result&&match.phase!=="playoff"&&Array.isArray(match.validPlacements)&&match.validPlacements.length){var move=el("button",{type:"button","data-match-action":"move","data-match-id":match.id},"Move match");move.addEventListener("click",function(){openMove(match,move)});row.append(move)}if(row.childNodes.length)card.append(row)}return card}
     function renderMatches(panel){heading(panel,"Current Matches");var list=(state.matches||[]).slice().sort(function(a,b){return Number(a.scheduledAt||9e15)-Number(b.scheduledAt||9e15)});var current=list.filter(function(match){return !match.result||match.status==="inProgress"});(current.length?current:list.slice(0,20)).forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No scheduled matches are available."))}
-    function renderSchedule(panel){heading(panel,"Schedule");(state.matches||[]).filter(function(match){return match.phase!=="playoff"}).sort(function(a,b){return Number(a.scheduledAt)-Number(b.scheduledAt)}).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.matches||[]).length)panel.append(el("div",{class:"empty"},"No schedule is available."))}
+    function eventEntries(){return state.event.format==="rotatingGroups"?state.event.entries||[]:state.event.teams||[]}
+    function bracketEntries(){return state.event.teams||[]}
+    function bracketSeedCandidates(){return bracketEntries().filter(function(value){return (value.status||"active")==="active"}).slice().sort(function(a,b){return Number(a.manualSeed||1e6)-Number(b.manualSeed||1e6)||a.name.localeCompare(b.name)})}
+    function renderBracketSeedControls(bracket,row){var seeds=(bracket.seeds||[]).slice(),list=el("div",{class:"seed-list"});seeds.forEach(function(id,index){var seed=bracketEntries().find(function(value){return value.id===id}),line=el("div",{class:"roster-pick"}),actions=el("div",{class:"compact-actions"}),up=el("button",{type:"button","aria-label":"Move "+(seed&&seed.name||id)+" seed up"},"↑"),down=el("button",{type:"button","aria-label":"Move "+(seed&&seed.name||id)+" seed down"},"↓"),remove=el("button",{type:"button",class:"danger","aria-label":"Remove "+(seed&&seed.name||id)+" from bracket"},"Remove");up.disabled=index===0;down.disabled=index===seeds.length-1;remove.disabled=seeds.length<=2;up.addEventListener("click",function(){var next=seeds.slice(),swap=next[index-1];next[index-1]=next[index];next[index]=swap;submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:next,reason:"operator_reordered_bracket_seeds"})});down.addEventListener("click",function(){var next=seeds.slice(),swap=next[index+1];next[index+1]=next[index];next[index]=swap;submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:next,reason:"operator_reordered_bracket_seeds"})});remove.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:bracket.name,seeds:seeds.filter(function(value){return value!==id}),reason:"operator_removed_bracket_seed"})});actions.append(up,down,remove);line.append(el("span",{},(index+1)+". "+(seed&&seed.name||id)),actions);list.append(line)});row.append(list)}
+    function participantName(id){var row=(state.participants||[]).find(function(value){return value.id===id});return row?row.name:id}
+    function renderEntries(panel){heading(panel,"Entries");var entries=eventEntries();var manage=el("section",{class:"management"},[el("h3",{},"Event-only entry administration"),el("p",{class:"small muted"},"Participant assignments affect this event only. Original registrations and global player profiles remain unchanged.")]);var add=el("button",{type:"button",class:"primary"},"Add entry");add.addEventListener("click",function(){openEntry(null)});manage.append(add);panel.append(manage);entries.forEach(function(entry,index){var box=el("article",{class:"entry-row"}),roster=(entry.players||[]).map(participantName).join(", ")||"Guest / no tracked participants";box.append(el("div",{class:"card-head"},[el("b",{},entry.name),el("span",{class:"small muted"},entry.status||"active")]),el("span",{class:"small"},roster));if((entry.substitutePlayerIds||[]).length)box.append(el("span",{class:"small muted"},"Substitutes: "+entry.substitutePlayerIds.map(participantName).join(", ")));if(entry.registrationSource||entry.registrationId)box.append(el("span",{class:"small muted"},"Registration source retained · staff edits do not change the original submission."));var actions=el("div",{class:"compact-actions"}),edit=el("button",{type:"button"},"Edit"),remove=el("button",{type:"button",class:"danger"},"Remove");edit.addEventListener("click",function(){openEntry(entry)});remove.addEventListener("click",function(){submitStructural("removeEventEntry",entry.id,{reason:"operator_removed_entry"})});actions.append(edit,remove);if(entries.length>1){var up=el("button",{type:"button"},"Seed up"),down=el("button",{type:"button"},"Seed down");up.disabled=index===0;down.disabled=index===entries.length-1;up.addEventListener("click",function(){reorderEntry(index,-1)});down.addEventListener("click",function(){reorderEntry(index,1)});actions.append(up,down)}box.append(actions);panel.append(box)});if(!entries.length)panel.append(el("div",{class:"empty"},"No entries are assigned to this event."))}
+    function scheduleField(grid,id,label,type,value){var field=el("div",{class:"field"}),input=el("input",{id:id,type:type||"text",value:value==null?"":value});field.append(el("label",{for:id},label),input);grid.append(field);return input}
+    function renderSchedule(panel){heading(panel,"Schedule");var list=(state.matches||[]).filter(function(match){return match.phase!=="playoff"}).sort(function(a,b){return Number(a.scheduledAt)-Number(b.scheduledAt)});if(can("configureEventSchedule")||can("generateEventSchedule")){var settings=state.event.format==="rotatingGroups"?state.event.rotation||{}:state.event.sched||state.event.scheduleSettings||{},manage=el("section",{class:"management"}),grid=el("div",{class:"form-grid"});manage.append(el("h3",{},"Schedule administration"),el("p",{class:"small muted"},"Structural changes save online only. Score entry keeps its existing offline queue."));scheduleField(grid,"schedule-rounds","Rounds","number",settings.rounds||settings.standardRounds||1);scheduleField(grid,"schedule-courts","Courts","number",settings.courts||1);scheduleField(grid,"schedule-start","Start time","time",settings.start||"10:00");scheduleField(grid,"schedule-duration","Match duration (minutes)","number",settings.setMin||25);var styleField=el("div",{class:"field"}),style=el("select",{id:"schedule-style"},[el("option",{value:"num"},"Numbered courts"),el("option",{value:"letter"},"Lettered courts")]);style.value=settings.courtStyle==="letter"?"letter":"num";styleField.append(el("label",{for:"schedule-style"},"Court labels"),style);grid.append(styleField);var fairnessField=el("div",{class:"field"}),fairness=el("select",{id:"schedule-fairness"},[el("option",{value:"allowDifference"},"Keep requested rounds"),el("option",{value:"equalGames"},"Balance games with makeup matches")]);fairness.value=settings.fairnessPolicy==="equalGames"?"equalGames":"allowDifference";fairnessField.append(el("label",{for:"schedule-fairness"},"Fairness policy"),fairness);grid.append(fairnessField);manage.append(grid);var actions=el("div",{class:"compact-actions"});if(can("configureEventSchedule")){var save=el("button",{type:"button"},"Save settings");save.addEventListener("click",saveScheduleSettings);actions.append(save)}if(can("generateEventSchedule")){var generate=el("button",{type:"button",class:"primary"},"Generate schedule"),regenerate=el("button",{type:"button"},"Regenerate remaining"),clear=el("button",{type:"button",class:"danger"},"Clear unplayed schedule");generate.addEventListener("click",function(){submitStructural("generateEventSchedule",state.event.id,{reason:"operator_generated_schedule"})});regenerate.addEventListener("click",function(){submitStructural("regenerateRemainingSchedule",state.event.id,{reason:"operator_regenerated_schedule"})});clear.addEventListener("click",function(){submitStructural("clearEventSchedule",state.event.id,{reason:"operator_cleared_schedule"})});actions.append(generate,regenerate,clear)}manage.append(actions);if(state.event.hasPublicSchedulePublication)manage.append(el("div",{class:"static-warning"},"Public schedules are static snapshots. Ask the organizer to republish after structural changes."));panel.append(manage)}list.forEach(function(match){panel.append(matchCard(match,true))});if(!list.length)panel.append(el("div",{class:"empty"},"No schedule is available."))}
     function renderStandings(panel){heading(panel,"Standings");(state.standings||[]).forEach(function(row,index){panel.append(el("div",{class:"standing-row"},[el("strong",{},index+1),el("span",{},[el("b",{},row.name),el("span",{class:"small muted"},(row.wins||0)+" wins · "+(row.losses||0)+" losses"+(row.ties?" · "+row.ties+" ties":""))]),el("strong",{},row.standingsPoints!=null?row.standingsPoints:(row.pointDifferential>0?"+":"")+Number(row.pointDifferential||0))]))});if(!(state.standings||[]).length)panel.append(el("div",{class:"empty"},"Standings will appear after results are saved."))}
-    function renderBracket(panel){heading(panel,"Bracket");(state.bracket||[]).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.bracket||[]).length)panel.append(el("div",{class:"empty"},"No bracket is available."))}
+    function renderBracket(panel){heading(panel,"Bracket");if(can("manageEventBrackets")){var eligible=bracketSeedCandidates(),manage=el("section",{class:"management"}),name=el("input",{id:"new-bracket-name",maxlength:"120",placeholder:"Division name"}),top=el("input",{id:"new-bracket-top",type:"number",min:"2",max:String(Math.max(2,eligible.length)),value:String(Math.max(2,eligible.length))}),mode=el("select",{id:"new-bracket-seed-mode"},[el("option",{value:"standings"},"Current standings"),el("option",{value:"manual"},"Selected manual order"),el("option",{value:"balanced"},"Existing balanced seed order")]),grid=el("div",{class:"form-grid"}),choices=el("div",{class:"entry-row"});grid.append(el("div",{class:"field"},[el("label",{for:"new-bracket-name"},"Division name"),name]),el("div",{class:"field"},[el("label",{for:"new-bracket-top"},"Top entries"),top]),el("div",{class:"field wide"},[el("label",{for:"new-bracket-seed-mode"},"Seed source"),mode]));choices.append(el("b",{},"Eligible playoff teams"),el("span",{class:"small muted"},"Selections apply to manual or balanced seeding."));eligible.forEach(function(entry){var label=el("label",{class:"roster-pick"}),pick=el("input",{type:"checkbox","data-bracket-entry":entry.id,checked:""});label.append(pick,el("span",{},entry.name));choices.append(label)});var create=el("button",{type:"button",class:"primary"},"Create bracket division");create.disabled=eligible.length<2;create.addEventListener("click",createBracket);manage.append(el("h3",{},"Bracket administration"),el("p",{class:"small muted"},state.event.format==="rotatingGroups"&&!eligible.length?"The organizer must first build fixed playoff teams from the rotating standings. Entry pool results remain separate from playoff results.":"Create multiple divisions, choose eligible teams, reseed before play, or reset one division after reviewing affected games."),grid,choices,create);(state.event.brackets||[]).forEach(function(bracket){var row=el("div",{class:"entry-row"}),rename=el("input",{"aria-label":"Name for "+bracket.name,value:bracket.name,maxlength:"120"}),actions=el("div",{class:"compact-actions"}),save=el("button",{type:"button"},"Save division name"),standings=el("button",{type:"button"},"Reseed from standings"),reset=el("button",{type:"button",class:"danger"},"Reset division"),remove=el("button",{type:"button",class:"danger"},"Remove division");save.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:rename.value,reason:"operator_renamed_bracket"})});standings.addEventListener("click",function(){submitStructural("updateEventBracket",bracket.id,{name:rename.value,seedMode:"standings",reason:"operator_reseeded_bracket_from_standings"})});reset.addEventListener("click",function(){submitStructural("resetEventBracket",bracket.id,{reason:"operator_reset_bracket"})});remove.addEventListener("click",function(){submitStructural("removeEventBracket",bracket.id,{reason:"operator_removed_bracket"})});actions.append(save,standings,reset,remove);row.append(el("b",{},bracket.name),el("span",{class:"small muted"},bracket.seeds.length+" seeded entries"),rename);renderBracketSeedControls(bracket,row);row.append(actions);manage.append(row)});if(state.event.hasPublicSchedulePublication)manage.append(el("div",{class:"static-warning"},"Public brackets are static snapshots. Ask the organizer to republish after changes."));panel.append(manage)}(state.bracket||[]).forEach(function(match){panel.append(matchCard(match,true))});if(!(state.bracket||[]).length)panel.append(el("div",{class:"empty"},"No bracket is available."))}
     function entryContact(entry){var contacts=state.contacts||[];return contacts.find(function(item){return item.registrationId===entry.registrationId})}
     function renderCheckIn(panel){heading(panel,"Check-In");var entries=state.event.format==="rotatingGroups"?state.event.entries:state.event.teams;(entries||[]).forEach(function(entry){var box=el("article",{class:"entry-row"}),status=entry.checkIn&&entry.checkIn.teamStatus||"not_checked_in";box.append(el("b",{},entry.name),el("span",{class:"small muted"},status.replace(/_/g," ")));var select=el("select",{"aria-label":"Attendance status for "+entry.name});[["not_checked_in","Not checked in"],["checked_in","Checked in"],["partially_arrived","Partially arrived"],["needs_review","Needs review"],["no_show","No-show"],["withdrawn","Withdrawn"]].forEach(function(option){var node=el("option",{value:option[0]},option[1]);if(option[0]===status)node.selected=true;select.append(node)});select.addEventListener("change",async function(){var selected=select.value;select.disabled=true;var queued=await queueOperation("setEntryAttendanceStatus",entry.id,{status:selected});if(!queued){select.value=status;showNotice("Attendance not queued because local storage is unavailable.","bad")}select.disabled=false});box.append(select);var contact=entryContact(entry);if(contact&&contact.contact)box.append(el("div",{class:"contact small"},[el("b",{},"Event contact"),el("div",{},contact.contact.name),el("div",{},contact.contact.email),el("div",{},contact.contact.phone)]));panel.append(box)});if(!(entries||[]).length)panel.append(el("div",{class:"empty"},"No accepted entries are available for check-in."))}
     function safeRuleHref(value){var href=text(value).trim();if(!href)return "";if(href.charAt(0)==="#")return href;try{var parsed=new URL(href,location.href);return ["http:","https:","mailto:","tel:"].indexOf(parsed.protocol)>=0?href:""}catch(error){return ""}}
     function appendRuleNode(parent,value){if(!value||typeof value!=="object")return;if(Object.prototype.hasOwnProperty.call(value,"text")){parent.append(document.createTextNode(text(value.text)));return}var allowed=["h2","h3","p","strong","em","ul","ol","li","a","br","hr","aside","table","tbody","thead","tr","th","td"],tag=text(value.tag).toLowerCase();if(allowed.indexOf(tag)<0)return;var attrs={},href=tag==="a"?safeRuleHref(value.href):"";if(href){attrs.href=href;attrs.target="_blank";attrs.rel="noopener noreferrer"}if(tag==="aside")attrs["data-callout"]=value.callout||"important";if((tag==="th"||tag==="td")&&Number(value.colspan)>1)attrs.colspan=String(value.colspan);var node=el(tag,attrs);(value.children||[]).forEach(function(child){appendRuleNode(node,child)});parent.append(node)}
     function renderRules(panel){heading(panel,"Rules");var rules=state.event.publishedRules;if(!rules)return;panel.append(el("p",{class:"small muted"},"Current published revision "+rules.number+" · "+new Date(rules.publishedAt).toLocaleString()));if((rules.quickRules||[]).length){panel.append(el("h3",{},"Quick Rules"));var quick=el("div",{class:"quick-rules"});rules.quickRules.forEach(function(row){quick.append(el("div",{class:"quick-rule"},[el("b",{},row.label),el("span",{},row.value||"Not decided")]))});panel.append(quick)}var body=el("article",{class:"rules-body"});(rules.content||[]).forEach(function(node){appendRuleNode(body,node)});if(!body.childNodes.length)body.append(el("div",{class:"empty"},"The current published rules document is blank."));panel.append(body)}
     function renderActivity(panel){heading(panel,"Activity");(state.activity||[]).forEach(function(item){panel.append(el("div",{class:"activity-row"},[el("b",{},item.staffLabel+" · "+item.action),el("span",{class:"small muted"},new Date(item.timestamp).toLocaleString()),el("span",{class:"small"},item.targetId||"Event")]))});if(!(state.activity||[]).length)panel.append(el("div",{class:"empty"},"No staff activity yet."))}
+    function renderEntryRoster(){var holder=document.getElementById("entry-roster");if(!holder||!entryDraft)return;holder.replaceChildren();var ids=entryDraft.players.concat(entryDraft.substitutePlayerIds);if(!ids.length){holder.append(el("p",{class:"small muted"},"No tracked participants. In fixed-team events this keeps Court’s existing guest-side rating behavior."));return}ids.forEach(function(id){var row=el("div",{class:"roster-pick"}),label=el("span",{},entryDraft.names[id]||participantName(id)),role=el("select",{"aria-label":"Event role for "+(entryDraft.names[id]||participantName(id))},[el("option",{value:"active"},"Active participant"),el("option",{value:"substitute"},"Substitute"),el("option",{value:"remove"},"Remove from entry")]);role.value=entryDraft.substitutePlayerIds.indexOf(id)>=0?"substitute":"active";role.addEventListener("change",function(){entryDraft.players=entryDraft.players.filter(function(value){return value!==id});entryDraft.substitutePlayerIds=entryDraft.substitutePlayerIds.filter(function(value){return value!==id});if(role.value==="active")entryDraft.players.push(id);else if(role.value==="substitute")entryDraft.substitutePlayerIds.push(id);renderEntryRoster()});row.append(label,role);holder.append(row)})}
+    function openEntry(entry){entryDraft={id:entry&&entry.id||null,players:(entry&&entry.players||[]).slice(),substitutePlayerIds:(entry&&entry.substitutePlayerIds||[]).slice(),names:{}};entryDraft.players.concat(entryDraft.substitutePlayerIds).forEach(function(id){entryDraft.names[id]=participantName(id)});document.getElementById("entry-title").textContent=entry?"Edit event entry":"Add event entry";document.getElementById("entry-name").value=entry&&entry.name||"";document.getElementById("entry-status").value=entry&&entry.status||"active";document.getElementById("entry-pool").value=entry&&entry.pool||"";document.getElementById("participant-search").value="";document.getElementById("participant-results").replaceChildren();renderEntryRoster();document.getElementById("entry-dialog").showModal();setTimeout(function(){document.getElementById("entry-name").focus()},0)}
+    async function searchEntryParticipants(){if(!entryDraft)return;var query=document.getElementById("participant-search").value.trim(),holder=document.getElementById("participant-results");holder.replaceChildren();if(query.length<2){holder.append(el("p",{class:"muted"},"Enter at least two characters."));return}if(!navigator.onLine||serviceUnavailable){holder.append(el("p",{class:"muted"},"Participant search is available online only."));return}try{var result=await api("/api/event-staff/participants?q="+encodeURIComponent(query));(result.participants||[]).forEach(function(participant){var assigned=eventEntries().find(function(entry){return (entry.players||[]).concat(entry.substitutePlayerIds||[]).indexOf(participant.id)>=0}),isCurrent=assigned&&assigned.id===entryDraft.id,canMove=assigned&&entryDraft.id&&!isCurrent&&state.event.format!=="rotatingGroups",label=isCurrent?"Already in this entry":canMove?"Move "+participant.displayName+" from "+assigned.name:assigned?"Assigned to "+assigned.name:"Add "+participant.displayName,add=el("button",{type:"button",class:"link"},label);add.disabled=Boolean(isCurrent||assigned&&!canMove);add.addEventListener("click",async function(){if(canMove){document.getElementById("entry-dialog").close();await submitStructural("moveEventParticipant",entryDraft.id,{participantId:participant.id,fromEntryId:assigned.id,reason:"operator_moved_event_participant"});entryDraft=null;return}if(entryDraft.players.indexOf(participant.id)<0&&entryDraft.substitutePlayerIds.indexOf(participant.id)<0)entryDraft.players.push(participant.id);entryDraft.names[participant.id]=participant.displayName;renderEntryRoster()});holder.append(add)});if(!(result.participants||[]).length)holder.append(el("p",{class:"muted"},"No matching event participants."))}catch(error){holder.append(el("p",{class:"muted"},error.message))}}
+    async function saveEntry(){if(!entryDraft)return;var name=document.getElementById("entry-name").value.trim();if(!name){showNotice("Enter an entry name.","bad");return}var payload={name:name,status:document.getElementById("entry-status").value,pool:document.getElementById("entry-pool").value,players:entryDraft.players.slice(),substitutePlayerIds:entryDraft.substitutePlayerIds.slice(),reason:entryDraft.id?"operator_updated_entry":"operator_added_entry"},action=entryDraft.id?"updateEventEntry":"addEventEntry",target=entryDraft.id||state.event.id;document.getElementById("entry-dialog").close();await submitStructural(action,target,payload)}
+    function reorderEntry(index,delta){var ids=eventEntries().map(function(value){return value.id}),other=index+delta;if(other<0||other>=ids.length)return;var swap=ids[index];ids[index]=ids[other];ids[other]=swap;submitStructural("reorderEventEntries",state.event.id,{entryIds:ids,reason:"operator_reseeded_entries"})}
+    function saveScheduleSettings(){submitStructural("setEventScheduleSettings",state.event.id,{settings:{rounds:Number(document.getElementById("schedule-rounds").value),courts:Number(document.getElementById("schedule-courts").value),start:document.getElementById("schedule-start").value,setMin:Number(document.getElementById("schedule-duration").value),courtStyle:document.getElementById("schedule-style").value,fairnessPolicy:document.getElementById("schedule-fairness").value},reason:"operator_configured_schedule"})}
+    function createBracket(){var entries=bracketSeedCandidates(),mode=document.getElementById("new-bracket-seed-mode").value,selected=entries.filter(function(value){var input=document.querySelector('[data-bracket-entry="'+CSS.escape(value.id)+'"]');return input&&input.checked});if(entries.length<2){showNotice("Build at least two eligible playoff teams in the organizer app before creating a bracket.","warn");return}if(mode!=="standings"&&selected.length<2){showNotice("Choose at least two eligible playoff teams.","bad");return}var source=mode==="standings"?entries:selected,top=Math.max(2,Math.min(source.length,Number(document.getElementById("new-bracket-top").value)||source.length)),payload={name:document.getElementById("new-bracket-name").value||"Playoffs",seedMode:mode,topCount:top,reason:"operator_created_bracket"};if(mode!=="standings")payload.seeds=source.slice(0,top).map(function(value){return value.id});submitStructural("createEventBracket",state.event.id,payload)}
+    function impactRows(impact){var rows=[];if((impact.completedGameIds||[]).length)rows.push("Completed games: "+impact.completedGameIds.join(", "));if((impact.unplayedMatchIds||[]).length)rows.push("Unplayed matches: "+impact.unplayedMatchIds.join(", "));if((impact.removedEntryIds||[]).length)rows.push("Entries: "+impact.removedEntryIds.join(", "));if((impact.removedParticipantIds||[]).length)rows.push("Participants: "+impact.removedParticipantIds.join(", "));rows.push("Standings: "+(impact.standingsAffected?"affected":"unchanged"));rows.push("Bracket: "+(impact.bracketAffected?"affected":"unchanged"));rows.push("Rating history: "+(impact.ratingHistory||"unchanged"));rows.push("Preservation: "+(impact.preservation||"existing history preserved"));if(impact.publicSnapshotStale)rows.push("Public publication: static snapshot will require organizer republish");return rows}
+    function showImpact(operation,impact){structuralPending=operation;var holder=document.getElementById("impact-body"),list=el("ul",{class:"impact-list"});impactRows(impact||{}).forEach(function(row){list.append(el("li",{},row))});holder.replaceChildren(list);document.getElementById("impact-dialog").showModal()}
+    async function confirmImpact(){if(!structuralPending)return;var pending=structuralPending;structuralPending=null;document.getElementById("impact-dialog").close();await submitStructural(pending.action,pending.targetId,Object.assign({},pending.payload,{confirmImpact:true}))}
+    async function submitStructural(action,targetId,payload){if(!state)return null;if(!navigator.onLine||serviceUnavailable){showNotice("Entry, schedule, and bracket changes require a live connection and were not queued.","bad");return null}var operation={eventId:state.event.id,action:action,targetId:targetId||state.event.id,expectedRevision:state.eventRevision,idempotencyKey:randomKey(),payload:payload||{},replayed:false};showNotice("Saving structural change online…","warn");try{var result=await api("/api/event-staff/operations",{method:"POST",body:operation});setState(result.state);if(result.warnings&&result.warnings.length)showNotice(result.warnings.map(function(item){return item.message}).join(" "),"warn");else showNotice("Structural change saved and synchronized.","ok");return result}catch(error){if(error.status===409&&error.body&&error.body.error==="impact_review_required"){showImpact({action:action,targetId:targetId,payload:payload},error.body.impact);showNotice("Review the exact historical impact before confirming.","warn");return null}if(error.body&&error.body.state)setState(error.body.state);showNotice(error.message+(error.body&&error.body.error==="revision_conflict"?" Refresh and review the latest event before retrying.":""),"bad");return null}}
     function scoreRows(){var holder=document.getElementById("score-sets"),mode=document.getElementById("score-mode").value,existing=scorePrefill&&scorePrefill.sets||scoreMatch&&scoreMatch.result&&scoreMatch.result.sets||[];holder.replaceChildren();var count=mode==="bo3"?3:1;for(var i=0;i<count;i+=1){var row=el("div",{class:"set-row"},[el("span",{class:"small"},"Set "+(i+1)),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side A set "+(i+1)}),el("input",{type:"number",min:"0",max:"199",inputmode:"numeric","aria-label":"Side B set "+(i+1)})]);if(existing[i]){row.children[1].value=existing[i][0];row.children[2].value=existing[i][1]}holder.append(row)}if(!scorePrefill)loadDraft()}
     async function loadDraft(){if(!scoreMatch||!queueScope||scorePrefill)return;var all=await storeAll("drafts"),draft=all.find(function(row){return row.key==="draft:"+queueScope+":"+scoreMatch.id});if(!draft)return;var mode=draft.mode==="bo3"?"bo3":"set";if(document.getElementById("score-mode").value!==mode){document.getElementById("score-mode").value=mode;scorePrefill=draft;scoreRows();scorePrefill=null}else{var rows=document.querySelectorAll("#score-sets .set-row");(draft.sets||[]).forEach(function(pair,index){if(rows[index]){rows[index].children[1].value=pair[0];rows[index].children[2].value=pair[1]}})}document.getElementById("score-reason").value=draft.reason||""}
     async function persistScoreDraft(){if(!scoreMatch||!queueScope)return false;var sets=[];document.querySelectorAll("#score-sets .set-row").forEach(function(row){sets.push([row.children[1].value,row.children[2].value])});var saved=await storePut("drafts",{key:"draft:"+queueScope+":"+scoreMatch.id,scope:queueScope,matchId:scoreMatch.id,mode:document.getElementById("score-mode").value,sets:sets,reason:document.getElementById("score-reason").value,updatedAt:Date.now()});if(!saved)showNotice("Score draft not saved because local storage is unavailable. Keep this dialog open and try again.","bad");return saved}
@@ -8663,6 +10059,7 @@ function eventStaffDeskPage() {
     async function logout(){try{if(session)await api("/api/event-staff/logout",{method:"POST",body:{}})}catch(error){}await clearScope();session=null;state=null;saveSession();queueScope="";location.replace("/staff")}
     function switchInviteFromFragment(){if(new URLSearchParams(location.hash.slice(1)).get("token"))location.reload()}
     document.getElementById("redeem").addEventListener("click",redeem);document.getElementById("staff-pin").addEventListener("keydown",function(event){if(event.key==="Enter")redeem()});document.getElementById("refresh").addEventListener("click",manualRefresh);document.getElementById("logout").addEventListener("click",logout);document.getElementById("score-mode").addEventListener("change",async function(){await persistScoreDraft();scoreRows()});document.getElementById("score-dialog").addEventListener("input",function(){persistScoreDraft()});document.getElementById("score-dialog").addEventListener("close",function(){focusAfterDialog(scoreReturnFocus,"score",scoreReturnFocus&&scoreReturnFocus.matchId);scoreReturnFocus=null});document.getElementById("score-cancel").addEventListener("click",function(){scorePrefill=null;document.getElementById("score-dialog").close()});document.getElementById("score-discard").addEventListener("click",discardScoreDraft);document.getElementById("score-save").addEventListener("click",saveScore);document.getElementById("move-dialog").addEventListener("close",function(){focusAfterDialog(moveReturnFocus,"move",moveReturnFocus&&moveReturnFocus.matchId);moveReturnFocus=null});document.getElementById("move-cancel").addEventListener("click",function(){document.getElementById("move-dialog").close()});document.getElementById("move-save").addEventListener("click",saveMove);window.addEventListener("online",function(){if(queueIssue&&queueIssue.type==="network"){queueBlocked=false;queueIssue=null}setConnection();processQueue()});window.addEventListener("offline",setConnection);window.addEventListener("hashchange",switchInviteFromFragment);document.addEventListener("visibilitychange",function(){if(!document.hidden&&session)refresh()});
+    document.getElementById("participant-search-button").addEventListener("click",searchEntryParticipants);document.getElementById("participant-search").addEventListener("keydown",function(event){if(event.key==="Enter"){event.preventDefault();searchEntryParticipants()}});document.getElementById("entry-cancel").addEventListener("click",function(){document.getElementById("entry-dialog").close()});document.getElementById("entry-save").addEventListener("click",saveEntry);document.getElementById("impact-cancel").addEventListener("click",function(){structuralPending=null;document.getElementById("impact-dialog").close()});document.getElementById("impact-confirm").addEventListener("click",confirmImpact);
     async function start(){session=loadSession();if(linkToken){var previousScope=session&&session.queueScope||"";session=null;queueScope="";saveSession();if(previousScope)await clearScope(previousScope);showAccess("")}else if(session){queueScope=session.queueScope||"";refresh()}else showAccess("Open the staff link supplied by the organizer.")}
     start();
   })();
@@ -8751,6 +10148,7 @@ export default {
       || !!eventStaffRevokeAllMatch || !!eventStaffAuditMatch;
     const eventStaffSessionPath = path === "/api/event-staff/redeem"
       || path === "/api/event-staff/state"
+      || path === "/api/event-staff/participants"
       || path === "/api/event-staff/operations"
       || path === "/api/event-staff/logout";
     const photoApiPath = path === "/api/player-photos/status" || !!photoUploadMatch;
@@ -8848,6 +10246,10 @@ export default {
       if (path === "/api/event-staff/state") {
         if (request.method !== "GET") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
         return await getEventStaffState(request, env);
+      }
+      if (path === "/api/event-staff/participants") {
+        if (request.method !== "GET") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");
+        return await searchEventStaffParticipants(request, env);
       }
       if (path === "/api/event-staff/operations") {
         if (request.method !== "POST") return eventStaffError(request, 405, "method_not_allowed", "Method not allowed.");

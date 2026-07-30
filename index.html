@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260729.4">
+<meta name="court-build" content="20260729.5">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1377,12 +1377,13 @@
   </div>
 </div>
 
+<script src="./event-structure-core.js"></script>
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.41.0',
-  build: '20260729.4',
-  releaseNotes: 'Tournament Desk now shows Check-In only when enabled and displays only the current published event rules.'
+  version: '0.42.0',
+  build: '20260729.5',
+  releaseNotes: 'Tournament Operators can securely manage this event’s entries, schedule, and bracket divisions without access to global Court administration.'
 });
 
 function appVersionLabel(){
@@ -5968,7 +5969,9 @@ function appendRotationMakeupMatches(ev,result,opts={}){
   const matches=baseMatches.concat(makeups),quality={...result.quality,...rotationScheduleAudit(ev,matches),targetGames:makeupPlan.targetGames,equalGamesAchieved:true};return {...result,matches,quality,participationPlan:analysis};
 }
 function generateRotationScheduleData(ev,opts={}){
-  const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),base=opts.seed??`${state.seed}:${state.revision}`,entrySeed=opts.entrySeed??`${base}:entries`,candidates=[];
+  const s=rotationSettings(ev),state=scheduleState(s,'rotation:'+ev.id),sharedValidation=globalThis.CourtEventStructureCore.validateRotatingInput({entries:rotatingEntries(ev),settings:s});
+  if(sharedValidation.error)return {error:sharedValidation.error[1],matches:[]};
+  const base=opts.seed??`${state.seed}:${state.revision}`,entrySeed=opts.entrySeed??`${base}:entries`,candidates=[];
   for(let i=0;i<32;i++) candidates.push(generateRotationScheduleCandidate(ev,{...opts,seed:`${base}:candidate:${i}`,entrySeed}));
   const valid=candidates.filter(c=>!c.error);if(!valid.length)return candidates[0];
   const completed=valid.map(candidate=>appendRotationMakeupMatches(ev,candidate,opts)),usable=completed.filter(candidate=>!candidate.error);if(!usable.length)return completed[0];usable.sort((a,b)=>compareQuality(a.quality,b.quality)||rotationPlacementSignature(a.matches).localeCompare(rotationPlacementSignature(b.matches)));
@@ -6095,10 +6098,9 @@ function fixedEventAutomaticSeedOrder(ev){
    Any team count 2+ works: seeds are padded to the next power of two and
    top seeds receive first-round byes. --- */
 function bracketSeedOrder(P){
-  /* standard bracket position order: 1 meets 2 only in the final */
-  let a=[0];
-  while(a.length<P) a=a.flatMap(x=>[x, a.length*2-1-x]);
-  return a;
+  /* Shared structural core: standard bracket position order keeps seeds 1
+     and 2 apart until the final. */
+  return globalThis.CourtEventStructureCore.bracketSeedOrder(P);
 }
 function bracketRoundNames(P){
   const names=[];
@@ -6382,7 +6384,9 @@ function fixedRoundSelectionKey(ev,slots,rounds){
 }
 function fixedRoundPlan(ev,s,startMs,scheduleSeed){
   if(!usesUniqueOpponentPolicy(s))return legacyFixedRoundPlan(ev,s,startMs,scheduleSeed);
-  const teams=ev.teams||[],ids=teams.map(team=>team.id),rounds=positiveInt(s.standardRounds,1),groups=fixedPoolGroups(ev),maxPoolMatches=groups.reduce((sum,group)=>sum+Math.floor(group.ids.length/2),0),matchesPerRound=Math.min(sanitizeCourtCount(s.courts,1),maxPoolMatches),state=scheduleState(s,'fixed:'+ev.id),selectionSeed=`${state.seed}:opponents`,allCandidates=fixedUniqueMatchupCandidates(ev,selectionSeed),locked=normalizedFixedLockedMatches(s,allCandidates).filter(match=>match.slot<rounds),lockedKeys=new Set(locked.map(match=>entryCombinationKey(match.a,match.b))),lockedSlotCount=locked.length?Math.max(...locked.map(match=>match.slot))+1:0,futureSlotCount=Math.max(0,rounds-lockedSlotCount),available=allCandidates.filter(match=>!lockedKeys.has(entryCombinationKey(match.a,match.b))),lockedSlots=Array.from({length:lockedSlotCount},()=>[]);locked.forEach(match=>(lockedSlots[match.slot]=lockedSlots[match.slot]||[]).push({...match,slot:match.slot,round:match.slot+1,scheduleBlock:'standard',est:eventScheduleTimestamp(ev,s.start||'10:00',match.slot*s.setMin)}));lockedSlots.forEach(slot=>slot.sort((a,b)=>a.court-b.court));
+  const teams=ev.teams||[],ids=teams.map(team=>team.id),rounds=positiveInt(s.standardRounds,1),sharedValidation=globalThis.CourtEventStructureCore.validateFixedInput({entries:teams,settings:{...s,rounds}});
+  if(sharedValidation.error)return legacyFixedRoundPlan(ev,s,startMs,scheduleSeed);
+  const groups=fixedPoolGroups(ev),maxPoolMatches=groups.reduce((sum,group)=>sum+Math.floor(group.ids.length/2),0),matchesPerRound=Math.min(sanitizeCourtCount(s.courts,1),maxPoolMatches),state=scheduleState(s,'fixed:'+ev.id),selectionSeed=`${state.seed}:opponents`,allCandidates=fixedUniqueMatchupCandidates(ev,selectionSeed),locked=normalizedFixedLockedMatches(s,allCandidates).filter(match=>match.slot<rounds),lockedKeys=new Set(locked.map(match=>entryCombinationKey(match.a,match.b))),lockedSlotCount=locked.length?Math.max(...locked.map(match=>match.slot))+1:0,futureSlotCount=Math.max(0,rounds-lockedSlotCount),available=allCandidates.filter(match=>!lockedKeys.has(entryCombinationKey(match.a,match.b))),lockedSlots=Array.from({length:lockedSlotCount},()=>[]);locked.forEach(match=>(lockedSlots[match.slot]=lockedSlots[match.slot]||[]).push({...match,slot:match.slot,round:match.slot+1,scheduleBlock:'standard',est:eventScheduleTimestamp(ev,s.start||'10:00',match.slot*s.setMin)}));lockedSlots.forEach(slot=>slot.sort((a,b)=>a.court-b.court));
   let selected=null,selectedKey=null;
   for(let candidate=0;candidate<FIXED_ROUND_SELECTION_CANDIDATES;candidate++){
     const order=candidate?seededShuffle(available,`${selectionSeed}:candidate:${candidate}`):available.slice().sort((a,b)=>a.logicalRound-b.logicalRound||hash32(`${selectionSeed}:${a.pool}:${entryCombinationKey(a.a,a.b)}`)-hash32(`${selectionSeed}:${b.pool}:${entryCombinationKey(b.a,b.b)}`)),future=assignFixedScheduleSlots(order,matchesPerRound,startMs,s.setMin,lockedSlotCount).slice(0,futureSlotCount),slots=lockedSlots.concat(future),key=[...fixedRoundSelectionKey(ev,slots,rounds),candidate];
@@ -12049,7 +12053,7 @@ const Sync=(()=>{
 const EVENT_STAFF_ROLE_FALLBACK=Object.freeze({
   viewOnly:{id:'viewOnly',label:'View Only',summary:'Can view this event, its participants, schedule, current matches, standings, brackets, and results. Cannot make changes.'},
   scorekeeper:{id:'scorekeeper',label:'Scorekeeper',summary:'Can view this event and enter or correct delegated scores. Cannot check teams in, view contacts, move matches, or change setup.'},
-  tournamentOperator:{id:'tournamentOperator',label:'Tournament Operator',summary:'Can score matches, run event-day check-in, view this event’s registration contacts, and move existing matches. Cannot edit players, ratings, event setup, or staff access.'}
+  tournamentOperator:{id:'tournamentOperator',label:'Tournament Operator',summary:'Can score matches, run event-day check-in, manage this event’s entries, schedule, and bracket divisions, view this event’s registration contacts, and move matches. Cannot edit global players, ratings, registrations, other events, or staff access.'}
 });
 const EventStaff=(()=>{
   const states=new Map(),snapshotTimers=new Map(),snapshotSignatures=new Map(),resetAccessIds=new Set(),creatingGrants=new Set();
@@ -12204,11 +12208,13 @@ const EventStaff=(()=>{
     };
   }
   function entryProjection(ev,entry,kind){
-    const registrationId=cleanText(entry?.registrationSource?.registrationId,160),checkIn=checkInProjection(ev,registrationId);
+    const registrationSource=normalizeRegistrationSource(entry?.registrationSource),registrationId=cleanText(registrationSource?.registrationId,160),checkIn=checkInProjection(ev,registrationId);
     return {
       id:String(entry.id),name:cleanText(entry.name,120),kind,pool:cleanText(entry.pool,24),
       players:uniqueIds(entry.players),substitutePlayerIds:uniqueIds(entry.substitutePlayerIds),
-      registrationId:registrationId||null,...(checkIn?{checkIn}:{})
+      status:['active','inactive','withdrawn','unavailable'].includes(entry.status)?entry.status:'active',
+      ...(Number.isFinite(Number(entry.manualSeed))?{manualSeed:Number(entry.manualSeed)}:{}),
+      registrationId:registrationId||null,...(registrationSource?{registrationSource}:{}),...(checkIn?{checkIn}:{})
     };
   }
   function stableFixedMatchId(ev,match){
@@ -12226,6 +12232,7 @@ const EventStaff=(()=>{
     const id=stableFixedMatchId(ev,match),teamA=evTeamById(ev,match.a),teamB=evTeamById(ev,match.b),linked=existingGamesForMatch(ev,match,id);
     return {
       id,eventId:String(ev.id),kind:'scheduled',phase:isMakeupScheduleMatch(match)?'makeup':'pool',format:'fixedTeams',status:linked.length?'complete':'pending',
+      scheduleBlock:scheduleBlockOf(match),
       gameRecordMatchId:match?.id?String(match.id):null,
       teamAId:String(match.a),teamBId:String(match.b),teamAPlayerIds:uniqueIds(teamA?.players),teamBPlayerIds:uniqueIds(teamB?.players),
       sideAEntryIds:[String(match.a)],sideBEntryIds:[String(match.b)],sideAPlayerIds:uniqueIds(teamA?.players),sideBPlayerIds:uniqueIds(teamB?.players),
@@ -12242,6 +12249,7 @@ const EventStaff=(()=>{
       :timeline?.roundEst?.[match.round]||timeline?.makeupEst?.[positiveInt(match.makeupBlock,1)]||null;
     return {
       id:String(match.id),eventId:String(ev.id),kind:'scheduled',phase:isMakeupScheduleMatch(match)?'makeup':'pool',format:'rotatingGroups',status:linked.length?'complete':'pending',
+      scheduleBlock:scheduleBlockOf(match),
       teamAId:null,teamBId:null,teamAPlayerIds:valid.valid?uniqueIds(valid.A):[],teamBPlayerIds:valid.valid?uniqueIds(valid.B):[],
       sideAEntryIds:uniqueIds(match.sideAEntryIds),sideBEntryIds:uniqueIds(match.sideBEntryIds),
       sideAPlayerIds:valid.valid?uniqueIds(valid.A):[],sideBPlayerIds:valid.valid?uniqueIds(valid.B):[],
@@ -12278,7 +12286,8 @@ const EventStaff=(()=>{
     normalizeEventRegistrationIntegration(ev);
     const format=eventFormat(ev),eventGames=games.filter(game=>game.evId===ev.id).map(gameProjection),participantIds=collectEventPlayerIds(ev);
     eventGames.forEach(game=>{game.teamA.forEach(id=>participantIds.add(id));game.teamB.forEach(id=>participantIds.add(id));});
-    const participants=[...participantIds].map(id=>pById(id)).filter(Boolean).map(player=>({id:String(player.id),name:cleanText(player.name,100),active:player.active!==false}));
+    const directoryIds=new Set(players.filter(player=>player&&player.active!==false).map(player=>String(player.id)));participantIds.forEach(id=>directoryIds.add(String(id)));
+    const participants=[...directoryIds].map(id=>pById(id)).filter(Boolean).slice(0,1000).map(player=>({id:String(player.id),name:cleanText(player.name,100),active:player.active!==false}));
     const entries=(format==='rotatingGroups'?rotatingEntries(ev):ev.teams||[]).map(entry=>entryProjection(ev,entry,format==='rotatingGroups'?'entry':'team'));
     const teams=(ev.teams||[]).map(team=>entryProjection(ev,team,'team'));
     let schedule=null,matches=[];
@@ -12298,7 +12307,7 @@ const EventStaff=(()=>{
         ));
       }).slice(0,256);
     });
-    const registration=eventRegistration(ev),publishedRules=publishedRulesProjection(ev),safeEvent={
+    const registration=eventRegistration(ev),publishedRules=publishedRulesProjection(ev),projectedFixedSchedule=ev.sched||ev.eventStaffScheduleDraft||{},safeEvent={
       id:String(ev.id),name:cleanText(ev.name,120),eventDate:normalizeEventDate(ev.eventDate),venue:eventVenue(ev),format,done:ev.done===true,
       lifecycle:eventLifecycleState(ev),entries,teams,
       brackets:(ev.brackets||[]).map(bracket=>({id:String(bracket.id),name:cleanText(bracket.name,120),created:Number(bracket.created)||0,seeds:uniqueIds(bracket.seeds)})),
@@ -12306,8 +12315,18 @@ const EventStaff=(()=>{
       eventDayCheckInEnabled:ev.eventDayCheckInEnabled===true,
       registrationCheckIn:normalizeEventDayRegistrationState(ev.registrationCheckIn),
       ...(publishedRules?{publishedRules}:{}),
-      sched:{start:format==='rotatingGroups'?rotationSettings(ev).start||null:ev.sched?.start||null,courts:format==='rotatingGroups'?positiveInt(rotationSettings(ev).courts,1):sanitizeCourtCount(ev.sched?.courts,1),courtStyle:ev.sched?.courtStyle||'num'},
-      rotation:format==='rotatingGroups'?(()=>{const settings=rotationSettings(ev);return {entrySize:settings.entrySize,teamSize:settings.teamSize,winPoints:settings.winPoints,tiePoints:settings.tiePoints,lossPoints:settings.lossPoints,fairnessPolicy:scheduleFairnessPolicy(settings.fairnessPolicy),tiebreakers:Array.isArray(settings.tiebreakers)?settings.tiebreakers.slice():[]};})():null,
+      sched:format==='rotatingGroups'
+        ?{start:rotationSettings(ev).start||null,courts:positiveInt(rotationSettings(ev).courts,1),courtStyle:ev.sched?.courtStyle||'num'}
+        :{...evSchedDefaults(),...projectedFixedSchedule,lockedMatches:undefined},
+      rotation:format==='rotatingGroups'?(()=>{const settings=rotationSettings(ev);return {
+        entrySize:settings.entrySize,teamSize:settings.teamSize,rounds:settings.rounds,courts:settings.courts,start:settings.start,
+        setMin:settings.setMin,matchMin:settings.matchMin,breakMin:settings.breakMin,
+        winPoints:settings.winPoints,tiePoints:settings.tiePoints,lossPoints:settings.lossPoints,
+        fairnessPolicy:scheduleFairnessPolicy(settings.fairnessPolicy),opponentPolicy:settings.opponentPolicy,
+        seed:settings.seed,revision:settings.revision,tiebreakers:Array.isArray(settings.tiebreakers)?settings.tiebreakers.slice():[]
+      };})():null,
+      hasPublicSchedulePublication:!!Object.values(ev.schedulePublications&&typeof ev.schedulePublications==='object'?ev.schedulePublications:{}).some(publication=>publication&&publication.status!=='disabled'&&!publication.disabledAt),
+      scheduleGenerated:format==='rotatingGroups'?rotationSchedule(ev).length>0:!!ev.sched,
       gameMeta:gameSaveMeta(false)
     };
     return {event:safeEvent,games:eventGames,participants,matches,historicalGameIds:historicalGameIds(ev,eventGames,format),gameMeta:gameSaveMeta(false)};
@@ -12542,9 +12561,13 @@ const EventStaff=(()=>{
   }
   async function rotateGrant(eventId,grantId){
     const ev=evById(eventId),grant=stateFor(eventId).grants?.find(item=>item.id===grantId);if(!ev||!grant)return;
-    if(!(await askConfirm(`Rotate ${grant.staffLabel||'this staff link'}? The old link and its open sessions will stop working immediately.`,'Rotate link',false)))return;
+    const expands=grant.role==='tournamentOperator'&&Number(grant.permissionSchemaVersion)<2;
+    const message=expands
+      ?`Rotate ${grant.staffLabel||'this staff link'}? The old link and its open sessions will stop immediately. The replacement expands this legacy Tournament Operator grant: it will be able to add and edit event entries, configure and generate this event’s schedule, and create, reseed, reset, or remove this event’s bracket divisions. It still cannot edit global players, ratings, registrations, other events, or staff access.`
+      :`Rotate ${grant.staffLabel||'this staff link'}? The old link and its open sessions will stop working immediately.`;
+    if(!(await askConfirm(message,expands?'Rotate & expand permissions':'Rotate link',false)))return;
     try{
-      const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants/${encodeURIComponent(grantId)}/rotate`,{method:'POST',body:{reason:'owner_rotated'},eventId});
+      const result=await request(`/api/event-staff/owner/events/${encodeURIComponent(eventId)}/grants/${encodeURIComponent(grantId)}/rotate`,{method:'POST',body:{reason:'owner_rotated',...(expands?{confirmPermissionExpansion:true}:{})},eventId});
       await loadGrants(ev);showInvite(ev,result,'rotated');
     }catch(error){toast(error.message);}
   }

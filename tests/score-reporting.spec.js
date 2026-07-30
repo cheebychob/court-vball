@@ -431,9 +431,10 @@ async function workerModule() {
       if (!globalThis.crypto) globalThis.crypto = webcrypto;
       if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
       const file = resolve(process.cwd(), 'cloudflare/court-sync-worker.js');
-      const source = await readFile(file, 'utf8');
+      const coreSource = await readFile(resolve(process.cwd(), 'event-structure-core.js'), 'utf8');
+      const source = (await readFile(file, 'utf8')).replace('import "../event-structure-core.js";', '');
       void pathToFileURL(file);
-      const mod = await import(`data:text/javascript;base64,${Buffer.from(source).toString('base64')}`);
+      const mod = await import(`data:text/javascript;base64,${Buffer.from(`${coreSource}\n${source}`).toString('base64')}`);
       return mod.default;
     })();
   }

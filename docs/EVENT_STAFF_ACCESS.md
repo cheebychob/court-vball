@@ -8,12 +8,14 @@ owner's normal sync credential.
 
 1. The owner app authenticates to the configured Worker with its existing
    `X-Court-Room` credential and sends one bounded event snapshot: the event,
-   that event's game records, the event participants' public display names, the
-   canonical scheduled-match projection, the explicit event-day check-in
-   enablement, and (when one exists) a structural projection of the current
-   published rules revision. Draft, deleted, old, and unpublished rules are
-   not projected. It never sends a backup or an unrelated event to a staff
-   endpoint.
+   that event's game records, a bounded restricted player directory containing
+   only public player IDs, display names, and active state, the canonical
+   scheduled-match projection, the explicit event-day check-in enablement, and
+   (when one exists) a structural projection of the current published rules
+   revision. The directory is available only to a grant with
+   `manageEventEntries`; normal staff state continues to contain only event
+   participants. Draft, deleted, old, and unpublished rules are not projected.
+   It never sends a backup or an unrelated event to a staff endpoint.
 2. The Worker stores the event authority, its revision, access epoch, grants,
    sessions, idempotency records, and bounded audit history in D1. A grant stores
    only a SHA-256 token hash. An optional PIN is derived with a versioned,
@@ -92,31 +94,61 @@ change does not invalidate a successfully issued production PIN link. Do not
 rewrite a version-1 verifier as version 2: rotate the grant with a new PIN
 instead.
 
-## Initial permission presets
+## Versioned permission presets
 
-The stored grant format contains both a preset role and a versioned permission
-array. This leaves room for custom permission sets later without changing or
-replacing existing grants. Authorization and response projection use the
-permission array frozen on that grant at creation time, intersected with the
-role's supported permissions; changing a role preset later does not expand an
-existing link.
+Every grant stores both `permission_schema_version` and its exact permission
+array. Authorization uses that frozen array directly. It never recomputes
+permissions from the role label, and malformed, duplicate, unknown, or
+unsupported-version arrays fail closed at redemption and on every session
+request.
 
-| Role | Initial permissions |
+Permission schema version 1 is immutable. Existing View Only, Scorekeeper, and
+Tournament Operator links retain their exact version-1 permissions and do not
+gain structural administration. Permission schema version 2 is used for new
+grants:
+
+| Role | Version 2 permissions |
 | --- | --- |
 | View Only | Event, entries/teams, current matches, schedule, standings, bracket, and result reads |
 | Scorekeeper | View permissions plus scheduled score entry and correction of results previously entered through staff access |
-| Tournament Operator | Scorekeeper permissions plus event check-in/attendance, event-specific registration contacts, valid match moves, playoff result operation, and event activity |
+| Tournament Operator | Scorekeeper permissions plus event check-in/attendance, event-specific registration contacts, valid match moves, playoff result operation, event activity, `manageEventEntries`, `configureEventSchedule`, `generateEventSchedule`, and `manageEventBrackets` |
 
-Owner grant management, event setup, player/rating edits, destructive deletes,
-schedule regeneration, sync/settings/backups, public-link management, and
-unrelated registration access are never staff permissions.
+Rotating a version-1 Tournament Operator grant would expand authority, so the
+owner must confirm a warning that names the four new permission families before
+the replacement version-2 invite is created. Rotation revokes the old grant and
+records the old/new permission arrays in the owner-visible audit. View Only and
+Scorekeeper rotation does not expand their permission surface.
+
+Owner grant management, event identity/format changes, global player or rating
+edits, event deletion, sync/settings/backups, public-link publication, and
+unrelated registration access are never staff permissions. Custom permission
+checkboxes are not offered.
 
 ## Contextual Tournament Desk navigation
 
 The Desk always opens on **Current Matches** and retains the event name, date,
-and location in its header. Its base sections are Current Matches, Schedule,
-Standings, and Bracket. It does not include a generic Event Information
-section.
+and location in its header. View Only and Scorekeeper retain the four base
+sections: Current Matches, Schedule, Standings, and Bracket. A version-2
+Tournament Operator also receives **Entries**. It does not include a generic
+Event Information section.
+
+- **Entries** supports event-only additions, edits, removal/withdrawal, and
+  pre-generation order/seed changes. Its restricted search endpoint returns at
+  most 20 active directory rows containing only player ID and display name.
+  Existing registration-source metadata is shown as read-only and is preserved.
+  Rotating entries must have the configured exact entry size. Fixed-team guest
+  entries may have no tracked roster.
+- **Schedule** exposes validated event settings and generates, regenerates only
+  the unplayed future, or clears an entirely unplayed schedule. Completed
+  matches and stable game IDs are preserved. The deterministic generator
+  enforces per-slot uniqueness, pool constraints, repeat-opponent preference,
+  rotating entry/team sizes, and the selected fairness/makeup policy.
+- **Bracket** supports multiple named divisions, explicit seed order, reseeding,
+  reset, and removal. Any action that could remove results first displays an
+  exact impact review and requires explicit confirmation.
+- Structural administration is online-only and is never written to the Desk's
+  offline operation queue. The existing score, check-in, and match-move queue
+  remains unchanged.
 
 - **Check-In** appears only for a Tournament Operator when the owner has
   enabled **Enable event-day check-in** for that event and the grant's frozen
@@ -211,6 +243,7 @@ accepts the one-time link credential and optional PIN and returns
 | Method and route | Purpose |
 | --- | --- |
 | `GET /api/event-staff/state` | Refresh the explicitly allowlisted event state |
+| `GET /api/event-staff/participants?q=...` | Search the bounded ID/display-name directory; requires `manageEventEntries` |
 | `POST /api/event-staff/operations` | Submit one narrow, revisioned, idempotent event operation |
 | `POST /api/event-staff/logout` | Revoke the current session |
 
@@ -232,9 +265,13 @@ revision and state plus a safe rendering of the attempted change.
   prevents an owner game and a staff game with different IDs for the same
   logical match from both affecting ratings. A same-revision pull preserves an
   unuploaded owner result until its snapshot compare-and-swap is attempted.
-- The Tournament Desk saves event-scoped drafts and permitted narrow operations
-  locally, labels them Pending, and retries them in order after connectivity
-  returns. It never labels a write Saved before server acknowledgement.
+- The Tournament Desk saves score, check-in, and valid match-move drafts and
+  operations locally, labels them Pending, and retries them in order after
+  connectivity returns. It never labels a write Saved before server
+  acknowledgement.
+- Entry, schedule, and bracket operations require a live response. Offline or
+  replayed structural requests fail with `structural_operation_online_only`;
+  they are never queued and cannot later surprise the organizer.
 - Queue replay stops on authentication failure or revision conflict. Retry and
   discard are explicit. Logout clears the restricted session, cached event
   state, drafts, and queued actions where browser storage permits.
@@ -251,7 +288,9 @@ revision and state plus a safe rendering of the attempted change.
 - Revoking one grant invalidates all of its sessions on the next request.
 - Revoke all increments the event access epoch and invalidates every existing
   grant and session for the event.
-- Token rotation revokes the old grant and issues a new raw token once.
+- Token rotation revokes the old grant and issues a new raw token once. A
+  version-1 Tournament Operator requires explicit owner confirmation before the
+  replacement adopts version-2 structural permissions.
 - Event deletion advances the access epoch, revokes every grant and session,
   and makes the next normal root sync carry an event tombstone. An explicit
   owner reset snapshot may later reuse the same local event ID, but it starts
@@ -297,7 +336,10 @@ Use only disposable local data and credentials.
    Scorekeeper, and Tournament Operator grants, covering a PIN-protected link
    and the 24-hour, 3-day, and 7-day expiration choices. Confirm the create
    sheet shows each raw link once, then shows only grant metadata after closing
-   it. Rotate one link and verify the former link no longer redeems.
+   it. Rotate one link and verify the former link no longer redeems. Seed a
+   version-1 Tournament Operator in local D1, verify rotation names the
+   entry/schedule/bracket permission expansion, and verify canceling leaves the
+   original grant usable.
    Also create PINs `0123`, `012345`, and `012345678901`; confirm leading
    zeroes redeem correctly. Reject 3 digits, 13 digits, letters, whitespace,
    Unicode digits, and a numeric JSON value. Submit a PIN-protected form twice
@@ -320,31 +362,52 @@ Use only disposable local data and credentials.
    Change the draft without publishing and confirm staff still see only the
    prior publication. Unpublish it and confirm Rules disappears and an active
    Rules view falls back to Current Matches.
-7. Record one fixed score, one rotating score, and one tie. Refresh the owner
+7. With a version-2 Tournament Operator, add and edit a fixed team, add a
+   roster-valid rotating entry, reorder entries before generation, and search
+   the restricted player picker. Confirm registration provenance remains
+   read-only. Reject a duplicate participant, wrong rotating entry size,
+   unrelated event/owner ID, and an entry removal that is seeded in a bracket.
+8. Configure and generate both schedules. Confirm one participant cannot appear
+   twice in a time slot, rotating teammate assignments vary, court labels and
+   times match the settings, and pool/fairness rules are honored. Regenerate
+   after one completed result and verify the completed match/game ID is
+   unchanged while only future match IDs change. Verify an entirely unplayed
+   schedule can be cleared and one with results cannot.
+9. Create two bracket divisions, seed and reseed one, then record a playoff
+   result. Reset/remove must show exact completed game and unplayed match IDs,
+   standings/bracket/rating warnings, and the history-preservation statement.
+   Cancel once and verify no mutation; confirm once and verify removed game IDs
+   are tombstoned and the owner sync converges.
+10. Record one fixed score, one rotating score, and one tie. Refresh the owner
    app with **Sync now** and verify there is one stable game per match,
    standings/bracket results match the saved score, and the tie warning says
    the saved tie has no rating impact. Correct a staff-entered score and verify
    the game ID stays stable and the owner activity log shows previous and new
    values.
-8. Open the same match in two staff profiles. Submit different scores from the
+11. Open the same match in two staff profiles. Submit different scores from the
    same revision. Confirm the first succeeds, the second shows HTTP-conflict
    behavior with both current and attempted results, and an explicit retry
    creates an intentional correction. Repeat with the owner editing while a
    stale staff dialog is open; after sync, confirm only one logical game exists
    and unrelated games and ratings are unchanged.
-9. Disable the network in browser developer tools, enter a score, and reload.
+12. Disable the network in browser developer tools, enter a score, and reload.
    Confirm the scoped draft remains Pending rather than Saved. Reconnect and
-   verify ordered replay. Repeat after revoking a grant. For expiration, create
-   a separate grant with a custom expiration a few minutes ahead, redeem it,
-   queue a write while offline, wait until its displayed expiration passes, and
-   reconnect. Queued writes must stop and restricted cached data must be
-   cleared.
-10. Exercise **Revoke**, **Revoke all access**, and **Logout** and verify open
+   verify ordered replay. While offline, attempt an entry, schedule, and bracket
+   change; each must state that it requires a live connection and none may
+   appear in IndexedDB or replay after reconnect. Repeat queued scoring after
+   revoking a grant. For expiration, create a separate grant with a custom
+   expiration a few minutes ahead, redeem it, queue a score while offline, wait
+   until its displayed expiration passes, and reconnect. Queued writes must
+   stop and restricted cached data must be cleared.
+13. Publish a public schedule, perform a structural staff change, and confirm
+   the Desk warns that the public page is a static snapshot. Confirm the public
+   link stays unchanged until the owner explicitly republishes.
+14. Exercise **Revoke**, **Revoke all access**, and **Logout** and verify open
    sessions stop on their next request. Delete an event, duplicate an event,
    restore an older backup, and reconnect under a different disposable sync
    code. Confirm old links remain unusable, the duplicate has no grants, and a
    reused event ID does not revive access.
-11. Run the automated verification from the repository root:
+15. Run the automated verification from the repository root:
 
     ```sh
     npm run verify
@@ -375,38 +438,48 @@ released ahead of its authorization boundary. The production
 `court-event-registration`; no binding, namespace, variable, or secret is
 added by this feature.
 
-1. Save the current live Worker source and configuration, then verify the
-   existing resource names and record the currently active Worker version as
+1. Save the current live Worker source and configuration, verify Wrangler 4 or
+   newer, then record the currently active Worker version as
    `PRE_RELEASE_VERSION_ID` in the release record:
 
    ```sh
    cd cloudflare
+   npx wrangler --version
+   npx wrangler whoami
    npx wrangler d1 list
    npx wrangler d1 migrations list court-event-registration --remote --config wrangler.jsonc
-   npx wrangler deployments list --config wrangler.jsonc
+   npx wrangler versions list --config wrangler.jsonc
+   npx wrangler deployments status --config wrangler.jsonc
    ```
 
-2. Apply and inspect the additive migration locally:
+2. This release adds no D1 migration. Confirm the existing event-staff schema
+   is current, then apply the existing migrations only to a disposable local
+   database:
 
    ```sh
    npx wrangler d1 migrations apply EVENT_REGISTRATION_DB --local --config wrangler.local.jsonc
-   npx wrangler d1 execute EVENT_REGISTRATION_DB --local --config wrangler.local.jsonc --command "SELECT name FROM sqlite_master WHERE name LIKE 'event_staff_%' ORDER BY name"
+   npx wrangler d1 execute EVENT_REGISTRATION_DB --local --config wrangler.local.jsonc --command "SELECT name FROM pragma_table_info('event_staff_grants') WHERE name IN ('permission_schema_version','permissions_json') ORDER BY name"
    ```
 
-3. Return to the repository root, run the full verification, then return to
-   `cloudflare`. Confirm `0006_event_staff_pin_kdf_version.sql` is pending and
-   apply the production migrations before deploying the Worker:
+3. Return to the repository root, run the full verification, then perform a
+   local Worker build without uploading:
 
    ```sh
    cd ..
+   npm ci
    npm run verify
    cd cloudflare
-   npx wrangler d1 migrations list court-event-registration --remote --config wrangler.jsonc
-   npx wrangler d1 migrations apply court-event-registration --remote --config wrangler.jsonc
-   npx wrangler d1 execute court-event-registration --remote --config wrangler.jsonc --command "SELECT name, type FROM pragma_table_info('event_staff_grants') WHERE name = 'pin_kdf_version'"
+   npx wrangler deploy --dry-run --config wrangler.jsonc
    ```
 
-4. Deploy and smoke-test the Worker before the frontend:
+4. Recheck that no repository migration is pending remotely. Because this
+   release has no new D1 migration, do not run a production migration apply:
+
+   ```sh
+   npx wrangler d1 migrations list court-event-registration --remote --config wrangler.jsonc
+   ```
+
+5. Deploy and smoke-test the Worker before the frontend:
 
    ```sh
    npx wrangler deploy --config wrangler.jsonc
@@ -414,13 +487,27 @@ added by this feature.
 
    Verify legacy owner sync, public schedules, public registration, and
    `GET /api/event-staff/status` from the Court origin. The status response
-   must report `available: true` and `schemaVersion: 2`. Create and redeem one
-   disposable no-PIN grant and one PIN-protected grant with leading zeroes,
-   then revoke both.
+   must report `available: true`, `schemaVersion: 2`, `apiVersion: 2`, and
+   `permissionSchemaVersion: 2`. Create and redeem disposable version-2 grants,
+   exercise one entry operation, one schedule operation, and one bracket
+   operation, then revoke them. Confirm a seeded version-1 Tournament Operator
+   retains its frozen permissions and its rotation requires the expansion
+   confirmation.
 
-5. Deploy the versioned root `index.html` through the repository's existing
-   GitHub Pages `master`-root release flow. The owner UI remains unavailable
-   when the capability endpoint is missing or reports an incompatible schema.
+6. Deploy the reviewed versioned root through the repository's existing GitHub
+   Pages `master`-root release flow:
+
+   ```sh
+   cd ..
+   git fetch origin
+   git switch master
+   git pull --ff-only origin master
+   git merge --ff-only <REVIEWED_RELEASE_COMMIT>
+   git push origin master
+   ```
+
+   The owner UI remains unavailable when the capability endpoint is missing or
+   reports an incompatible API or permission schema.
 
 Rolling back the frontend hides staff management but does not revoke grants.
 For a security rollback, use the owner UI to revoke all event grants while the
@@ -433,7 +520,7 @@ npx wrangler rollback <PRE_RELEASE_VERSION_ID> --config wrangler.jsonc --message
 npx wrangler deployments status --config wrangler.jsonc
 ```
 
-Restore the immediately preceding Court `0.40.2`, build `20260729.3` root
+Restore the immediately preceding Court `0.41.0`, build `20260729.4` root
 `index.html` artifact through the GitHub Pages `master`-root release flow.
 Leave the additive D1 tables and `pin_kdf_version` column in place; Worker
 rollbacks do not roll back D1 data, and older Court code ignores the added

@@ -707,7 +707,7 @@ test('an event without a date requires an explicit staff-link expiration', async
   expect(state.grantInputs[0].expiresAt).toBeLessThanOrEqual(Date.now() + 86400000);
 });
 
-test('the owner snapshot is event-bounded and strips ratings, contacts, admin tokens, photos, settings, and unrelated records', async ({ page }) => {
+test('the owner snapshot is event-bounded and its restricted directory strips ratings, contacts, photos, settings, and admin data', async ({ page }) => {
   const state = workerState();
   const publishedRulesModel = {
     schemaVersion: 1,
@@ -769,8 +769,13 @@ test('the owner snapshot is event-bounded and strips ratings, contacts, admin to
   const snapshot = await page.evaluate(() => EventStaff.snapshot(evById('event-one')));
   expect(snapshot.event.id).toBe('event-one');
   expect(snapshot.games.map(row => row.id)).toEqual(['game-one']);
-  expect(snapshot.participants.map(row => row.id).sort()).toEqual(['p1', 'p2']);
+  expect(snapshot.participants.map(row => row.id).sort()).toEqual(['p1', 'p2', 'p3']);
   expect(Object.keys(snapshot.participants[0]).sort()).toEqual(['active', 'id', 'name']);
+  expect(snapshot.participants.find(row => row.id === 'p3')).toEqual({
+    id: 'p3',
+    name: 'Unrelated Person',
+    active: true,
+  });
   expect(Object.keys(snapshot.event.registration).sort()).toEqual(['enabled', 'mode', 'status']);
   expect(snapshot.event.eventDayCheckInEnabled).toBe(false);
   expect(snapshot.event.publishedRules).toMatchObject({
@@ -788,7 +793,6 @@ test('the owner snapshot is event-bounded and strips ratings, contacts, admin to
   const serialized = JSON.stringify(snapshot);
   for (const forbidden of [
     'Unrelated Secret Event',
-    'Unrelated Person',
     'owner-private@example.test',
     'private-registration-token',
     'private-management-token',

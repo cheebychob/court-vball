@@ -21,6 +21,8 @@ const OPERATOR_PERMISSIONS = [
   'setEntryCheckIn', 'setEntryAttendanceStatus',
   'viewRegistrationContact', 'moveScheduledMatch',
   'completeBracketMatch', 'viewActivity',
+  'manageEventEntries', 'configureEventSchedule',
+  'generateEventSchedule', 'manageEventBrackets',
 ];
 
 let STAFF_PAGE_HTML = '';
@@ -28,8 +30,10 @@ let STAFF_PAGE_HEADERS = {};
 let STAFF_WORKER;
 
 test.beforeAll(async () => {
-  const workerSource = await readFile(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8');
-  STAFF_WORKER = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
+  const coreSource = await readFile(`${process.cwd()}/event-structure-core.js`, 'utf8');
+  const workerSource = (await readFile(`${process.cwd()}/cloudflare/court-sync-worker.js`, 'utf8'))
+    .replace('import "../event-structure-core.js";', '');
+  STAFF_WORKER = (await import(`data:text/javascript;base64,${Buffer.from(`${coreSource}\n${workerSource}`).toString('base64')}`)).default;
   const response = await STAFF_WORKER.fetch(new Request('https://court-sync.example/staff'), {});
   STAFF_PAGE_HTML = await response.text();
   STAFF_PAGE_HEADERS = Object.fromEntries(response.headers.entries());
@@ -82,6 +86,7 @@ function deskState(role = 'tournamentOperator', overrides = {}) {
       id: 'grant-one',
       staffLabel: role === 'viewOnly' ? 'Spectator tablet' : 'Head table',
       role,
+      permissionSchemaVersion: 2,
       permissions,
       expiresAt: now + 60 * 60 * 1000,
     },
@@ -257,6 +262,15 @@ async function installDeskMocks(page, {
         return fulfillJson(response.status ?? 200, response.json);
       }
       return fulfillJson(200, { ok: true, state: clone(mock.state) });
+    }
+    if (url.pathname === '/api/event-staff/participants') {
+      const query = (url.searchParams.get('q') || '').toLowerCase();
+      return fulfillJson(200, {
+        ok: true,
+        participants: mock.state.participants
+          .filter(row => row.name.toLowerCase().includes(query))
+          .map(row => ({ id: row.id, displayName: row.name })),
+      });
     }
     if (url.pathname === '/api/event-staff/operations') {
       mock.operations.push(clone(body));
@@ -616,7 +630,8 @@ test('Scorekeeper can score scheduled matches but is not offered a playoff corre
   await expect(page.getByRole('button', { name: 'Check-In' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Activity' })).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Bracket' }).click();
+  await page.getByRole('navigation', { name: 'Tournament Desk sections' })
+    .getByRole('button', { name: 'Bracket', exact: true }).click();
   await expect(page.locator('#content')).toContainText('25–19');
   await expect(page.getByRole('button', { name: 'Correct score' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Enter score' })).toHaveCount(0);
@@ -1358,4 +1373,201 @@ test('logout revokes the server session and clears only this grant scope from se
     expect(rows[name].filter(row => row.scope === QUEUE_SCOPE)).toEqual([]);
     expect(rows[name].filter(row => row.scope === 'other-scope')).toHaveLength(1);
   }
+});
+
+test('permission-v2 Tournament Operator manages event entries online without using the score queue', async ({ page }) => {
+  const mock = await openDesk(page);
+  await page.setViewportSize({ width: 320, height: 720 });
+  const tabs = page.getByRole('navigation', { name: 'Tournament Desk sections' });
+  await expect(tabs.getByRole('button', { name: 'Entries' })).toBeVisible();
+  await tabs.getByRole('button', { name: 'Entries' }).click();
+  await expect(page.locator('#content')).toContainText('Original registrations');
+
+  await page.getByRole('button', { name: 'Add entry' }).click();
+  await expect(page.locator('#entry-dialog')).toHaveAttribute('open', '');
+  await page.locator('#entry-name').fill('Event Guest');
+  await page.locator('#entry-status').selectOption('active');
+  await page.locator('#entry-save').click();
+  await expect.poll(() => mock.operations.length).toBe(1);
+  expect(mock.operations[0]).toMatchObject({
+    eventId: EVENT_ID,
+    action: 'addEventEntry',
+    targetId: EVENT_ID,
+    expectedRevision: 7,
+    replayed: false,
+    payload: {
+      name: 'Event Guest',
+      status: 'active',
+      players: [],
+      substitutePlayerIds: [],
+    },
+  });
+  await expect(page.locator('#notice')).toContainText('Structural change saved');
+  expect((await indexedDbRows(page)).queue).toEqual([]);
+
+  await page.getByRole('button', { name: 'Entries' }).click();
+  await page.getByRole('button', { name: 'Edit' }).first().click();
+  await page.locator('#entry-name').fill('Ospreys · Event edit');
+  await page.locator('#entry-status').selectOption('unavailable');
+  await page.locator('#entry-save').click();
+  await expect.poll(() => mock.operations.length).toBe(2);
+  expect(mock.operations[1]).toMatchObject({
+    action: 'updateEventEntry',
+    targetId: 'team-a',
+    expectedRevision: 8,
+    replayed: false,
+    payload: {
+      name: 'Ospreys · Event edit',
+      status: 'unavailable',
+      players: ['player-a1', 'player-a2'],
+    },
+  });
+
+  await page.getByRole('button', { name: 'Entries' }).click();
+  await page.getByRole('button', { name: 'Edit' }).nth(1).click();
+  await page.locator('#participant-search').fill('alex');
+  await page.locator('#participant-search-button').click();
+  await page.getByRole('button', { name: 'Move Alex Rivera from Ospreys' }).click();
+  await expect.poll(() => mock.operations.length).toBe(3);
+  expect(mock.operations[2]).toMatchObject({
+    action: 'moveEventParticipant',
+    targetId: 'team-b',
+    expectedRevision: 9,
+    replayed: false,
+    payload: {
+      participantId: 'player-a1',
+      fromEntryId: 'team-a',
+    },
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await indexedDbRows(page)).queue).toEqual([]);
+});
+
+test('schedule and bracket administration are online-only and completed-game impact uses an explicit review dialog', async ({ page, context }) => {
+  const initial = deskState('tournamentOperator');
+  initial.event.hasPublicSchedulePublication = true;
+  const mock = await openDesk(page, {
+    initialState: initial,
+    onOperation: ({ body, mock: apiMock }) => {
+      if (body.action === 'removeEventBracket' && body.payload.confirmImpact !== true) {
+        return {
+          status: 409,
+          json: {
+            ok: false,
+            error: 'impact_review_required',
+            message: 'Review exact games.',
+            impact: {
+              completedGameIds: ['historical-final-game'],
+              unplayedMatchIds: ['final-one'],
+              standingsAffected: false,
+              bracketAffected: true,
+              removedEntryIds: [],
+              removedParticipantIds: [],
+              publicSnapshotStale: true,
+              ratingHistory: 'deterministic replay required',
+              preservation: 'affected bracket games tombstoned',
+            },
+          },
+        };
+      }
+      apiMock.state.eventRevision += 1;
+      return {
+        json: {
+          ok: true,
+          eventRevision: apiMock.state.eventRevision,
+          state: clone(apiMock.state),
+          warnings: [],
+        },
+      };
+    },
+  });
+  await page.setViewportSize({ width: 320, height: 720 });
+
+  await page.getByRole('button', { name: 'Schedule' }).click();
+  await expect(page.locator('#content')).toContainText('Public schedules are static snapshots');
+  await page.locator('#schedule-rounds').fill('3');
+  await page.locator('#schedule-courts').fill('2');
+  await page.getByRole('button', { name: 'Save settings' }).click();
+  await expect.poll(() => mock.operations.length).toBe(1);
+  expect(mock.operations[0]).toMatchObject({
+    action: 'setEventScheduleSettings',
+    replayed: false,
+    payload: { settings: { rounds: 3, courts: 2 } },
+  });
+
+  await context.setOffline(true);
+  await expect(page.getByRole('button', { name: 'Generate schedule' })).toBeDisabled();
+  await expect(page.locator('#connection')).toContainText('structure unavailable');
+  expect(mock.operations).toHaveLength(1);
+  expect((await indexedDbRows(page)).queue).toEqual([]);
+  await context.setOffline(false);
+  await expect(page.getByRole('button', { name: 'Generate schedule' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Generate schedule' }).click();
+  await expect.poll(() => mock.operations.length).toBe(2);
+  expect(mock.operations[1]).toMatchObject({ action: 'generateEventSchedule', replayed: false });
+
+  await page.getByRole('button', { name: 'Bracket' }).click();
+  await page.getByRole('button', { name: 'Remove division' }).click();
+  await expect(page.locator('#impact-dialog')).toHaveAttribute('open', '');
+  await expect(page.locator('#impact-body')).toContainText('historical-final-game');
+  await expect(page.locator('#impact-body')).toContainText('deterministic replay required');
+  await expect(page.locator('#impact-body')).toContainText('organizer republish');
+  await page.locator('#impact-confirm').click();
+  await expect.poll(() => mock.operations.length).toBe(4);
+  expect(mock.operations[2].action).toBe('removeEventBracket');
+  expect(mock.operations[2].payload.confirmImpact).toBeUndefined();
+  expect(mock.operations[3]).toMatchObject({
+    action: 'removeEventBracket',
+    payload: { confirmImpact: true },
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await indexedDbRows(page)).queue).toEqual([]);
+});
+
+test('bracket management chooses eligible teams, creates divisions, and reorders seeds on mobile', async ({ page }) => {
+  const initial = deskState('tournamentOperator');
+  initial.event.teams.push({
+    id: 'team-c',
+    name: 'Breakers',
+    players: [],
+    status: 'active',
+    manualSeed: 3,
+  });
+  const mock = await openDesk(page, { initialState: initial });
+  await page.setViewportSize({ width: 320, height: 720 });
+  const bracketTab = page.getByRole('navigation', { name: 'Tournament Desk sections' })
+    .getByRole('button', { name: 'Bracket', exact: true });
+  await bracketTab.click();
+  await expect(page.locator('#new-bracket-seed-mode')).toBeVisible();
+  await page.locator('#new-bracket-seed-mode').selectOption('manual');
+  await page.locator('[data-bracket-entry="team-b"]').uncheck();
+  await page.locator('#new-bracket-name').fill('Silver');
+  await page.getByRole('button', { name: 'Create bracket division' }).click();
+  await expect.poll(() => mock.operations.length).toBe(1);
+  expect(mock.operations[0]).toMatchObject({
+    action: 'createEventBracket',
+    targetId: EVENT_ID,
+    expectedRevision: 7,
+    payload: {
+      name: 'Silver',
+      seedMode: 'manual',
+      topCount: 2,
+      seeds: ['team-c', 'team-a'],
+    },
+  });
+
+  await bracketTab.click();
+  const moveUp = page.getByRole('button', { name: 'Move Anchors seed up' });
+  await expect(moveUp).toBeVisible();
+  expect((await moveUp.boundingBox()).height).toBeGreaterThanOrEqual(44);
+  await moveUp.click();
+  await expect.poll(() => mock.operations.length).toBe(2);
+  expect(mock.operations[1]).toMatchObject({
+    action: 'updateEventBracket',
+    targetId: 'bracket-main',
+    expectedRevision: 8,
+    payload: { seeds: ['team-b', 'team-a'] },
+  });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect((await indexedDbRows(page)).queue).toEqual([]);
 });

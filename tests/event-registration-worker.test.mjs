@@ -7,14 +7,17 @@ import test from 'node:test';
 if (!globalThis.crypto) globalThis.crypto = webcrypto;
 if (!globalThis.btoa) globalThis.btoa = value => Buffer.from(value, 'binary').toString('base64');
 
-const workerSource = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const structureCoreSource = await readFile(new URL('../event-structure-core.js', import.meta.url), 'utf8');
+const rawWorkerSource = await readFile(new URL('../cloudflare/court-sync-worker.js', import.meta.url), 'utf8');
+const workerSource = rawWorkerSource;
+const workerModuleSource = `${structureCoreSource}\n${rawWorkerSource.replace('import "../event-structure-core.js";', '')}`;
 const migrationSource = [
   await readFile(new URL('../cloudflare/migrations/0001_event_registration_foundation.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0002_team_registration_portal.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0003_registration_event_imports.sql', import.meta.url), 'utf8'),
   await readFile(new URL('../cloudflare/migrations/0004_registration_contact.sql', import.meta.url), 'utf8'),
 ].join('\n');
-const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerSource).toString('base64')}`)).default;
+const worker = (await import(`data:text/javascript;base64,${Buffer.from(workerModuleSource).toString('base64')}`)).default;
 const ORIGIN = 'https://cheebychob.github.io';
 const NOW = Date.now();
 
