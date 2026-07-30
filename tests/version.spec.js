@@ -23,11 +23,11 @@ test('Settings renders the centralized Court version and stays readable on mobil
     }));
     expect(info).toMatchObject({
       name: 'Court',
-      version: '0.43.0',
-      build: '20260729.6',
-      releaseNotes: 'Event pools now support Rotating Groups, grouped standings and playoff order, plus optional shared or pool-specific court assignments.',
+      version: '0.44.0',
+      build: '20260730.1',
+      releaseNotes: 'Events can run several playoff brackets: split the seed order into Gold, Silver, and Bronze tiers in one tap, and fixed-team seeding now follows cross-pool finish.',
       frozen: true,
-      label: 'Court v0.43.0 · Build 20260729.6'
+      label: 'Court v0.44.0 · Build 20260730.1'
     });
     expect(info.renderSource).not.toContain('0.8.0');
     expect(info.renderSource).not.toContain('20260716.9');
@@ -84,7 +84,7 @@ test('Copy version uses the complete formatter label and shows success', async (
   await openSettings(page);
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
-  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.43.0 · Build 20260729.6');
+  expect(await page.evaluate(() => window.__copiedVersion)).toBe('Court v0.44.0 · Build 20260730.1');
   await expect(page.locator('#toast')).toHaveText('Version copied');
   await expect(page.locator('#toast')).toHaveClass(/show/);
 });
@@ -102,7 +102,7 @@ test('Copy version safely falls back when the Clipboard API is unavailable or re
   await page.getByRole('button', { name: 'Copy version', exact: true }).click();
 
   expect(await page.evaluate(() => window.__fallbackCopies)).toEqual([
-    { command: 'copy', text: 'Court v0.43.0 · Build 20260729.6' }
+    { command: 'copy', text: 'Court v0.44.0 · Build 20260730.1' }
   ]);
   await expect(page.locator('#toast')).toHaveText('Version copied');
 

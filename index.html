@@ -8,7 +8,7 @@
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Court">
-<meta name="court-build" content="20260729.6">
+<meta name="court-build" content="20260730.1">
 <title>Court — Volleyball Ratings</title>
 <style>
   :root{
@@ -1181,6 +1181,9 @@
     padding:10px 0;color:inherit;font:inherit;text-align:left;cursor:pointer;align-items:center;justify-content:space-between;gap:10px}
   .ev-team:last-child{border-bottom:none}
   .ev-team .tiny{text-align:right;max-width:55%}
+  .split-bracket{padding:10px 12px;border:1px solid var(--border);border-radius:14px;
+    background:#ffffff06;margin-bottom:8px}
+  .split-bracket:last-child{margin-bottom:0}
   .stand-row{display:grid;grid-template-columns:18px minmax(0,1fr) 56px 50px;gap:8px;align-items:center;
     padding:9px 0;border-bottom:1px solid var(--border)}
   .stand-row:last-child{border-bottom:none}
@@ -1381,9 +1384,9 @@
 <script>
 const APP_INFO = Object.freeze({
   name: 'Court',
-  version: '0.43.0',
-  build: '20260729.6',
-  releaseNotes: 'Event pools now support Rotating Groups, grouped standings and playoff order, plus optional shared or pool-specific court assignments.'
+  version: '0.44.0',
+  build: '20260730.1',
+  releaseNotes: 'Events can run several playoff brackets: split the seed order into Gold, Silver, and Bronze tiers in one tap, and fixed-team seeding now follows cross-pool finish.'
 });
 
 function appVersionLabel(){
@@ -5861,8 +5864,15 @@ function rebalanceRotationPlacements(matches,entryIds,courtCount,positionsPerSid
   return matches;
 }
 function teammateRotationInfo(ev){
-  const n=rotatingEntries(ev).length,per=entriesPerSide(ev),recommendedRounds=Math.max(1,Math.ceil((n-1)/Math.max(1,per-1)));
-  return {recommendedRounds,note:'A complete teammate rotation may require many rounds and may not be mathematically exact for this entry count.'};
+  /* Entries only ever share a court with their own pool, so variety is bounded
+     by the LARGEST pool, not by the total entry count. Pool-free events keep a
+     single group and so keep the original recommendation. */
+  const groups=eventSchedulingGroups(ev),entries=rotatingEntries(ev).length;
+  const largest=groups.length?Math.max(...groups.map(group=>group.ids.length)):entries;
+  const pooled=groups.length>1,per=entriesPerSide(ev);
+  const recommendedRounds=Math.max(1,Math.ceil((largest-1)/Math.max(1,per-1)));
+  return {recommendedRounds,largestPool:largest,poolCount:groups.length,
+    note:`A complete teammate rotation may require many rounds and may not be mathematically exact for ${pooled?`the largest pool (${largest} entries)`:'this entry count'}.`};
 }
 function rotationFullMatchupKey(sideA,sideB){return [sideA.slice().sort().join(','),sideB.slice().sort().join(',')].sort().join('~');}
 function bestRotationSidePlan(selected,per,teammates,opponents,exact,strength,seed){
@@ -6201,15 +6211,46 @@ function fixedPoolGames(ev){
   const cutoff=starts.length?Math.min(...starts):Infinity;
   return games.filter(g=>g.evId===ev.id&&g.evA&&g.evB&&g.date<cutoff);
 }
-function fixedEventAutomaticSeedOrder(ev){
-  const poolGames=fixedPoolGames(ev);
-  return {
-    teamIds:poolGames.length
-      ? eventStandings(ev,poolGames).map(r=>r.t.id)
-      : (ev.teams||[]).map(t=>t.id),
-    source:poolGames.length?'standings':'event-seeding',
-    rows:eventStandings(ev,poolGames),
-  };
+/* Fixed-team seeding bases. `pool-finish` is standard cross-pool tournament
+   practice — every pool winner, then every runner-up, and so on — and matches
+   what rotationPlayoffOrder already does. `standings` keeps the raw overall
+   order reachable for organizers who want it. */
+const FIXED_SEED_BASES=['pool-finish','standings','event-seeding'];
+/* Cross-pool only means something with more than one pool: a single pool ranks
+   identically either way, so those events keep the plain standings wording. */
+function fixedCrossPoolAvailable(ev){ return eventSchedulingGroups(ev).length>1; }
+function fixedEventSeedBasisDefault(ev){
+  if(!fixedPoolGames(ev).length) return 'event-seeding';
+  return fixedCrossPoolAvailable(ev)?'pool-finish':'standings';
+}
+function compareFixedStandingMetrics(x,y){
+  /* the metric head of the frozen eventStandings sort, without its seed-order
+     and name fallback, so the pool and name tiebreaks below stay reachable */
+  return y.winPct-x.winPct || y.mw-x.mw || y.sdiff-x.sdiff || y.diff-x.diff || y.pf-x.pf;
+}
+function fixedEventPoolRankRows(ev,rows){
+  /* pool rank is derived by filtering the frozen standings output per pool —
+     never by a second standings implementation */
+  const out=[];
+  eventSchedulingGroups(ev).forEach(group=>{
+    rows.filter(r=>cleanPoolLabel(r.t.pool||'')===group.pool)
+      .forEach((r,index)=>out.push({...r,pool:group.pool,poolRank:index+1}));
+  });
+  return out;
+}
+function fixedEventAutomaticSeedOrder(ev,basis){
+  const poolGames=fixedPoolGames(ev), rows=eventStandings(ev,poolGames);
+  const wanted=FIXED_SEED_BASES.includes(basis)?basis:fixedEventSeedBasisDefault(ev);
+  if(!poolGames.length||wanted==='event-seeding')
+    return {teamIds:(ev.teams||[]).map(t=>t.id),source:'event-seeding',basis:'event-seeding',rows,poolRanks:{}};
+  if(wanted==='pool-finish'&&fixedCrossPoolAvailable(ev)){
+    const ranked=fixedEventPoolRankRows(ev,rows).sort((a,b)=>
+      a.poolRank-b.poolRank||compareFixedStandingMetrics(a,b)||
+      String(a.pool).localeCompare(String(b.pool))||a.t.name.localeCompare(b.t.name)||String(a.t.id).localeCompare(String(b.t.id)));
+    return {teamIds:ranked.map(r=>r.t.id),source:'standings',basis:'pool-finish',rows,
+      poolRanks:Object.fromEntries(ranked.map(r=>[r.t.id,{pool:r.pool,poolRank:r.poolRank}]))};
+  }
+  return {teamIds:rows.map(r=>r.t.id),source:'standings',basis:'standings',rows,poolRanks:{}};
 }
 /* --- brackets: ev.brackets is a list; each stores ONLY {id, name, created, seeds}.
    Who has advanced is derived from games on every render — same rule as
@@ -6227,6 +6268,12 @@ function bracketRoundNames(P){
   for(let n=P; n>=2; n/=2) names.push(bracketRoundName(n,false));
   return names;
 }
+/* Field shape for a seed count, matching how bracketState pads to the next
+   power of two. Used for setup previews only — bracketState stays the single
+   source of truth for how a bracket actually runs. */
+function bracketFieldSize(teamCount){ let P=2; while(P<Math.max(2,positiveInt(teamCount,0))) P*=2; return P; }
+function bracketRoundCount(teamCount){ const n=positiveInt(teamCount,0); if(n<2) return 0; let P=1,rounds=0; while(P<n){ P*=2; rounds++; } return rounds; }
+function bracketFirstRoundByes(teamCount){ const n=positiveInt(teamCount,0); return n<2?0:bracketFieldSize(n)-n; }
 function bracketMatchLabel(br, P, roundIdx, i, count){
   const nm=bracketRoundName(P/Math.pow(2,roundIdx),true);
   return (br.name?br.name+' · ':'')+nm+(count>1?' '+(i+1):'');
@@ -8376,7 +8423,7 @@ function renderRotatingEventDetail(ev){
   if(playoffTeams.length){
     html+=`<div class="card" style="margin-top:12px"><div class="row spread"><div class="stat-title" style="margin:0">Playoff teams${ev.done?'':' <span class="tiny faint" style="font-weight:500">· tap to rename / sub</span>'}</div>${ev.done?'':`<button class="btn sm ghost" onclick="openRotationPlayoffs('${ev.id}')">Rebuild</button>`}</div>`
       +playoffTeams.map(t=>`<button class="ev-team pressable" onclick="openEventTeam('${ev.id}','${t.id}')"><span class="small match-teams" style="font-weight:700">${esc(t.name)}</span><span class="tiny faint">${t.players.map(id=>pById(id)?.name).filter(Boolean).map(esc).join(', ')}</span></button>`).join('')
-      +`${!ev.done&&!(ev.brackets||[]).length?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add playoff bracket</button>`:''}</div>`;
+      +`${!ev.done?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} ${(ev.brackets||[]).length?'Add another bracket':'Add playoff bracket'}</button>`:''}${bracketSplitButtonHtml(ev)}</div>`;
   } else if(!(ev.brackets||[]).length){
     html+=`<div class="card" style="margin-top:12px"><div class="stat-title">Playoffs</div><div class="stat-empty">Finish pool play, then combine ${typePlural.toLowerCase()} into fixed playoff teams and run a bracket. Winners advance automatically; entry pool standings never mix with bracket results.</div>${!ev.done?`<button class="btn ghost block" style="margin-top:10px;color:var(--gold)" ${entries.length>=2*(validation.entriesPerSide||2)?'':'disabled'} onclick="openRotationPlayoffs('${ev.id}')">${icons.trophy} Build playoff teams</button>`:''}</div>`;
   }
@@ -8696,7 +8743,8 @@ function fixedEventSetupActionsHtml(ev,demoted){
       <button class="btn ghost" style="flex:1" onclick="openBulkTeams('${ev.id}')">${icons.plus} Add many</button>
     </div>
     ${many?`<div class="row" style="gap:8px;margin-top:8px"><button class="btn ghost" style="flex:1" onclick="openManagePools('${ev.id}')">Manage pools</button><button class="btn ghost" style="flex:1;color:var(--gold)" onclick="openPoolSeeding('${ev.id}')">Seed pools</button></div>`:`<button class="btn ghost block" style="margin-top:8px" disabled>Seed pools</button><div class="tiny faint" style="margin-top:5px">Add at least two teams before seeding pools.</div>`}
-    ${many?`<button class="btn ghost block" style="margin-top:8px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} Add bracket</button>`:''}
+    ${many?`<button class="btn ghost block" style="margin-top:8px;color:var(--gold)" onclick="openBracketSetup('${ev.id}')">${icons.trophy} ${(ev.brackets||[]).length?'Add another bracket':'Add bracket'}</button>`:''}
+    ${bracketSplitButtonHtml(ev)}
   </section>`;
 }
 function renderEventDetail(ev){
@@ -9360,26 +9408,29 @@ function poolPlayIncompleteNote(ev){
   const left=Math.max(0,f.scheduledMatches-f.playedMatches);
   return `<div class="unkline" data-pool-incomplete style="margin-bottom:11px"><b>Pool play is not finished</b><div class="tiny" style="margin-top:3px">${left} scheduled match${left===1?'':'es'} still ${left===1?'has':'have'} no result, so standings-based seeding can still change. You can create and run this bracket anyway.</div></div>`;
 }
-function bracketAutomaticSeedInfo(ev){
+function bracketAutomaticSeedInfo(ev,basis){
   const generated=generatedPlayoffSeedOrder(ev);
   if(generated.length){
     const first=evTeamById(ev,generated[0]), src=normalizedPlayoffSource(first);
-    return {teamIds:generated,kind:'rotation',source:src.sourceOrderBasis,
+    return {teamIds:generated,kind:'rotation',source:src.sourceOrderBasis,basis:src.sourceOrderBasis,poolBasisAvailable:false,
       button:'Use playoff order',title:'Recommended seeding',
-      detail:`From ${src.sourceOrderBasis==='standings'?'rotating pool standings':'event seed order'} · ${src.pattern==='balanced'?'Balanced teams':'Top seeds together'}`};
+      detail:`From ${src.sourceOrderBasis==='standings'?'rotating pool standings':src.sourceOrderBasis==='pool-finish'?'rotating pool finish (cross-pool)':'event seed order'} · ${src.pattern==='balanced'?'Balanced teams':'Top seeds together'}`};
   }
   if(eventFormat(ev)==='rotatingGroups'){
-    return {teamIds:[],kind:'manual',source:'unavailable',button:'',title:'Manual seeding',
+    return {teamIds:[],kind:'manual',source:'unavailable',basis:'unavailable',poolBasisAvailable:false,button:'',title:'Manual seeding',
       detail:(ev.teams||[]).some(t=>t.playoffSource)
         ?'The generated playoff-team set changed, so its saved automatic order is no longer complete.'
         :'No saved playoff-team order is available for this older event.'};
   }
-  const fixed=fixedEventAutomaticSeedOrder(ev), fromStandings=fixed.source==='standings';
-  return {teamIds:fixed.teamIds,kind:'fixed',source:fixed.source,
-    button:fromStandings?'Use standings order':'Use event seed order',title:'Automatic seeding',
-    detail:fromStandings?'From fixed-team pool standings':'No pool results yet · from event seed order'};
+  const fixed=fixedEventAutomaticSeedOrder(ev,basis), fromStandings=fixed.source==='standings';
+  return {teamIds:fixed.teamIds,kind:'fixed',source:fixed.source,basis:fixed.basis,
+    poolBasisAvailable:fromStandings&&fixedCrossPoolAvailable(ev),
+    button:fromStandings?(fixed.basis==='pool-finish'?'Use cross-pool order':'Use standings order'):'Use event seed order',
+    title:'Automatic seeding',
+    detail:fixed.basis==='pool-finish'?'Cross-pool from fixed-team pool finish · every pool winner, then every runner-up'
+      :fromStandings?'From overall fixed-team pool standings':'No pool results yet · from event seed order'};
 }
-function bracketDefaultSeedOrder(ev){ return bracketAutomaticSeedInfo(ev).teamIds.slice(); }
+function bracketDefaultSeedOrder(ev,basis){ return bracketAutomaticSeedInfo(ev,basis).teamIds.slice(); }
 function bracketSeedDisplay(ev,team,currentSeed){
   const src=normalizedPlayoffSource(team);
   if(src){
@@ -9394,8 +9445,8 @@ function bracketSeedDisplay(ev,team,currentSeed){
 }
 window.openBracketSetup=(evId)=>{
   const ev=evById(evId); if(!ev) return;
-  const auto=bracketAutomaticSeedInfo(ev);
-  window._brDraft={evId, name:'', seeds:auto.kind==='rotation'?auto.teamIds.slice():[], automatic:auto.kind==='rotation'};
+  const basis=fixedEventSeedBasisDefault(ev), auto=bracketAutomaticSeedInfo(ev,basis);
+  window._brDraft={evId, name:'', basis, seeds:auto.kind==='rotation'?auto.teamIds.slice():[], automatic:auto.kind==='rotation'};
   renderBracketSetupSheet();
 };
 const BR_NAME_PRESETS=['Gold','Silver','Bronze','Championship'];
@@ -9409,7 +9460,7 @@ function brCapture(){
 }
 function renderBracketSetupSheet(){
   const d=window._brDraft; const ev=evById(d.evId); if(!ev) return;
-  const auto=bracketAutomaticSeedInfo(ev), fixed=fixedEventAutomaticSeedOrder(ev);
+  const auto=bracketAutomaticSeedInfo(ev,d.basis), fixed=fixedEventAutomaticSeedOrder(ev,d.basis);
   const teamsById=Object.fromEntries((ev.teams||[]).map(t=>[t.id,t]));
   const displayIds=auto.kind==='rotation'?auto.teamIds:auto.kind==='fixed'?auto.teamIds:(ev.teams||[]).map(t=>t.id);
   const displayTeams=displayIds.map(id=>teamsById[id]).filter(Boolean);
@@ -9421,18 +9472,28 @@ function renderBracketSetupSheet(){
     return `<button class="chip ${i>=0?'on':''}" style="${dim?'opacity:.55;':''}text-align:left;min-height:48px;align-items:flex-start" onclick="brSeedToggle('${t.id}')"><b style="color:var(--gold);white-space:nowrap">${esc(info.lead)}</b><span style="min-width:0"><span style="display:block;font-weight:750;overflow-wrap:anywhere">${esc(t.name)}</span><span class="tiny faint" style="display:block;margin-top:2px;overflow-wrap:anywhere">${esc(info.detail)}</span></span></button>`;
   }).join('');
   const pools=auto.kind==='fixed'?[...new Set((ev.teams||[]).map(t=>t.pool||''))].filter(Boolean).sort():[];
-  const rankBtns = pools.length
-    ? `<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:7px">
+  const rankBtns = auto.kind==='fixed'
+    ? (pools.length
+      ? `<div class="row" style="gap:6px;flex-wrap:wrap;margin-bottom:7px">
         ${[1,2,3,4].map(k=>`<button class="btn sm ghost" style="color:var(--gold);padding:4px 9px" onclick="brSeedRank(${k})">${k===1?'1st':k===2?'2nd':k===3?'3rd':'4th'} of each pool</button>`).join('')}
-      </div>` : '';
+      </div>` : '')
+    : `<div class="tiny faint" data-no-pool-picks style="margin-bottom:7px">Pool quick-picks are not offered here: a rotating playoff team merges entries from different pools, so it has no single pool finish to pick by.</div>`;
   const N=d.seeds.length;
   let P=2; while(P<Math.max(N,2)) P*=2;
   const byeNote = N>=2 && P>N ? `<div class="tiny" style="color:var(--gold);margin-top:6px">${N} teams → top ${P-N} seed${P-N===1?'':'s'} get a first-round bye.</div>` : '';
   const bigNote = N>32 ? `<div class="tiny faint" style="margin-top:6px">${N} teams creates a ${bracketRoundName(P)} bracket. Phones show one round at a time; wide screens scroll it horizontally.</div>` : '';
   const topBtns = auto.kind==='fixed'?[8,16,32].filter(n=>displayTeams.length>=n).map(n=>`<button class="btn sm ghost" style="color:var(--gold);padding:4px 9px" onclick="brSeedTop(${n})">Top ${n}</button>`).join(''):'';
+  /* With more than one pool the card carries a basis choice, so the restore
+     action drops its basis wording and the segment owns that decision. */
+  const basisSeg=auto.poolBasisAvailable
+    ? `<div class="seg" data-seed-basis style="margin-top:8px">
+        <button class="${auto.basis==='pool-finish'?'on':''}" aria-pressed="${auto.basis==='pool-finish'?'true':'false'}" onclick="brSeedBasis('pool-finish')">Cross-pool order</button>
+        <button class="${auto.basis==='standings'?'on':''}" aria-pressed="${auto.basis==='standings'?'true':'false'}" onclick="brSeedBasis('standings')">Overall standings</button>
+      </div>` : '';
+  const restoreLabel=basisSeg?'Use automatic order':auto.button;
   const recommendation=auto.kind==='manual'
     ? `<div class="unkline" style="margin-bottom:9px"><b>${esc(auto.title)}</b><div class="tiny" style="margin-top:3px">${esc(auto.detail)}</div></div>`
-    : `<div class="unkline" style="margin-bottom:9px"><div class="row spread" style="gap:10px;align-items:flex-start"><span><b>${d.automatic?'Recommended seeding':esc(auto.title)}</b><span class="tiny" style="display:block;margin-top:3px">${d.automatic?esc(auto.detail):'Manual order is active. Restore the automatic recommendation any time.'}</span></span><button class="btn sm ghost" style="flex:none;color:var(--gold);padding:6px 9px" onclick="brUseAutomatic()">${esc(auto.button)}</button></div></div>`;
+    : `<div class="unkline" style="margin-bottom:9px"><div class="row spread" style="gap:10px;align-items:flex-start"><span><b>${d.automatic?'Recommended seeding':esc(auto.title)}</b><span class="tiny" style="display:block;margin-top:3px">${d.automatic?esc(auto.detail):'Manual order is active. Restore the automatic recommendation any time.'}</span></span><button class="btn sm ghost" style="flex:none;color:var(--gold);padding:6px 9px" onclick="brUseAutomatic()">${esc(restoreLabel)}</button></div>${basisSeg}</div>`;
   openSheet(`<h3>Add bracket · ${esc(ev.name)}</h3>
     <p class="small muted" style="margin:-8px 0 14px">Single elimination, best-of-3 by default. Seeds pair 1 vs lowest so top seeds meet late. Run several brackets side by side — Gold for pool winners, Silver for runners-up, and so on.</p>
     ${poolPlayIncompleteNote(ev)}
@@ -9476,12 +9537,18 @@ window.brSeedToggle=(tid)=>{
 };
 window.brUseAutomatic=()=>{
   const d=brCapture(),ev=evById(d.evId);if(!ev)return;
-  d.seeds=bracketDefaultSeedOrder(ev);d.automatic=true;renderBracketSetupSheet();
+  d.seeds=bracketDefaultSeedOrder(ev,d.basis);d.automatic=true;renderBracketSetupSheet();
+};
+window.brSeedBasis=(basis)=>{
+  /* switching basis is an explicit action: it applies that order right away */
+  const d=brCapture(),ev=evById(d.evId);if(!ev)return;
+  d.basis=FIXED_SEED_BASES.includes(basis)?basis:fixedEventSeedBasisDefault(ev);
+  d.seeds=bracketDefaultSeedOrder(ev,d.basis);d.automatic=true;renderBracketSetupSheet();
 };
 window.brSeedRank=(k)=>{
   /* the k-th place team of every pool, ordered by overall standing */
   const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
-  const st=fixedEventAutomaticSeedOrder(ev).teamIds.map(id=>({t:evTeamById(ev,id)})).filter(r=>r.t);
+  const st=fixedEventAutomaticSeedOrder(ev,'standings').teamIds.map(id=>({t:evTeamById(ev,id)})).filter(r=>r.t);
   const pools=[...new Set((ev.teams||[]).map(t=>t.pool||''))].filter(Boolean).sort();
   const picks=[];
   pools.forEach(p=>{
@@ -9495,13 +9562,13 @@ window.brSeedRank=(k)=>{
 };
 window.brSeedTop=(n)=>{
   const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
-  d.seeds=fixedEventAutomaticSeedOrder(ev).teamIds.slice(0,n);
+  d.seeds=fixedEventAutomaticSeedOrder(ev,d.basis).teamIds.slice(0,n);
   d.automatic=false;
   renderBracketSetupSheet();
 };
 window.brSeedAll=()=>{
   const d=brCapture(); const ev=evById(d.evId); if(!ev) return;
-  const auto=bracketAutomaticSeedInfo(ev);
+  const auto=bracketAutomaticSeedInfo(ev,d.basis);
   d.seeds=auto.teamIds.length?auto.teamIds.slice():(ev.teams||[]).map(t=>t.id);
   d.automatic=auto.teamIds.length>0;
   renderBracketSetupSheet();
@@ -9523,6 +9590,153 @@ window.resetBracket=async(evId, brId)=>{
   await Sync.markDeleted('eventBrackets',brId);
   ev.brackets=ev.brackets.filter(b=>b.id!==brId);
   await saveEvents(); render();
+};
+
+/* --- Split into N brackets ------------------------------------------------
+   One tap turns the automatic seed order into contiguous tiers (Gold, Silver,
+   Bronze, …). Everything below is derived: the plan is recomputed from the
+   current teams on every render, and the only thing written is the usual
+   {id, name, created, seeds} bracket record. The recommended count is advisory
+   — every count in range stays selectable and creatable. --- */
+function bracketSplitSizes(teamCount,bracketCount){
+  return globalThis.CourtEventStructureCore.bracketSplitSizes(teamCount,bracketCount);
+}
+function bracketSplitMaxCount(teamCount){ return Math.max(1,Math.min(Math.floor(positiveInt(teamCount,0)/2),6)); }
+function eventCourtCount(ev){
+  return eventFormat(ev)==='rotatingGroups'
+    ? sanitizeCourtCount(rotationSettings(ev).courts,1)
+    : sanitizeCourtCount(ev?.sched?.courts,evSchedDefaults().courts);
+}
+function bracketSplitSuggestedCount(teamCount,courtCount){
+  /* advisory only: aim for 4–8 teams per bracket without proposing more
+     brackets than there are courts to run them on */
+  return clamp(Math.floor(positiveInt(teamCount,0)/4),1,Math.max(1,positiveInt(courtCount,1)));
+}
+function bracketSplitSeedOrder(ev,basis){
+  const auto=bracketAutomaticSeedInfo(ev,basis);
+  return auto.teamIds.length?auto.teamIds.slice():(ev?.teams||[]).map(t=>t.id);
+}
+function bracketAutoName(index,usedNames){
+  const base=index<3&&BR_NAME_PRESETS[index]?BR_NAME_PRESETS[index]:`Bracket ${index+1}`;
+  const taken=new Set([...(usedNames||[])].map(n=>String(n||'').trim().toLowerCase()));
+  let name=base,suffix=2;
+  while(taken.has(name.toLowerCase())) name=`${base} ${suffix++}`;
+  return name;
+}
+function eventPlayoffGames(ev){
+  /* rotating events keep pool results on entry ids, so any evA game is a
+     playoff game; fixed events play pool games on evA too, so there the
+     bracket-creation cutoff (the complement of fixedPoolGames) decides. */
+  if(!ev) return [];
+  if(eventFormat(ev)==='rotatingGroups') return games.filter(g=>g.evId===ev.id&&g.evA);
+  const starts=(ev.brackets||[]).map(br=>Number(br.created)).filter(Number.isFinite);
+  const cutoff=starts.length?Math.min(...starts):Infinity;
+  return games.filter(g=>g.evId===ev.id&&g.evA&&(String(g.evMatchId||'').startsWith('playoff:')||g.date>=cutoff));
+}
+function bracketSplitPlan(ev,count,basis){
+  const teamIds=bracketSplitSeedOrder(ev,basis), teamCount=teamIds.length;
+  const maxCount=bracketSplitMaxCount(teamCount), courtCount=eventCourtCount(ev);
+  const suggested=clamp(bracketSplitSuggestedCount(teamCount,courtCount),1,maxCount);
+  const requested=clamp(positiveInt(count,suggested),1,maxCount);
+  const sizes=bracketSplitSizes(teamCount,requested);
+  const used=new Set();
+  let cursor=0;
+  const brackets=sizes.map((size,index)=>{
+    const ids=teamIds.slice(cursor,cursor+size), seedStart=cursor+1; cursor+=size;
+    const name=bracketAutoName(index,used); used.add(name);
+    /* matchCount/rounds/byes are preview copy only */
+    return {name,size,teamIds:ids,seedStart,seedEnd:seedStart+size-1,
+      matchCount:Math.max(0,size-1),rounds:bracketRoundCount(size),byes:bracketFirstRoundByes(size)};
+  });
+  return {count:sizes.length,requested,maxCount,suggested,courtCount,teamCount,teamIds,sizes,brackets,
+    auto:bracketAutomaticSeedInfo(ev,basis),valid:sizes.length>0&&sizes.every(n=>n>=2)};
+}
+function bracketSplitAvailable(ev){
+  return !!ev&&!ev.done&&bracketSplitSeedOrder(ev).length>=4&&!eventPlayoffGames(ev).length;
+}
+function joinSentenceList(parts){
+  if(parts.length<=1) return parts.join('');
+  if(parts.length===2) return `${parts[0]} and ${parts[1]}`;
+  return `${parts.slice(0,-1).join(', ')}, and ${parts[parts.length-1]}`;
+}
+function bracketSplitCourtPhrase(count,courtCount){
+  if(count===courtCount) return `fill all ${courtCount} court${courtCount===1?'':'s'} at once`;
+  if(count<courtCount) return `use ${count} of your ${courtCount} courts`;
+  return `queue ${count} brackets across ${courtCount} court${courtCount===1?'':'s'}`;
+}
+function bracketSplitHint(plan){
+  /* every number below comes from the live preview — nothing is hardcoded */
+  /* a numbered name already ends in a digit, so those need a separator */
+  const shape=plan.brackets.map(b=>`${b.name}${/\d$/.test(b.name)?' ·':''} ${b.size}`).join(' / ');
+  const seedPhrase=n=>n===1?'seed gets':`${n} seeds get`;
+  const byeBrackets=plan.brackets.filter(b=>b.byes>0);
+  const uniformByes=byeBrackets.length===plan.brackets.length&&new Set(byeBrackets.map(b=>b.byes)).size===1;
+  const byeClause=!byeBrackets.length?'every bracket fills its first round with no byes.'
+    :uniformByes&&plan.brackets.length>1?`every bracket’s top ${seedPhrase(byeBrackets[0].byes)} a first-round bye.`
+    :`${joinSentenceList(byeBrackets.map(b=>`${b.name}’s top ${seedPhrase(b.byes)} a first-round bye`))}.`;
+  if(plan.count===plan.suggested)
+    return {matches:true,text:`${shape} — ${byeClause} That is the suggested split for ${plan.teamCount} teams on ${plan.courtCount} court${plan.courtCount===1?'':'s'}.`};
+  const alt=bracketSplitSizes(plan.teamCount,plan.suggested);
+  return {matches:false,text:`${shape} — ${byeClause} ${plan.suggested} bracket${plan.suggested===1?'':'s'} would split ${alt.join('/')} and ${bracketSplitCourtPhrase(plan.suggested,plan.courtCount)}.`};
+}
+function bracketSplitButtonHtml(ev,style='margin-top:8px'){
+  return bracketSplitAvailable(ev)
+    ? `<button class="btn ghost block" data-bracket-split style="${style};color:var(--mint)" onclick="openBracketSplit('${ev.id}')">${icons.trophy} Split into brackets</button>`
+    : '';
+}
+window.openBracketSplit=(evId)=>{
+  const ev=evById(evId); if(!ev) return;
+  const basis=fixedEventSeedBasisDefault(ev);
+  window._bsDraft={evId, basis, count:bracketSplitPlan(ev,null,basis).suggested};
+  renderBracketSplitSheet();
+};
+window.bsCount=(n)=>{ const d=window._bsDraft; if(!d) return; d.count=n; renderBracketSplitSheet(); };
+function renderBracketSplitSheet(){
+  const d=window._bsDraft, ev=evById(d.evId); if(!ev) return;
+  const plan=bracketSplitPlan(ev,d.count,d.basis), hint=bracketSplitHint(plan);
+  const blocked=eventPlayoffGames(ev).length>0, existing=(ev.brackets||[]).length;
+  const teamName=id=>{ const t=evTeamById(ev,id); return t?t.name:'Missing team'; };
+  const steps=Array.from({length:plan.maxCount},(_,i)=>i+1).map(n=>
+    `<button class="${n===plan.count?'on':''}" data-split-count="${n}" aria-pressed="${n===plan.count?'true':'false'}" onclick="bsCount(${n})">${n}</button>`).join('');
+  const rows=plan.brackets.map(b=>`<div class="split-bracket">
+      <div class="row spread" style="gap:8px;align-items:baseline">
+        <b style="color:var(--gold)">${esc(b.name)}</b>
+        <span class="tiny num faint" style="white-space:nowrap">Seeds ${b.seedStart}–${b.seedEnd}</span>
+      </div>
+      <div class="tiny faint" style="margin-top:3px">${b.size} teams · ${b.matchCount} match${b.matchCount===1?'':'es'} · ${b.rounds} round${b.rounds===1?'':'s'} · ${b.byes?`${b.byes} first-round bye${b.byes===1?'':'s'}`:'no byes'}</div>
+      <div class="small" style="margin-top:4px;overflow-wrap:anywhere">${b.teamIds.map(id=>esc(teamName(id))).join(' · ')}</div>
+    </div>`).join('');
+  openSheet(`<h3>Split into brackets · ${esc(ev.name)}</h3>
+    <p class="small muted" style="margin:-8px 0 14px">Contiguous tiers taken from the current seed order — top seeds into ${esc(plan.brackets[0]?.name||'the first bracket')}, next tier into the one below, and so on. Every bracket is single elimination.</p>
+    ${poolPlayIncompleteNote(ev)}
+    <div class="field">
+      <div class="row spread" style="margin-bottom:7px;gap:10px;align-items:baseline">
+        <label style="margin:0">Number of brackets</label>
+        <span class="tiny" style="color:var(--mint);white-space:nowrap">Suggested ${plan.suggested}</span>
+      </div>
+      <div class="seg" data-split-steps>${steps}</div>
+      <div class="tiny faint" style="margin-top:6px">Seeding order: ${esc(plan.auto.detail)}</div>
+      <div class="tiny ${hint.matches?'faint':''}" data-split-hint style="margin-top:6px${hint.matches?'':';color:var(--gold)'}">${esc(hint.text)}</div>
+    </div>
+    <div class="field"><label>Preview · ${plan.count} bracket${plan.count===1?'':'s'} · ${plan.teamCount} teams</label>${rows||'<div class="stat-empty">Not enough teams to split.</div>'}</div>
+    ${blocked?`<div class="unkline">Playoff results already exist. Delete those games before rebuilding brackets.</div>`
+      :existing?`<div class="unkline">This event already has ${existing} bracket${existing===1?'':'s'}. Creating the split replaces ${existing===1?'it':'them'}; games and standings are untouched.</div>`:''}
+    <button id="bsCreate" class="btn primary block" ${plan.valid&&!blocked?'':'disabled'} onclick="createBracketSplit()">Create ${plan.count} bracket${plan.count===1?'':'s'}</button>
+    ${sheetCloseBtn()}`);
+}
+window.createBracketSplit=async()=>{
+  const d=window._bsDraft, ev=evById(d.evId); if(!ev) return;
+  if(eventPlayoffGames(ev).length){ toast('Playoff results already exist'); return; }
+  const plan=bracketSplitPlan(ev,d.count,d.basis);
+  if(!plan.valid) return;
+  const existing=(ev.brackets||[]).slice();
+  if(existing.length && !(await askConfirm(`Replace the existing bracket${existing.length===1?'':'s'}? The ${plan.count} new bracket${plan.count===1?'':'s'} reseed every team from the current order. Games and standings are untouched.`,'Replace'))) return;
+  if(existing.length) await Sync.markDeletedMany({eventBrackets:existing});
+  const created=Date.now();
+  ev.brackets=plan.brackets.map(b=>({id:uid(), name:b.name, created, seeds:b.teamIds.slice()}));
+  await saveEvents(); closeSheet();
+  toast(`${plan.count} bracket${plan.count===1?'':'s'} ready · tap a matchup to log it`);
+  render();
 };
 
 /* --- bulk team creation: one name per line, optional auto pool split --- */
@@ -10668,6 +10882,148 @@ async function runSelfTest(){
     ck('64-team bracket starts with Round of 64',
       st64.size===64 && st64.rounds.length===6 && n64[0]==='Round of 64' && first64.every(([a,b])=>a+b===65));
 
+    /* ---- split into N brackets: distribution, advisory suggestion, guards ---- */
+    const splitCase=(teams,count)=>bracketSplitSizes(teams,count).join(',');
+    ck('Split sizes stay as equal as possible at every count',
+      splitCase(9,2)==='4,5'&&splitCase(9,3)==='3,3,3'&&splitCase(10,3)==='3,3,4'&&
+      splitCase(8,2)==='4,4'&&splitCase(11,2)==='5,6'&&splitCase(5,2)==='2,3',
+      [splitCase(9,2),splitCase(9,3),splitCase(10,3),splitCase(8,2),splitCase(11,2),splitCase(5,2)].join(' | '));
+    ck('Two brackets is a first-class split for 9 teams (4 / 5, never 8 / 1)', splitCase(9,2)==='4,5', splitCase(9,2));
+    ck('Asking for more brackets than 2-team tiers clamps instead of stranding a team',
+      splitCase(4,4)==='2,2'&&splitCase(5,5)==='2,3'&&splitCase(3,3)==='3'&&splitCase(1,2)==='',
+      [splitCase(4,4),splitCase(5,5),splitCase(3,3)].join(' | '));
+    ck('Split remainder always lands in the lower brackets, never the top',
+      [[9,2],[10,3],[11,2],[13,4],[17,5],[23,6],[16,4]].every(([teams,count])=>{
+        const sizes=bracketSplitSizes(teams,count);
+        return sizes.reduce((a,b)=>a+b,0)===teams && Math.max(...sizes)-Math.min(...sizes)<=1
+          && sizes.every((n,i)=>i===0||n>=sizes[i-1]);
+      }), bracketSplitSizes(23,6).join(','));
+
+    const evSplit={id:'evsplit',name:'Split Cup',created:1,done:false,brackets:[],
+      sched:{...evSchedDefaults(),courts:3},
+      teams:Array.from({length:9},(_,i)=>({id:'sp'+(i+1),name:'SP'+(i+1),pool:'',players:[]}))};
+    const splitRange=Array.from({length:bracketSplitMaxCount(9)},(_,i)=>i+1);
+    ck('Every offered bracket count produces a creatable split',
+      bracketSplitMaxCount(9)===4 && splitRange.every(n=>{
+        const plan=bracketSplitPlan(evSplit,n);
+        return plan.valid && plan.count===n && plan.brackets.length===n
+          && plan.brackets.every(b=>b.size>=2 && !!bracketState(evSplit,{id:'probe',name:b.name,created:1,seeds:b.teamIds}))
+          && plan.brackets.flatMap(b=>b.teamIds).join(',')===plan.teamIds.join(',');
+      }), 'max '+bracketSplitMaxCount(9));
+    const suggested9=bracketSplitPlan(evSplit,null).suggested;
+    ck('The suggested count seeds the control but never constrains it',
+      suggested9===2 && splitRange.filter(n=>n!==suggested9)
+        .every(n=>{const p=bracketSplitPlan(evSplit,n);return p.valid&&p.count===n;}),
+      'suggested '+suggested9);
+    const hintMatch=bracketSplitHint(bracketSplitPlan(evSplit,2)),hintDiff=bracketSplitHint(bracketSplitPlan(evSplit,3));
+    ck('Split hint names the concrete tradeoff and is derived from the preview',
+      hintMatch.matches && hintMatch.text.startsWith('Gold 4 / Silver 5')
+      && hintMatch.text.includes('Silver’s top 3 seeds get a first-round bye')
+      && !hintDiff.matches && hintDiff.text.startsWith('Gold 3 / Silver 3 / Bronze 3')
+      && hintDiff.text.includes('2 brackets would split 4/5'), hintDiff.text);
+    ck('Split names reuse Gold, Silver, Bronze, then numbered brackets',
+      bracketSplitPlan(evSplit,4).brackets.map(b=>b.name).join(',')==='Gold,Silver,Bronze,Bracket 4');
+    ck('Automatic bracket names suffix around existing names',
+      bracketAutoName(0,['Gold'])==='Gold 2' && bracketAutoName(0,['Gold','Gold 2'])==='Gold 3'
+      && bracketAutoName(1,['silver'])==='Silver 2' && bracketAutoName(3,['Bracket 4'])==='Bracket 4 2'
+      && bracketAutoName(0,[])==='Gold');
+    ck('Split planning is deterministic on repeat invocation',
+      JSON.stringify(bracketSplitPlan(evSplit,3))===JSON.stringify(bracketSplitPlan(evSplit,3))
+      && JSON.stringify(bracketSplitPlan(evSplit,2).brackets)===JSON.stringify(bracketSplitPlan(evSplit,2).brackets));
+    ck('Split preview reports matches, rounds, and byes per bracket',
+      (()=>{const b=bracketSplitPlan(evSplit,2).brackets;
+        return b[0].size===4&&b[0].matchCount===3&&b[0].rounds===2&&b[0].byes===0
+          &&b[1].size===5&&b[1].matchCount===4&&b[1].rounds===3&&b[1].byes===3
+          &&b[0].seedStart===1&&b[0].seedEnd===4&&b[1].seedStart===5&&b[1].seedEnd===9;})());
+    games.push({id:'spPool',date:20,teamA:[],teamB:[],scoreA:25,scoreB:20,winner:'A',log:{},evId:'evsplit',evA:'sp1',evB:'sp2'});
+    ck('Fixed-team pool results never count as playoff results',
+      !eventPlayoffGames(evSplit).length && bracketSplitAvailable(evSplit));
+    games.push({id:'spPlay',date:500,teamA:[],teamB:[],scoreA:25,scoreB:20,winner:'A',log:{},evId:'evsplit',evA:'sp1',evB:'sp3',evMatchId:'playoff:zz:r1:m1'});
+    ck('An existing playoff result blocks a split rebuild',
+      eventPlayoffGames(evSplit).length===1 && !bracketSplitAvailable(evSplit));
+    games=games.filter(g=>g.id!=='spPlay'&&g.id!=='spPool');
+    ck('Removing the playoff result re-opens the split builder', bracketSplitAvailable(evSplit));
+
+    /* ---- fixed-team cross-pool seeding (pool winners, then runners-up) ---- */
+    const xpTeams=[['A','xa1','xa2','xa3'],['B','xb1','xb2','xb3'],['C','xc1','xc2','xc3']]
+      .flatMap(([pool,...ids])=>ids.map(id=>({id,name:id.toUpperCase(),pool,players:[]})));
+    const evXP={id:'evxp',name:'Cross Pool Cup',created:1,done:false,brackets:[],teams:xpTeams,
+      sched:{...evSchedDefaults(),courts:3}};
+    /* every pool is a 1-1-1 loop, so pool rank is decided inside the pool while
+       overall standings interleave the pools differently */
+    [['xa1','xa2',25,5],['xa2','xa3',25,2],['xa3','xa1',25,24],
+     ['xb1','xb2',25,10],['xb2','xb3',25,10],['xb3','xb1',25,23],
+     ['xc1','xc2',25,24],['xc2','xc3',25,24],['xc3','xc1',25,24]]
+      .forEach(([a,b,sa,sb],i)=>games.push({id:'xpg'+i,date:30+i,teamA:[],teamB:[],scoreA:sa,scoreB:sb,
+        winner:'A',log:{},evId:'evxp',evA:a,evB:b}));
+    const xpCross=fixedEventAutomaticSeedOrder(evXP,'pool-finish'),xpOverall=fixedEventAutomaticSeedOrder(evXP,'standings');
+    const xpRankPattern=xpCross.teamIds.map(id=>xpCross.poolRanks[id].poolRank).join(',');
+    const xpPoolPattern=xpCross.teamIds.map(id=>xpCross.poolRanks[id].pool).join(',');
+    ck('Cross-pool fixed seeding takes every pool winner, then every runner-up',
+      xpRankPattern==='1,1,1,2,2,2,3,3,3' && new Set(xpPoolPattern.split(',').slice(0,3)).size===3
+      && xpCross.teamIds[0]==='xa1' && xpCross.teamIds[1]==='xb1' && xpCross.teamIds[2]==='xc1'
+      && xpCross.teamIds[3]==='xa2', xpCross.teamIds.join(','));
+    ck('Cross-pool order really differs from raw overall standings',
+      xpOverall.teamIds.join(',')!==xpCross.teamIds.join(',')
+      && xpOverall.teamIds.join(',')===eventStandings(evXP,fixedPoolGames(evXP)).map(r=>r.t.id).join(','),
+      xpOverall.teamIds.join(','));
+    ck('Cross-pool is the default fixed basis once pooled results exist',
+      fixedEventSeedBasisDefault(evXP)==='pool-finish'
+      && bracketAutomaticSeedInfo(evXP).basis==='pool-finish'
+      && bracketAutomaticSeedInfo(evXP).detail.includes('Cross-pool')
+      && bracketAutomaticSeedInfo(evXP).poolBasisAvailable===true
+      && bracketAutomaticSeedInfo(evXP,'standings').basis==='standings'
+      && bracketAutomaticSeedInfo(evXP,'standings').detail.includes('overall'));
+    ck('A pool-free fixed event keeps plain standings seeding',
+      fixedEventSeedBasisDefault(evSplit)==='event-seeding'
+      && bracketAutomaticSeedInfo(evSplit).poolBasisAvailable===false);
+    ck('A fixed split follows the cross-pool order it previews',
+      bracketSplitPlan(evXP,3).brackets.map(b=>b.teamIds.join('+')).join(' | ')
+        ===[xpCross.teamIds.slice(0,3),xpCross.teamIds.slice(3,6),xpCross.teamIds.slice(6,9)]
+          .map(ids=>ids.join('+')).join(' | '));
+    games=games.filter(g=>!/^xpg/.test(g.id));
+
+    /* ---- rotating events hold several independent brackets ---- */
+    const evRB={id:'evrb',name:'Rotating Brackets',created:1,done:false,format:'rotatingGroups',
+      rotation:{entrySize:1,teamSize:2,rounds:2,courts:2},brackets:[],
+      entries:Array.from({length:4},(_,i)=>({id:'rbe'+i,name:'RBE'+i,players:[],manualSeed:i+1})),
+      teams:['rb1','rb2','rb3','rb4'].map(id=>({id,name:id.toUpperCase(),pool:'',players:[]}))};
+    evRB.brackets=[{id:'rbA',name:'Gold',created:1000,seeds:['rb1','rb2']},
+                   {id:'rbB',name:'Silver',created:1000,seeds:['rb3','rb4']}];
+    games.push({id:'rbg1',date:1001,teamA:[],teamB:[],scoreA:25,scoreB:20,winner:'A',log:{},
+      evId:'evrb',evA:'rb1',evB:'rb2',evMatchId:'playoff:rbA:r1:m1'});
+    const rbS1=bracketState(evRB,evRB.brackets[0]),rbS2=bracketState(evRB,evRB.brackets[1]);
+    ck('A rotating event holds two brackets whose states derive independently',
+      evRB.brackets.length===2 && rbS1.rounds[0][0].winner==='rb1' && !rbS2.rounds[0][0].winner
+      && !!bracketState(evRB,evRB.brackets[1]));
+    games=games.filter(g=>g.id!=='rbg1');
+    evts.push(evRB);
+    const snapRBOpen=window._evOpen,snapRBTab=tab;
+    openEvent('evrb');
+    const rbHtml=main.innerHTML;
+    ck('A rotating event with a bracket still offers another bracket',
+      rbHtml.includes('Add another bracket') && !rbHtml.includes('Add playoff bracket'));
+    evRB.brackets=[];
+    openEvent('evrb');
+    ck('A rotating event with no bracket offers the first one plus the split builder',
+      main.innerHTML.includes('Add playoff bracket') && main.innerHTML.includes('Split into brackets'));
+    evts=evts.filter(e=>e.id!=='evrb'); window._evOpen=snapRBOpen; tab=snapRBTab;
+
+    /* ---- rotation round advice follows the largest pool, not the total ---- */
+    const poolRotEv=(nE,pools)=>({id:'st-rot-pool',name:'T',created:1,format:'rotatingGroups',teams:[],brackets:[],
+      rotation:{entrySize:2,teamSize:4,rounds:3,courts:pools||1},
+      entries:Array.from({length:nE},(_,i)=>({id:'pre'+i,name:'PE'+i,pool:pools?poolLabel(i%pools):'',
+        players:['prp'+(i*2),'prp'+(i*2+1)],manualSeed:i+1}))});
+    ck('Pooled rotations recommend rounds from the largest pool, not every entry',
+      teammateRotationInfo(poolRotEv(18,3)).recommendedRounds===5
+      && teammateRotationInfo(poolRotEv(18,3)).largestPool===6
+      && teammateRotationInfo(poolRotEv(18,0)).recommendedRounds===17,
+      teammateRotationInfo(poolRotEv(18,3)).recommendedRounds+' vs '+teammateRotationInfo(poolRotEv(18,0)).recommendedRounds);
+    ck('Uneven pools use the largest pool and say so',
+      teammateRotationInfo(poolRotEv(11,3)).largestPool===4
+      && teammateRotationInfo(poolRotEv(11,3)).note.includes('largest pool (4 entries)')
+      && !teammateRotationInfo(poolRotEv(11,0)).note.includes('largest pool'));
+
     /* ---- round robin generator ---- */
     const rr4=roundRobinRounds(['a','b','c','d']);
     const pairs4=rr4.flat().map(p=>p.slice().sort().join('-'));
@@ -11004,6 +11360,82 @@ async function runSelfTest(){
     document.querySelector('#scrim .sheet-close').click();
     ck('Add bracket Cancel closes without creating a bracket',
       !(evUI.brackets||[]).length && !document.querySelector('#scrim'));
+
+    /* ---- split sheet: stepper, advisory hint, one-tap create ---- */
+    const evSP={id:'evSP',name:'Split UI Cup',created:1,done:false,brackets:[],
+      sched:{...evSchedDefaults(),courts:3},
+      teams:Array.from({length:9},(_,i)=>({id:'sui'+(i+1),name:'SUI'+(i+1),pool:'',players:[]}))};
+    evts.push(evSP);
+    openBracketSplit('evSP');
+    ck('Split sheet has a visible Cancel', sheetHasClose());
+    const stepBtns=()=>[...document.querySelectorAll('#scrim [data-split-count]')];
+    ck('Split stepper offers every count from 1 to floor(teams/2), capped at 6',
+      stepBtns().map(b=>b.dataset.splitCount).join(',')==='1,2,3,4', stepBtns().map(b=>b.dataset.splitCount).join(','));
+    ck('Split stepper opens on the suggested count',
+      stepBtns().find(b=>b.classList.contains('on'))?.dataset.splitCount==='2');
+    ck('Split sheet previews each tier with its seed range',
+      document.querySelectorAll('#scrim .split-bracket').length===2
+      && document.querySelector('#scrim .split-bracket').textContent.includes('Seeds 1–4'));
+    bsCount(4);
+    ck('A non-suggested count stays selectable and creatable',
+      document.querySelector('#scrim [data-split-count="4"]').classList.contains('on')
+      && $('#bsCreate').disabled===false && $('#bsCreate').textContent.includes('Create 4 brackets')
+      && document.querySelectorAll('#scrim .split-bracket').length===4
+      && !document.querySelectorAll('#scrim [data-split-count][disabled]').length);
+    ck('The advisory hint explains the tradeoff instead of blocking it',
+      document.querySelector('#scrim [data-split-hint]').textContent.includes('2 brackets would split 4/5'),
+      document.querySelector('#scrim [data-split-hint]').textContent);
+    bsCount(2);
+    await createBracketSplit();
+    ck('Creating the split writes every bracket in one save',
+      (evSP.brackets||[]).length===2 && evSP.brackets.map(b=>b.name).join(',')==='Gold,Silver'
+      && evSP.brackets[0].seeds.length===4 && evSP.brackets[1].seeds.length===5
+      && evSP.brackets[0].created===evSP.brackets[1].created
+      && evSP.brackets.every(b=>Object.keys(b).sort().join(',')==='created,id,name,seeds'));
+    ck('Both created brackets derive independent states',
+      bracketState(evSP,evSP.brackets[0]).seedNum.sui1===1
+      && bracketState(evSP,evSP.brackets[1]).seedNum.sui5===1
+      && bracketState(evSP,evSP.brackets[1]).byes===3);
+    ck('An unrecognized bracket field never breaks derivation',
+      !!bracketState(evSP,{...evSP.brackets[0],futureField:{mode:'later'}}));
+    evts=evts.filter(e=>e.id!=='evSP');
+
+    /* ---- rotating setup explains the missing pool quick-picks ---- */
+    const evRotUI={id:'evRotUI',name:'Rotating UI Cup',created:1,done:false,format:'rotatingGroups',
+      rotation:{entrySize:1,teamSize:2,rounds:2,courts:2},brackets:[],
+      entries:Array.from({length:4},(_,i)=>({id:'rue'+i,name:'RUE'+i,players:[],manualSeed:i+1})),
+      teams:['ru1','ru2','ru3','ru4'].map(id=>({id,name:id.toUpperCase(),pool:'',players:[]}))};
+    evts.push(evRotUI);
+    openBracketSetup('evRotUI');
+    ck('Rotating bracket setup explains why pool quick-picks are missing',
+      !!document.querySelector('#scrim [data-no-pool-picks]')
+      && !document.querySelector('#scrim [onclick^="brSeedRank"]'));
+    closeSheet(); evts=evts.filter(e=>e.id!=='evRotUI');
+
+    /* ---- fixed setup offers both seeding bases ---- */
+    const evBasisUI={id:'evBasisUI',name:'Basis Cup',created:1,done:false,brackets:[],
+      teams:[{id:'bu1',name:'BU1',pool:'A',players:[]},{id:'bu2',name:'BU2',pool:'A',players:[]},
+             {id:'bu3',name:'BU3',pool:'B',players:[]},{id:'bu4',name:'BU4',pool:'B',players:[]}]};
+    evts.push(evBasisUI);
+    games.push({id:'bug1',date:5,teamA:[],teamB:[],scoreA:25,scoreB:10,winner:'A',log:{},evId:'evBasisUI',evA:'bu1',evB:'bu2'});
+    games.push({id:'bug2',date:6,teamA:[],teamB:[],scoreA:25,scoreB:23,winner:'A',log:{},evId:'evBasisUI',evA:'bu3',evB:'bu4'});
+    openBracketSetup('evBasisUI');
+    ck('Fixed bracket setup offers cross-pool and overall standings, cross-pool active',
+      document.querySelectorAll('#scrim [data-seed-basis] button').length===2
+      && document.querySelector('#scrim [data-seed-basis] button.on').textContent.trim()==='Cross-pool order'
+      && document.querySelector('#scrim .unkline .btn').textContent.trim()==='Use automatic order');
+    brSeedBasis('standings');
+    ck('Overall standings switches the active basis and applies that order',
+      window._brDraft.basis==='standings'
+      && document.querySelector('#scrim [data-seed-basis] button.on').textContent.trim()==='Overall standings'
+      && window._brDraft.seeds.join(',')===fixedEventAutomaticSeedOrder(evBasisUI,'standings').teamIds.join(','));
+    brSeedBasis('pool-finish');
+    ck('Cross-pool order restores the pool-major seed order',
+      window._brDraft.seeds.join(',')===fixedEventAutomaticSeedOrder(evBasisUI,'pool-finish').teamIds.join(',')
+      && window._brDraft.seeds[0]==='bu1' && window._brDraft.seeds[1]==='bu3');
+    closeSheet();
+    games=games.filter(g=>g.id!=='bug1'&&g.id!=='bug2');
+    evts=evts.filter(e=>e.id!=='evBasisUI');
     askConfirm('Self-test confirm dialog','Yes');
     ck('Confirmation dialogs keep explicit confirm and Cancel buttons',
       !!document.querySelector('.scrim [data-action="confirm"]') && !!document.querySelector('.scrim [data-action="cancel"]'));

@@ -194,3 +194,31 @@ test('shared bracket order keeps top seeds on opposite sides', () => {
   assert.deepEqual(core.bracketSeedOrder(4), [0, 3, 1, 2]);
   assert.deepEqual(core.bracketSeedOrder(8), [0, 7, 3, 4, 1, 6, 2, 5]);
 });
+
+test('shared bracket split keeps tiers even with the remainder in lower brackets', () => {
+  assert.deepEqual(core.bracketSplitSizes(9, 2), [4, 5]);
+  assert.deepEqual(core.bracketSplitSizes(9, 3), [3, 3, 3]);
+  assert.deepEqual(core.bracketSplitSizes(10, 3), [3, 3, 4]);
+  assert.deepEqual(core.bracketSplitSizes(8, 2), [4, 4]);
+  assert.deepEqual(core.bracketSplitSizes(11, 2), [5, 6]);
+  assert.deepEqual(core.bracketSplitSizes(5, 2), [2, 3]);
+  assert.deepEqual(core.bracketSplitSizes(16, 4), [4, 4, 4, 4]);
+
+  // more brackets than 2-team tiers clamps rather than stranding a single team
+  assert.deepEqual(core.bracketSplitSizes(4, 4), [2, 2]);
+  assert.deepEqual(core.bracketSplitSizes(3, 3), [3]);
+  assert.deepEqual(core.bracketSplitSizes(1, 2), []);
+  assert.deepEqual(core.bracketSplitSizes('nope', 2), []);
+
+  for (let teams = 2; teams <= 40; teams += 1) {
+    for (let count = 1; count <= Math.floor(teams / 2); count += 1) {
+      const sizes = core.bracketSplitSizes(teams, count);
+      assert.equal(sizes.length, count);
+      assert.equal(sizes.reduce((sum, size) => sum + size, 0), teams);
+      assert.ok(sizes.every(size => size >= 2));
+      assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 1);
+      assert.ok(sizes.every((size, index) => index === 0 || size >= sizes[index - 1]));
+      assert.deepEqual(core.bracketSplitSizes(teams, count), sizes);
+    }
+  }
+});

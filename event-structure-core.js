@@ -858,9 +858,25 @@
     return order;
   }
 
+  function bracketSplitSizes(teamCount, bracketCount) {
+    /* Sizes for contiguous seed tiers: as equal as possible at every count, with
+       any remainder pushed into the LOWER brackets so the top tier stays the
+       smallest (and most often power-of-two) size. Callers slice the automatic
+       seed order by these sizes; nothing about advancement lives here. */
+    const teams = integer(teamCount, 0, 4096);
+    if (teams === null || teams < 2) return [];
+    const maximum = Math.floor(teams / 2);
+    const requested = integer(bracketCount, 1, 4096);
+    const count = Math.min(Math.max(requested === null ? 1 : requested, 1), maximum);
+    const base = Math.floor(teams / count);
+    const remainder = teams % count;
+    return Array.from({ length: count }, (_, index) => base + (index >= count - remainder ? 1 : 0));
+  }
+
   root.CourtEventStructureCore = Object.freeze({
     version: 1,
     bracketSeedOrder,
+    bracketSplitSizes,
     generateFixedSchedule,
     generateRotatingSchedule,
     validateFixedInput,
